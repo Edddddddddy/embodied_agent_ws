@@ -1,0 +1,4 @@
+dashscope>=1.25.11
+openai>=1.30.0
+PyAudio>=0.2.14
+

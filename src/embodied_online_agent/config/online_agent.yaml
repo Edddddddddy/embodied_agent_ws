@@ -1,0 +1,43 @@
+online_agent:
+  ros__parameters:
+    # mock: no key or audio device required; online: Qwen cloud pipeline.
+    mode: mock
+    microphone_enabled: false
+    speaker_enabled: false
+    input_device_index: -1
+
+    audio_sample_rate: 16000
+    tts_sample_rate: 24000
+    audio_frame_ms: 20
+    vad_rms_threshold: 0.018
+    silence_timeout_s: 0.4
+
+    wake_word_enabled: true
+    wake_words: ["小智", "你好小智"]
+    wake_active_timeout_s: 10.0
+
+    aec_taps: 64
+    aec_step: 0.35
+
+    memory_path: "~/.ros/embodied_agent/memory.json"
+    memory_max_turns: 10
+    system_prompt_path: ""
+
+    asr_model: "qwen3-asr-flash-realtime"
+    asr_url: "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
+    asr_language: "zh"
+
+    llm_model: "qwen-plus"
+    llm_base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    llm_temperature: 0.2
+
+    tts_model: "qwen3-tts-flash-realtime"
+    tts_voice: "Cherry"
+    tts_url: "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
+    tts_language: "Chinese"
+    tts_chunk_max_chars: 32
+
+    llm_first_token_target_ms: 1000.0
+    tts_first_audio_target_ms: 300.0
+    mock_token_delay_s: 0.0
+
