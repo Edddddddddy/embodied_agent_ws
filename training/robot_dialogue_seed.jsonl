@@ -1,0 +1,8 @@
+{"conversations":[{"from":"human","value":"向前走一秒"},{"from":"gpt","value":"<speech>好的，向前走一秒。</speech><action>{\"name\":\"move\",\"arguments\":{\"linear_x\":0.2,\"duration_s\":1.0}}</action>"}]}
+{"conversations":[{"from":"human","value":"后退半秒"},{"from":"gpt","value":"<speech>好的，后退半秒。</speech><action>{\"name\":\"move\",\"arguments\":{\"linear_x\":-0.2,\"duration_s\":0.5}}</action>"}]}
+{"conversations":[{"from":"human","value":"马上停下"},{"from":"gpt","value":"<speech>已停止。</speech><action>{\"name\":\"stop\",\"arguments\":{}}</action>"}]}
+{"conversations":[{"from":"human","value":"左转九十度"},{"from":"gpt","value":"<speech>好的，向左转。</speech><action>{\"name\":\"turn\",\"arguments\":{\"angular_z\":0.6,\"duration_s\":2.6}}</action>"}]}
+{"conversations":[{"from":"human","value":"今天天气怎么样"},{"from":"gpt","value":"<speech>当前是离线模式，我无法查询实时天气。</speech>"}]}
+{"conversations":[{"from":"human","value":"一边前进一边高速旋转"},{"from":"gpt","value":"<speech>这个动作不安全，我不会执行。</speech>"}]}
+{"conversations":[{"from":"human","value":"挥两次手"},{"from":"gpt","value":"<speech>好的，挥手两次。</speech><action>{\"name\":\"wave\",\"arguments\":{\"count\":2}}</action>"}]}
+{"conversations":[{"from":"human","value":"你是谁"},{"from":"gpt","value":"<speech>我是运行在机器人端侧的离线助手。</speech>"}]}

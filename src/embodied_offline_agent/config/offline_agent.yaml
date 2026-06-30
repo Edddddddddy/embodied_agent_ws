@@ -1,0 +1,38 @@
+offline_agent:
+  ros__parameters:
+    mode: mock
+    microphone_enabled: false
+    audio_sample_rate: 16000
+    wake_word_enabled: true
+    wake_words: ["小智", "你好小智"]
+    wake_active_timeout_s: 10.0
+    memory_path: "~/.ros/embodied_agent/offline_memory.json"
+    memory_max_turns: 6
+    system_prompt_path: ""
+    asr_model_dir: "/home/ubuntu/embodied_agent_ws/models/sherpa-onnx-streaming-zipformer-small-bilingual-zh-en-2023-02-16"
+    asr_num_threads: 2
+    llm_base_url: "http://127.0.0.1:8080/v1"
+    llm_model: "Qwen3-0.6B-Q8_0.gguf"
+    llm_temperature: 0.7
+    llm_max_tokens: 192
+    tts_model_dir: "/home/ubuntu/embodied_agent_ws/models/vits-melo-tts-zh_en"
+    tts_num_threads: 2
+    tts_speaker_id: 0
+    tts_speed: 1.0
+    tts_sample_rate: 44100
+    tts_chunk_max_chars: 24
+    tts_pcm_chunk_ms: 80
+    mock_token_delay_s: 0.0
+
+audio_frontend:
+  ros__parameters:
+    capture_enabled: false
+    speaker_enabled: false
+    microphone_sample_rate: 16000
+    reference_sample_rate: 44100
+    frame_ms: 20
+    vad_rms_threshold: 0.018
+    silence_timeout_s: 0.4
+    aec_taps: 64
+    aec_step: 0.35
+    aec_delay_ms: 80

@@ -160,3 +160,52 @@ src/embodied_online_agent/
   launch/                    # 在线及 mock demo 启动文件
   test/                      # 单元测试
 ```
+
+## 第二部分：端侧离线 Agent
+
+离线链路复用 C++ 音频前端、AEC/VAD、0.4 秒静音断句及动作安全节点；新增 `embodied_offline_agent`，通过 sherpa-onnx 运行 ZipFormer ASR 和 VITS TTS，通过本机 `llama-server` 流式运行 Qwen3-0.6B Q8_0。LLM 输出按句进入容量为 2 的消息缓冲，TTS PCM 再进入容量为 2 的音频缓冲，模型推理和播放异步进行。
+
+先验证不依赖模型的 ROS 全链路：
+
+```bash
+cd /home/ubuntu/embodied_agent_ws
+source scripts/activate.sh
+colcon build --symlink-install
+bash scripts/smoke_test_offline.sh
+```
+
+安装原生运行时和模型（约需 2 GB 下载空间，编译 llama.cpp）：
+
+```bash
+bash scripts/setup_offline_runtime.sh
+```
+
+真实离线模式使用两个终端。终端一启动本地模型服务：
+
+```bash
+source scripts/activate.sh
+bash scripts/start_llama_server.sh
+```
+
+终端二启动 ROS 链路；先用文字输入验证 LLM/TTS，确认 WSLg 音频设备后再打开麦克风和扬声器：
+
+```bash
+source scripts/activate.sh
+ros2 launch embodied_offline_agent offline_agent.launch.py mode:=offline
+ros2 topic pub --once /agent/text_input std_msgs/msg/String "{data: '小智，向前走一秒'}"
+
+# 实机音频
+ros2 launch embodied_offline_agent offline_agent.launch.py \
+  mode:=offline microphone_enabled:=true speaker_enabled:=true
+```
+
+性能验证：
+
+```bash
+bash scripts/benchmark_offline.sh
+ros2 topic echo /offline_agent/metrics
+```
+
+`benchmark_offline.sh` 分别输出 ASR finalization/实时率、TTS 实时率和 llama.cpp prompt/decode tokens/s；ROS 指标输出静音到 ASR final、LLM 首 token、静音到首音频和整轮耗时。`<0.6 s`、`8.6 tokens/s`、`<3.5 s` 与 `85%` 都是验收目标，只有在目标机器和独立评测集上实测通过后才能写成完成结果。
+
+训练暂不执行。`training/` 包含机器人指令种子数据、LLaMA-Factory 数据注册和 Qwen3-0.6B LoRA 配置。Q8_0 通常将 FP16 权重压缩到约一半，不是四分之一；脚本会保留输入/输出文件大小供实际计算，不能同时把“Q8”与“压缩至 25%”当作天然成立的结论。

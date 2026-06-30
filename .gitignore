@@ -7,4 +7,7 @@ __pycache__/
 *.egg-info/
 *.pyc
 .env
+models/
+third_party/
+outputs/
 memory.json
