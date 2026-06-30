@@ -15,6 +15,18 @@ if [[ -f "$WORKSPACE/.venv/bin/activate" ]]; then
   source "$WORKSPACE/.venv/bin/activate"
 fi
 source "$WORKSPACE/install/setup.bash"
+if [[ -f "$WORKSPACE/.env" ]]; then
+  ALLEXPORT_WAS_ENABLED=false
+  if [[ $- == *a* ]]; then
+    ALLEXPORT_WAS_ENABLED=true
+  else
+    set -a
+  fi
+  source "$WORKSPACE/.env"
+  if [[ "$ALLEXPORT_WAS_ENABLED" != true ]]; then
+    set +a
+  fi
+fi
 if [[ "$NOUNSET_WAS_ENABLED" == true ]]; then
   set -u
 fi

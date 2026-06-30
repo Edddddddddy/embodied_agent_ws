@@ -92,14 +92,13 @@ ros2 topic pub --once /agent/clear_memory std_msgs/msg/Empty "{}"
 
 ## 在线模式
 
-1. 在阿里云百炼创建 API Key。不要把 Key 写进 YAML 或提交到 Git。
-2. 如果使用业务空间专属域名，将 ASR/TTS URL 替换成对应地域的 WebSocket URL。
+1. 在阿里云百炼创建 API Key。将 Key 和业务空间地址放入工作区根目录的 `.env`（参考 `.env.example`）；该文件已被 Git 忽略，`scripts/activate.sh` 会自动加载。
+2. 业务空间专属地址分别配置为 `DASHSCOPE_BASE_URL` 和 `DASHSCOPE_WS_URL`，不要把 Key 写进 YAML 或提交到 Git。
 3. WSL 设置中允许麦克风，使用 `pactl list short sources` 和 `pactl list short sinks` 确认 WSLg 音频设备。
 4. 启动：
 
 ```bash
 source /home/ubuntu/embodied_agent_ws/scripts/activate.sh
-export DASHSCOPE_API_KEY='你的密钥'
 ros2 launch embodied_online_agent online_agent.launch.py \
   mode:=online microphone_enabled:=true speaker_enabled:=true
 ```

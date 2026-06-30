@@ -18,7 +18,7 @@ class QwenRealtimeTts(TtsProvider):
     ):
         self.model = model
         self.voice = voice
-        self.url = url
+        self.url = os.getenv("DASHSCOPE_WS_URL", url)
         self.language = language
 
     def synthesize(self, text_chunks: Iterable[str], on_audio: Callable[[bytes], None]):
@@ -36,6 +36,7 @@ class QwenRealtimeTts(TtsProvider):
 
         dashscope.api_key = os.environ["DASHSCOPE_API_KEY"]
         completed = threading.Event()
+        session_ready = threading.Event()
         callback_error = []
 
         class Callback(QwenTtsRealtimeCallback):
@@ -48,7 +49,9 @@ class QwenRealtimeTts(TtsProvider):
             def on_event(self, response):
                 try:
                     event_type = response.get("type")
-                    if event_type == "response.audio.delta":
+                    if event_type == "session.updated":
+                        session_ready.set()
+                    elif event_type == "response.audio.delta":
                         on_audio(base64.b64decode(response["delta"]))
                     elif event_type == "session.finished":
                         completed.set()
@@ -71,6 +74,11 @@ class QwenRealtimeTts(TtsProvider):
             language_type=self.language,
             mode="server_commit",
         )
+        if not session_ready.wait(timeout=5.0):
+            synthesizer.close()
+            if callback_error:
+                raise RuntimeError(callback_error[0])
+            raise TimeoutError("Qwen TTS session was not ready within 5 seconds")
         sent = False
         for text in text_chunks:
             if text:
@@ -83,6 +91,6 @@ class QwenRealtimeTts(TtsProvider):
         if not completed.wait(timeout=30.0):
             synthesizer.close()
             raise TimeoutError("Qwen TTS did not finish within 30 seconds")
+        synthesizer.close()
         if callback_error:
             raise RuntimeError(callback_error[0])
-

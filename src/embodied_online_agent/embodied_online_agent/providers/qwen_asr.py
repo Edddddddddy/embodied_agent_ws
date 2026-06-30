@@ -16,7 +16,7 @@ class QwenRealtimeAsr(AsrProvider):
         language: str = "zh",
     ):
         self.model = model
-        self.url = url
+        self.url = os.getenv("DASHSCOPE_WS_URL", url)
         self.sample_rate = sample_rate
         self.language = language
         self.conversation = None
