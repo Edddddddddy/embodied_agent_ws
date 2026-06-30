@@ -1,5 +1,7 @@
 # ROS 2 端侧在线流式 Agent
 
+完整代码导航、三部分关键设计与硬件协议见 [`docs/PROJECT_NOTES.md`](docs/PROJECT_NOTES.md)。
+
 目标环境：Ubuntu 24.04 / ROS 2 Jazzy / C++17 / Python 3.12。工程按实时性和生态优势划分语言：音频前端、AEC/VAD、播放和动作安全使用 C++；云模型 SDK、流式文本协议、提示词和记忆使用 Python。两侧只通过 ROS 话题通信。
 
 ## 数据流

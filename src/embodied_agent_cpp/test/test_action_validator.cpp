@@ -40,3 +40,11 @@ TEST(ActionValidatorTest, ValidatesLedColorType)
       R"({"name":"set_led","arguments":{"color":12}})").valid);
 }
 
+TEST(ActionValidatorTest, RejectsUnsupportedLedColor)
+{
+  embodied_agent_cpp::ActionValidator validator;
+  const auto result = validator.validate(
+    R"({"name":"set_led","arguments":{"color":"purple"}})");
+  EXPECT_FALSE(result.valid);
+  EXPECT_EQ(result.error, "unsupported LED color");
+}

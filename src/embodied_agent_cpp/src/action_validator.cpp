@@ -71,6 +71,12 @@ ValidationResult ActionValidator::validate(const std::string & serialized_comman
       }
       return result;
     }
+    static const std::set<std::string> supported_colors{
+      "off", "red", "green", "blue", "yellow", "white"};
+    if (supported_colors.count(arguments["color"].get<std::string>()) == 0) {
+      result.error = "unsupported LED color";
+      return result;
+    }
   } else {
     result.error = "unsupported action: " + name;
     return result;

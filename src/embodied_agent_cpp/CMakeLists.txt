@@ -18,6 +18,8 @@ pkg_check_modules(PORTAUDIO REQUIRED portaudio-2.0)
 add_library(embodied_agent_core
   src/action_validator.cpp
   src/audio_processing.cpp
+  src/hardware_protocol.cpp
+  src/hardware_transport.cpp
 )
 target_include_directories(embodied_agent_core PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -43,16 +45,22 @@ add_executable(robot_action_stub src/robot_action_stub_node.cpp)
 target_link_libraries(robot_action_stub nlohmann_json::nlohmann_json)
 ament_target_dependencies(robot_action_stub rclcpp std_msgs)
 
+add_executable(hardware_controller src/hardware_controller_node.cpp)
+target_link_libraries(hardware_controller embodied_agent_core nlohmann_json::nlohmann_json)
+ament_target_dependencies(hardware_controller rclcpp std_msgs)
+
 install(TARGETS
   embodied_agent_core
   audio_frontend
   action_guard
   robot_action_stub
+  hardware_controller
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 install(DIRECTORY include/ DESTINATION include)
+install(DIRECTORY launch/ DESTINATION share/${PROJECT_NAME}/launch)
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
@@ -60,6 +68,10 @@ if(BUILD_TESTING)
   target_link_libraries(test_audio_processing embodied_agent_core)
   ament_add_gtest(test_action_validator test/test_action_validator.cpp)
   target_link_libraries(test_action_validator embodied_agent_core)
+  ament_add_gtest(test_hardware_protocol test/test_hardware_protocol.cpp)
+  target_link_libraries(test_hardware_protocol embodied_agent_core)
+  ament_add_gtest(test_hardware_transport test/test_hardware_transport.cpp)
+  target_link_libraries(test_hardware_transport embodied_agent_core)
 endif()
 
 ament_export_include_directories(include)

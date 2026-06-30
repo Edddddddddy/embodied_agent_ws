@@ -28,9 +28,10 @@ def generate_launch_description():
             ),
             Node(
                 package="embodied_agent_cpp",
-                executable="robot_action_stub",
-                name="robot_action_stub",
+                executable="hardware_controller",
+                name="hardware_controller",
                 output="screen",
+                parameters=[{"backend": "mock"}],
             ),
         ]
     )
