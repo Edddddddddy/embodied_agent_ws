@@ -24,7 +24,6 @@ setup(
     entry_points={
         "console_scripts": [
             "online_agent = embodied_online_agent.online_agent_node:main",
-            "robot_action_stub = embodied_online_agent.robot_action_stub:main",
         ],
     },
 )

@@ -1,0 +1,64 @@
+#include <cmath>
+#include <cstdint>
+#include <numeric>
+#include <vector>
+
+#include "gtest/gtest.h"
+
+#include "embodied_agent_cpp/audio_processing.hpp"
+
+namespace
+{
+
+double energy(const std::vector<int16_t> & samples)
+{
+  return std::accumulate(
+    samples.begin(), samples.end(), 0.0,
+    [](double total, int16_t sample) {
+      return total + static_cast<double>(sample) * sample;
+    });
+}
+
+TEST(EnergyVadTest, DistinguishesSpeechFromSilence)
+{
+  embodied_agent_cpp::EnergyVad vad(0.01);
+  EXPECT_FALSE(vad.is_speech(std::vector<int16_t>(320, 0)));
+  EXPECT_TRUE(vad.is_speech(std::vector<int16_t>(320, 1000)));
+}
+
+TEST(SilenceDetectorTest, EmitsOnceAfterFourHundredMilliseconds)
+{
+  embodied_agent_cpp::SilenceDetector detector(0.4);
+  EXPECT_FALSE(detector.update(true, 0.02));
+  for (int frame = 0; frame < 19; ++frame) {
+    EXPECT_FALSE(detector.update(false, 0.02));
+  }
+  EXPECT_TRUE(detector.update(false, 0.02));
+  EXPECT_FALSE(detector.update(false, 0.02));
+}
+
+TEST(NlmsEchoCancellerTest, PreservesMicrophoneWithoutReference)
+{
+  embodied_agent_cpp::NlmsEchoCanceller canceller(16000, 16000, 32, 0.2, 0);
+  const std::vector<int16_t> microphone{10, -20, 30};
+  EXPECT_EQ(canceller.process(microphone), microphone);
+}
+
+TEST(NlmsEchoCancellerTest, LearnsRepeatedEcho)
+{
+  constexpr double kPi = 3.14159265358979323846;
+  embodied_agent_cpp::NlmsEchoCanceller canceller(16000, 16000, 32, 0.15, 0);
+  std::vector<int16_t> echo(320);
+  for (std::size_t index = 0; index < echo.size(); ++index) {
+    echo[index] = static_cast<int16_t>(5000.0 * std::sin(2.0 * kPi * index / 40.0));
+  }
+  const double input_energy = energy(echo);
+  std::vector<int16_t> output;
+  for (int iteration = 0; iteration < 20; ++iteration) {
+    canceller.add_reference(echo);
+    output = canceller.process(echo);
+  }
+  EXPECT_LT(energy(output), input_energy * 0.1);
+}
+
+}  // namespace

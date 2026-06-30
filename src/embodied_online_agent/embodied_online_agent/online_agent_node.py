@@ -8,10 +8,9 @@ from typing import Iterable
 import rclpy
 from ament_index_python.packages import get_package_share_directory
 from rclpy.node import Node
-from std_msgs.msg import Empty, String
+from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
+from std_msgs.msg import Empty, String, UInt8MultiArray
 
-from .actions import ActionValidator
-from .audio import MicrophoneFrontend, NlmsEchoCanceller, PcmSpeaker
 from .memory import ConversationMemory
 from .metrics import LatencyTracker
 from .protocol import SentenceChunker, TaggedStreamParser
@@ -31,7 +30,6 @@ class OnlineAgentNode(Node):
         self._busy = False
         self._stopping = False
         self.metrics = LatencyTracker()
-        self.action_validator = ActionValidator()
         self.wake_gate = WakeWordGate(
             self._param("wake_words"),
             enabled=self._param("wake_word_enabled"),
@@ -47,35 +45,40 @@ class OnlineAgentNode(Node):
         self.asr_final_pub = self.create_publisher(String, "/agent/asr_final", 10)
         self.response_pub = self.create_publisher(String, "/agent/response_text", 10)
         self.response_delta_pub = self.create_publisher(String, "/agent/response_delta", 10)
-        self.action_pub = self.create_publisher(String, "/robot/action_command", 10)
+        self.action_candidate_pub = self.create_publisher(
+            String, "/agent/action_candidate", 10
+        )
         self.state_pub = self.create_publisher(String, "/agent/state", 10)
         self.metrics_pub = self.create_publisher(String, "/agent/metrics", 10)
         self.create_subscription(String, "/agent/text_input", self._on_text_input, 10)
         self.create_subscription(Empty, "/agent/clear_memory", self._on_clear_memory, 10)
 
-        self.echo_canceller = NlmsEchoCanceller(
-            mic_rate=self._param("audio_sample_rate"),
-            reference_rate=self._param("tts_sample_rate"),
-            taps=self._param("aec_taps"),
-            step=self._param("aec_step"),
+        audio_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=20,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
         )
-        self.speaker = PcmSpeaker(self._param("tts_sample_rate"))
+        self.tts_audio_pub = self.create_publisher(
+            UInt8MultiArray, "/audio/tts_pcm", audio_qos
+        )
         self.asr, self.llm, self.tts = self._create_providers()
-        self.microphone = None
+        self.audio_subscription = None
+        self.silence_subscription = None
 
         if self._param("microphone_enabled"):
             self.asr.start(self._on_asr_partial, self._on_asr_final)
-            self.microphone = MicrophoneFrontend(
-                on_audio=self.asr.push_audio,
-                on_silence=self.asr.commit,
-                echo_canceller=self.echo_canceller,
-                sample_rate=self._param("audio_sample_rate"),
-                frame_ms=self._param("audio_frame_ms"),
-                vad_threshold=self._param("vad_rms_threshold"),
-                silence_timeout_s=self._param("silence_timeout_s"),
-                input_device_index=self._optional_device_index(),
+            self.audio_subscription = self.create_subscription(
+                UInt8MultiArray,
+                "/audio/clean_pcm",
+                self._on_clean_audio,
+                audio_qos,
             )
-            self.microphone.start()
+            self.silence_subscription = self.create_subscription(
+                Empty,
+                "/audio/silence_timeout",
+                self._on_silence_timeout,
+                10,
+            )
 
         self._publish_state("listening")
         self.get_logger().info(
@@ -86,18 +89,11 @@ class OnlineAgentNode(Node):
         defaults = {
             "mode": "mock",
             "microphone_enabled": False,
-            "speaker_enabled": False,
-            "input_device_index": -1,
             "audio_sample_rate": 16000,
             "tts_sample_rate": 24000,
-            "audio_frame_ms": 20,
-            "vad_rms_threshold": 0.018,
-            "silence_timeout_s": 0.4,
             "wake_word_enabled": True,
             "wake_words": ["小智", "你好小智"],
             "wake_active_timeout_s": 10.0,
-            "aec_taps": 64,
-            "aec_step": 0.35,
             "memory_path": "~/.ros/embodied_agent/memory.json",
             "memory_max_turns": 10,
             "system_prompt_path": "",
@@ -121,10 +117,6 @@ class OnlineAgentNode(Node):
 
     def _param(self, name):
         return self.get_parameter(name).value
-
-    def _optional_device_index(self):
-        value = self._param("input_device_index")
-        return None if value < 0 else value
 
     def _load_system_prompt(self) -> str:
         configured = self._param("system_prompt_path")
@@ -165,6 +157,12 @@ class OnlineAgentNode(Node):
 
     def _on_asr_partial(self, text: str):
         self.asr_partial_pub.publish(String(data=text))
+
+    def _on_clean_audio(self, message: UInt8MultiArray):
+        self.asr.push_audio(bytes(message.data))
+
+    def _on_silence_timeout(self, _message: Empty):
+        self.asr.commit()
 
     def _on_asr_final(self, text: str):
         self.asr_final_pub.publish(String(data=text))
@@ -275,19 +273,13 @@ class OnlineAgentNode(Node):
 
     def _publish_actions(self, actions):
         for action in actions:
-            try:
-                safe = self.action_validator.validate(action)
-                payload = json.dumps(safe.as_dict(), ensure_ascii=False)
-                self.action_pub.publish(String(data=payload))
-                self.get_logger().info(f"action: {payload}")
-            except ValueError as exc:
-                self.get_logger().warning(f"action rejected: {exc}")
+            payload = json.dumps(action.as_dict(), ensure_ascii=False)
+            self.action_candidate_pub.publish(String(data=payload))
+            self.get_logger().info(f"action candidate: {payload}")
 
     def _on_tts_audio(self, pcm16: bytes):
         self.metrics.mark_tts_first_audio()
-        self.echo_canceller.add_reference(pcm16)
-        if self._param("speaker_enabled"):
-            self.speaker.write(pcm16)
+        self.tts_audio_pub.publish(UInt8MultiArray(data=list(pcm16)))
 
     def _publish_metrics(self):
         snapshot = self.metrics.snapshot().as_dict()
@@ -307,10 +299,7 @@ class OnlineAgentNode(Node):
 
     def shutdown(self):
         self._stopping = True
-        if self.microphone is not None:
-            self.microphone.stop()
         self.asr.stop()
-        self.speaker.close()
 
 
 def main(args=None):
@@ -331,4 +320,3 @@ def main(args=None):
 
 if __name__ == "__main__":
     main()
-

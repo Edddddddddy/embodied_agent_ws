@@ -14,11 +14,23 @@ def generate_launch_description():
                 parameters=[config, {"mode": "mock"}],
             ),
             Node(
-                package="embodied_online_agent",
+                package="embodied_agent_cpp",
+                executable="audio_frontend",
+                name="audio_frontend",
+                output="screen",
+                parameters=[config],
+            ),
+            Node(
+                package="embodied_agent_cpp",
+                executable="action_guard",
+                name="action_guard",
+                output="screen",
+            ),
+            Node(
+                package="embodied_agent_cpp",
                 executable="robot_action_stub",
                 name="robot_action_stub",
                 output="screen",
             ),
         ]
     )
-

@@ -1,19 +1,20 @@
 # ROS 2 端侧在线流式 Agent
 
-目标环境：Ubuntu 24.04 / ROS 2 Jazzy / Python 3.12。工程把语音前端、实时 ASR、流式 LLM、实时 TTS、记忆和动作发布拆成可替换模块。
+目标环境：Ubuntu 24.04 / ROS 2 Jazzy / C++17 / Python 3.12。工程按实时性和生态优势划分语言：音频前端、AEC/VAD、播放和动作安全使用 C++；云模型 SDK、流式文本协议、提示词和记忆使用 Python。两侧只通过 ROS 话题通信。
 
 ## 数据流
 
 ```text
 麦克风 PCM16
-  -> NLMS AEC
-  -> 能量 VAD + 0.4 s 静音断句
+  -> C++ 有界队列（PortAudio 回调不执行网络操作）
+  -> C++ NLMS AEC
+  -> C++ 能量 VAD + 0.4 s 静音断句
   -> Qwen3-ASR-Realtime
   -> 唤醒词门控
   -> Qwen 流式 LLM
   -> <speech>/<action> 增量解析
-       |-> Qwen3-TTS-Realtime -> 扬声器 + AEC 参考信号
-       `-> /robot/action_command -> ROS 硬件控制节点
+       |-> Qwen3-TTS-Realtime -> C++ 播放队列 + AEC 参考信号
+       `-> 动作候选 -> C++ ActionGuard -> /robot/action_command
 ```
 
 默认是 `mock` 模式，不需要 API Key、麦克风或扬声器，可以先验证 ROS 话题和动作链路。`online` 模式使用阿里云百炼 DashScope：
@@ -68,7 +69,7 @@ ros2 topic pub --once /agent/text_input std_msgs/msg/String "{data: '小智，�
 终端三发布后，终端二应立即显示：
 
 ```text
-data: '{"name": "move", "arguments": {"linear_x": 0.2, "duration_s": 1.0}}'
+data: '{"arguments":{"duration_s":1.0,"linear_x":0.2},"name":"move"}'
 ```
 
 可观察话题：
@@ -77,7 +78,10 @@ data: '{"name": "move", "arguments": {"linear_x": 0.2, "duration_s": 1.0}}'
 - `/agent/response_delta`、`/agent/response_text`：流式增量和完整答复。
 - `/agent/state`：`listening/thinking/speaking/error`。
 - `/agent/metrics`：LLM 首 token、ASR 到首 token、TTS 首音频包延迟及目标是否达成。
+- `/audio/clean_pcm`、`/audio/silence_timeout`：C++ 音频前端输出。
+- `/agent/action_candidate`：Python 解析出的未校验动作候选。
 - `/robot/action_command`：经过白名单和限幅后的 JSON 动作。
+- `/robot/action_rejected`：C++ ActionGuard 拒绝动作的原因。
 - `/robot/action_ack`：开发用硬件桩节点回执。
 
 清空记忆：
@@ -90,24 +94,17 @@ ros2 topic pub --once /agent/clear_memory std_msgs/msg/Empty "{}"
 
 1. 在阿里云百炼创建 API Key。不要把 Key 写进 YAML 或提交到 Git。
 2. 如果使用业务空间专属域名，将 ASR/TTS URL 替换成对应地域的 WebSocket URL。
-3. WSL 设置中允许麦克风，确认 `python -m pyaudio` 能看到输入/输出设备。
-4. 修改配置：
-
-```yaml
-mode: online
-microphone_enabled: true
-speaker_enabled: true
-```
-
-5. 启动：
+3. WSL 设置中允许麦克风，使用 `pactl list short sources` 和 `pactl list short sinks` 确认 WSLg 音频设备。
+4. 启动：
 
 ```bash
 source /home/ubuntu/embodied_agent_ws/scripts/activate.sh
 export DASHSCOPE_API_KEY='你的密钥'
-ros2 launch embodied_online_agent online_agent.launch.py mode:=online
+ros2 launch embodied_online_agent online_agent.launch.py \
+  mode:=online microphone_enabled:=true speaker_enabled:=true
 ```
 
-如需覆盖输入设备索引，设置 `input_device_index`。若 WSL 没有音频设备，先保持麦克风关闭，用 `/agent/text_input` 验证在线 LLM/TTS；ASR 必须在有可用输入设备后才能实测。
+若 WSL 没有音频设备，先保持 `microphone_enabled:=false speaker_enabled:=false`，用 `/agent/text_input` 验证在线 LLM/TTS；ASR 必须在有可用输入设备后才能实测。
 
 ## 输出协议和动作安全
 
@@ -118,11 +115,11 @@ ros2 launch embodied_online_agent online_agent.launch.py mode:=online
 <action>{"name":"move","arguments":{"linear_x":0.2,"duration_s":1.0}}</action>
 ```
 
-解析器会在 token 到达时增量取出 speech，按标点尽早送入 TTS。动作仅允许 `stop/move/turn/wave/set_led`，速度、角速度、持续时间和次数会在发布前限幅。硬件层仍应保留急停、碰撞和电机限流等独立安全机制。
+Python 解析器会在 token 到达时增量取出 speech，按标点尽早送入 TTS。动作候选发送给 C++ `action_guard`；它严格检查每种动作的参数 schema，并对速度、角速度、持续时间和次数限幅后才发布 `/robot/action_command`。硬件层仍应保留急停、碰撞和电机限流等独立安全机制。
 
 ## 回声消除说明
 
-当前自带依赖为零的 NLMS AEC 基线：TTS PCM 同时送往扬声器与参考队列，麦克风帧进入 ASR 前执行自适应回声估计。真实机器人上的扬声器、麦克风距离和系统播放延迟不同，需要调整 `aec_taps/aec_step`。量产环境建议在同一接口后替换为硬件 DSP 或 WebRTC AEC，并做双讲测试。
+当前 C++ 音频模块内置 NLMS AEC 基线：TTS PCM 进入播放线程前同时写入参考队列，麦克风帧进入 ASR 前执行自适应回声估计。真实机器人上的扬声器、麦克风距离和系统播放延迟不同，需要调整 `aec_taps/aec_step/aec_delay_ms`。量产环境建议在同一 interface 后替换为硬件 DSP 或 WebRTC AEC，并做双讲测试。
 
 ## 测试与性能
 
@@ -144,15 +141,21 @@ colcon test-result --verbose
 ## 目录
 
 ```text
+src/embodied_agent_cpp/
+  include/embodied_agent_cpp/
+    audio_processing.hpp     # AEC、VAD、静音深模块 interface
+    action_validator.hpp     # 动作安全深模块 interface
+  src/
+    audio_frontend_node.cpp  # PortAudio、工作队列、播放与 ROS seam
+    action_guard_node.cpp    # 动作 schema、限幅与发布
+    robot_action_stub_node.cpp
+  test/                      # C++ GTest
 src/embodied_online_agent/
   embodied_online_agent/
-    audio.py                 # AEC、VAD、静音、麦克风和播放
     providers/               # mock / Qwen ASR / LLM / Qwen TTS
     protocol.py              # 增量输出解析和 TTS 分块
     memory.py                # 有界持久化记忆
-    actions.py               # 动作白名单和限幅
-    online_agent_node.py     # ROS 2 编排节点
-    robot_action_stub.py     # 硬件控制开发桩
+    online_agent_node.py     # Python 云 SDK 与对话编排
   config/                    # ROS 参数
   prompts/                   # 系统提示词
   launch/                    # 在线及 mock demo 启动文件

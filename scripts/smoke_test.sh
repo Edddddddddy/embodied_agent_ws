@@ -100,7 +100,7 @@ if ! wait "$METRICS_ECHO_PID"; then
   exit 1
 fi
 
-if ! grep -q '"name": "move"' "$TMP_DIR/action.out"; then
+if ! grep -Eq '"name"[[:space:]]*:[[:space:]]*"move"' "$TMP_DIR/action.out"; then
   echo "FAIL: received an unexpected action:"
   cat "$TMP_DIR/action.out"
   exit 1

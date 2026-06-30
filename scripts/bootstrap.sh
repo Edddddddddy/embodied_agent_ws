@@ -6,10 +6,10 @@ WORKSPACE="${WORKSPACE:-/home/ubuntu/embodied_agent_ws}"
 sudo apt-get update
 sudo apt-get install -y \
   libasound2-plugins \
+  nlohmann-json3-dev \
   pulseaudio-utils \
   python3-venv \
   python3-pip \
-  python3-pyaudio \
   portaudio19-dev \
   python3-pytest
 
