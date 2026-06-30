@@ -34,19 +34,41 @@ source scripts/activate.sh
 
 ## 无密钥冒烟测试
 
-终端一：
+推荐直接运行自动冒烟脚本。脚本会复用已经运行的 mock Agent；如果没有节点，则临时启动一个。随后发送测试指令并校验动作和延迟指标，脚本只会自动停止自己启动的节点：
+
+```bash
+cd /home/ubuntu/embodied_agent_ws
+source scripts/activate.sh
+bash scripts/smoke_test.sh
+```
+
+预期看到两条 `PASS`。如果需要手动观察消息，请使用三个终端；`ros2 topic echo` 是持续监听命令，在收到消息前保持等待是正常行为。
+
+终端一（启动节点）：
 
 ```bash
 source /home/ubuntu/embodied_agent_ws/scripts/activate.sh
 ros2 launch embodied_online_agent demo.launch.py
 ```
 
-终端二：
+终端二（监听动作；运行后保持等待）：
 
 ```bash
 source /home/ubuntu/embodied_agent_ws/scripts/activate.sh
 ros2 topic echo /robot/action_command
+```
+
+终端三（触发一轮 mock 对话）：
+
+```bash
+source /home/ubuntu/embodied_agent_ws/scripts/activate.sh
 ros2 topic pub --once /agent/text_input std_msgs/msg/String "{data: '小智，向前走一秒'}"
+```
+
+终端三发布后，终端二应立即显示：
+
+```text
+data: '{"name": "move", "arguments": {"linear_x": 0.2, "duration_s": 1.0}}'
 ```
 
 可观察话题：
@@ -136,4 +158,3 @@ src/embodied_online_agent/
   launch/                    # 在线及 mock demo 启动文件
   test/                      # 单元测试
 ```
-
