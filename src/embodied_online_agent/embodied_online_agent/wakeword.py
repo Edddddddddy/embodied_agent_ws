@@ -8,11 +8,17 @@ class WakeWordGate:
     def __init__(
         self,
         words: Iterable[str],
+        aliases: Iterable[str] = (),
         enabled: bool = True,
         active_timeout_s: float = 10.0,
         clock=time.monotonic,
     ):
-        self.words = tuple(word.strip().lower() for word in words if word.strip())
+        triggers = {
+            word.strip().lower()
+            for word in (*tuple(words), *tuple(aliases))
+            if word.strip()
+        }
+        self.words = tuple(sorted(triggers, key=len, reverse=True))
         self.enabled = enabled
         self.active_timeout_s = active_timeout_s
         self._clock = clock
@@ -41,4 +47,3 @@ class WakeWordGate:
     @property
     def active(self) -> bool:
         return self._clock() <= self._active_until
-

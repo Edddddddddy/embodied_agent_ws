@@ -11,6 +11,7 @@ def generate_launch_description():
     mode = LaunchConfiguration("mode")
     microphone_enabled = LaunchConfiguration("microphone_enabled")
     capture_enabled = LaunchConfiguration("capture_enabled")
+    wake_word_enabled = LaunchConfiguration("wake_word_enabled")
     speaker_enabled = LaunchConfiguration("speaker_enabled")
     hardware_backend = LaunchConfiguration("hardware_backend")
     hardware_enabled = LaunchConfiguration("hardware_enabled")
@@ -27,6 +28,7 @@ def generate_launch_description():
             DeclareLaunchArgument("mode", default_value="mock"),
             DeclareLaunchArgument("microphone_enabled", default_value="false"),
             DeclareLaunchArgument("capture_enabled", default_value=microphone_enabled),
+            DeclareLaunchArgument("wake_word_enabled", default_value="true"),
             DeclareLaunchArgument("speaker_enabled", default_value="false"),
             DeclareLaunchArgument("hardware_backend", default_value="mock"),
             DeclareLaunchArgument("hardware_enabled", default_value="true"),
@@ -45,6 +47,9 @@ def generate_launch_description():
                         "mode": mode,
                         "microphone_enabled": ParameterValue(
                             microphone_enabled, value_type=bool
+                        ),
+                        "wake_word_enabled": ParameterValue(
+                            wake_word_enabled, value_type=bool
                         ),
                     },
                 ],

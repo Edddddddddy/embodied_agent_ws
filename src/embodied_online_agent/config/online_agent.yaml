@@ -9,6 +9,7 @@ online_agent:
 
     wake_word_enabled: true
     wake_words: ["小智", "你好小智"]
+    wake_word_aliases: ["小志", "小治", "晓智", "晓志"]
     wake_active_timeout_s: 10.0
 
     memory_path: "~/.ros/embodied_agent/memory.json"

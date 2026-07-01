@@ -169,6 +169,9 @@ bash scripts/acceptance_test.sh gazebo
 
 # 真实离线语音模型 + 真实 Gazebo 物理闭环
 bash scripts/acceptance_test.sh gazebo-voice
+
+# 云端在线 ASR/LLM 到 Gazebo（少量 API 调用）
+bash scripts/acceptance_test.sh gazebo-voice-online
 ```
 
 真实麦克风的交互式验收：

@@ -121,6 +121,7 @@ def generate_launch_description():
                 "microphone_enabled": microphone,
                 "capture_enabled": capture,
                 "speaker_enabled": speaker,
+                "wake_word_enabled": wake_word,
                 "hardware_enabled": "false",
             },
             online_condition,

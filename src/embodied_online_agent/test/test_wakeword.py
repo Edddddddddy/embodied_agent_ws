@@ -21,3 +21,12 @@ def test_wake_word_is_removed_and_followup_is_allowed():
 def test_disabled_gate_accepts_text():
     assert WakeWordGate([], enabled=False).process("直接执行") == "直接执行"
 
+
+def test_configured_homophone_alias_activates_gate():
+    gate = WakeWordGate(["小智"], aliases=["小志", "小治", "晓智"])
+    assert gate.process("小志向前走一秒") == "向前走一秒"
+
+
+def test_longest_wake_phrase_is_removed_first():
+    gate = WakeWordGate(["小智", "你好小智"])
+    assert gate.process("你好小智，停下") == "停下"

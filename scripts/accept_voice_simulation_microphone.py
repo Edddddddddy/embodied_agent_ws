@@ -27,6 +27,7 @@ class MicrophoneAcceptanceProbe(Node):
         self.initial_position = None
         self.position = None
         self.scan_received = False
+        self.agent_state = None
         self.passed = threading.Event()
         self.create_subscription(String, "/agent/asr_final", self._on_asr, 10)
         self.create_subscription(
@@ -39,6 +40,7 @@ class MicrophoneAcceptanceProbe(Node):
         self.create_subscription(Twist, "/cmd_vel", self._on_velocity, 10)
         self.create_subscription(Odometry, "/odom", self._on_odom, 10)
         self.create_subscription(LaserScan, "/scan", self._on_scan, 10)
+        self.create_subscription(String, "/agent/state", self._on_state, 10)
 
     def _on_asr(self, message):
         self.asr_text = message.data
@@ -81,6 +83,14 @@ class MicrophoneAcceptanceProbe(Node):
 
     def _on_scan(self, _message):
         self.scan_received = True
+
+    def _on_state(self, message):
+        self.agent_state = message.data
+        if self.asr_text and message.data == "waiting_for_wake_word":
+            print(
+                "[诊断] ASR 已出结果，但唤醒词门控未通过；请重试或关闭唤醒门控。",
+                flush=True,
+            )
 
     @staticmethod
     def _decode(value):
@@ -127,6 +137,7 @@ class MicrophoneAcceptanceProbe(Node):
             "action_ack": self.action_ack,
             "cmd_vel": self.nonzero_cmd_vel,
             "distance_m": round(self.distance(), 3),
+            "agent_state": self.agent_state,
         }
 
     def missing_stages(self):

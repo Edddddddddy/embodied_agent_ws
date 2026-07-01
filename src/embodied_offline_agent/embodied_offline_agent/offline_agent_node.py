@@ -36,6 +36,7 @@ class OfflineAgentNode(Node):
         )
         self._wake_gate = WakeWordGate(
             self._param("wake_words"),
+            aliases=self._param("wake_word_aliases"),
             enabled=self._param("wake_word_enabled"),
             active_timeout_s=self._param("wake_active_timeout_s"),
         )
@@ -82,6 +83,7 @@ class OfflineAgentNode(Node):
             "audio_sample_rate": 16000,
             "wake_word_enabled": True,
             "wake_words": ["小智", "你好小智"],
+            "wake_word_aliases": ["小志", "小治", "晓智", "晓志"],
             "wake_active_timeout_s": 10.0,
             "memory_path": "~/.ros/embodied_agent/offline_memory.json",
             "memory_max_turns": 6,
@@ -129,9 +131,13 @@ class OfflineAgentNode(Node):
         )
 
     def _on_audio(self, message):
+        if self._is_busy():
+            return
         self._enqueue_asr(("audio", bytes(message.data)))
 
     def _on_silence(self, _message):
+        if self._is_busy():
+            return
         self._latency = OfflineLatency()
         self._latency.mark_silence()
         self._enqueue_asr(("commit", None), preserve=True)
@@ -155,6 +161,8 @@ class OfflineAgentNode(Node):
             try:
                 if kind == "stop":
                     return
+                if kind in {"audio", "commit"} and self._is_busy():
+                    continue
                 if kind == "audio" and payload is not None:
                     self._asr.push_audio(payload)
                 elif kind == "commit":
@@ -164,10 +172,21 @@ class OfflineAgentNode(Node):
             finally:
                 self._asr_events.task_done()
 
+    def _is_busy(self):
+        with self._state_lock:
+            return self._busy
+
     def _on_asr_partial(self, text):
+        if self._is_busy():
+            return
         self._asr_partial_pub.publish(String(data=text))
 
     def _on_asr_final(self, text):
+        if self._is_busy():
+            self.get_logger().warning(
+                "offline agent busy; suppressing overlapping ASR final"
+            )
+            return
         self._latency.mark_asr_final()
         self._asr_final_pub.publish(String(data=text))
         self._accept_transcript(text)

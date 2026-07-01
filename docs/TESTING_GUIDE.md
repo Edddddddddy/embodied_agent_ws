@@ -86,7 +86,7 @@ python -m pytest -q src/embodied_offline_agent/test
 |---|---|---|
 | `src/embodied_simulation/test/test_simulation_controller.cpp` | 手动运动、雷达安全、避障、沿墙 PID、模式、急停 | 速度限幅与超时；前方危险立即停车；向空旷侧转弯；雷达失联停车；沿墙方向正确；stop 退出自动模式；急停锁定 |
 
-最新完整验收中，`colcon test-result --verbose` 汇总为 44 条测试记录、0 error、0 failure。测试记录数包含 CTest/GTest 的结果层级；按测试函数统计为 24 个 C++ GTest case 和 15 个 Python case。
+最新完整验收中，`colcon test-result --verbose` 汇总为 46 条测试记录、0 error、0 failure。测试记录数包含 CTest/GTest 的结果层级；按测试函数统计为 24 个 C++ GTest case 和 17 个 Python case。
 
 ## 3. ROS mock 冒烟测试
 
@@ -96,6 +96,7 @@ python -m pytest -q src/embodied_offline_agent/test
 | `scripts/smoke_test_offline.sh` | mock 离线 Agent -> 动作命令 | 无模型、无音频设备 |
 | `scripts/smoke_test_hardware.sh` | ActionGuard -> HardwareController -> mock transport -> ACK/watchdog stop | 无实体串口/SPI |
 | `scripts/smoke_test_simulation.sh` | ActionGuard -> 合成 LaserScan -> 安全/模式控制 -> Twist | 无 Gazebo、无模型、无音频设备 |
+| `scripts/smoke_test_online_wake_config.sh` | 在线 launch 参数透传 | `wake_word_enabled=false` 必须到达 online Agent |
 
 这些测试使用真实 ROS 进程和 topic，能发现节点未启动、话题名错误、QoS 或 launch 配置问题。`ros2 topic echo` 本身是持续监听命令，等待消息不是卡死。
 
@@ -114,6 +115,7 @@ python -m pytest -q src/embodied_offline_agent/test
 | `scripts/smoke_test_gazebo.sh` | 可信动作 -> Twist -> Gazebo TurtleBot3 | 收到 simulation ACK、真实 `/scan`/`/odom`，位移合理且无遗留进程 |
 | `scripts/smoke_test_gazebo_voice.sh` | 合成语音 -> ZipFormer -> llama.cpp -> Guard -> Gazebo | ASR 产生动作主体、move ACK，TurtleBot3 发生合理物理位移 |
 | `scripts/accept_voice_simulation_microphone.sh` | 真实麦克风 -> Agent -> Guard -> Gazebo | 交互检查 ASR、候选、可信动作、ACK、Twist、Odometry 六阶段 |
+| `scripts/smoke_test_gazebo_voice_online.sh` | 合成语音 -> 在线 ASR/LLM -> Guard -> Gazebo | 无唤醒词模式产生 move ACK 和合理位移 |
 
 真实语音测试关闭唤醒门控，是为了隔离验证 ASR 到硬件的模型链路；唤醒率需在真实麦克风测试中单独统计。云端测试默认不强制性能阈值，避免网络抖动把“功能失败”和“性能越界”混为一谈；使用 `test_online_api.py --enforce-targets` 才会把阈值越界作为退出失败。
 

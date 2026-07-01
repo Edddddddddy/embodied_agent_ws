@@ -33,6 +33,7 @@ class OnlineAgentNode(Node):
         self.metrics = LatencyTracker()
         self.wake_gate = WakeWordGate(
             self._param("wake_words"),
+            aliases=self._param("wake_word_aliases"),
             enabled=self._param("wake_word_enabled"),
             active_timeout_s=self._param("wake_active_timeout_s"),
         )
@@ -99,6 +100,7 @@ class OnlineAgentNode(Node):
             "tts_sample_rate": 24000,
             "wake_word_enabled": True,
             "wake_words": ["小智", "你好小智"],
+            "wake_word_aliases": ["小志", "小治", "晓智", "晓志"],
             "wake_active_timeout_s": 10.0,
             "memory_path": "~/.ros/embodied_agent/memory.json",
             "memory_max_turns": 10,
@@ -163,15 +165,28 @@ class OnlineAgentNode(Node):
         )
 
     def _on_asr_partial(self, text: str):
+        if self._is_busy():
+            return
         self.asr_partial_pub.publish(String(data=text))
 
     def _on_clean_audio(self, message: UInt8MultiArray):
+        if self._is_busy():
+            return
         self.asr.push_audio(bytes(message.data))
 
     def _on_silence_timeout(self, _message: Empty):
+        if self._is_busy():
+            return
         self.asr.commit()
 
+    def _is_busy(self):
+        with self._state_lock:
+            return self._busy
+
     def _on_asr_final(self, text: str):
+        if self._is_busy():
+            self.get_logger().warning("agent is busy; suppressing overlapping ASR final")
+            return
         self.asr_final_pub.publish(String(data=text))
         self._accept_transcript(text)
 

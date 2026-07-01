@@ -21,6 +21,7 @@ run_base() {
     --event-handlers console_direct+
   colcon test-result --verbose
   bash scripts/smoke_test.sh
+  bash scripts/smoke_test_online_wake_config.sh
   bash scripts/smoke_test_offline.sh
   bash scripts/smoke_test_hardware.sh
   bash scripts/smoke_test_simulation.sh
@@ -42,6 +43,7 @@ case "$LEVEL" in
   offline) check_offline_runtime; bash scripts/benchmark_offline.sh; bash scripts/evaluate_instruction_following.sh; bash scripts/smoke_test_offline_real.sh; bash scripts/smoke_test_offline_voice_real.sh ;;
   gazebo) bash scripts/smoke_test_gazebo.sh ;;
   gazebo-voice) check_offline_runtime; bash scripts/smoke_test_gazebo_voice.sh ;;
+  gazebo-voice-online) check_offline_runtime; bash scripts/smoke_test_gazebo_voice_online.sh ;;
   all) run_base; python scripts/test_online_api.py; bash scripts/smoke_test_online_real.sh; check_offline_runtime; bash scripts/benchmark_offline.sh; bash scripts/evaluate_instruction_following.sh; bash scripts/smoke_test_offline_real.sh; bash scripts/smoke_test_offline_voice_real.sh ;;
-  *) echo "Usage: $0 {preflight|mock|online|offline|gazebo|gazebo-voice|all}" >&2; exit 2 ;;
+  *) echo "Usage: $0 {preflight|mock|online|offline|gazebo|gazebo-voice|gazebo-voice-online|all}" >&2; exit 2 ;;
 esac

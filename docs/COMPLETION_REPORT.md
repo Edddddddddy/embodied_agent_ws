@@ -69,11 +69,13 @@ action: move -> C++ ActionGuard -> HardwareController(mock)
 
 测试时关闭了唤醒门控，以隔离验证完整模型链路；离线合成语音把“小智”识别成“早日”，但动作主体正确。真实麦克风场景应单独验收唤醒率和误唤醒率。
 
-新增仿真后，四个 ROS 包共 44 条测试记录全部通过。`gazebo` 与 `gazebo-voice` 分层验收分别验证可信动作和真实离线语音能够驱动 TurtleBot3 产生物理位移。
+新增仿真后，四个 ROS 包共 46 条测试记录全部通过。`gazebo` 与 `gazebo-voice` 分层验收分别验证可信动作和真实离线语音能够驱动 TurtleBot3 产生物理位移。
 
 当前开发目标已收敛到 `move/turn/stop` 基础动作闭环。仿真执行器统一发布 `/robot/action_ack`，真实离线语音验收同时要求 ASR final、`backend=simulation` 的 move ACK 和合理 `/odom` 位移，避免只凭“机器人发生移动”误判链路成功。
 
 WSLg 已发现 `RDPSource`，以 16 kHz 单声道 PCM16 连续读取 2 秒得到约 62 KB 音频，证明系统麦克风通道可打开。交互式六阶段验收器已通过合成语音回灌测试；真实人声、环境噪声和唤醒词效果仍需用户对麦克风完成一次人工发声验收。
+
+麦克风验收停滞问题已专项修复：唤醒门控支持显式同音别名；在线总 launch 会把 `wake_word_enabled` 传入在线节点；Agent 忙碌期间暂停 ASR 音频、commit、partial 和重叠 final。在线合成语音实测识别“小智向前走一秒”，返回 simulation move ACK 并产生 0.06 m 位移。
 
 ## 一键验收
 
