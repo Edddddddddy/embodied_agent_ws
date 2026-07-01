@@ -171,6 +171,14 @@ bash scripts/acceptance_test.sh gazebo
 bash scripts/acceptance_test.sh gazebo-voice
 ```
 
+真实麦克风的交互式验收：
+
+```bash
+bash scripts/accept_voice_simulation_microphone.sh offline
+```
+
+它不是只观察机器人是否移动，而是同时要求 ASR final、动作候选、Guard 后动作、simulation ACK、非零 Twist 和合理 Odometry 位移。
+
 多次验收观测：可信动作测试移动 0.086–0.091 m；离线语音识别动作主体后移动 0.061–0.066 m，并收到 `backend=simulation` 的 move ACK。短唤醒词曾被识别为“脚AL/早之/早日”，但“向前走一秒”被正确解析。测试使用独立 `ROS_DOMAIN_ID`，并按进程组清理 Gazebo，避免多个 `/clock`、`/odom` 污染测量。
 
 ## 8. 当前边界与下一阶段

@@ -256,3 +256,9 @@ bash scripts/acceptance_test.sh gazebo-voice
 ```bash
 bash scripts/run_voice_simulation.sh offline
 ```
+
+首次使用建议直接运行带逐层诊断的真实麦克风验收：
+
+```bash
+bash scripts/accept_voice_simulation_microphone.sh offline
+```

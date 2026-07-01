@@ -113,6 +113,7 @@ python -m pytest -q src/embodied_offline_agent/test
 | `scripts/smoke_test_offline_voice_real.sh` | 合成语音 -> ZipFormer -> llama.cpp -> TTS -> 动作 -> 硬件 mock | ASR 含动作主体、move ACK、双缓冲无丢帧 |
 | `scripts/smoke_test_gazebo.sh` | 可信动作 -> Twist -> Gazebo TurtleBot3 | 收到 simulation ACK、真实 `/scan`/`/odom`，位移合理且无遗留进程 |
 | `scripts/smoke_test_gazebo_voice.sh` | 合成语音 -> ZipFormer -> llama.cpp -> Guard -> Gazebo | ASR 产生动作主体、move ACK，TurtleBot3 发生合理物理位移 |
+| `scripts/accept_voice_simulation_microphone.sh` | 真实麦克风 -> Agent -> Guard -> Gazebo | 交互检查 ASR、候选、可信动作、ACK、Twist、Odometry 六阶段 |
 
 真实语音测试关闭唤醒门控，是为了隔离验证 ASR 到硬件的模型链路；唤醒率需在真实麦克风测试中单独统计。云端测试默认不强制性能阈值，避免网络抖动把“功能失败”和“性能越界”混为一谈；使用 `test_online_api.py --enforce-targets` 才会把阈值越界作为退出失败。
 

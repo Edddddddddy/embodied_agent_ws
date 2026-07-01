@@ -67,6 +67,24 @@ bash scripts/run_voice_simulation.sh online
 
 ## 真实麦克风验收
 
+推荐直接运行交互式验收器：
+
+```bash
+# 默认关闭唤醒门控和扬声器，单独验证核心语音动作链
+bash scripts/accept_voice_simulation_microphone.sh offline
+
+# 在线模型
+bash scripts/accept_voice_simulation_microphone.sh online
+
+# 核心链通过后，再把唤醒词纳入验收
+WAKE_WORD_ENABLED=true \
+  bash scripts/accept_voice_simulation_microphone.sh offline
+```
+
+脚本会检查 WSL 麦克风、启动模型与 Gazebo，并逐层显示 `[1/6]` ASR、`[2/6]` 动作候选、`[3/6]` Guard 后命令、`[4/6]` simulation ACK、`[5/6]` Twist、`[6/6]` Odometry。默认提示说“向前走一秒”；开启唤醒门控后提示说“小智，向前走一秒”。失败时会列出未完成环节并附启动日志。
+
+也可以手工验收：
+
 1. 确认 Gazebo 中只有一个 TurtleBot3，终端没有重复 `/clock` 警告。
 2. 说“小智，向前走一秒”。
 3. 依次观察：

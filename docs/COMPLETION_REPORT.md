@@ -73,6 +73,8 @@ action: move -> C++ ActionGuard -> HardwareController(mock)
 
 当前开发目标已收敛到 `move/turn/stop` 基础动作闭环。仿真执行器统一发布 `/robot/action_ack`，真实离线语音验收同时要求 ASR final、`backend=simulation` 的 move ACK 和合理 `/odom` 位移，避免只凭“机器人发生移动”误判链路成功。
 
+WSLg 已发现 `RDPSource`，以 16 kHz 单声道 PCM16 连续读取 2 秒得到约 62 KB 音频，证明系统麦克风通道可打开。交互式六阶段验收器已通过合成语音回灌测试；真实人声、环境噪声和唤醒词效果仍需用户对麦克风完成一次人工发声验收。
+
 ## 一键验收
 
 ```bash
