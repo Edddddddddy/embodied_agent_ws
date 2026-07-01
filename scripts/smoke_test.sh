@@ -69,49 +69,9 @@ else
   fi
 fi
 
-timeout 10s ros2 topic echo --once /robot/action_command >"$TMP_DIR/action.out" &
-ACTION_ECHO_PID=$!
-timeout 10s ros2 topic echo --once /agent/metrics >"$TMP_DIR/metrics.out" &
-METRICS_ECHO_PID=$!
-
-# Wait until both temporary echo subscribers have joined the ROS graph.
-for _ in $(seq 1 50); do
-  SUBSCRIBERS="$(
-    ros2 topic info /robot/action_command 2>/dev/null \
-      | awk '/Subscription count:/ {print $3}'
-  )"
-  if [[ "${SUBSCRIBERS:-0}" -ge 2 ]]; then
-    break
-  fi
-  sleep 0.1
-done
-
-ros2 topic pub --once /agent/text_input std_msgs/msg/String \
-  "{data: '小智，向前走一秒'}" >/dev/null
-
-if ! wait "$ACTION_ECHO_PID"; then
-  echo "FAIL: no action arrived within 10 seconds."
+if ! python "$WORKSPACE/scripts/test_mock_online_pipeline.py"; then
+  echo "FAIL: mock online Agent pipeline did not complete."
   cat "$TMP_DIR/launch.log"
   exit 1
 fi
-if ! wait "$METRICS_ECHO_PID"; then
-  echo "FAIL: no metrics arrived within 10 seconds."
-  cat "$TMP_DIR/launch.log"
-  exit 1
-fi
-
-if ! grep -Eq '"name"[[:space:]]*:[[:space:]]*"move"' "$TMP_DIR/action.out"; then
-  echo "FAIL: received an unexpected action:"
-  cat "$TMP_DIR/action.out"
-  exit 1
-fi
-if ! grep -q 'llm_first_token_ms' "$TMP_DIR/metrics.out"; then
-  echo "FAIL: latency metrics are incomplete:"
-  cat "$TMP_DIR/metrics.out"
-  exit 1
-fi
-
-echo "PASS: mock agent published the expected move action."
-cat "$TMP_DIR/action.out"
-echo "PASS: mock agent published latency metrics."
-cat "$TMP_DIR/metrics.out"
+echo "PASS: mock Agent published the expected action and latency metrics."

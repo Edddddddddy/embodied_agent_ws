@@ -99,6 +99,8 @@ python -m pytest -q src/embodied_offline_agent/test
 
 这些测试使用真实 ROS 进程和 topic，能发现节点未启动、话题名错误、QoS 或 launch 配置问题。`ros2 topic echo` 本身是持续监听命令，等待消息不是卡死。
 
+`smoke_test.sh` 使用常驻 rclpy probe 同时订阅动作和 metrics，在确认 DDS endpoint 发现完成后才发布输入，避免短生命周期 `ros2 topic echo --once` 错过单次消息。对应 probe 为 `scripts/test_mock_online_pipeline.py`。
+
 ## 4. 真实 provider 与端到端测试
 
 | 脚本 | 验证内容 | 通过条件 |
@@ -109,8 +111,8 @@ python -m pytest -q src/embodied_offline_agent/test
 | `scripts/evaluate_instruction_following.sh` | 固定 seed 指令集 | 分开报告模型动作和语义仲裁后的成绩 |
 | `scripts/smoke_test_offline_real.sh` | llama.cpp -> Sherpa-TTS -> 动作 -> 硬件 mock | 收到动作 ACK、音频和 metrics |
 | `scripts/smoke_test_offline_voice_real.sh` | 合成语音 -> ZipFormer -> llama.cpp -> TTS -> 动作 -> 硬件 mock | ASR 含动作主体、move ACK、双缓冲无丢帧 |
-| `scripts/smoke_test_gazebo.sh` | 可信动作 -> Twist -> Gazebo TurtleBot3 | 收到真实 `/scan`/`/odom`，位移在合理范围，无遗留进程 |
-| `scripts/smoke_test_gazebo_voice.sh` | 合成语音 -> ZipFormer -> llama.cpp -> Guard -> Gazebo | ASR 产生动作主体，TurtleBot3 发生合理物理位移 |
+| `scripts/smoke_test_gazebo.sh` | 可信动作 -> Twist -> Gazebo TurtleBot3 | 收到 simulation ACK、真实 `/scan`/`/odom`，位移合理且无遗留进程 |
+| `scripts/smoke_test_gazebo_voice.sh` | 合成语音 -> ZipFormer -> llama.cpp -> Guard -> Gazebo | ASR 产生动作主体、move ACK，TurtleBot3 发生合理物理位移 |
 
 真实语音测试关闭唤醒门控，是为了隔离验证 ASR 到硬件的模型链路；唤醒率需在真实麦克风测试中单独统计。云端测试默认不强制性能阈值，避免网络抖动把“功能失败”和“性能越界”混为一谈；使用 `test_online_api.py --enforce-targets` 才会把阈值越界作为退出失败。
 

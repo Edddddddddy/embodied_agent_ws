@@ -5,12 +5,13 @@
 ## 推荐阅读顺序
 
 1. [`../README.md`](../README.md)：项目定位、安装、启动和最短演示路径。
-2. [`KNOWLEDGE_NOTES.md`](KNOWLEDGE_NOTES.md)：从 ROS 2、流式语音到硬件控制的知识点笔记。
-3. [`PROJECT_NOTES.md`](PROJECT_NOTES.md)：关键代码在哪里、模块如何协作、配置在哪里修改。
-4. [`TESTING_GUIDE.md`](TESTING_GUIDE.md)：单元测试清单、分层验收命令和新增测试规范。
-5. [`COMPLETION_REPORT.md`](COMPLETION_REPORT.md)：当前完成度、实测数据、未完成项和成果表述边界。
-6. [`SIMULATION_GUIDE.md`](SIMULATION_GUIDE.md)：语音控制 TurtleBot3、避障、沿墙与 Gazebo 验收。
-7. [`../training/README.md`](../training/README.md)：数据集与 LLaMA-Factory LoRA 训练占位说明。
+2. [`CURRENT_DEVELOPMENT_GOAL.md`](CURRENT_DEVELOPMENT_GOAL.md)：当前聚焦范围与语音仿真闭环完成定义。
+3. [`KNOWLEDGE_NOTES.md`](KNOWLEDGE_NOTES.md)：从 ROS 2、流式语音到硬件控制的知识点笔记。
+4. [`PROJECT_NOTES.md`](PROJECT_NOTES.md)：关键代码在哪里、模块如何协作、配置在哪里修改。
+5. [`TESTING_GUIDE.md`](TESTING_GUIDE.md)：单元测试清单、分层验收命令和新增测试规范。
+6. [`COMPLETION_REPORT.md`](COMPLETION_REPORT.md)：当前完成度、实测数据、未完成项和成果表述边界。
+7. [`SIMULATION_GUIDE.md`](SIMULATION_GUIDE.md)：语音控制 TurtleBot3、避障、沿墙与 Gazebo 验收。
+8. [`../training/README.md`](../training/README.md)：数据集与 LLaMA-Factory LoRA 训练占位说明。
 
 ## 文档职责
 

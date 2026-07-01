@@ -1,5 +1,6 @@
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
@@ -26,6 +27,7 @@ public:
     cmd_vel_pub_ = create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10);
     mode_pub_ = create_publisher<std_msgs::msg::String>("/robot/control_mode", 10);
     state_pub_ = create_publisher<std_msgs::msg::String>("/robot/simulation_state", 10);
+    action_ack_pub_ = create_publisher<std_msgs::msg::String>("/robot/action_ack", 10);
     action_sub_ = create_subscription<std_msgs::msg::String>(
       "/robot/action_command", 10,
       std::bind(&SimulationControlNode::on_action, this, _1));
@@ -87,18 +89,26 @@ private:
           arguments.at("linear_x").get<double>(), 0.0,
           arguments.at("duration_s").get<double>(), now_seconds());
         publish_mode();
+        publish_action_ack(name, "accepted");
       } else if (name == "turn") {
         controller_.set_manual_command(
           0.0, arguments.at("angular_z").get<double>(),
           arguments.at("duration_s").get<double>(), now_seconds());
         publish_mode();
+        publish_action_ack(name, "accepted");
       } else if (name == "stop") {
         controller_.stop();
+        publish_mode();
+        publish_action_ack(name, "accepted");
       } else if (name == "set_mode") {
-        set_mode(arguments.at("mode").get<std::string>());
+        const bool accepted = set_mode(arguments.at("mode").get<std::string>());
+        publish_action_ack(name, accepted ? "accepted" : "rejected");
+      } else {
+        publish_action_ack(name, "ignored");
       }
     } catch (const std::exception & error) {
       RCLCPP_WARN(get_logger(), "ignored malformed trusted action: %s", error.what());
+      publish_action_ack("unknown", "rejected", error.what());
     }
   }
 
@@ -111,6 +121,7 @@ private:
   {
     controller_.stop();
     publish_mode();
+    publish_action_ack("stop", "accepted", "emergency_stop");
     RCLCPP_WARN(get_logger(), "emergency stop received; switched to manual");
   }
 
@@ -121,14 +132,34 @@ private:
       message->range_min, message->range_max, now_seconds());
   }
 
-  void set_mode(const std::string & mode)
+  bool set_mode(const std::string & mode)
   {
     if (!controller_.set_mode(mode)) {
       RCLCPP_WARN(get_logger(), "unsupported control mode: %s", mode.c_str());
-      return;
+      return false;
     }
     publish_mode();
     RCLCPP_INFO(get_logger(), "control mode changed to %s", mode.c_str());
+    return true;
+  }
+
+  void publish_action_ack(
+    const std::string & action,
+    const std::string & status,
+    const std::string & detail = "")
+  {
+    nlohmann::json payload{
+      {"action", action},
+      {"backend", "simulation"},
+      {"sequence", ++action_sequence_},
+      {"status", status},
+    };
+    if (!detail.empty()) {
+      payload["detail"] = detail;
+    }
+    std_msgs::msg::String message;
+    message.data = payload.dump();
+    action_ack_pub_->publish(message);
   }
 
   void publish_mode()
@@ -167,11 +198,13 @@ private:
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr mode_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr state_pub_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr action_ack_pub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr action_sub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr mode_sub_;
   rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr emergency_sub_;
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
   rclcpp::TimerBase::SharedPtr timer_;
+  std::uint64_t action_sequence_{0};
 };
 
 }  // namespace embodied_simulation

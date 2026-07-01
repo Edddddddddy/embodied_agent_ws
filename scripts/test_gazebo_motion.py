@@ -19,10 +19,10 @@ class GazeboProbe(Node):
         self.action_pub = self.create_publisher(String, "/agent/action_candidate", 10)
         self.position = None
         self.scan_received = False
-        self.mode = None
+        self.ack = None
         self.create_subscription(Odometry, "/odom", self._on_odom, 10)
         self.create_subscription(LaserScan, "/scan", self._on_scan, 10)
-        self.create_subscription(String, "/robot/control_mode", self._on_mode, 10)
+        self.create_subscription(String, "/robot/action_ack", self._on_ack, 10)
 
     def _on_odom(self, message):
         self.position = (
@@ -33,8 +33,8 @@ class GazeboProbe(Node):
     def _on_scan(self, _message):
         self.scan_received = True
 
-    def _on_mode(self, message):
-        self.mode = message.data
+    def _on_ack(self, message):
+        self.ack = json.loads(message.data)
 
     def action(self, name, arguments):
         data = json.dumps({"name": name, "arguments": arguments})
@@ -60,7 +60,8 @@ def main():
     try:
         wait_until(
             lambda: node.scan_received and node.position is not None
-            and node.action_pub.get_subscription_count() > 0,
+            and node.action_pub.get_subscription_count() > 0
+            and node.count_publishers("/robot/action_ack") > 0,
             30.0,
             "Gazebo scan/odom/action pipeline was not ready",
         )
@@ -69,7 +70,10 @@ def main():
         node.action("move", {"linear_x": 0.18, "duration_s": 2.0})
         wait_until(
             lambda: node.position is not None
-            and math.hypot(node.position[0] - start[0], node.position[1] - start[1]) > 0.08,
+            and math.hypot(node.position[0] - start[0], node.position[1] - start[1]) > 0.08
+            and node.ack is not None
+            and node.ack.get("action") == "move"
+            and node.ack.get("backend") == "simulation",
             10.0,
             "TurtleBot3 did not move after action command",
         )
@@ -78,17 +82,16 @@ def main():
         )
         if distance > 0.5:
             raise RuntimeError(f"implausible odometry jump: {distance:.3f} m")
-        node.action("set_mode", {"mode": "obstacle_avoidance"})
-        wait_until(
-            lambda: node.mode == "obstacle_avoidance",
-            5.0,
-            "mode command was not applied",
-        )
         node.action("stop", {})
+        wait_until(
+            lambda: node.ack is not None and node.ack.get("action") == "stop",
+            5.0,
+            "simulation produced no stop ACK",
+        )
         print(json.dumps({
             "scan_received": node.scan_received,
             "distance_m": round(distance, 3),
-            "mode": node.mode,
+            "action_ack": node.ack,
         }, ensure_ascii=False, indent=2))
     finally:
         executor.shutdown()

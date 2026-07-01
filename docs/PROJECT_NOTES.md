@@ -104,7 +104,7 @@ AA 55 | version | opcode | payload_len | sequence(u16 LE) | payload | CRC16(u16 
 | `/agent/action_candidate` | Agent -> Guard | 模型动作候选，尚未可信 |
 | `/robot/action_command` | Guard -> Hardware | 已校验、已限幅动作 |
 | `/robot/emergency_stop` | 任意安全源 -> Hardware | 无条件急停 |
-| `/robot/action_ack` | Hardware -> 上层 | 帧发送、自动停止回执 |
+| `/robot/action_ack` | Hardware/Simulation -> 上层 | 执行后端、动作、序号和接受状态回执 |
 | `/robot/hardware_status` | Hardware -> 监控 | ready/rejected/io_error |
 
 ## 6. 运行与验证
@@ -162,12 +162,13 @@ ros2 launch embodied_offline_agent offline_agent.launch.py \
 
 - `src/embodied_simulation/include/embodied_simulation/simulation_controller.hpp`：与 ROS 解耦的控制器接口和配置。
 - `src/embodied_simulation/src/simulation_controller.cpp`：手动定时命令、速度平滑、避障、沿墙 PID、雷达超时和急停优先级。
-- `src/embodied_simulation/src/simulation_control_node.cpp`：订阅可信动作与 `/scan`，发布 `/cmd_vel`、模式和安全状态。
+- `src/embodied_simulation/src/simulation_control_node.cpp`：订阅可信动作与 `/scan`，发布 `/cmd_vel`、`/robot/action_ack`、模式和安全状态。
 - `src/embodied_simulation/config/turtlebot3_bridge.yaml`：使用标准 `geometry_msgs/Twist` 桥接 Gazebo DiffDrive。
 - `src/embodied_simulation/launch/voice_turtlebot3.launch.py`：Gazebo Harmonic、TurtleBot3、bridge、在线/离线 Agent 和可选 RViz 总入口。
 - `src/embodied_simulation/test/test_simulation_controller.cpp`：手动运动、避障、沿墙和安全逻辑单测。
 - `scripts/smoke_test_simulation.sh`：无 Gazebo 的确定性 ROS 链路验收。
 - `scripts/smoke_test_gazebo.sh`：真实雷达/里程计与物理位移验收。
 - `scripts/smoke_test_gazebo_voice.sh`：ZipFormer、llama.cpp、动作 Guard 到 Gazebo 的真实语音闭环。
+- `scripts/run_voice_simulation.sh`：面向使用者的一条命令在线/离线语音仿真入口。
 
 语音增加 `set_mode` 动作，允许 `manual/obstacle_avoidance/wall_following`。模式动作与 move/turn 一样先经过 C++ schema 白名单；仿真 launch 关闭 UART/SPI hardware controller，只启动 simulation controller。完整使用说明见 `docs/SIMULATION_GUIDE.md`。

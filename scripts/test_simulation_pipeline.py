@@ -21,12 +21,14 @@ class SimulationProbe(Node):
         self.last_velocity = None
         self.last_state = None
         self.mode = None
+        self.action_ack = None
         self.velocity_event = threading.Event()
         self.state_event = threading.Event()
         self.mode_event = threading.Event()
         self.create_subscription(Twist, "/cmd_vel", self._on_velocity, 10)
         self.create_subscription(String, "/robot/simulation_state", self._on_state, 10)
         self.create_subscription(String, "/robot/control_mode", self._on_mode, 10)
+        self.create_subscription(String, "/robot/action_ack", self._on_ack, 10)
 
     def _on_velocity(self, message):
         self.last_velocity = message
@@ -39,6 +41,9 @@ class SimulationProbe(Node):
     def _on_mode(self, message):
         self.mode = message.data
         self.mode_event.set()
+
+    def _on_ack(self, message):
+        self.action_ack = json.loads(message.data)
 
     def publish_scan(self, front):
         message = LaserScan()
@@ -77,15 +82,19 @@ def main():
     try:
         wait_until(
             lambda: node.action_pub.get_subscription_count() > 0
-            and node.scan_pub.get_subscription_count() > 0,
+            and node.scan_pub.get_subscription_count() > 0
+            and node.count_publishers("/robot/action_ack") > 0,
             8.0,
             "simulation subscribers were not discovered",
         )
+        time.sleep(1.0)
         node.publish_scan(2.0)
         node.publish_action("move", {"linear_x": 0.2, "duration_s": 2.0})
         wait_until(
             lambda: node.last_velocity is not None
-            and node.last_velocity.linear.x > 0.01,
+            and node.last_velocity.linear.x > 0.01
+            and node.action_ack is not None
+            and node.action_ack.get("action") == "move",
             4.0,
             "manual action produced no forward cmd_vel",
             lambda: node.publish_scan(2.0),
@@ -116,6 +125,7 @@ def main():
             "manual_forward": True,
             "lidar_emergency_stop": True,
             "mode": node.mode,
+            "action_ack": node.action_ack,
             "state": node.last_state,
         }, ensure_ascii=False, indent=2))
     finally:

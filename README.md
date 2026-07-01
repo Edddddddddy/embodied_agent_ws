@@ -5,6 +5,7 @@
 | 文档 | 内容 |
 |---|---|
 | [`docs/README.md`](docs/README.md) | 文档中心与推荐阅读顺序 |
+| [`docs/CURRENT_DEVELOPMENT_GOAL.md`](docs/CURRENT_DEVELOPMENT_GOAL.md) | 当前目标：语音到基础仿真动作全链路 |
 | [`docs/KNOWLEDGE_NOTES.md`](docs/KNOWLEDGE_NOTES.md) | ROS 2、流式语音、LLM/TTS、并发、量化和硬件协议知识笔记 |
 | [`docs/PROJECT_NOTES.md`](docs/PROJECT_NOTES.md) | 关键代码位置、设计与配置导航 |
 | [`docs/TESTING_GUIDE.md`](docs/TESTING_GUIDE.md) | 单元测试文件、分层验收和实体设备检查清单 |
@@ -249,3 +250,9 @@ bash scripts/acceptance_test.sh gazebo-voice
 ```
 
 完整参数、话题、模式和测试说明见 [`docs/SIMULATION_GUIDE.md`](docs/SIMULATION_GUIDE.md)。
+
+当前优先保证 `move/turn/stop` 的语音全链路，不继续扩展复杂机器人行为。最短启动命令：
+
+```bash
+bash scripts/run_voice_simulation.sh offline
+```

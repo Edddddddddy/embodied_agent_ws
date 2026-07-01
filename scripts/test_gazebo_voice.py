@@ -33,9 +33,11 @@ class VoiceGazeboProbe(Node):
         self.position = None
         self.scan_received = False
         self.asr_text = None
+        self.action_ack = None
         self.create_subscription(Odometry, "/odom", self._on_odom, 10)
         self.create_subscription(LaserScan, "/scan", self._on_scan, 10)
         self.create_subscription(String, "/agent/asr_final", self._on_asr, 10)
+        self.create_subscription(String, "/robot/action_ack", self._on_ack, 10)
 
     def _on_odom(self, message):
         self.position = (
@@ -48,6 +50,11 @@ class VoiceGazeboProbe(Node):
 
     def _on_asr(self, message):
         self.asr_text = message.data
+
+    def _on_ack(self, message):
+        payload = json.loads(message.data)
+        if payload.get("action") == "move":
+            self.action_ack = payload
 
 
 def resample(pcm, source_rate, target_rate):
@@ -85,7 +92,8 @@ def main():
         wait_until(
             lambda: node.scan_received and node.position is not None
             and node.audio_pub.get_subscription_count() > 0
-            and node.silence_pub.get_subscription_count() > 0,
+            and node.silence_pub.get_subscription_count() > 0
+            and node.count_publishers("/robot/action_ack") > 0,
             30.0,
             "voice Agent or Gazebo topics were not ready",
         )
@@ -103,7 +111,8 @@ def main():
         )
         wait_until(
             lambda: node.position is not None
-            and math.hypot(node.position[0] - start[0], node.position[1] - start[1]) > 0.05,
+            and math.hypot(node.position[0] - start[0], node.position[1] - start[1]) > 0.05
+            and node.action_ack is not None,
             35.0,
             f"voice command did not move TurtleBot3; asr={node.asr_text!r}",
         )
@@ -115,6 +124,7 @@ def main():
         print(json.dumps({
             "asr_text": node.asr_text,
             "distance_m": round(distance, 3),
+            "action_ack": node.action_ack,
             "voice_to_gazebo_motion": True,
         }, ensure_ascii=False, indent=2))
     finally:

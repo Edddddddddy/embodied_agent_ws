@@ -16,7 +16,7 @@
        `-> /cmd_vel geometry_msgs/Twist
   -> ros_gz_bridge
   -> Gazebo DiffDrive
-  -> /odom、/tf、/scan
+  -> /robot/action_ack + /odom、/tf、/scan
 ```
 
 仿真控制器不订阅模型的原始输出，只接受 Guard 验证后的动作。实体硬件控制器和仿真控制器是 `/robot/action_command` 的两个可替换执行后端；仿真 launch 会关闭硬件后端，避免同一动作被重复执行。
@@ -27,7 +27,7 @@
 |---|---|
 | `src/embodied_simulation/include/embodied_simulation/simulation_controller.hpp` | 与 ROS 无关的行为控制接口、模式和配置 |
 | `src/embodied_simulation/src/simulation_controller.cpp` | 手动定时运动、速度平滑、避障、沿墙 PID、雷达超时和急停 |
-| `src/embodied_simulation/src/simulation_control_node.cpp` | 动作 JSON、LaserScan、模式 topic 与 Twist 的 ROS seam |
+| `src/embodied_simulation/src/simulation_control_node.cpp` | 动作 JSON、LaserScan、仿真 ACK、模式 topic 与 Twist 的 ROS seam |
 | `src/embodied_simulation/config/simulation_control.yaml` | 速度、加速度、安全距离、墙距和 PID 参数 |
 | `src/embodied_simulation/config/turtlebot3_bridge.yaml` | ROS 与 Gazebo 的 clock/odom/tf/cmd_vel/scan 桥接 |
 | `src/embodied_simulation/launch/voice_turtlebot3.launch.py` | Gazebo、TurtleBot3、bridge、Agent、Guard、控制器和可选 RViz 总启动 |
@@ -171,7 +171,7 @@ bash scripts/acceptance_test.sh gazebo
 bash scripts/acceptance_test.sh gazebo-voice
 ```
 
-两次验收观测：可信动作测试移动 0.086–0.088 m；离线语音识别动作主体后移动 0.061–0.066 m。短唤醒词曾被识别为“脚AL/早之”，但“向前走一秒”被正确解析。测试使用独立 `ROS_DOMAIN_ID`，并按进程组清理 Gazebo，避免多个 `/clock`、`/odom` 污染测量。
+多次验收观测：可信动作测试移动 0.086–0.091 m；离线语音识别动作主体后移动 0.061–0.066 m，并收到 `backend=simulation` 的 move ACK。短唤醒词曾被识别为“脚AL/早之/早日”，但“向前走一秒”被正确解析。测试使用独立 `ROS_DOMAIN_ID`，并按进程组清理 Gazebo，避免多个 `/clock`、`/odom` 污染测量。
 
 ## 8. 当前边界与下一阶段
 
