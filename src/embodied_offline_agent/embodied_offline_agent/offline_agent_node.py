@@ -13,6 +13,7 @@ from std_msgs.msg import Empty, String, UInt8MultiArray
 from embodied_online_agent.memory import ConversationMemory
 from embodied_online_agent.command_fallback import parse_fallback_action, should_block_model_actions
 from embodied_online_agent.protocol import SentenceChunker, TaggedStreamParser
+from embodied_online_agent.recognition_retry import RecognitionRetryTracker
 from embodied_online_agent.wakeword import WakeWordGate
 
 from .double_buffer import DoubleBuffer
@@ -40,6 +41,9 @@ class OfflineAgentNode(Node):
             enabled=self._param("wake_word_enabled"),
             active_timeout_s=self._param("wake_active_timeout_s"),
         )
+        self._retry_tracker = RecognitionRetryTracker(
+            self._param("recognition_max_retries")
+        )
         prompt_path = Path(
             get_package_share_directory("embodied_online_agent")
         ) / "prompts" / "system_prompt_zh.txt"
@@ -52,6 +56,9 @@ class OfflineAgentNode(Node):
         self._response_pub = self.create_publisher(String, "/agent/response_text", 10)
         self._action_pub = self.create_publisher(String, "/agent/action_candidate", 10)
         self._state_pub = self.create_publisher(String, "/agent/state", 10)
+        self._recognition_feedback_pub = self.create_publisher(
+            String, "/agent/recognition_feedback", 10
+        )
         self._metrics_pub = self.create_publisher(String, "/offline_agent/metrics", 10)
         audio_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
@@ -90,6 +97,12 @@ class OfflineAgentNode(Node):
             "system_prompt_path": "",
             "asr_model_dir": "/home/ubuntu/embodied_agent_ws/models/sherpa-onnx-streaming-zipformer-small-bilingual-zh-en-2023-02-16",
             "asr_num_threads": 2,
+            "asr_decoding_method": "modified_beam_search",
+            "asr_hotwords_file": "",
+            "asr_hotwords_score": 2.0,
+            "asr_max_active_paths": 4,
+            "asr_modeling_unit": "cjkchar",
+            "recognition_max_retries": 3,
             "llm_base_url": "http://127.0.0.1:8080/v1",
             "llm_model": "Qwen3-0.6B-Q8_0.gguf",
             "llm_temperature": 0.7,
@@ -121,13 +134,32 @@ class OfflineAgentNode(Node):
         from .providers.sherpa_tts import SherpaVitsTts
 
         return (
-            SherpaZipformerAsr(self._param("asr_model_dir"), self._param("audio_sample_rate"), self._param("asr_num_threads")),
+            SherpaZipformerAsr(
+                self._param("asr_model_dir"),
+                self._param("audio_sample_rate"),
+                self._param("asr_num_threads"),
+                decoding_method=self._param("asr_decoding_method"),
+                hotwords_file=self._hotwords_file(),
+                hotwords_score=self._param("asr_hotwords_score"),
+                max_active_paths=self._param("asr_max_active_paths"),
+                modeling_unit=self._param("asr_modeling_unit"),
+            ),
             LlamaCppLlm(
                 self._param("llm_base_url"), self._param("llm_model"),
                 self._param("llm_temperature"), self._param("llm_max_tokens"),
                 self._param("llm_seed"),
             ),
             SherpaVitsTts(self._param("tts_model_dir"), self._param("tts_num_threads"), self._param("tts_speaker_id"), self._param("tts_speed")),
+        )
+
+    def _hotwords_file(self):
+        configured = self._param("asr_hotwords_file")
+        if configured:
+            return str(Path(os.path.expanduser(configured)))
+        return str(
+            Path(get_package_share_directory("embodied_offline_agent"))
+            / "config"
+            / "hotwords_zh.txt"
         )
 
     def _on_audio(self, message):
@@ -204,8 +236,17 @@ class OfflineAgentNode(Node):
     def _accept_transcript(self, transcript):
         command = self._wake_gate.process(transcript)
         if command is None:
-            self._publish_state("waiting_for_wake_word")
+            if self._param("wake_word_enabled") and not self._wake_gate.active:
+                feedback = self._retry_tracker.failed(transcript)
+                self._recognition_feedback_pub.publish(
+                    String(data=feedback.to_json())
+                )
+                self.get_logger().warning(
+                    f"wake word not detected ({feedback.attempt}/{feedback.max_attempts}); retrying"
+                )
+                self._publish_state("retry_listening")
             return
+        self._retry_tracker.succeeded()
         with self._state_lock:
             if self._busy:
                 self.get_logger().warning("offline agent busy; overlapping utterance dropped")

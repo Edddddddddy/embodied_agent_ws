@@ -58,6 +58,8 @@ colcon test --packages-select embodied_agent_cpp --event-handlers console_direct
 | `src/embodied_online_agent/test/test_protocol.py` | `<speech>/<action>` 增量协议、TTS 断句 | 跨 token 标签可解析；坏 JSON 不崩溃；标点/长度正确 flush |
 | `src/embodied_online_agent/test/test_memory.py` | 有界记忆、持久化 | 历史裁剪正确；落盘后可恢复 |
 | `src/embodied_online_agent/test/test_wakeword.py` | 唤醒词门控 | 唤醒后窗口内放行；未唤醒或过期时阻断 |
+| `src/embodied_online_agent/test/test_recognition_retry.py` | 识别失败重试 | 次数递增/循环且成功后复位，不锁死监听 |
+| `src/embodied_offline_agent/test/test_sherpa_asr_config.py` | ZipFormer 热词配置 | 使用 modified beam search 并传入热词表和分数 |
 | `src/embodied_online_agent/test/test_command_fallback.py` | 明确指令仲裁、危险语义拦截 | 前进/后退/转向/挥手可确定解析；疑问、否定、复合高速旋转被阻断 |
 
 运行：
@@ -116,6 +118,7 @@ python -m pytest -q src/embodied_offline_agent/test
 | `scripts/smoke_test_gazebo_voice.sh` | 合成语音 -> ZipFormer -> llama.cpp -> Guard -> Gazebo | ASR 产生动作主体、move ACK，TurtleBot3 发生合理物理位移 |
 | `scripts/accept_voice_simulation_microphone.sh` | 真实麦克风 -> Agent -> Guard -> Gazebo | 交互检查 ASR、候选、可信动作、ACK、Twist、Odometry 六阶段 |
 | `scripts/smoke_test_gazebo_voice_online.sh` | 合成语音 -> 在线 ASR/LLM -> Guard -> Gazebo | 无唤醒词模式产生 move ACK 和合理位移 |
+| `scripts/smoke_test_recognition_retry.sh` | 识别失败后的 ROS 交互 | 发布 retry feedback，Agent 保持运行并继续监听 |
 
 真实语音测试关闭唤醒门控，是为了隔离验证 ASR 到硬件的模型链路；唤醒率需在真实麦克风测试中单独统计。云端测试默认不强制性能阈值，避免网络抖动把“功能失败”和“性能越界”混为一谈；使用 `test_online_api.py --enforce-targets` 才会把阈值越界作为退出失败。
 

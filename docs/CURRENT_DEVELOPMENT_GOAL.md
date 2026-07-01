@@ -106,13 +106,24 @@ ros2 topic echo /odom
 
 ## 麦克风验收常见问题
 
-### ASR 把“小智”识别为“小志”后停住
+### ASR 把“小智”识别为近音字
 
-唤醒门控支持配置化同音别名，默认接受 `小志/小治/晓智/晓志`。配置位置：
+离线 ZipFormer 已启用 sherpa-onnx 的 `modified_beam_search` 和 hotword
+contextual biasing，热词表位于
+`src/embodied_offline_agent/config/hotwords_zh.txt`。唤醒词与运动命令会在
+声学解码阶段获得额外分数，这比不断罗列识别结果更稳健。别名仍作为最后一道兼容层：
 
 ```yaml
 wake_word_aliases: ["小志", "小治", "晓智", "晓志"]
 ```
+
+门控仍未通过时不会卡死：节点发布 `/agent/recognition_feedback`，状态切到
+`retry_listening`，验收终端显示“请再说一次”及次数，然后继续接收下一段语音。
+`recognition_max_retries` 只控制计数周期，不会停止监听。
+
+生产级进一步方案是 sherpa-onnx open-vocabulary Keyword Spotting：在 ASR 前用
+独立声学 KWS 判断唤醒词，并调节 boost/trigger threshold。当前版本优先采用无需新增
+模型、部署成本最低的 hotword biasing；需要评估误唤醒率/漏唤醒率时再切换 KWS。
 
 不建议使用不受约束的模糊匹配，否则普通中文短语可能误唤醒。若现场出现新的稳定同音结果，把它加入在线和离线 YAML，再补 WakeWordGate 单测。
 
