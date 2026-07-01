@@ -48,3 +48,14 @@ TEST(ActionValidatorTest, RejectsUnsupportedLedColor)
   EXPECT_FALSE(result.valid);
   EXPECT_EQ(result.error, "unsupported LED color");
 }
+
+TEST(ActionValidatorTest, ValidatesSimulationControlMode)
+{
+  embodied_agent_cpp::ActionValidator validator;
+  EXPECT_TRUE(validator.validate(
+      R"({"name":"set_mode","arguments":{"mode":"obstacle_avoidance"}})").valid);
+  const auto result = validator.validate(
+    R"({"name":"set_mode","arguments":{"mode":"unsafe_racing"}})");
+  EXPECT_FALSE(result.valid);
+  EXPECT_EQ(result.error, "unsupported control mode");
+}

@@ -19,6 +19,15 @@ def test_parses_stop_wave_and_led():
     assert turn.arguments == {"angular_z": 0.6, "duration_s": 2.6}
 
 
+def test_parses_simulation_mode_commands():
+    assert parse_fallback_action("开启自动避障").as_dict() == {
+        "name": "set_mode",
+        "arguments": {"mode": "obstacle_avoidance"},
+    }
+    assert parse_fallback_action("开始沿墙行走").arguments["mode"] == "wall_following"
+    assert parse_fallback_action("退出自动模式").arguments["mode"] == "manual"
+
+
 def test_rejects_negated_or_ambiguous_text():
     assert parse_fallback_action("不要向前走") is None
     assert parse_fallback_action("你觉得向前意味着什么") is None

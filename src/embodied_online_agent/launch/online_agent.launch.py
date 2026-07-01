@@ -1,5 +1,6 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
+from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
@@ -9,8 +10,10 @@ def generate_launch_description():
     config = LaunchConfiguration("config")
     mode = LaunchConfiguration("mode")
     microphone_enabled = LaunchConfiguration("microphone_enabled")
+    capture_enabled = LaunchConfiguration("capture_enabled")
     speaker_enabled = LaunchConfiguration("speaker_enabled")
     hardware_backend = LaunchConfiguration("hardware_backend")
+    hardware_enabled = LaunchConfiguration("hardware_enabled")
     uart_device = LaunchConfiguration("uart_device")
     uart_baud_rate = LaunchConfiguration("uart_baud_rate")
     spi_device = LaunchConfiguration("spi_device")
@@ -23,8 +26,10 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument("mode", default_value="mock"),
             DeclareLaunchArgument("microphone_enabled", default_value="false"),
+            DeclareLaunchArgument("capture_enabled", default_value=microphone_enabled),
             DeclareLaunchArgument("speaker_enabled", default_value="false"),
             DeclareLaunchArgument("hardware_backend", default_value="mock"),
+            DeclareLaunchArgument("hardware_enabled", default_value="true"),
             DeclareLaunchArgument("uart_device", default_value="/dev/ttyUSB0"),
             DeclareLaunchArgument("uart_baud_rate", default_value="115200"),
             DeclareLaunchArgument("spi_device", default_value="/dev/spidev0.0"),
@@ -53,7 +58,7 @@ def generate_launch_description():
                     config,
                     {
                         "capture_enabled": ParameterValue(
-                            microphone_enabled, value_type=bool
+                            capture_enabled, value_type=bool
                         ),
                         "speaker_enabled": ParameterValue(
                             speaker_enabled, value_type=bool
@@ -72,6 +77,7 @@ def generate_launch_description():
                 executable="hardware_controller",
                 name="hardware_controller",
                 output="screen",
+                condition=IfCondition(hardware_enabled),
                 parameters=[{
                     "backend": hardware_backend,
                     "uart_device": uart_device,

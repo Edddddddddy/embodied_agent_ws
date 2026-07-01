@@ -157,3 +157,17 @@ ros2 launch embodied_offline_agent offline_agent.launch.py \
 ```
 
 使用 UART/SPI 前必须确认设备节点存在且当前用户有访问权限。电机驱动层仍应独立实现物理急停、碰撞保护、限流和通信失联停车，不能只依赖 Agent 软件。
+
+## 7. 第四部分：TurtleBot3 仿真控制
+
+- `src/embodied_simulation/include/embodied_simulation/simulation_controller.hpp`：与 ROS 解耦的控制器接口和配置。
+- `src/embodied_simulation/src/simulation_controller.cpp`：手动定时命令、速度平滑、避障、沿墙 PID、雷达超时和急停优先级。
+- `src/embodied_simulation/src/simulation_control_node.cpp`：订阅可信动作与 `/scan`，发布 `/cmd_vel`、模式和安全状态。
+- `src/embodied_simulation/config/turtlebot3_bridge.yaml`：使用标准 `geometry_msgs/Twist` 桥接 Gazebo DiffDrive。
+- `src/embodied_simulation/launch/voice_turtlebot3.launch.py`：Gazebo Harmonic、TurtleBot3、bridge、在线/离线 Agent 和可选 RViz 总入口。
+- `src/embodied_simulation/test/test_simulation_controller.cpp`：手动运动、避障、沿墙和安全逻辑单测。
+- `scripts/smoke_test_simulation.sh`：无 Gazebo 的确定性 ROS 链路验收。
+- `scripts/smoke_test_gazebo.sh`：真实雷达/里程计与物理位移验收。
+- `scripts/smoke_test_gazebo_voice.sh`：ZipFormer、llama.cpp、动作 Guard 到 Gazebo 的真实语音闭环。
+
+语音增加 `set_mode` 动作，允许 `manual/obstacle_avoidance/wall_following`。模式动作与 move/turn 一样先经过 C++ schema 白名单；仿真 launch 关闭 UART/SPI hardware controller，只启动 simulation controller。完整使用说明见 `docs/SIMULATION_GUIDE.md`。

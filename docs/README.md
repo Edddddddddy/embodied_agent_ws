@@ -9,7 +9,8 @@
 3. [`PROJECT_NOTES.md`](PROJECT_NOTES.md)：关键代码在哪里、模块如何协作、配置在哪里修改。
 4. [`TESTING_GUIDE.md`](TESTING_GUIDE.md)：单元测试清单、分层验收命令和新增测试规范。
 5. [`COMPLETION_REPORT.md`](COMPLETION_REPORT.md)：当前完成度、实测数据、未完成项和成果表述边界。
-6. [`../training/README.md`](../training/README.md)：数据集与 LLaMA-Factory LoRA 训练占位说明。
+6. [`SIMULATION_GUIDE.md`](SIMULATION_GUIDE.md)：语音控制 TurtleBot3、避障、沿墙与 Gazebo 验收。
+7. [`../training/README.md`](../training/README.md)：数据集与 LLaMA-Factory LoRA 训练占位说明。
 
 ## 文档职责
 

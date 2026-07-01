@@ -17,6 +17,10 @@ bash scripts/acceptance_test.sh online
 # 本地模型基准、指令评测、文字与合成语音闭环
 bash scripts/acceptance_test.sh offline
 
+# 真实 Gazebo 物理闭环 / 真实离线语音到 Gazebo
+bash scripts/acceptance_test.sh gazebo
+bash scripts/acceptance_test.sh gazebo-voice
+
 # 依次执行以上全部内容
 bash scripts/acceptance_test.sh all
 ```
@@ -76,7 +80,13 @@ python -m pytest -q src/embodied_online_agent/test/test_protocol.py
 python -m pytest -q src/embodied_offline_agent/test
 ```
 
-最新完整验收中，`colcon test-result --verbose` 汇总为 33 条测试记录、0 error、0 failure。测试记录数包含 CTest/GTest 的结果层级；按测试函数统计为 15 个 C++ GTest case 和 14 个 Python case。
+### C++：仿真行为控制
+
+| 测试文件 | 覆盖功能 | 关键断言 |
+|---|---|---|
+| `src/embodied_simulation/test/test_simulation_controller.cpp` | 手动运动、雷达安全、避障、沿墙 PID、模式、急停 | 速度限幅与超时；前方危险立即停车；向空旷侧转弯；雷达失联停车；沿墙方向正确；stop 退出自动模式；急停锁定 |
+
+最新完整验收中，`colcon test-result --verbose` 汇总为 44 条测试记录、0 error、0 failure。测试记录数包含 CTest/GTest 的结果层级；按测试函数统计为 24 个 C++ GTest case 和 15 个 Python case。
 
 ## 3. ROS mock 冒烟测试
 
@@ -85,6 +95,7 @@ python -m pytest -q src/embodied_offline_agent/test
 | `scripts/smoke_test.sh` | mock 在线 Agent -> 动作命令 -> 延迟指标 | 无 API、无模型、无音频设备 |
 | `scripts/smoke_test_offline.sh` | mock 离线 Agent -> 动作命令 | 无模型、无音频设备 |
 | `scripts/smoke_test_hardware.sh` | ActionGuard -> HardwareController -> mock transport -> ACK/watchdog stop | 无实体串口/SPI |
+| `scripts/smoke_test_simulation.sh` | ActionGuard -> 合成 LaserScan -> 安全/模式控制 -> Twist | 无 Gazebo、无模型、无音频设备 |
 
 这些测试使用真实 ROS 进程和 topic，能发现节点未启动、话题名错误、QoS 或 launch 配置问题。`ros2 topic echo` 本身是持续监听命令，等待消息不是卡死。
 
@@ -98,6 +109,8 @@ python -m pytest -q src/embodied_offline_agent/test
 | `scripts/evaluate_instruction_following.sh` | 固定 seed 指令集 | 分开报告模型动作和语义仲裁后的成绩 |
 | `scripts/smoke_test_offline_real.sh` | llama.cpp -> Sherpa-TTS -> 动作 -> 硬件 mock | 收到动作 ACK、音频和 metrics |
 | `scripts/smoke_test_offline_voice_real.sh` | 合成语音 -> ZipFormer -> llama.cpp -> TTS -> 动作 -> 硬件 mock | ASR 含动作主体、move ACK、双缓冲无丢帧 |
+| `scripts/smoke_test_gazebo.sh` | 可信动作 -> Twist -> Gazebo TurtleBot3 | 收到真实 `/scan`/`/odom`，位移在合理范围，无遗留进程 |
+| `scripts/smoke_test_gazebo_voice.sh` | 合成语音 -> ZipFormer -> llama.cpp -> Guard -> Gazebo | ASR 产生动作主体，TurtleBot3 发生合理物理位移 |
 
 真实语音测试关闭唤醒门控，是为了隔离验证 ASR 到硬件的模型链路；唤醒率需在真实麦克风测试中单独统计。云端测试默认不强制性能阈值，避免网络抖动把“功能失败”和“性能越界”混为一谈；使用 `test_online_api.py --enforce-targets` 才会把阈值越界作为退出失败。
 
@@ -130,7 +143,7 @@ python -m pytest -q src/embodied_offline_agent/test
 
 ### `colcon test-result` 出现第三方库测试
 
-`third_party/COLCON_IGNORE` 应存在；`setup_offline_runtime.sh` 会自动创建它。验收脚本也通过 `--packages-select` 只测试三个 ROS 包。
+`third_party/COLCON_IGNORE` 应存在；`setup_offline_runtime.sh` 会自动创建它。验收脚本也通过 `--packages-select` 只测试四个 ROS 包。
 
 ### 单测通过但真实链路失败
 

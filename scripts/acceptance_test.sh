@@ -15,14 +15,15 @@ require_file() {
 
 run_base() {
   colcon build --symlink-install --allow-overriding \
-    embodied_agent_cpp embodied_online_agent embodied_offline_agent
+    embodied_agent_cpp embodied_online_agent embodied_offline_agent embodied_simulation
   colcon test --packages-select \
-    embodied_agent_cpp embodied_online_agent embodied_offline_agent \
+    embodied_agent_cpp embodied_online_agent embodied_offline_agent embodied_simulation \
     --event-handlers console_direct+
   colcon test-result --verbose
   bash scripts/smoke_test.sh
   bash scripts/smoke_test_offline.sh
   bash scripts/smoke_test_hardware.sh
+  bash scripts/smoke_test_simulation.sh
 }
 
 check_offline_runtime() {
@@ -39,6 +40,8 @@ case "$LEVEL" in
   mock) run_base ;;
   online) python scripts/test_online_api.py; bash scripts/smoke_test_online_real.sh ;;
   offline) check_offline_runtime; bash scripts/benchmark_offline.sh; bash scripts/evaluate_instruction_following.sh; bash scripts/smoke_test_offline_real.sh; bash scripts/smoke_test_offline_voice_real.sh ;;
+  gazebo) bash scripts/smoke_test_gazebo.sh ;;
+  gazebo-voice) check_offline_runtime; bash scripts/smoke_test_gazebo_voice.sh ;;
   all) run_base; python scripts/test_online_api.py; bash scripts/smoke_test_online_real.sh; check_offline_runtime; bash scripts/benchmark_offline.sh; bash scripts/evaluate_instruction_following.sh; bash scripts/smoke_test_offline_real.sh; bash scripts/smoke_test_offline_voice_real.sh ;;
-  *) echo "Usage: $0 {preflight|mock|online|offline|all}" >&2; exit 2 ;;
+  *) echo "Usage: $0 {preflight|mock|online|offline|gazebo|gazebo-voice|all}" >&2; exit 2 ;;
 esac

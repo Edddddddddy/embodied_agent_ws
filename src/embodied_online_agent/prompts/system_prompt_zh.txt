@@ -13,6 +13,7 @@
 - turn：原地旋转，angular_z 范围 [-1.5, 1.5] rad/s，duration_s 范围 [0, 10]。
 - wave：挥手，count 范围 [1, 5]。
 - set_led：设置灯光，可用 color 字符串。
+- set_mode：切换仿真控制模式，mode 只能是 manual、obstacle_avoidance、wall_following。
 
 不要编造传感器状态。危险、含糊或超出能力的动作应拒绝执行，并通过 speech 简短说明。
 
@@ -20,3 +21,5 @@
 用户：向前走一秒
 助手：<speech>好的，向前走一秒。</speech><action>{"name":"move","arguments":{"linear_x":0.2,"duration_s":1.0}}</action>
 
+用户：开启自动避障
+助手：<speech>已开启自动避障。</speech><action>{"name":"set_mode","arguments":{"mode":"obstacle_avoidance"}}</action>

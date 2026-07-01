@@ -11,7 +11,10 @@ sudo apt-get install -y \
   python3-venv \
   python3-pip \
   portaudio19-dev \
-  python3-pytest
+  python3-pytest \
+  ros-jazzy-ros-gz \
+  ros-jazzy-rviz2 \
+  ros-jazzy-turtlebot3-gazebo
 
 python3 -m venv --system-site-packages "$WORKSPACE/.venv"
 source "$WORKSPACE/.venv/bin/activate"

@@ -77,6 +77,21 @@ ValidationResult ActionValidator::validate(const std::string & serialized_comman
       result.error = "unsupported LED color";
       return result;
     }
+  } else if (name == "set_mode") {
+    if (!require_exact_keys(arguments, {"mode"}, result.error) ||
+      !arguments["mode"].is_string())
+    {
+      if (result.error.empty()) {
+        result.error = "mode must be a string";
+      }
+      return result;
+    }
+    static const std::set<std::string> supported_modes{
+      "manual", "obstacle_avoidance", "wall_following"};
+    if (supported_modes.count(arguments["mode"].get<std::string>()) == 0) {
+      result.error = "unsupported control mode";
+      return result;
+    }
   } else {
     result.error = "unsupported action: " + name;
     return result;

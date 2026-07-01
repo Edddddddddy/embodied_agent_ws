@@ -9,6 +9,7 @@
 | [`docs/PROJECT_NOTES.md`](docs/PROJECT_NOTES.md) | 关键代码位置、设计与配置导航 |
 | [`docs/TESTING_GUIDE.md`](docs/TESTING_GUIDE.md) | 单元测试文件、分层验收和实体设备检查清单 |
 | [`docs/COMPLETION_REPORT.md`](docs/COMPLETION_REPORT.md) | 实测完成度、性能数据与尚未完成项 |
+| [`docs/SIMULATION_GUIDE.md`](docs/SIMULATION_GUIDE.md) | 语音控制 TurtleBot3、雷达安全、避障/沿墙和 Gazebo 验收 |
 
 目标环境：Ubuntu 24.04 / ROS 2 Jazzy / C++17 / Python 3.12。工程按实时性和生态优势划分语言：音频前端、AEC/VAD、播放和动作安全使用 C++；云模型 SDK、流式文本协议、提示词和记忆使用 Python。两侧只通过 ROS 话题通信。
 
@@ -219,3 +220,32 @@ ros2 topic echo /offline_agent/metrics
 `benchmark_offline.sh` 分别输出 ASR finalization/实时率、TTS 实时率和 llama.cpp prompt/decode tokens/s；ROS 指标输出静音到 ASR final、LLM 首 token、静音到首音频和整轮耗时。`<0.6 s`、`8.6 tokens/s`、`<3.5 s` 与 `85%` 都是验收目标，只有在目标机器和独立评测集上实测通过后才能写成完成结果。
 
 训练暂不执行。`training/` 包含机器人指令种子数据、LLaMA-Factory 数据注册和 Qwen3-0.6B LoRA 配置。Q8_0 通常将 FP16 权重压缩到约一半，不是四分之一；脚本会保留输入/输出文件大小供实际计算，不能同时把“Q8”与“压缩至 25%”当作天然成立的结论。
+
+## 第四部分：语音控制 TurtleBot3 仿真
+
+项目新增 C++ `embodied_simulation` 包，订阅可信 `/robot/action_command` 和 TurtleBot3 `/scan`，发布标准 `geometry_msgs/Twist` 到 `/cmd_vel`。支持手动定时运动、自动避障、右侧沿墙 PID、速度/加速度限制、雷达超时停车和急停。
+
+快速启动 mock Agent + Gazebo：
+
+```bash
+source scripts/activate.sh
+ros2 launch embodied_simulation voice_turtlebot3.launch.py \
+  provider_mode:=mock microphone_enabled:=false speaker_enabled:=false
+```
+
+离线真实语音需要先启动 `scripts/start_llama_server.sh`，再使用：
+
+```bash
+ros2 launch embodied_simulation voice_turtlebot3.launch.py \
+  agent_type:=offline provider_mode:=offline \
+  microphone_enabled:=true speaker_enabled:=true
+```
+
+独立验收：
+
+```bash
+bash scripts/acceptance_test.sh gazebo
+bash scripts/acceptance_test.sh gazebo-voice
+```
+
+完整参数、话题、模式和测试说明见 [`docs/SIMULATION_GUIDE.md`](docs/SIMULATION_GUIDE.md)。

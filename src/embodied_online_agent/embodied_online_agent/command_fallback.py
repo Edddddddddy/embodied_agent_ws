@@ -29,6 +29,14 @@ def _count(text: str) -> int:
 def parse_fallback_action(text: str) -> Optional[ActionCommand]:
     """Parse explicit commands for deterministic arbitration over model actions."""
     normalized = re.sub(r"[，。！？!?\s]", "", text.lower())
+    if any(word in normalized for word in ("退出自动", "关闭自动", "停止自动")):
+        return ActionCommand("set_mode", {"mode": "manual"})
+    if "手动模式" in normalized or "手动控制" in normalized:
+        return ActionCommand("set_mode", {"mode": "manual"})
+    if "自动避障" in normalized or "避障模式" in normalized:
+        return ActionCommand("set_mode", {"mode": "obstacle_avoidance"})
+    if "沿墙" in normalized or "贴墙" in normalized:
+        return ActionCommand("set_mode", {"mode": "wall_following"})
     if any(word in normalized for word in ("别动", "不要动")):
         return ActionCommand("stop", {})
     if should_block_model_actions(normalized):
