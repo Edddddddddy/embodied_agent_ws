@@ -1,6 +1,14 @@
-# ROS 2 端侧在线流式 Agent
+# ROS 2 具身智能语音 Agent
 
-完整代码导航和关键设计见 [`docs/PROJECT_NOTES.md`](docs/PROJECT_NOTES.md)；逐项完成度、真实性能与未完成项见 [`docs/COMPLETION_REPORT.md`](docs/COMPLETION_REPORT.md)。
+这是一个同时支持在线与离线推理的机器人语音交互、动作解析和硬件控制工程。
+
+| 文档 | 内容 |
+|---|---|
+| [`docs/README.md`](docs/README.md) | 文档中心与推荐阅读顺序 |
+| [`docs/KNOWLEDGE_NOTES.md`](docs/KNOWLEDGE_NOTES.md) | ROS 2、流式语音、LLM/TTS、并发、量化和硬件协议知识笔记 |
+| [`docs/PROJECT_NOTES.md`](docs/PROJECT_NOTES.md) | 关键代码位置、设计与配置导航 |
+| [`docs/TESTING_GUIDE.md`](docs/TESTING_GUIDE.md) | 单元测试文件、分层验收和实体设备检查清单 |
+| [`docs/COMPLETION_REPORT.md`](docs/COMPLETION_REPORT.md) | 实测完成度、性能数据与尚未完成项 |
 
 目标环境：Ubuntu 24.04 / ROS 2 Jazzy / C++17 / Python 3.12。工程按实时性和生态优势划分语言：音频前端、AEC/VAD、播放和动作安全使用 C++；云模型 SDK、流式文本协议、提示词和记忆使用 Python。两侧只通过 ROS 话题通信。
 
