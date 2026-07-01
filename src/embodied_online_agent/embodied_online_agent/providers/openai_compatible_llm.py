@@ -16,6 +16,7 @@ class OpenAiCompatibleLlm(LlmProvider):
         self.model = model
         self.base_url = os.getenv("DASHSCOPE_BASE_URL", base_url)
         self.temperature = temperature
+        self._client = None
 
     def stream(self, messages: List[Dict[str, str]]) -> Iterator[str]:
         api_key = os.getenv("DASHSCOPE_API_KEY")
@@ -26,8 +27,9 @@ class OpenAiCompatibleLlm(LlmProvider):
         except ImportError as exc:
             raise RuntimeError("install requirements.txt for online LLM") from exc
 
-        client = OpenAI(api_key=api_key, base_url=self.base_url)
-        response = client.chat.completions.create(
+        if self._client is None:
+            self._client = OpenAI(api_key=api_key, base_url=self.base_url)
+        response = self._client.chat.completions.create(
             model=self.model,
             messages=messages,
             temperature=self.temperature,
@@ -40,3 +42,10 @@ class OpenAiCompatibleLlm(LlmProvider):
             if content:
                 yield content
 
+    def warmup(self) -> None:
+        """Establish TLS/HTTP connection with a minimal completion."""
+        for _ in self.stream([
+            {"role": "system", "content": "只回复OK。"},
+            {"role": "user", "content": "OK"},
+        ]):
+            pass

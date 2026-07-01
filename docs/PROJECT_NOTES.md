@@ -29,12 +29,15 @@
 - `src/embodied_online_agent/embodied_online_agent/online_agent_node.py`：ASR、LLM、TTS 全流式编排和 ROS 话题入口。
 - `src/embodied_online_agent/embodied_online_agent/providers/`：Qwen 实时 ASR/TTS、OpenAI 兼容 LLM 和 mock provider。
 - `src/embodied_online_agent/embodied_online_agent/protocol.py`：增量解析 `<speech>` 与 `<action>`，并按标点或最大字符数尽早切 TTS 文本。
+- `src/embodied_online_agent/embodied_online_agent/command_fallback.py`：明确短命令的确定性降级和否定/疑问/危险组合拦截。
 - `src/embodied_online_agent/embodied_online_agent/wakeword.py`：唤醒词激活窗口。
 - `src/embodied_online_agent/embodied_online_agent/memory.py`：有界对话历史和原子落盘。
 - `src/embodied_online_agent/prompts/system_prompt_zh.txt`：输出格式和动作约束。
 - `src/embodied_online_agent/embodied_online_agent/metrics.py`：首 token、ASR 到首 token、TTS 首音频延迟。
 
 LLM token 到达后立即解析；完整句子不必等待整段生成结束就可进入 TTS。动作 JSON 和可朗读文本走不同分支。
+
+在线节点在发布 `listening` 前执行一次最小 LLM 预热并建立持久 TTS WebSocket。TTS 每轮使用 `commit()`，而不是会关闭连接的 `finish()`。动作标签不会边生成边执行：节点先收集整轮动作，明确命令由确定性解析覆盖，危险或否定语义禁止模型动作，然后才交给 C++ Guard。
 
 ## 3. 第二部分：离线模型 Agent
 
@@ -55,7 +58,7 @@ ROS 音频回调只向 ASR 队列写数据。LLM worker 产出句子，TTS worke
 
 ### 模型、量化和训练占位
 
-- `scripts/setup_offline_runtime.sh`：下载 ZipFormer、VITS、Qwen3 Q8_0 并编译 llama.cpp。
+- `scripts/setup_offline_runtime.sh`：从官方 Hugging Face 仓库并行、断点下载 chunk-32 ZipFormer、FP32/int8 VITS、Qwen3 Q8_0，并编译 llama.cpp。
 - `scripts/start_llama_server.sh`：启动本机模型服务。
 - `scripts/benchmark_offline.py`、`scripts/benchmark_offline.sh`：ASR/TTS 实时率和 llama.cpp tokens/s。
 - `scripts/quantize_qwen_q8.sh`：把 F16 GGUF 量化为 Q8_0，并显示前后文件大小。
@@ -63,6 +66,8 @@ ROS 音频回调只向 ASR 队列写数据。LLM worker 产出句子，TTS worke
 - `training/qwen3_0_6b_lora.yaml`：LLaMA-Factory LoRA SFT 配置占位。
 
 Q8_0 相对 FP16 通常约缩小一半，不能天然声称“压缩至 25%”。8.6 tokens/s、85% 指令遵循率与 3.5 秒端到端延迟必须在目标硬件和独立测试集上测量。
+
+当前固定 seed 的 8 条种子集上，未经 LoRA 的模型动作准确率为 25%；语义仲裁后工程链路为 100%。后者仅证明这 8 条显式命令可用，不代表模型达到 85%。详细实测见 `docs/COMPLETION_REPORT.md`。
 
 ## 4. 第三部分：动作与硬件控制
 
@@ -117,6 +122,17 @@ colcon test-result --verbose
 ```bash
 bash scripts/smoke_test_hardware.sh
 ```
+
+统一分层验收入口：
+
+```bash
+bash scripts/acceptance_test.sh mock
+bash scripts/acceptance_test.sh online
+bash scripts/acceptance_test.sh offline
+bash scripts/acceptance_test.sh all
+```
+
+其中 `test_online_api.py` 验证真实云 LLM/TTS/ASR；`smoke_test_offline_real.sh` 验证真实本地 LLM/TTS/动作；`smoke_test_offline_voice_real.sh` 把本地合成语音送回 ZipFormer，验证 ASR 到硬件动作的完整链路；`evaluate_instruction_following.sh` 分开报告模型准确率和带安全仲裁的有效准确率。
 
 单独启动硬件链路：
 

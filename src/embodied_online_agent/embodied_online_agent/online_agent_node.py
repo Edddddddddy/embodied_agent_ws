@@ -12,6 +12,7 @@ from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Empty, String, UInt8MultiArray
 
 from .memory import ConversationMemory
+from .command_fallback import parse_fallback_action, should_block_model_actions
 from .metrics import LatencyTracker
 from .protocol import SentenceChunker, TaggedStreamParser
 from .providers.mock import MockAsr, MockLlm, MockTts
@@ -62,6 +63,11 @@ class OnlineAgentNode(Node):
             UInt8MultiArray, "/audio/tts_pcm", audio_qos
         )
         self.asr, self.llm, self.tts = self._create_providers()
+        if self.mode == "online" and self._param("online_warmup_enabled"):
+            if hasattr(self.tts, "connect"):
+                self.tts.connect()
+            if hasattr(self.llm, "warmup"):
+                self.llm.warmup()
         self.audio_subscription = None
         self.silence_subscription = None
 
@@ -99,7 +105,7 @@ class OnlineAgentNode(Node):
             "system_prompt_path": "",
             "llm_model": "qwen-plus",
             "llm_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-            "llm_temperature": 0.2,
+            "llm_temperature": 0.0,
             "asr_model": "qwen3-asr-flash-realtime",
             "asr_url": "wss://dashscope.aliyuncs.com/api-ws/v1/realtime",
             "asr_language": "zh",
@@ -111,6 +117,7 @@ class OnlineAgentNode(Node):
             "llm_first_token_target_ms": 1000.0,
             "tts_first_audio_target_ms": 300.0,
             "mock_token_delay_s": 0.0,
+            "online_warmup_enabled": True,
         }
         for name, value in defaults.items():
             self.declare_parameter(name, value)
@@ -216,6 +223,7 @@ class OnlineAgentNode(Node):
         parser = TaggedStreamParser()
         chunker = SentenceChunker(self._param("tts_chunk_max_chars"))
         spoken_parts = []
+        model_actions = []
         first_token = True
 
         try:
@@ -237,14 +245,32 @@ class OnlineAgentNode(Node):
                             first_tts_text = True
                             self._publish_state("speaking")
                         text_queue.put(speakable)
-                self._publish_actions(events.actions)
+                model_actions.extend(events.actions)
                 for error in events.errors:
                     self.get_logger().warning(error)
 
             final_events = parser.finish()
-            self._publish_actions(final_events.actions)
+            model_actions.extend(final_events.actions)
+            fallback_action = parse_fallback_action(user_text)
+            if fallback_action is not None:
+                self._publish_actions([fallback_action])
+            elif should_block_model_actions(user_text):
+                if model_actions:
+                    self.get_logger().warning("model actions blocked by semantic safety policy")
+            else:
+                self._publish_actions(model_actions)
             for error in final_events.errors:
                 self.get_logger().warning(error)
+            if not spoken_parts:
+                fallback = "抱歉，回复格式解析失败，请再说一次。"
+                spoken_parts.append(fallback)
+                self.response_delta_pub.publish(String(data=fallback))
+                for speakable in chunker.feed(fallback):
+                    if not first_tts_text:
+                        self.metrics.mark_tts_requested()
+                        first_tts_text = True
+                        self._publish_state("speaking")
+                    text_queue.put(speakable)
             for speakable in chunker.finish():
                 if not first_tts_text:
                     self.metrics.mark_tts_requested()
@@ -272,10 +298,13 @@ class OnlineAgentNode(Node):
                 self._publish_state("listening")
 
     def _publish_actions(self, actions):
+        count = 0
         for action in actions:
             payload = json.dumps(action.as_dict(), ensure_ascii=False)
             self.action_candidate_pub.publish(String(data=payload))
             self.get_logger().info(f"action candidate: {payload}")
+            count += 1
+        return count
 
     def _on_tts_audio(self, pcm16: bytes):
         self.metrics.mark_tts_first_audio()
@@ -300,6 +329,7 @@ class OnlineAgentNode(Node):
     def shutdown(self):
         self._stopping = True
         self.asr.stop()
+        self.tts.close()
 
 
 def main(args=None):

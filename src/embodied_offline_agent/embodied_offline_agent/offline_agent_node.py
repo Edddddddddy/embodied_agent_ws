@@ -11,6 +11,7 @@ from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Empty, String, UInt8MultiArray
 
 from embodied_online_agent.memory import ConversationMemory
+from embodied_online_agent.command_fallback import parse_fallback_action, should_block_model_actions
 from embodied_online_agent.protocol import SentenceChunker, TaggedStreamParser
 from embodied_online_agent.wakeword import WakeWordGate
 
@@ -91,6 +92,7 @@ class OfflineAgentNode(Node):
             "llm_model": "Qwen3-0.6B-Q8_0.gguf",
             "llm_temperature": 0.7,
             "llm_max_tokens": 192,
+            "llm_seed": 42,
             "tts_model_dir": "/home/ubuntu/embodied_agent_ws/models/vits-melo-tts-zh_en",
             "tts_num_threads": 2,
             "tts_speaker_id": 0,
@@ -118,7 +120,11 @@ class OfflineAgentNode(Node):
 
         return (
             SherpaZipformerAsr(self._param("asr_model_dir"), self._param("audio_sample_rate"), self._param("asr_num_threads")),
-            LlamaCppLlm(self._param("llm_base_url"), self._param("llm_model"), self._param("llm_temperature"), self._param("llm_max_tokens")),
+            LlamaCppLlm(
+                self._param("llm_base_url"), self._param("llm_model"),
+                self._param("llm_temperature"), self._param("llm_max_tokens"),
+                self._param("llm_seed"),
+            ),
             SherpaVitsTts(self._param("tts_model_dir"), self._param("tts_num_threads"), self._param("tts_speaker_id"), self._param("tts_speed")),
         )
 
@@ -228,6 +234,7 @@ class OfflineAgentNode(Node):
         parser = TaggedStreamParser()
         chunker = SentenceChunker(self._param("tts_chunk_max_chars"))
         speech_parts = []
+        model_actions = []
         self._publish_state("thinking")
         try:
             messages = [{"role": "system", "content": self._system_prompt + "\n/no_think"}]
@@ -247,9 +254,24 @@ class OfflineAgentNode(Node):
                         self._publish_state("speaking")
                         if not message_buffer.put(sentence, timeout=5.0):
                             raise TimeoutError("message double buffer remained full")
-                self._publish_actions(events.actions)
+                model_actions.extend(events.actions)
             final = parser.finish()
-            self._publish_actions(final.actions)
+            model_actions.extend(final.actions)
+            fallback_action = parse_fallback_action(user_text)
+            if fallback_action is not None:
+                self._publish_actions([fallback_action])
+            elif should_block_model_actions(user_text):
+                if model_actions:
+                    self.get_logger().warning("model actions blocked by semantic safety policy")
+            else:
+                self._publish_actions(model_actions)
+            if not speech_parts:
+                fallback = "抱歉，回复格式解析失败，请再说一次。"
+                speech_parts.append(fallback)
+                self._response_delta_pub.publish(String(data=fallback))
+                for sentence in chunker.feed(fallback):
+                    if not message_buffer.put(sentence, timeout=5.0):
+                        raise TimeoutError("message double buffer remained full")
             for sentence in chunker.finish():
                 if not message_buffer.put(sentence, timeout=5.0):
                     raise TimeoutError("message double buffer remained full")
@@ -281,8 +303,11 @@ class OfflineAgentNode(Node):
                 self._publish_state("listening")
 
     def _publish_actions(self, actions):
+        count = 0
         for action in actions:
             self._action_pub.publish(String(data=json.dumps(action.as_dict(), ensure_ascii=False)))
+            count += 1
+        return count
 
     def _publish_state(self, state):
         self._state_pub.publish(String(data=state))

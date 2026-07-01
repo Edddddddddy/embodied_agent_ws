@@ -15,6 +15,7 @@ offline_agent:
     llm_model: "Qwen3-0.6B-Q8_0.gguf"
     llm_temperature: 0.7
     llm_max_tokens: 192
+    llm_seed: 42
     tts_model_dir: "/home/ubuntu/embodied_agent_ws/models/vits-melo-tts-zh_en"
     tts_num_threads: 2
     tts_speaker_id: 0

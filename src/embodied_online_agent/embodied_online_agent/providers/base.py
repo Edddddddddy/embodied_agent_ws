@@ -35,3 +35,6 @@ class TtsProvider(ABC):
     ) -> None:
         raise NotImplementedError
 
+    def close(self) -> None:
+        """Release an optional persistent TTS session."""
+        return None

@@ -9,9 +9,12 @@ class SherpaVitsTts:
 
     def __init__(self, model_dir: str, num_threads: int, speaker_id: int, speed: float):
         root = Path(model_dir).expanduser()
+        model_path = root / "model.onnx"
+        if not model_path.exists():
+            model_path = root / "model.int8.onnx"
         rule_fsts = ",".join(str(root / name) for name in ("phone.fst", "date.fst", "number.fst") if (root / name).exists())
         vits = sherpa_onnx.OfflineTtsVitsModelConfig(
-            model=str(root / "model.onnx"),
+            model=str(model_path),
             lexicon=str(root / "lexicon.txt"),
             tokens=str(root / "tokens.txt"),
         )

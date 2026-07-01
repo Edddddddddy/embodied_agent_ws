@@ -13,8 +13,10 @@ def generate_launch_description():
     )
     mode = LaunchConfiguration("mode")
     microphone = LaunchConfiguration("microphone_enabled")
+    capture = LaunchConfiguration("capture_enabled")
     speaker = LaunchConfiguration("speaker_enabled")
     hardware_backend = LaunchConfiguration("hardware_backend")
+    wake_word_enabled = LaunchConfiguration("wake_word_enabled")
     uart_device = LaunchConfiguration("uart_device")
     uart_baud_rate = LaunchConfiguration("uart_baud_rate")
     spi_device = LaunchConfiguration("spi_device")
@@ -22,8 +24,10 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument("mode", default_value="mock"),
         DeclareLaunchArgument("microphone_enabled", default_value="false"),
+        DeclareLaunchArgument("capture_enabled", default_value=microphone),
         DeclareLaunchArgument("speaker_enabled", default_value="false"),
         DeclareLaunchArgument("hardware_backend", default_value="mock"),
+        DeclareLaunchArgument("wake_word_enabled", default_value="true"),
         DeclareLaunchArgument("uart_device", default_value="/dev/ttyUSB0"),
         DeclareLaunchArgument("uart_baud_rate", default_value="115200"),
         DeclareLaunchArgument("spi_device", default_value="/dev/spidev0.0"),
@@ -31,12 +35,16 @@ def generate_launch_description():
         Node(
             package="embodied_offline_agent", executable="offline_agent",
             name="offline_agent", output="screen",
-            parameters=[config, {"mode": mode, "microphone_enabled": microphone}],
+            parameters=[config, {
+                "mode": mode,
+                "microphone_enabled": microphone,
+                "wake_word_enabled": ParameterValue(wake_word_enabled, value_type=bool),
+            }],
         ),
         Node(
             package="embodied_agent_cpp", executable="audio_frontend",
             name="audio_frontend", output="screen",
-            parameters=[config, {"capture_enabled": microphone, "speaker_enabled": speaker}],
+            parameters=[config, {"capture_enabled": capture, "speaker_enabled": speaker}],
         ),
         Node(package="embodied_agent_cpp", executable="action_guard", name="action_guard", output="screen"),
         Node(

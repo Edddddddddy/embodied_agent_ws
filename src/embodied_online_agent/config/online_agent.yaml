@@ -21,7 +21,8 @@ online_agent:
 
     llm_model: "qwen-plus"
     llm_base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    llm_temperature: 0.2
+    # Protocol generation is deterministic; creativity is not useful for motor commands.
+    llm_temperature: 0.0
 
     tts_model: "qwen3-tts-flash-realtime"
     tts_voice: "Cherry"
@@ -32,6 +33,8 @@ online_agent:
     llm_first_token_target_ms: 1000.0
     tts_first_audio_target_ms: 300.0
     mock_token_delay_s: 0.0
+    # Preconnect TTS and issue one minimal LLM request before publishing ready.
+    online_warmup_enabled: true
 
 audio_frontend:
   ros__parameters:
