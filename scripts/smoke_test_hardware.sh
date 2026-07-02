@@ -2,14 +2,17 @@
 set -euo pipefail
 WORKSPACE="${WORKSPACE:-/home/ubuntu/embodied_agent_ws}"
 source "$WORKSPACE/scripts/activate.sh"
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((60 + $$ % 20))}"
 LAUNCH_LOG="$(mktemp)"
 ACK_LOG="$(mktemp)"
-ros2 launch embodied_agent_cpp hardware_control.launch.py backend:=mock >"$LAUNCH_LOG" 2>&1 &
+setsid ros2 launch embodied_agent_cpp hardware_control.launch.py backend:=mock >"$LAUNCH_LOG" 2>&1 &
 LAUNCH_PID=$!
 ECHO_PID=""
 cleanup() {
   [[ -z "$ECHO_PID" ]] || kill "$ECHO_PID" 2>/dev/null || true
-  kill "$LAUNCH_PID" 2>/dev/null || true
+  kill -TERM -- "-$LAUNCH_PID" 2>/dev/null || true
+  sleep 0.2
+  kill -KILL -- "-$LAUNCH_PID" 2>/dev/null || true
   wait "$LAUNCH_PID" 2>/dev/null || true
   rm -f "$LAUNCH_LOG" "$ACK_LOG"
 }

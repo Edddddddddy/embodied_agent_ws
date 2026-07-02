@@ -16,6 +16,7 @@
 | 麦克风验收 | `4f83218` | 六阶段交互式验收器 |
 | 停滞修复 | `301b74f` | launch 参数贯通、busy 时抑制重叠 ASR |
 | 识别恢复 | `0469723` | 热词、别名、失败反馈和持续重试 |
+| Action/Lifecycle 迁移 | 当前分支 | typed Action、可取消执行、Nav2 生命周期管理 |
 | 文档与结构收敛 | 当前 | 七份重叠笔记合并为三份，完成模块依赖与入口审计 |
 
 ## 2. 当前结论
@@ -201,6 +202,12 @@ flowchart LR
 - `configure` 加载参数/插件，`activate` 才发布和接收动作，`deactivate` 强制停车。
 - 采用 Nav2 lifecycle manager 或轻量兼容管理器统一启动顺序。
 - 验收：未激活不执行；deactivate/cleanup 无残留速度和线程。
+
+完成状态：已完成。ActionGuard 与 SimulationControl 已改为 C++ LifecycleNode；configure
+负责创建 ROS interface，active 状态才转发/执行动作，deactivate 会终止活动 Action 并在
+publisher 停用前发布零速，cleanup 回收 timer、Action server、subscription 和 publisher。
+主 launch 由 `nav2_lifecycle_manager` 默认自动激活，也支持关闭 autostart 后手工转换；独立
+集成测试覆盖未配置/未激活门控、激活运动、执行中停用和 cleanup 状态恢复。
 
 ### Loop 4：BehaviorTree.CPP 编排
 

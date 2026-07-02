@@ -2,6 +2,7 @@
 set -euo pipefail
 WORKSPACE="${WORKSPACE:-/home/ubuntu/embodied_agent_ws}"
 source "$WORKSPACE/scripts/activate.sh"
+source "$WORKSPACE/scripts/lifecycle_utils.sh"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((120 + $$ % 80))}"
 
 LOG_FILE="$(mktemp)"
@@ -16,6 +17,8 @@ cleanup() {
   rm -f "$LOG_FILE"
 }
 trap cleanup EXIT
+
+activate_lifecycle_node simulation_control
 
 if ! timeout 20 python "$WORKSPACE/scripts/test_typed_action_server.py"; then
   cat "$LOG_FILE" >&2

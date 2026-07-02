@@ -1,7 +1,7 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import Node
+from launch_ros.actions import LifecycleNode, Node
 from launch_ros.parameter_descriptions import ParameterValue
 
 
@@ -17,11 +17,23 @@ def generate_launch_description():
         DeclareLaunchArgument("uart_baud_rate", default_value="115200"),
         DeclareLaunchArgument("spi_device", default_value="/dev/spidev0.0"),
         DeclareLaunchArgument("spi_speed_hz", default_value="1000000"),
-        Node(
+        LifecycleNode(
             package="embodied_agent_cpp",
             executable="action_guard",
             name="action_guard",
+            namespace="",
             output="screen",
+        ),
+        Node(
+            package="nav2_lifecycle_manager",
+            executable="lifecycle_manager",
+            name="action_guard_lifecycle_manager",
+            output="screen",
+            parameters=[{
+                "autostart": True,
+                "node_names": ["action_guard"],
+                "bond_timeout": 0.0,
+            }],
         ),
         Node(
             package="embodied_agent_cpp",

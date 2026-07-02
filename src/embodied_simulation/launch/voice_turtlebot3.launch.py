@@ -11,7 +11,7 @@ from launch.actions import (
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PythonExpression
-from launch_ros.actions import Node
+from launch_ros.actions import LifecycleNode, Node
 from launch_ros.parameter_descriptions import ParameterValue
 
 
@@ -48,6 +48,7 @@ def generate_launch_description():
     speaker = LaunchConfiguration("speaker_enabled")
     wake_word = LaunchConfiguration("wake_word_enabled")
     use_typed_actions = LaunchConfiguration("use_typed_actions")
+    lifecycle_autostart = LaunchConfiguration("lifecycle_autostart")
 
     online_condition = IfCondition(
         PythonExpression([
@@ -71,6 +72,7 @@ def generate_launch_description():
         DeclareLaunchArgument("speaker_enabled", default_value="false"),
         DeclareLaunchArgument("wake_word_enabled", default_value="true"),
         DeclareLaunchArgument("use_typed_actions", default_value="true"),
+        DeclareLaunchArgument("lifecycle_autostart", default_value="true"),
         DeclareLaunchArgument("x_pose", default_value="-2.0"),
         DeclareLaunchArgument("y_pose", default_value="-0.5"),
         SetEnvironmentVariable("TURTLEBOT3_MODEL", "burger"),
@@ -104,15 +106,27 @@ def generate_launch_description():
             output="screen",
         ),
         Node(
+            package="nav2_lifecycle_manager",
+            executable="lifecycle_manager",
+            name="simulation_lifecycle_manager",
+            output="screen",
+            parameters=[{
+                "autostart": ParameterValue(lifecycle_autostart, value_type=bool),
+                "node_names": ["simulation_control"],
+                "bond_timeout": 0.0,
+            }],
+        ),
+        Node(
             package="ros_gz_bridge",
             executable="parameter_bridge",
             arguments=["--ros-args", "-p", f"config_file:={bridge}"],
             output="screen",
         ),
-        Node(
+        LifecycleNode(
             package="embodied_simulation",
             executable="simulation_control_node",
             name="simulation_control",
+            namespace="",
             output="screen",
             parameters=[
                 control_config,
@@ -142,6 +156,7 @@ def generate_launch_description():
                 "speaker_enabled": speaker,
                 "wake_word_enabled": wake_word,
                 "hardware_enabled": "false",
+                "lifecycle_autostart": lifecycle_autostart,
             },
             online_condition,
         ),
@@ -155,14 +170,28 @@ def generate_launch_description():
                 "speaker_enabled": speaker,
                 "wake_word_enabled": wake_word,
                 "hardware_enabled": "false",
+                "lifecycle_autostart": lifecycle_autostart,
             },
             offline_condition,
         ),
-        Node(
+        LifecycleNode(
             package="embodied_agent_cpp",
             executable="action_guard",
             name="action_guard",
+            namespace="",
             output="screen",
+            condition=UnlessCondition(launch_agent),
+        ),
+        Node(
+            package="nav2_lifecycle_manager",
+            executable="lifecycle_manager",
+            name="action_guard_lifecycle_manager",
+            output="screen",
+            parameters=[{
+                "autostart": ParameterValue(lifecycle_autostart, value_type=bool),
+                "node_names": ["action_guard"],
+                "bond_timeout": 0.0,
+            }],
             condition=UnlessCondition(launch_agent),
         ),
         Node(

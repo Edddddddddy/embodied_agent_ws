@@ -2,6 +2,7 @@
 set -euo pipefail
 WORKSPACE="${WORKSPACE:-/home/ubuntu/embodied_agent_ws}"
 source "$WORKSPACE/scripts/activate.sh"
+source "$WORKSPACE/scripts/lifecycle_utils.sh"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((120 + $$ % 80))}"
 
 LOG_FILE="$(mktemp)"
@@ -21,6 +22,7 @@ for _ in $(seq 1 50); do
   ros2 node list 2>/dev/null | grep -qx /action_guard && break
   sleep 0.1
 done
+activate_lifecycle_node action_guard
 
 timeout 8 ros2 topic echo --once /robot/action_command_typed \
   embodied_agent_interfaces/msg/RobotCommand >"$TYPED_FILE" &
@@ -28,7 +30,8 @@ TYPED_PID=$!
 timeout 8 ros2 topic echo --once /robot/action_command \
   std_msgs/msg/String >"$LEGACY_FILE" &
 LEGACY_PID=$!
-sleep 1
+wait_for_topic_subscribers /robot/action_command_typed
+wait_for_topic_subscribers /robot/action_command
 ros2 topic pub --once /agent/action_candidate std_msgs/msg/String \
   "{data: '{\"name\":\"move\",\"arguments\":{\"linear_x\":9.0,\"duration_s\":20.0}}'}" \
   >/dev/null

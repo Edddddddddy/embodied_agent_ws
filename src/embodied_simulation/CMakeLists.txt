@@ -8,9 +8,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(ament_cmake REQUIRED)
 find_package(embodied_agent_interfaces REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(lifecycle_msgs REQUIRED)
 find_package(nlohmann_json REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
+find_package(rclcpp_lifecycle REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 
@@ -29,7 +31,8 @@ target_link_libraries(simulation_control_node
   nlohmann_json::nlohmann_json
 )
 ament_target_dependencies(simulation_control_node
-  embodied_agent_interfaces geometry_msgs rclcpp rclcpp_action sensor_msgs std_msgs
+  embodied_agent_interfaces geometry_msgs lifecycle_msgs rclcpp rclcpp_action
+  rclcpp_lifecycle sensor_msgs std_msgs
 )
 
 install(TARGETS simulation_control_core simulation_control_node

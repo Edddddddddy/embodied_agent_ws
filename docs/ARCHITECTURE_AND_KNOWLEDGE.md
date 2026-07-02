@@ -31,6 +31,12 @@ feedback/result 转发为可观察话题。仿真 Action server 复用纯 C++ `A
 状态机，统一成功进度、用户取消、目标抢占、雷达阻塞和硬超时语义；任一终止路径都会
 调用 `SimulationController::stop()`。
 
+ActionGuard 与 SimulationControl 都是 `rclcpp_lifecycle::LifecycleNode`。configure 阶段
+创建 publisher、subscription、Action server 和 timer；activate 后才转发动作和发布速度；
+deactivate 会终止活动目标并在 publisher 停用前发送零速；cleanup 释放 ROS interface。
+launch 使用 `nav2_lifecycle_manager` 自动执行配置和激活，`bond_timeout=0` 用于管理原生
+rclcpp lifecycle node，而不是 Nav2 自带 bond 的节点基类。
+
 ### `embodied_agent_cpp`
 
 | 文件 | 责任 |
@@ -38,7 +44,7 @@ feedback/result 转发为可观察话题。仿真 Action server 复用纯 C++ `A
 | `audio_processing.hpp/.cpp` | NLMS AEC、能量 VAD、静音检测，纯计算可单测 |
 | `audio_frontend_node.cpp` | PortAudio 回调、有界队列、PCM 发布和播放 |
 | `action_validator.hpp/.cpp` | 动作白名单、参数 schema、速度与时长限幅 |
-| `action_guard_node.cpp` | `/agent/action_candidate` 到可信动作话题 |
+| `action_guard_node.cpp` | Lifecycle Guard；仅 active 时将 candidate 转成可信动作 |
 | `hardware_protocol.hpp/.cpp` | 版本、序号、payload 和 CRC 帧 |
 | `hardware_transport.hpp/.cpp` | mock、UART、SPI adapter |
 | `hardware_controller_node.cpp` | 发送、ACK、watchdog 和急停 |
@@ -82,7 +88,7 @@ PortAudio 回调只搬运数据，不执行网络、日志或模型推理；这�
 | 文件 | 责任 |
 |---|---|
 | `simulation_controller.hpp/.cpp` | 手动运动、雷达停车、避障、沿墙 PID |
-| `simulation_control_node.cpp` | ActionCommand、LaserScan、Twist、ACK 的 ROS seam |
+| `simulation_control_node.cpp` | Lifecycle Action server、LaserScan、Twist、ACK 的 ROS seam |
 | `voice_turtlebot3.launch.py` | Agent、Guard、Gazebo、bridge 的组合启动 |
 
 当前产品主链只承诺 `move / turn / stop`；避障和沿墙用于展示安全控制模块，不继续扩展

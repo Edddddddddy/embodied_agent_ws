@@ -28,6 +28,7 @@ DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里
 | 离线单元 | `embodied_offline_agent/test/` | 双缓冲、指标、ZipFormer 热词参数 |
 | 仿真单元 | `embodied_simulation/test/` | 速度限制、雷达停车、避障、沿墙 PID |
 | ROS mock | `smoke_test*.sh` | 话题发现、动作发布、ACK、watchdog |
+| Lifecycle | `smoke_test_lifecycle.sh` | 未激活门控、激活执行、停用零速和 cleanup |
 | 类型兼容 | `smoke_test_typed_action.sh` | 旧 JSON 与 typed command 同时发布且字段等价 |
 | Action 状态 | `smoke_test_typed_action_server.sh` | 成功、反馈、取消、阻塞、超时和抢占 |
 | Action 全链 | `smoke_test_typed_action_pipeline.sh` | JSON -> typed -> Action -> 仿真控制 |
@@ -68,6 +69,8 @@ bash scripts/accept_voice_simulation_microphone.sh online
 
 `voice_turtlebot3.launch.py` 默认启用 typed Action。`acceptance_test.sh gazebo` 会同时验证
 默认链与显式 typed terminal result；`gazebo-voice` 要求离线语音链收到成功 result 后才通过。
+所有主 launch 默认由 Nav2 lifecycle manager 自动配置并激活 Guard/仿真执行器；
+`lifecycle_autostart:=false` 可用于手工检查未激活状态不会执行动作。
 
 单独验收唤醒词：
 

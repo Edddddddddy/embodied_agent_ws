@@ -9,8 +9,10 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 find_package(embodied_agent_interfaces REQUIRED)
+find_package(lifecycle_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
+find_package(rclcpp_lifecycle REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(nlohmann_json REQUIRED)
 find_package(PkgConfig REQUIRED)
@@ -43,7 +45,8 @@ ament_target_dependencies(audio_frontend rclcpp std_msgs)
 
 add_executable(action_guard src/action_guard_node.cpp)
 target_link_libraries(action_guard embodied_agent_core)
-ament_target_dependencies(action_guard embodied_agent_interfaces rclcpp std_msgs)
+ament_target_dependencies(
+  action_guard embodied_agent_interfaces lifecycle_msgs rclcpp rclcpp_lifecycle std_msgs)
 
 add_executable(typed_action_bridge src/typed_action_bridge_node.cpp)
 target_link_libraries(typed_action_bridge nlohmann_json::nlohmann_json)

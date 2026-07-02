@@ -2,10 +2,17 @@
 set -euo pipefail
 WORKSPACE="${WORKSPACE:-/home/ubuntu/embodied_agent_ws}"
 source "$WORKSPACE/scripts/activate.sh"
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((40 + $$ % 20))}"
 LOG="$(mktemp)"
-ros2 launch embodied_offline_agent offline_agent.launch.py mode:=mock >"$LOG" 2>&1 &
+setsid ros2 launch embodied_offline_agent offline_agent.launch.py mode:=mock >"$LOG" 2>&1 &
 PID=$!
-cleanup() { kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true; rm -f "$LOG"; }
+cleanup() {
+  kill -TERM -- "-$PID" 2>/dev/null || true
+  sleep 0.2
+  kill -KILL -- "-$PID" 2>/dev/null || true
+  wait "$PID" 2>/dev/null || true
+  rm -f "$LOG"
+}
 trap cleanup EXIT
 sleep 3
 ACTION_LOG="$(mktemp)"

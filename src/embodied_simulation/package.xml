@@ -11,12 +11,15 @@
   <depend>rclcpp_action</depend>
   <depend>embodied_agent_interfaces</depend>
   <depend>geometry_msgs</depend>
+  <depend>lifecycle_msgs</depend>
+  <depend>rclcpp_lifecycle</depend>
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
   <depend>nlohmann-json3-dev</depend>
   <exec_depend>embodied_agent_cpp</exec_depend>
   <exec_depend>embodied_online_agent</exec_depend>
   <exec_depend>embodied_offline_agent</exec_depend>
+  <exec_depend>nav2_lifecycle_manager</exec_depend>
   <exec_depend>ros_gz</exec_depend>
   <exec_depend>rviz2</exec_depend>
   <exec_depend>turtlebot3_gazebo</exec_depend>

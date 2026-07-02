@@ -2,7 +2,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import Node
+from launch_ros.actions import LifecycleNode, Node
 from launch_ros.parameter_descriptions import ParameterValue
 
 
@@ -15,6 +15,7 @@ def generate_launch_description():
     speaker_enabled = LaunchConfiguration("speaker_enabled")
     hardware_backend = LaunchConfiguration("hardware_backend")
     hardware_enabled = LaunchConfiguration("hardware_enabled")
+    lifecycle_autostart = LaunchConfiguration("lifecycle_autostart")
     uart_device = LaunchConfiguration("uart_device")
     uart_baud_rate = LaunchConfiguration("uart_baud_rate")
     spi_device = LaunchConfiguration("spi_device")
@@ -32,6 +33,7 @@ def generate_launch_description():
             DeclareLaunchArgument("speaker_enabled", default_value="false"),
             DeclareLaunchArgument("hardware_backend", default_value="mock"),
             DeclareLaunchArgument("hardware_enabled", default_value="true"),
+            DeclareLaunchArgument("lifecycle_autostart", default_value="true"),
             DeclareLaunchArgument("uart_device", default_value="/dev/ttyUSB0"),
             DeclareLaunchArgument("uart_baud_rate", default_value="115200"),
             DeclareLaunchArgument("spi_device", default_value="/dev/spidev0.0"),
@@ -71,11 +73,23 @@ def generate_launch_description():
                     },
                 ],
             ),
-            Node(
+            LifecycleNode(
                 package="embodied_agent_cpp",
                 executable="action_guard",
                 name="action_guard",
+                namespace="",
                 output="screen",
+            ),
+            Node(
+                package="nav2_lifecycle_manager",
+                executable="lifecycle_manager",
+                name="action_guard_lifecycle_manager",
+                output="screen",
+                parameters=[{
+                    "autostart": ParameterValue(lifecycle_autostart, value_type=bool),
+                    "node_names": ["action_guard"],
+                    "bond_timeout": 0.0,
+                }],
             ),
             Node(
                 package="embodied_agent_cpp",

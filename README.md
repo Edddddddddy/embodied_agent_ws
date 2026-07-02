@@ -13,6 +13,7 @@
 - 声学前端：C++ PortAudio、NLMS AEC、VAD、0.4 秒静音断句。
 - 识别恢复：热词偏置、唤醒别名、失败反馈和持续重试。
 - 动作安全：结构化动作、C++ schema 校验、限幅、急停和 watchdog。
+- 生命周期：Guard 与仿真执行器采用 C++ LifecycleNode，由 Nav2 manager 有序激活。
 - 控制后端：TurtleBot3 Gazebo、UART、SPI 和无硬件 mock。
 - 自动验收：单元测试、ROS 冒烟、云模型、离线模型和 Gazebo 物理位移验证。
 
@@ -87,6 +88,8 @@ ros2 launch embodied_simulation voice_turtlebot3.launch.py \
 ```
 
 排查兼容问题时可临时传入 `use_typed_actions:=false` 回到旧 JSON topic 执行路径。
+launch 默认 `lifecycle_autostart:=true`；调试启动顺序时可设为 `false`，再使用
+`ros2 lifecycle set /<node> configure|activate` 手工转换状态。
 
 ## 项目结构
 
