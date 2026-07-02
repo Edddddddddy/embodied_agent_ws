@@ -99,7 +99,7 @@ GitHub 星数采样于 2026-07-02，会随时间变化；功能依据各项目�
 
 1. 录制 30–60 秒 GIF：说“向前走一秒” -> ASR 文本 -> 动作 JSON -> Gazebo 移动。
 2. 提供 `docker compose up demo` 或 devcontainer，缓存 ROS 依赖；mock demo 不下载模型。
-3. GitHub Actions 自动跑 build、67 项测试和 headless mock/simulation smoke。
+3. GitHub Actions 自动跑 build、70 项测试和 headless mock/simulation smoke。
 4. 补 Apache-2.0 LICENSE、CONTRIBUTING、release notes、issue 模板和架构图。
 5. 发布 `v0.1.0`，README 只保留一个主 CTA：Run the voice-to-Gazebo demo。
 
@@ -229,6 +229,13 @@ ROS Action 集成测试覆盖正常、拒绝、取消、障碍、超时和恢复
 - 实现 Gazebo、mock 两个 adapter，证明 seam 真实存在；UART/SPI 随后接入同一 interface。
 - launch/YAML 选择插件，不再在节点中硬编码 backend 分支。
 - 验收：不修改 BT/Guard 即可切换 Gazebo 和 mock。
+
+完成状态：已完成。新增小型 `RobotExecutor` interface，并注册
+`GazeboRobotExecutor`、`MockRobotExecutor` 两个 pluginlib adapter。Lifecycle configure
+按 `executor_plugin` 参数加载实例，Action/BT 只依赖统一 interface；ACK 会报告实际 backend。
+插件单测通过 pluginlib 真实发现和实例化两个 adapter，同一 typed MOVE 在两者上均执行并
+停车；独立 ROS 冒烟在无 Gazebo、无 LaserScan 环境中完成 candidate→Guard→Action→BT→mock
+全链，证明切换 backend 不需要修改 Guard 或 BT。
 
 ### Loop 6：ROS 2 工程完善
 

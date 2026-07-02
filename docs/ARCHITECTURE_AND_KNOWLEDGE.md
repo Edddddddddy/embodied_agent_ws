@@ -37,6 +37,12 @@ feedback/result 转发为可观察话题。仿真 Action server 复用纯 C++ `A
 动作 RUNNING 时重新检查安全条件，因此新障碍可以 halt Execute；树的阶段和终态发布到
 `/robot/bt_status`。`use_behavior_tree:=false` 保留旧 ActionExecution 直连路径。
 
+`RobotExecutor` 是 BT 下方的 pluginlib seam：Lifecycle 节点只调用 configure、execute、
+stop、update_scan 和 step，不知道具体 backend。`GazeboRobotExecutor` 封装原有
+SimulationController、LaserScan 安全和 PID；`MockRobotExecutor` 不依赖仿真或传感器，供
+CI 和插件教程使用。插件名由 `executor_plugin` 参数选择，新增 executor 不需修改 Guard、
+BT XML 或 Action server。
+
 ActionGuard 与 SimulationControl 都是 `rclcpp_lifecycle::LifecycleNode`。configure 阶段
 创建 publisher、subscription、Action server 和 timer；activate 后才转发动作和发布速度；
 deactivate 会终止活动目标并在 publisher 停用前发送零速；cleanup 释放 ROS interface。
@@ -96,6 +102,8 @@ PortAudio 回调只搬运数据，不执行网络、日志或模型推理；这�
 | `simulation_controller.hpp/.cpp` | 手动运动、雷达停车、避障、沿墙 PID |
 | `command_behavior_tree.hpp/.cpp` | BT blackboard、异步状态与统一终态 |
 | `config/command_tree.xml` | Validate → Safety → Execute → Confirm 编排 |
+| `robot_executor.hpp` | Gazebo/mock 共用的小型执行 interface |
+| `robot_executor_plugins.cpp` | pluginlib Gazebo 与 mock adapters |
 | `simulation_control_node.cpp` | Lifecycle Action server、LaserScan、Twist、ACK 的 ROS seam |
 | `voice_turtlebot3.launch.py` | Agent、Guard、Gazebo、bridge 的组合启动 |
 
@@ -118,7 +126,7 @@ PortAudio 回调只搬运数据，不执行网络、日志或模型推理；这�
 | `/robot/action_result` | typed bridge -> 观测者 | 成功、拒绝、取消、阻塞或超时结果 |
 | `/robot/bt_status` | SimulationController -> 观测者 | command id、BT 阶段、终态与原因 |
 | `/robot/action_rejected` | ActionGuard -> 观测者 | schema 或安全拒绝原因 |
-| `/robot/action_ack` | executor -> 观测者 | 接受、发送或执行结果 |
+| `/robot/action_ack` | executor -> 观测者 | 接受、执行结果及实际 backend |
 | `/cmd_vel` | SimulationController -> Gazebo | 标准差速速度 |
 | `/scan`, `/odom` | Gazebo -> controller/probe | 雷达与物理位移证据 |
 

@@ -18,6 +18,7 @@
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
   <depend>nlohmann-json3-dev</depend>
+  <depend>pluginlib</depend>
   <exec_depend>embodied_agent_cpp</exec_depend>
   <exec_depend>embodied_online_agent</exec_depend>
   <exec_depend>embodied_offline_agent</exec_depend>

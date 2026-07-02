@@ -17,12 +17,17 @@ def generate_launch_description():
     )
     use_typed_actions = LaunchConfiguration("use_typed_actions")
     use_behavior_tree = LaunchConfiguration("use_behavior_tree")
+    executor_plugin = LaunchConfiguration("executor_plugin")
     autostart = LaunchConfiguration("autostart")
     return LaunchDescription([
         DeclareLaunchArgument("config", default_value=default_config),
         DeclareLaunchArgument("use_sim_time", default_value="false"),
         DeclareLaunchArgument("use_typed_actions", default_value="true"),
         DeclareLaunchArgument("use_behavior_tree", default_value="true"),
+        DeclareLaunchArgument(
+            "executor_plugin",
+            default_value="embodied_simulation/GazeboRobotExecutor",
+        ),
         DeclareLaunchArgument("autostart", default_value="true"),
         LifecycleNode(
             package="embodied_simulation",
@@ -43,6 +48,7 @@ def generate_launch_description():
                     "use_behavior_tree": ParameterValue(
                         use_behavior_tree, value_type=bool
                     ),
+                    "executor_plugin": executor_plugin,
                 },
             ],
         ),

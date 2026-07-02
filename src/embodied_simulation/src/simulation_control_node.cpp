@@ -13,6 +13,7 @@
 #include <geometry_msgs/msg/twist.hpp>
 #include <lifecycle_msgs/msg/state.hpp>
 #include <nlohmann/json.hpp>
+#include <pluginlib/class_loader.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_lifecycle/lifecycle_node.hpp>
@@ -22,6 +23,7 @@
 
 #include "embodied_simulation/action_execution.hpp"
 #include "embodied_simulation/command_behavior_tree.hpp"
+#include "embodied_simulation/robot_executor.hpp"
 #include "embodied_simulation/simulation_controller.hpp"
 
 namespace embodied_simulation
@@ -37,7 +39,8 @@ public:
     rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
 
   SimulationControlNode()
-  : LifecycleNode("simulation_control")
+  : LifecycleNode("simulation_control"),
+    executor_loader_("embodied_simulation", "embodied_simulation::RobotExecutor")
   {
     RCLCPP_INFO(get_logger(), "simulation control lifecycle node created");
   }
@@ -46,7 +49,18 @@ protected:
   CallbackReturn on_configure(const rclcpp_lifecycle::State &) override
   {
     using std::placeholders::_1;
-    controller_ = std::make_unique<SimulationController>(load_config());
+    const auto controller_config = load_config();
+    executor_plugin_ = string_parameter(
+      "executor_plugin", "embodied_simulation/GazeboRobotExecutor");
+    try {
+      executor_ = executor_loader_.createSharedInstance(executor_plugin_);
+      executor_->configure(controller_config);
+    } catch (const pluginlib::PluginlibException & error) {
+      RCLCPP_ERROR(
+        get_logger(), "failed to load executor plugin %s: %s",
+        executor_plugin_.c_str(), error.what());
+      return CallbackReturn::FAILURE;
+    }
     cmd_vel_pub_ = create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10);
     mode_pub_ = create_publisher<std_msgs::msg::String>("/robot/control_mode", 10);
     state_pub_ = create_publisher<std_msgs::msg::String>("/robot/simulation_state", 10);
@@ -135,8 +149,8 @@ protected:
       }
       finish_active_action(ActionExecutionState::kCanceled, "deactivated");
     }
-    if (controller_) {
-      controller_->stop();
+    if (executor_) {
+      executor_->stop();
     }
     publish_zero_velocity();
     if (timer_) {
@@ -154,18 +168,18 @@ protected:
   CallbackReturn on_cleanup(const rclcpp_lifecycle::State &) override
   {
     reset_interfaces();
-    controller_.reset();
+    executor_.reset();
     RCLCPP_INFO(get_logger(), "simulation control cleaned up");
     return CallbackReturn::SUCCESS;
   }
 
   CallbackReturn on_shutdown(const rclcpp_lifecycle::State &) override
   {
-    if (controller_) {
-      controller_->stop();
+    if (executor_) {
+      executor_->stop();
     }
     reset_interfaces();
-    controller_.reset();
+    executor_.reset();
     RCLCPP_INFO(get_logger(), "simulation control shut down");
     return CallbackReturn::SUCCESS;
   }
@@ -288,7 +302,7 @@ private:
     const auto & command = goal_handle->get_goal()->command;
     using Command = embodied_agent_interfaces::msg::RobotCommand;
     if (command.action_type == Command::STOP) {
-      controller_->stop();
+      executor_->stop();
       finish_immediate_action(goal_handle, true, "stopped");
       publish_action_ack("stop", "accepted");
       return;
@@ -318,12 +332,18 @@ private:
 
     const double now = now_seconds();
     if (command.action_type == Command::MOVE) {
-      controller_->set_manual_command(
-        command.linear_x, 0.0, command.duration_s, now);
+      if (!executor_->execute(command, now)) {
+        finish_immediate_action(goal_handle, false, "executor_rejected");
+        active_goal_.reset();
+        return;
+      }
       active_action_name_ = "move";
     } else if (command.action_type == Command::TURN) {
-      controller_->set_manual_command(
-        0.0, command.angular_z, command.duration_s, now);
+      if (!executor_->execute(command, now)) {
+        finish_immediate_action(goal_handle, false, "executor_rejected");
+        active_goal_.reset();
+        return;
+      }
       active_action_name_ = "turn";
     } else {
       finish_immediate_action(goal_handle, false, "invalid_command");
@@ -375,7 +395,7 @@ private:
     if (!active_goal_) {
       return;
     }
-    controller_->stop();
+    executor_->stop();
     auto result = std::make_shared<ExecuteRobotCommand::Result>();
     result->success = state == ActionExecutionState::kSucceeded;
     result->message = message;
@@ -469,20 +489,23 @@ private:
       const auto command = nlohmann::json::parse(message->data);
       const std::string name = command.at("name").get<std::string>();
       const auto & arguments = command.at("arguments");
+      embodied_agent_interfaces::msg::RobotCommand typed_command;
       if (name == "move") {
-        controller_->set_manual_command(
-          arguments.at("linear_x").get<double>(), 0.0,
-          arguments.at("duration_s").get<double>(), now_seconds());
+        typed_command.action_type = typed_command.MOVE;
+        typed_command.linear_x = arguments.at("linear_x").get<double>();
+        typed_command.duration_s = arguments.at("duration_s").get<double>();
+        executor_->execute(typed_command, now_seconds());
         publish_mode();
         publish_action_ack(name, "accepted");
       } else if (name == "turn") {
-        controller_->set_manual_command(
-          0.0, arguments.at("angular_z").get<double>(),
-          arguments.at("duration_s").get<double>(), now_seconds());
+        typed_command.action_type = typed_command.TURN;
+        typed_command.angular_z = arguments.at("angular_z").get<double>();
+        typed_command.duration_s = arguments.at("duration_s").get<double>();
+        executor_->execute(typed_command, now_seconds());
         publish_mode();
         publish_action_ack(name, "accepted");
       } else if (name == "stop") {
-        controller_->stop();
+        executor_->stop();
         publish_mode();
         publish_action_ack(name, "accepted");
       } else if (name == "set_mode") {
@@ -510,7 +533,7 @@ private:
     if (!is_active()) {
       return;
     }
-    controller_->stop();
+    executor_->stop();
     publish_mode();
     publish_action_ack("stop", "accepted", "emergency_stop");
     RCLCPP_WARN(get_logger(), "emergency stop received; switched to manual");
@@ -521,14 +544,17 @@ private:
     if (!is_active()) {
       return;
     }
-    controller_->update_scan(
+    executor_->update_scan(
       message->ranges, message->angle_min, message->angle_increment,
       message->range_min, message->range_max, now_seconds());
   }
 
   bool set_mode(const std::string & mode)
   {
-    if (!controller_->set_mode(mode)) {
+    embodied_agent_interfaces::msg::RobotCommand command;
+    command.action_type = command.SET_MODE;
+    command.mode = mode;
+    if (!executor_->execute(command, now_seconds())) {
       RCLCPP_WARN(get_logger(), "unsupported control mode: %s", mode.c_str());
       return false;
     }
@@ -544,7 +570,7 @@ private:
   {
     nlohmann::json payload{
       {"action", action},
-      {"backend", "simulation"},
+      {"backend", executor_ ? executor_->backend_name() : "unconfigured"},
       {"sequence", ++action_sequence_},
       {"status", status},
     };
@@ -599,7 +625,7 @@ private:
   void publish_mode()
   {
     std_msgs::msg::String message;
-    message.data = SimulationController::mode_name(controller_->mode());
+    message.data = executor_->mode_name();
     mode_pub_->publish(message);
   }
 
@@ -638,7 +664,7 @@ private:
   void control_tick()
   {
     const double now = now_seconds();
-    const auto output = controller_->step(now);
+    const auto output = executor_->step(now);
     const bool action_stopped = update_active_action(output, now);
     geometry_msgs::msg::Twist velocity;
     velocity.linear.x = action_stopped ? 0.0 : output.velocity.linear_x;
@@ -662,7 +688,9 @@ private:
     state_pub_->publish(state_message);
   }
 
-  std::unique_ptr<SimulationController> controller_;
+  pluginlib::ClassLoader<RobotExecutor> executor_loader_;
+  std::shared_ptr<RobotExecutor> executor_;
+  std::string executor_plugin_;
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr
     cmd_vel_pub_;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::String>::SharedPtr mode_pub_;

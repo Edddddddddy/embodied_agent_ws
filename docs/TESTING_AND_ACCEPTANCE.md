@@ -16,7 +16,7 @@ bash scripts/acceptance_test.sh gazebo
 bash scripts/acceptance_test.sh gazebo-voice
 ```
 
-`mock` 是每次提交前的最低门槛；当前记录为 67 项测试、0 failure。`online` 使用少量
+`mock` 是每次提交前的最低门槛；当前记录为 70 项测试、0 failure。`online` 使用少量
 DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里程计位移验真。
 
 ## 2. 分层测试矩阵
@@ -32,6 +32,8 @@ DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里
 | 类型兼容 | `smoke_test_typed_action.sh` | 旧 JSON 与 typed command 同时发布且字段等价 |
 | Action 状态 | `smoke_test_typed_action_server.sh` | 成功、反馈、取消、阻塞、超时和抢占 |
 | BT 编排 | `test_command_behavior_tree.cpp` | 验证、反应式安全、取消、超时与恢复 |
+| executor 插件 | `test_robot_executor_plugins.cpp` | 两个 pluginlib adapter 可发现且行为一致 |
+| mock 插件全链 | `smoke_test_mock_executor.sh` | 不改 Guard/BT 即可切换 backend |
 | Action 全链 | `smoke_test_typed_action_pipeline.sh` | JSON -> typed -> Action -> 仿真控制 |
 | Action + Gazebo | `smoke_test_gazebo_typed_action.sh` | terminal result 与真实 `/odom` 位移 |
 | provider | `smoke_test_online_real.sh`、`benchmark_offline.sh` | 云/本地模型可用和真实延迟 |

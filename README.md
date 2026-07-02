@@ -15,6 +15,7 @@
 - 动作安全：结构化动作、C++ schema 校验、限幅、急停和 watchdog。
 - 生命周期：Guard 与仿真执行器采用 C++ LifecycleNode，由 Nav2 manager 有序激活。
 - 行为编排：BehaviorTree.CPP XML 执行验证、安全检查、异步动作与结果确认。
+- 执行插件：pluginlib 按参数切换 Gazebo 与无仿真的 mock executor。
 - 控制后端：TurtleBot3 Gazebo、UART、SPI 和无硬件 mock。
 - 自动验收：单元测试、ROS 冒烟、云模型、离线模型和 Gazebo 物理位移验证。
 
@@ -73,7 +74,7 @@ WAKE_WORD_ENABLED=true \
 ## 验收入口
 
 ```bash
-bash scripts/acceptance_test.sh mock     # 67 项测试及无模型链路
+bash scripts/acceptance_test.sh mock     # 70 项测试及无模型链路
 bash scripts/acceptance_test.sh online   # 少量云 API 调用
 bash scripts/acceptance_test.sh offline  # 本地模型、语音和性能
 bash scripts/acceptance_test.sh gazebo   # Gazebo 可信动作与里程计
@@ -92,6 +93,16 @@ ros2 launch embodied_simulation voice_turtlebot3.launch.py \
 排查兼容问题时可临时传入 `use_typed_actions:=false` 回到旧 JSON topic 执行路径。
 launch 默认 `lifecycle_autostart:=true`；调试启动顺序时可设为 `false`，再使用
 `ros2 lifecycle set /<node> configure|activate` 手工转换状态。
+
+不启动 Gazebo 验证同一 Action/BT 链的 executor 插件切换：
+
+```bash
+bash scripts/smoke_test_mock_executor.sh
+```
+
+launch 参数 `executor_plugin` 默认为
+`embodied_simulation/GazeboRobotExecutor`，也可选择
+`embodied_simulation/MockRobotExecutor`。
 
 ## 项目结构
 
