@@ -81,7 +81,12 @@ bash scripts/acceptance_test.sh mock     # 98 项测试及无模型链路
 bash scripts/acceptance_test.sh online   # 少量云 API 调用
 bash scripts/acceptance_test.sh offline  # 本地模型、语音和性能
 bash scripts/acceptance_test.sh gazebo   # Gazebo 可信动作与里程计
+bash scripts/acceptance_test.sh gazebo-voice  # 离线语音模型直达 Gazebo
+bash scripts/acceptance_test.sh all      # 全部自动 release gates（不含真人麦克风）
 ```
+
+查看所有自动与交互式模式：`bash scripts/acceptance_test.sh --help`。真人麦克风验收也可
+统一使用 `microphone-offline` 或 `microphone-online` 模式。
 
 性能数字是验收目标而不是硬编码承诺。当前实测、限制和复现方法见
 [测试与验收](docs/TESTING_AND_ACCEPTANCE.md)。
@@ -110,6 +115,14 @@ launch 参数 `executor_plugin` 默认为
 `embodied_simulation/MockRobotExecutor`。
 `simulation_control.launch.py` 可通过 `use_composition:=true` 改为组件容器，通过
 `namespace:=robot1` 隔离整条执行链；两者可同时使用。
+
+## 当前自动验收结论
+
+2026-07-02 在当前 WSL 环境完成了 mock、在线、离线、Gazebo，以及在线/离线语音→Gazebo 验收：
+98 项测试零失败；在线热启动 LLM 首 token 350–384 ms、TTS 首音频 222–242 ms；离线
+Q8 CPU decode 34.10 token/s、语音全链 2.313 s；typed Action/BT 驱动 Gazebo 位移
+0.330 m，在线语音 typed 闭环位移 0.163 m。原始 0.6B 模型动作准确率仅 2/8，fallback 后为 7/8，因此 LoRA 仍明确标记为
+未完成，不能用 fallback 成绩冒充模型成绩。完整证据见[测试与验收](docs/TESTING_AND_ACCEPTANCE.md)。
 
 ## 项目结构
 

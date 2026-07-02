@@ -14,10 +14,17 @@ bash scripts/acceptance_test.sh online
 bash scripts/acceptance_test.sh offline
 bash scripts/acceptance_test.sh gazebo
 bash scripts/acceptance_test.sh gazebo-voice
+bash scripts/acceptance_test.sh all
+
+# 交互式，不包含在 all 中
+bash scripts/acceptance_test.sh microphone-offline
+bash scripts/acceptance_test.sh microphone-online
 ```
 
 `mock` 是每次提交前的最低门槛；当前记录为 98 项测试、0 failure。`online` 使用少量
 DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里程计位移验真。
+`all` 是完整自动 release gate，包含 mock、在线、离线、Gazebo 和在线/离线语音到 Gazebo，
+但明确排除必须由真人说话的麦克风验收。运行 `--help` 可查看模式语义。
 
 ## 2. 分层测试矩阵
 
@@ -42,6 +49,7 @@ DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里
 | provider | `smoke_test_online_real.sh`、`benchmark_offline.sh` | 云/本地模型可用和真实延迟 |
 | 物理仿真 | `smoke_test_gazebo*.sh` | Gazebo 执行动作并产生合理 `/odom` |
 | 人工声学 | `accept_voice_simulation_microphone.sh` | WSLg 麦克风、真实人声和重试体验 |
+| 验收 CLI | `test_acceptance_cli.sh` | release gate 与交互式入口保持可发现、返回码稳定 |
 
 直接运行测试：
 
@@ -95,23 +103,39 @@ WAKE_WORD_ENABLED=true SPEAKER_ENABLED=false \
 
 ## 4. 当前实测基线
 
-环境：WSL Ubuntu 24.04、ROS 2 Jazzy、16 vCPU、约 8 GB RAM；日期 2026-07-01。
+环境：WSL Ubuntu 24.04、ROS 2 Jazzy、16 vCPU、约 8 GB RAM；最新复验日期
+2026-07-02。以下为本次单次/少量样本，不是 SLA。
 
 | 指标 | 当前样本 | 结论 |
 |---|---:|---|
-| 在线 LLM 冷启动首 token | 1.63–2.34 s | 不达 1 s，必须预热 |
-| 在线 LLM 热启动首 token | 460–537 ms | 当前样本达标 |
-| 在线 TTS 首音频 | 231–301 ms | 临界，需要 P95 |
-| 在线 ASR commit-to-final | 147–173 ms | 当前样本达标 |
-| ZipFormer RTF | 0.0502–0.0525 | 远快于实时 |
-| llama.cpp CPU decode | 20.14–30.47 token/s | 超过 8.6 目标 |
-| Melo-TTS RTF | 0.53–0.60 | 快于实时 |
-| 离线首音频 | 2.11–2.84 s | 当前样本达标 |
-| 离线整轮 | 2.62–3.43 s | 当前样本接近 3.5 s 上限 |
+| 在线 LLM 冷启动首 token | 1.474 s | 不达 1 s，必须预热 |
+| 在线 LLM 热启动首 token | 350–384 ms | 当前样本达标 |
+| 在线 TTS 首音频 | 222–242 ms | 当前样本达标，仍需 P95 |
+| 在线 ASR commit-to-final | 174 ms | 当前样本达标 |
+| ZipFormer RTF | 0.0416 | 远快于实时 |
+| llama.cpp CPU decode | 34.10 token/s | 超过 8.6 目标 |
+| Melo/Sherpa-TTS RTF | 0.4006 | 快于实时 |
+| 离线首音频 | 2.274 s | 当前样本达标 |
+| 离线整轮 | 2.313 s | 当前样本低于 3.5 s |
 | 消息/音频丢弃 | 0 / 0 | 当前样本无背压丢失 |
+| 原始模型 / fallback 指令通过 | 2/8 / 7/8 | 链路可用；模型本身仍需 LoRA |
+| Gazebo 兼容链 / typed 链位移 | 0.088 / 0.330 m | 两条链均产生真实里程计位移 |
+| 离线语音→typed Action→Gazebo | 0.162 m | 带 ASR 噪声仍完成动作并返回 success |
 
 这些是少量样本，不应包装成稳定 SLA。正式数据需要固定硬件、冻结输入集、保存原始日志，
 分别报告冷/热启动 100 轮 P50/P95。
+
+### 2026-07-02 release gate 结果
+
+| Gate | 结果 | 关键证据 |
+|---|---|---|
+| `mock` | PASS | 98 tests，Lifecycle/BT/Action/plugin/component/namespace 全通过 |
+| `online` | PASS | 实际 DashScope ASR、LLM、TTS 与 Guard/hardware mock |
+| `offline` | PASS | ZipFormer、Q8 llama.cpp、Sherpa-TTS、双缓冲与 hardware mock |
+| `gazebo` | PASS | `/scan`、`/cmd_vel`、`/odom`、Action result 与 BT confirm |
+| `gazebo-voice` | PASS | speech→ZipFormer→llama.cpp/fallback→Guard→Action/BT→Gazebo |
+| `gazebo-voice-online` | PASS | speech→在线 ASR/LLM→Guard→typed Action/BT→Gazebo，位移 0.163 m |
+| 真人麦克风 | 待人工复验 | WSLg 已发现 `RDPSource`，但自动任务不能代替真人发声 |
 
 ## 5. 完成度与未验收项
 

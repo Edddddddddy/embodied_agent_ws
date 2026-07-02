@@ -186,3 +186,82 @@ TTS 策略确实不同。二者仍重复“唤醒 -> busy -> turn -> publish -> 
 
 暂不移动 `scripts/test_*.py`：它们被 shell 验收入口直接调用，移动只产生路径修改而没有
 减少复杂度。未来可在 CI 稳定后统一放入 `tests/integration/`。
+
+## 8. 新增 RobotExecutor 插件教程
+
+新增机器人后端不应修改 Action server、BT XML 或 Guard。最小步骤如下：
+
+1. 新建类继承 `embodied_simulation::RobotExecutor`，实现 `configure`、`execute`、`stop`、
+   `update_scan`、`step`、`mode_name` 和 `backend_name`。ROS 节点负责通信，插件只负责控制
+   语义，避免在插件内再创建一套 node/executor。
+2. 在实现文件末尾使用 `PLUGINLIB_EXPORT_CLASS` 注册类，并在
+   `robot_executor_plugins.xml` 增加 `<class>`；插件名采用
+   `项目名/后端名RobotExecutor`，例如 `my_robot/MyRobotExecutor`。
+3. 将实现编译进共享库，通过 `pluginlib_export_plugin_description_file` 导出描述文件，
+   package.xml 声明 pluginlib 与消息依赖。
+4. 先扩展 `test_robot_executor_plugins.cpp`：要求 pluginlib 能真实发现并实例化插件，同一
+   `RobotCommand` 能执行、step 并 stop。再增加一条无模型 ROS smoke，验证 Action result、
+   BT confirm 和 diagnostics 中的 backend 名称。
+5. 启动时传入
+   `executor_plugin:=my_robot/MyRobotExecutor`；若必须修改 BT/Guard 才能切换，说明插件
+   interface 泄漏了机器人细节，应先重新收紧 seam。
+
+插件必须遵守三条契约：`stop()` 可重复且立即归零；每个 terminal path 最终停车；
+`step()` 不阻塞 ROS executor。UART/SPI 若要迁入该 seam，应让 transport 继续作为更底层
+adapter，而不是把串口重试、CRC 和 ROS Action 全塞进一个类。
+
+## 9. 求职版项目描述
+
+**具身智能机器人端侧语音交互与仿真控制系统｜ROS 2 Jazzy / C++17 / Python**
+
+- 打通麦克风、流式 ASR、LLM 结构化动作、C++ 安全 Guard、ROS 2 Action、
+  BehaviorTree.CPP、pluginlib executor 到 TurtleBot3 Gazebo `/cmd_vel`/`odom` 的在线与
+  全离线闭环，并保留 UART/SPI adapter。
+- 将控制链规范化为 LifecycleNode 与可取消 Action；通过 BT 实现 Validate→Safety→Execute
+  →Confirm，支持取消、抢占、障碍、超时和急停；同一实现支持独立进程、component
+  container 和 namespace 隔离。
+- 部署 Qwen3-0.6B Q8/llama.cpp、ZipFormer 与 Sherpa-TTS；当前环境 CPU decode
+  34.10 token/s、离线整轮 2.313 s、在线热启动首 token 350–384 ms；建立 98 项测试及
+  mock/online/offline/Gazebo 分层 release gates。
+
+面试时必须主动说明：LoRA 尚未训练；2/8 是原始模型成绩，7/8 是 fallback 后系统成绩；
+冷启动在线 LLM 不达 1 秒；所有性能数字均是当前机器少量样本，不是生产 SLA。
+
+## 10. 面试问题与回答要点
+
+### 为什么模型不能直接发布 `/cmd_vel`？
+
+LLM 输出是不可信文本，可能格式错误、越界或幻觉。项目先转为强类型 command，经 C++
+schema/限幅，再由 Action/BT 检查生命周期与安全状态；真正的速度只由 executor 发布。
+
+### ROS topic、service、Action 在这里如何取舍？
+
+音频、雷达和状态是连续数据，用 topic；Lifecycle transition 是短请求，用 service；运动有
+持续时间、反馈、取消和 terminal result，用 Action。旧 JSON topic 仅作为兼容 gateway。
+
+### 为什么同时需要 Lifecycle 和 Behavior Tree？
+
+Lifecycle 管节点资源与启动顺序，回答“控制器是否可以工作”；BT 管一次任务的业务阶段，
+回答“这个动作如何验证、执行和确认”。两者状态机作用域不同，不能互相替代。
+
+### MultiThreadedExecutor 如何避免数据竞争？
+
+主控制 callback 使用默认互斥组，diagnostics timer 使用独立互斥组；跨组只共享 atomic
+动作标志与 mutex 保护的 `ControllerOutput`/后端快照，诊断线程不直接调用可变 executor。
+
+### pluginlib 带来了什么，不只是“为了设计模式”吗？
+
+它让 BT/Action 只依赖小型 `RobotExecutor` interface。Gazebo 与 mock 经过同一动态发现
+测试和同一 command 行为测试；新增后端通过参数选择，不需要改核心节点，seam 有可验证
+的替换价值。
+
+### 如何证明机器人真的执行了，而不是话题发成功？
+
+验收同时要求非零 `/cmd_vel`、Gazebo `/odom` 物理位移、Action success、BT
+`confirm/succeeded` 和 ACK backend；任何单一消息都不足以算闭环完成。
+
+### ASR 有错别字为什么还能动作？风险是什么？
+
+热词、唤醒别名和有限命令 fallback 可恢复常见同音/噪声文本，失败则继续监听。fallback
+只覆盖白名单动作并仍经过 Guard；它提高系统可用率，但不能冒充模型准确率，也不能无限
+扩充字符串规则替代声学 KWS。

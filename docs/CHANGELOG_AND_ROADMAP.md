@@ -17,6 +17,8 @@
 | 停滞修复 | `301b74f` | launch 参数贯通、busy 时抑制重叠 ASR |
 | 识别恢复 | `0469723` | 热词、别名、失败反馈和持续重试 |
 | Action/Lifecycle 迁移 | 当前分支 | typed Action、可取消执行、Nav2 生命周期管理 |
+| BT/plugin/component 工程化 | `11e9966` | BehaviorTree.CPP、pluginlib、组件化、diagnostics、namespace |
+| 全链交付 | 当前 | 在线/离线/Gazebo/语音到 Gazebo release gates 与求职材料 |
 | 文档与结构收敛 | 当前 | 七份重叠笔记合并为三份，完成模块依赖与入口审计 |
 
 ## 2. 当前结论
@@ -257,3 +259,29 @@ CMake/XML lint、组件化和命名空间冒烟；当前基线为 98 项测试�
 - 对比重构前后的延迟、CPU、代码结构和失败可观测性。
 - 更新架构图、接口说明、插件教程、简历项目描述和面试问题笔记。
 - 验收：旧功能无回退，新 Action/BT/Lifecycle/pluginlib 路径成为默认路径。
+
+完成状态：已完成自动化部分。2026-07-02 重跑 mock（98 tests）、低 token 在线、真实离线
+模型、Gazebo 双链以及在线/离线语音→Gazebo，均通过；typed Action/BT 路径保持默认。在线
+语音验收原先只检查位移、会在 Action result 为空时误报 PASS，本轮将门槛提升为必须收到
+typed Action success。统一验收 CLI
+新增真正覆盖所有自动 gate 的 `all`，并为 offline/online 真人麦克风提供显式交互入口。
+更新了实测延迟、CPU decode、物理位移、原始模型与 fallback 分离成绩、executor 插件教程、
+简历描述和面试问题。由于自动执行无法替用户说话，真人麦克风仍保留为最终人工验收项。
+
+### 重构前后对比
+
+| 维度 | 冻结版本 `80778a4` | 当前结果 |
+|---|---|---|
+| C++ `.cpp/.hpp` 文件 | 20 | 38，新增深模块而非复制主链 |
+| ROS 自定义 interface | 0 | `RobotCommand.msg` + `ExecuteRobotCommand.action` |
+| C++ GTest 文件 | 基线的一部分 | 10 个，覆盖 BT、Action、插件、配置与控制 |
+| 自动测试记录 | 51 项 | 98 项，0 failure |
+| 执行结构 | JSON topic 直达控制器 | Guard→typed Action→BT→plugin executor |
+| 节点生命周期 | 普通节点 | Lifecycle configure/activate/deactivate/cleanup |
+| 部署 | 独立进程 | 独立进程或 component container，同一实现 |
+| 失败观测 | ACK/日志 | Action result、BT stage、diagnostics、ACK、odom |
+| 后端切换 | 节点内分支 | pluginlib 参数选择 Gazebo/mock，可扩展 |
+
+从冻结版本到 Loop 6 共 8 个小提交，65 个文件变化、3726 行新增、141 行删除。行数增长主要
+来自 interface、BT/plugin/lifecycle 测试和兼容迁移层；后续应优先删除稳定后的旧 JSON
+执行路径，而不是继续增加平行抽象。
