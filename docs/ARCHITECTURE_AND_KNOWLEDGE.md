@@ -19,6 +19,13 @@
 
 ## 2. ROS 包与关键代码
 
+### `embodied_agent_interfaces`
+
+`RobotCommand.msg` 将 move、turn、stop、wave、LED 和模式切换表达为强类型字段，并携带
+command id、source 和时间戳。`ExecuteRobotCommand.action` 定义后续执行所需的 goal、
+feedback、result、取消、超时和阻塞状态。迁移期间 ActionGuard 同时发布旧 JSON 和新
+`/robot/action_command_typed`，因此既不破坏现有执行器，也为 Action/BT 链提供稳定 seam。
+
 ### `embodied_agent_cpp`
 
 | 文件 | 责任 |
@@ -86,6 +93,7 @@ PortAudio 回调只搬运数据，不执行网络、日志或模型推理；这�
 | `/agent/recognition_feedback` | Agent -> UI/验收器 | 失败原因、次数和重试提示 |
 | `/agent/action_candidate` | parser -> ActionGuard | 未可信动作 JSON |
 | `/robot/action_command` | ActionGuard -> executor | 已校验、已限幅动作 |
+| `/robot/action_command_typed` | ActionGuard -> 新 executor | 等价的强类型可信动作 |
 | `/robot/action_rejected` | ActionGuard -> 观测者 | schema 或安全拒绝原因 |
 | `/robot/action_ack` | executor -> 观测者 | 接受、发送或执行结果 |
 | `/cmd_vel` | SimulationController -> Gazebo | 标准差速速度 |

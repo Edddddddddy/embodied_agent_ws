@@ -15,13 +15,16 @@ require_file() {
 
 run_base() {
   colcon build --symlink-install --allow-overriding \
-    embodied_agent_cpp embodied_online_agent embodied_offline_agent embodied_simulation
+    embodied_agent_interfaces embodied_agent_cpp embodied_online_agent \
+    embodied_offline_agent embodied_simulation
   colcon test --packages-select \
-    embodied_agent_cpp embodied_online_agent embodied_offline_agent embodied_simulation \
+    embodied_agent_interfaces embodied_agent_cpp embodied_online_agent \
+    embodied_offline_agent embodied_simulation \
     --event-handlers console_direct+
   colcon test-result --verbose
   bash scripts/smoke_test.sh
   bash scripts/smoke_test_online_wake_config.sh
+  bash scripts/smoke_test_typed_action.sh
   bash scripts/smoke_test_offline.sh
   bash scripts/smoke_test_hardware.sh
   bash scripts/smoke_test_simulation.sh

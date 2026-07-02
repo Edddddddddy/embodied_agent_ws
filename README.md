@@ -70,7 +70,7 @@ WAKE_WORD_ENABLED=true \
 ## 验收入口
 
 ```bash
-bash scripts/acceptance_test.sh mock     # 51 项测试及无模型链路
+bash scripts/acceptance_test.sh mock     # 56 项测试及无模型链路
 bash scripts/acceptance_test.sh online   # 少量云 API 调用
 bash scripts/acceptance_test.sh offline  # 本地模型、语音和性能
 bash scripts/acceptance_test.sh gazebo   # Gazebo 可信动作与里程计
@@ -83,6 +83,7 @@ bash scripts/acceptance_test.sh gazebo   # Gazebo 可信动作与里程计
 
 ```text
 src/
+  embodied_agent_interfaces/ ROS 2 强类型 RobotCommand 与 ExecuteRobotCommand Action
   embodied_agent_cpp/       C++ 音频、ActionGuard、UART/SPI
   embodied_online_agent/    在线 ASR/LLM/TTS 与公共对话模块
   embodied_offline_agent/   ZipFormer、llama.cpp、Sherpa-TTS、双缓冲

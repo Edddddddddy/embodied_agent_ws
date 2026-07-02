@@ -98,7 +98,7 @@ GitHub 星数采样于 2026-07-02，会随时间变化；功能依据各项目�
 
 1. 录制 30–60 秒 GIF：说“向前走一秒” -> ASR 文本 -> 动作 JSON -> Gazebo 移动。
 2. 提供 `docker compose up demo` 或 devcontainer，缓存 ROS 依赖；mock demo 不下载模型。
-3. GitHub Actions 自动跑 build、51 项测试和 headless mock/simulation smoke。
+3. GitHub Actions 自动跑 build、56 项测试和 headless mock/simulation smoke。
 4. 补 Apache-2.0 LICENSE、CONTRIBUTING、release notes、issue 模板和架构图。
 5. 发布 `v0.1.0`，README 只保留一个主 CTA：Run the voice-to-Gazebo demo。
 
@@ -177,6 +177,10 @@ flowchart LR
 - 定义动作 goal、feedback、result 以及拒绝/执行状态；保留 command id 和时间戳。
 - 增加 JSON topic -> typed interface adapter，在线/离线 Agent 暂时无需修改。
 - 验收：错误字段被 adapter 拒绝，合法 move/turn/stop 与旧链结果一致。
+
+完成状态：已完成。新增 `RobotCommand.msg`、`ExecuteRobotCommand.action`、C++
+`RobotCommandAdapter` 和双发布冒烟测试；原有 JSON 执行路径保持默认，测试基线由 51 项
+增加到 56 项。
 
 ### Loop 2：可取消 ROS 2 Action 执行
 

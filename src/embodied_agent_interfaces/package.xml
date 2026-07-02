@@ -1,18 +1,16 @@
 <?xml version="1.0"?>
 <package format="3">
-  <name>embodied_agent_cpp</name>
+  <name>embodied_agent_interfaces</name>
   <version>0.1.0</version>
-  <description>C++ realtime audio and action safety modules for the embodied agent.</description>
+  <description>Strongly typed commands and actions for the embodied voice agent.</description>
   <maintainer email="ubuntu@example.com">ubuntu</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
-  <depend>rclcpp</depend>
-  <depend>embodied_agent_interfaces</depend>
+  <buildtool_depend>rosidl_default_generators</buildtool_depend>
   <depend>std_msgs</depend>
-  <depend>nlohmann-json3-dev</depend>
-
-  <test_depend>ament_cmake_gtest</test_depend>
+  <exec_depend>rosidl_default_runtime</exec_depend>
+  <member_of_group>rosidl_interface_packages</member_of_group>
 
   <export>
     <build_type>ament_cmake</build_type>

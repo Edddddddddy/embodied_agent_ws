@@ -16,7 +16,7 @@ bash scripts/acceptance_test.sh gazebo
 bash scripts/acceptance_test.sh gazebo-voice
 ```
 
-`mock` 是每次提交前的最低门槛；当前记录为 51 项测试、0 failure。`online` 使用少量
+`mock` 是每次提交前的最低门槛；当前记录为 56 项测试、0 failure。`online` 使用少量
 DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里程计位移验真。
 
 ## 2. 分层测试矩阵
@@ -28,6 +28,7 @@ DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里
 | 离线单元 | `embodied_offline_agent/test/` | 双缓冲、指标、ZipFormer 热词参数 |
 | 仿真单元 | `embodied_simulation/test/` | 速度限制、雷达停车、避障、沿墙 PID |
 | ROS mock | `smoke_test*.sh` | 话题发现、动作发布、ACK、watchdog |
+| 类型兼容 | `smoke_test_typed_action.sh` | 旧 JSON 与 typed command 同时发布且字段等价 |
 | provider | `smoke_test_online_real.sh`、`benchmark_offline.sh` | 云/本地模型可用和真实延迟 |
 | 物理仿真 | `smoke_test_gazebo*.sh` | Gazebo 执行动作并产生合理 `/odom` |
 | 人工声学 | `accept_voice_simulation_microphone.sh` | WSLg 麦克风、真实人声和重试体验 |
