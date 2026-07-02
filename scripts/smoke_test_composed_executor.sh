@@ -37,7 +37,7 @@ if [[ "$COMPOSED" != true ]]; then
   cat "$LOG_FILE" >&2
   exit 1
 fi
-if ! timeout 20 python3 "$WORKSPACE/scripts/test_mock_executor_pipeline.py"; then
+if ! timeout 20 python3 "$WORKSPACE/tests/integration/test_mock_executor_pipeline.py"; then
   cat "$LOG_FILE" >&2
   exit 1
 fi

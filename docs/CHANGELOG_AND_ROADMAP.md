@@ -19,6 +19,7 @@
 | Action/Lifecycle 迁移 | 当前分支 | typed Action、可取消执行、Nav2 生命周期管理 |
 | BT/plugin/component 工程化 | `11e9966` | BehaviorTree.CPP、pluginlib、组件化、diagnostics、namespace |
 | 全链交付 | 当前 | 在线/离线/Gazebo/语音到 Gazebo release gates 与求职材料 |
+| 发布前整修 | 当前 | 测试分区、diagnostics 深模块、中文设计注释、LICENSE 与贡献规范 |
 | 文档与结构收敛 | 当前 | 七份重叠笔记合并为三份，完成模块依赖与入口审计 |
 
 ## 2. 当前结论
@@ -101,7 +102,7 @@ GitHub 星数采样于 2026-07-02，会随时间变化；功能依据各项目�
 
 1. 录制 30–60 秒 GIF：说“向前走一秒” -> ASR 文本 -> 动作 JSON -> Gazebo 移动。
 2. 提供 `docker compose up demo` 或 devcontainer，缓存 ROS 依赖；mock demo 不下载模型。
-3. GitHub Actions 自动跑 build、98 项测试和 headless mock/simulation smoke。
+3. GitHub Actions 自动跑 ROS 2 build/test 和仓库约束；本地 gate 跑 headless mock/simulation smoke。
 4. 补 Apache-2.0 LICENSE、CONTRIBUTING、release notes、issue 模板和架构图。
 5. 发布 `v0.1.0`，README 只保留一个主 CTA：Run the voice-to-Gazebo demo。
 
@@ -275,7 +276,7 @@ typed Action success。统一验收 CLI
 | C++ `.cpp/.hpp` 文件 | 20 | 38，新增深模块而非复制主链 |
 | ROS 自定义 interface | 0 | `RobotCommand.msg` + `ExecuteRobotCommand.action` |
 | C++ GTest 文件 | 基线的一部分 | 10 个，覆盖 BT、Action、插件、配置与控制 |
-| 自动测试记录 | 51 项 | 98 项，0 failure |
+| 自动测试记录 | 51 项 | 130 colcon + 2 repository tests，0 failure |
 | 执行结构 | JSON topic 直达控制器 | Guard→typed Action→BT→plugin executor |
 | 节点生命周期 | 普通节点 | Lifecycle configure/activate/deactivate/cleanup |
 | 部署 | 独立进程 | 独立进程或 component container，同一实现 |
@@ -285,3 +286,17 @@ typed Action success。统一验收 CLI
 从冻结版本到 Loop 6 共 8 个小提交，65 个文件变化、3726 行新增、141 行删除。行数增长主要
 来自 interface、BT/plugin/lifecycle 测试和兼容迁移层；后续应优先删除稳定后的旧 JSON
 执行路径，而不是继续增加平行抽象。
+
+### Loop 8：发布前代码整修
+
+- 将 11 个 ROS 集成探针从 `scripts/` 迁至 `tests/integration/`，新增仓库结构回归测试；
+  `scripts/` 只保留可运行命令和进程 runner。
+- 删除无引用、已被标准 launch 与验收 CLI 覆盖的 `run_voice_simulation.sh`；把识别失败
+  重试 smoke 纳入每次 mock gate。
+- 从最大控制节点提取 `executor_diagnostics` 深模块，以纯 C++ GTest 固定 OK/WARN/ERROR
+  优先级和字段契约，降低多线程诊断逻辑的维护成本。
+- 在 AEC/VAD、动作可信 seam、Action/BT 状态、executor 插件、双缓冲和流式协议处增加
+  中文设计注释；注释只解释约束和原因，不复述语句。
+- 新增 Apache-2.0 根许可证、贡献指南与测试目录说明，README 回到运行、验收和导航职责。
+- 新增基于 ROS tooling 官方 action 的 Jazzy CI，将无密钥的仓库约束、colcon build/test
+  放到 GitHub；模型、在线 API 和 Gazebo 仍由本地分层 gate 验证。

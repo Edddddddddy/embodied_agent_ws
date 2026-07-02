@@ -3,7 +3,7 @@
   <name>embodied_online_agent</name>
   <version>0.1.0</version>
   <description>Streaming online voice agent for an embodied robot.</description>
-  <maintainer email="ubuntu@example.com">ubuntu</maintainer>
+  <maintainer email="Edddddddddy@users.noreply.github.com">Edddddddddy</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_python</buildtool_depend>

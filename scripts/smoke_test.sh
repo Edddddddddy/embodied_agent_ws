@@ -72,7 +72,7 @@ else
   fi
 fi
 
-if ! python "$WORKSPACE/scripts/test_mock_online_pipeline.py"; then
+if ! python "$WORKSPACE/tests/integration/test_mock_online_pipeline.py"; then
   echo "FAIL: mock online Agent pipeline did not complete."
   cat "$TMP_DIR/launch.log"
   exit 1

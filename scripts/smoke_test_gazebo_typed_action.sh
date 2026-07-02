@@ -22,7 +22,7 @@ cleanup() {
 trap cleanup EXIT
 
 if ! REQUIRE_TYPED_ACTION_RESULT=true \
-  python "$WORKSPACE/scripts/test_gazebo_motion.py"
+  python "$WORKSPACE/tests/integration/test_gazebo_motion.py"
 then
   cat "$LOG_FILE" >&2
   exit 1

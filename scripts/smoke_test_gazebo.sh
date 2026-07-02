@@ -20,7 +20,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if ! python "$WORKSPACE/scripts/test_gazebo_motion.py"; then
+if ! python "$WORKSPACE/tests/integration/test_gazebo_motion.py"; then
   cat "$LOG_FILE" >&2
   exit 1
 fi

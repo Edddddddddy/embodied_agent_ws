@@ -40,7 +40,8 @@ require_file() {
 }
 
 run_base() {
-  bash scripts/test_acceptance_cli.sh
+  bash tests/integration/test_acceptance_cli.sh
+  pytest -q tests/repository
   colcon build --symlink-install --allow-overriding \
     embodied_agent_interfaces embodied_agent_cpp embodied_online_agent \
     embodied_offline_agent embodied_simulation
@@ -51,6 +52,7 @@ run_base() {
   colcon test-result --verbose
   bash scripts/smoke_test.sh
   bash scripts/smoke_test_online_wake_config.sh
+  bash scripts/smoke_test_recognition_retry.sh
   bash scripts/smoke_test_lifecycle.sh
   bash scripts/smoke_test_typed_action.sh
   bash scripts/smoke_test_typed_action_server.sh
@@ -64,7 +66,7 @@ run_base() {
 }
 
 run_online() {
-  python scripts/test_online_api.py
+  python tests/integration/test_online_api.py
   bash scripts/smoke_test_online_real.sh
 }
 

@@ -31,6 +31,8 @@ struct CommandTreeResult
 class CommandBehaviorTree
 {
 public:
+  // 外部只需要 start/tick/cancel；XML 注册、blackboard 和节点 halt 细节隐藏在 Impl 中。
+  // 每次 tick 都重新注入 safety 状态，使运行中的动作也能被新障碍立即打断。
   explicit CommandBehaviorTree(const std::string & xml_text);
   ~CommandBehaviorTree();
 

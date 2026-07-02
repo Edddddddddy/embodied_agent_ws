@@ -24,6 +24,7 @@ find_package(std_msgs REQUIRED)
 add_library(simulation_control_core
   src/action_execution.cpp
   src/command_behavior_tree.cpp
+  src/executor_diagnostics.cpp
   src/node_configuration.cpp
   src/simulation_controller.cpp
 )
@@ -34,7 +35,7 @@ target_include_directories(simulation_control_core PUBLIC
   $<INSTALL_INTERFACE:include>
 )
 ament_target_dependencies(simulation_control_core PUBLIC
-  behaviortree_cpp embodied_agent_interfaces)
+  behaviortree_cpp diagnostic_msgs embodied_agent_interfaces)
 
 add_library(embodied_simulation_executors SHARED
   src/robot_executor_plugins.cpp
@@ -96,6 +97,8 @@ if(BUILD_TESTING)
   ament_target_dependencies(test_robot_executor_plugins pluginlib)
   ament_add_gtest(test_node_configuration test/test_node_configuration.cpp)
   target_link_libraries(test_node_configuration simulation_control_core)
+  ament_add_gtest(test_executor_diagnostics test/test_executor_diagnostics.cpp)
+  target_link_libraries(test_executor_diagnostics simulation_control_core)
 endif()
 
 ament_export_include_directories(include)

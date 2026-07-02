@@ -1,5 +1,7 @@
 # Embodied Voice Agent for ROS 2
 
+[![ROS 2 CI](https://github.com/Edddddddddy/embodied_agent_ws/actions/workflows/ros2-ci.yml/badge.svg)](https://github.com/Edddddddddy/embodied_agent_ws/actions/workflows/ros2-ci.yml)
+
 面向 TurtleBot3 与端侧机器人的在线/离线语音控制系统：从麦克风、流式 ASR、LLM
 动作解析，一直到 C++ 安全仲裁、Gazebo 仿真或 UART/SPI 硬件输出。
 
@@ -77,7 +79,7 @@ WAKE_WORD_ENABLED=true \
 ## 验收入口
 
 ```bash
-bash scripts/acceptance_test.sh mock     # 98 项测试及无模型链路
+bash scripts/acceptance_test.sh mock     # 单元/结构测试及无模型全链
 bash scripts/acceptance_test.sh online   # 少量云 API 调用
 bash scripts/acceptance_test.sh offline  # 本地模型、语音和性能
 bash scripts/acceptance_test.sh gazebo   # Gazebo 可信动作与里程计
@@ -119,7 +121,8 @@ launch 参数 `executor_plugin` 默认为
 ## 当前自动验收结论
 
 2026-07-02 在当前 WSL 环境完成了 mock、在线、离线、Gazebo，以及在线/离线语音→Gazebo 验收：
-98 项测试零失败；在线热启动 LLM 首 token 350–384 ms、TTS 首音频 222–242 ms；离线
+130 项 colcon 测试与 2 项仓库约束测试零失败；在线热启动 LLM 首 token 350–384 ms、
+TTS 首音频 222–242 ms；离线
 Q8 CPU decode 34.10 token/s、语音全链 2.313 s；typed Action/BT 驱动 Gazebo 位移
 0.330 m，在线语音 typed 闭环位移 0.163 m。原始 0.6B 模型动作准确率仅 2/8，fallback 后为 7/8，因此 LoRA 仍明确标记为
 未完成，不能用 fallback 成绩冒充模型成绩。完整证据见[测试与验收](docs/TESTING_AND_ACCEPTANCE.md)。
@@ -134,6 +137,8 @@ src/
   embodied_offline_agent/   ZipFormer、llama.cpp、Sherpa-TTS、双缓冲
   embodied_simulation/      TurtleBot3 控制、雷达安全和 Gazebo launch
 scripts/                    安装、启动、基准和分层验收入口
+tests/integration/          ROS graph 黑盒探针，由 smoke runner 启动
+tests/repository/           仓库结构与交付约束
 training/                   LoRA 种子数据与 LLaMA-Factory 配置（尚未训练）
 docs/                       三份维护文档
 ```
@@ -143,6 +148,8 @@ docs/                       三份维护文档
 - [架构与知识笔记](docs/ARCHITECTURE_AND_KNOWLEDGE.md)：模块、关键代码、话题和设计原理。
 - [测试与验收](docs/TESTING_AND_ACCEPTANCE.md)：命令、测试矩阵、指标和故障定位。
 - [版本记录与路线图](docs/CHANGELOG_AND_ROADMAP.md)：迭代历史、完成度、竞品对比和下一步。
+- [测试目录说明](tests/README.md)：单元、集成和仓库约束如何分层。
+- [贡献指南](CONTRIBUTING.md)：修改原则、提交前检查和 executor 扩展要求。
 
 ## 当前边界
 
@@ -151,5 +158,5 @@ docs/                       三份维护文档
 - 合成语音下短唤醒词仍可能误识别；生产环境应接 sherpa-onnx 独立 KWS。
 - AEC、P95 延迟和 UART/SPI 仍需在目标机器人硬件上验收。
 
-项目使用 Apache-2.0 风格的包许可声明；公开推广前应在仓库根目录补齐正式
-`LICENSE`、贡献指南、CI 和演示视频。
+项目采用 [Apache License 2.0](LICENSE)，GitHub Actions 运行仓库约束及 ROS 2 Jazzy
+build/test；本地 release gate 继续负责需要模型、云 API、Gazebo 与真人麦克风的链路。

@@ -108,6 +108,7 @@ PortAudio 回调只搬运数据，不执行网络、日志或模型推理；这�
 | `simulation_control_main.cpp` | 独立进程入口与双线程 MultiThreadedExecutor |
 | `simulation_control_factory.hpp` | 独立入口复用 component 实现的工厂 seam |
 | `node_configuration.cpp` | configure 前的控制参数与插件名交叉校验 |
+| `executor_diagnostics.cpp` | 从线程安全快照构造标准 diagnostics，统一等级与字段契约 |
 | `simulation_control.launch.py` | 独立/组合部署、namespace 与 Lifecycle 管理 |
 | `voice_turtlebot3.launch.py` | Agent、Guard、Gazebo、bridge 的组合启动 |
 
@@ -184,8 +185,10 @@ TTS 策略确实不同。二者仍重复“唤醒 -> busy -> turn -> publish -> 
 应先定义一个小型 `TurnCoordinator` interface，通过 mock adapter 写端到端行为测试，
 然后替换重复代码，而不是再叠一层工具函数。
 
-暂不移动 `scripts/test_*.py`：它们被 shell 验收入口直接调用，移动只产生路径修改而没有
-减少复杂度。未来可在 CI 稳定后统一放入 `tests/integration/`。
+集成探针已统一迁到 `tests/integration/`，`scripts/` 只保留用户命令与负责进程生命周期的
+runner。仓库约束测试会阻止 `scripts/test_*` 再次出现。最大的剩余热点仍是
+`simulation_control_node.cpp`；本轮先提取 diagnostics 深模块，使等级、字段和并发快照可
+独立测试，后续只在出现第二个明确职责簇时继续拆分，避免产生一批浅层转发类。
 
 ## 8. 新增 RobotExecutor 插件教程
 
@@ -221,7 +224,8 @@ adapter，而不是把串口重试、CRC 和 ROS Action 全塞进一个类。
   →Confirm，支持取消、抢占、障碍、超时和急停；同一实现支持独立进程、component
   container 和 namespace 隔离。
 - 部署 Qwen3-0.6B Q8/llama.cpp、ZipFormer 与 Sherpa-TTS；当前环境 CPU decode
-  34.10 token/s、离线整轮 2.313 s、在线热启动首 token 350–384 ms；建立 98 项测试及
+  34.10 token/s、离线整轮 2.313 s、在线热启动首 token 350–384 ms；建立 130 项 colcon
+  测试、2 项仓库约束测试及
   mock/online/offline/Gazebo 分层 release gates。
 
 面试时必须主动说明：LoRA 尚未训练；2/8 是原始模型成绩，7/8 是 fallback 后系统成绩；

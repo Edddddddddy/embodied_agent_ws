@@ -13,8 +13,6 @@
 #include <embodied_agent_interfaces/action/execute_robot_command.hpp>
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include <diagnostic_msgs/msg/diagnostic_array.hpp>
-#include <diagnostic_msgs/msg/diagnostic_status.hpp>
-#include <diagnostic_msgs/msg/key_value.hpp>
 #include <geometry_msgs/msg/twist.hpp>
 #include <lifecycle_msgs/msg/state.hpp>
 #include <nlohmann/json.hpp>
@@ -29,6 +27,7 @@
 
 #include "embodied_simulation/action_execution.hpp"
 #include "embodied_simulation/command_behavior_tree.hpp"
+#include "embodied_simulation/executor_diagnostics.hpp"
 #include "embodied_simulation/node_configuration.hpp"
 #include "embodied_simulation/robot_executor.hpp"
 #include "embodied_simulation/simulation_controller.hpp"
@@ -679,15 +678,6 @@ private:
     cmd_vel_pub_->publish(geometry_msgs::msg::Twist());
   }
 
-  static diagnostic_msgs::msg::KeyValue diagnostic_value(
-    const std::string & key, const std::string & value)
-  {
-    diagnostic_msgs::msg::KeyValue item;
-    item.key = key;
-    item.value = value;
-    return item;
-  }
-
   void publish_diagnostics()
   {
     if (!diagnostics_pub_ || !diagnostics_pub_->is_activated() || !executor_) {
@@ -698,29 +688,11 @@ private:
       std::lock_guard<std::mutex> lock(diagnostics_mutex_);
       output = diagnostic_output_;
     }
-    diagnostic_msgs::msg::DiagnosticStatus status;
-    status.name = get_fully_qualified_name();
-    status.hardware_id = executor_backend_;
-    if (output.safety_stopped) {
-      status.level = diagnostic_msgs::msg::DiagnosticStatus::ERROR;
-      status.message = output.reason;
-    } else if (output.sensor_stale && executor_backend_ == "simulation") {
-      status.level = diagnostic_msgs::msg::DiagnosticStatus::WARN;
-      status.message = output.reason;
-    } else {
-      status.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
-      status.message = "ready";
-    }
-    status.values = {
-      diagnostic_value("lifecycle_state", get_current_state().label()),
-      diagnostic_value("executor_plugin", executor_plugin_),
-      diagnostic_value("executor_backend", executor_backend_),
-      diagnostic_value("control_mode", SimulationController::mode_name(output.mode)),
-      diagnostic_value("active_action", action_active_ ? "true" : "false"),
-      diagnostic_value("sensor_stale", output.sensor_stale ? "true" : "false"),
-      diagnostic_value("safety_stopped", output.safety_stopped ? "true" : "false"),
-      diagnostic_value("reason", output.reason),
-    };
+    // 回调组可以并行运行；传给纯函数的内容全部来自锁保护快照或只读配置。
+    const auto status = make_executor_diagnostic({
+      get_fully_qualified_name(), get_current_state().label(), executor_plugin_,
+      executor_backend_, SimulationController::mode_name(output.mode), output.reason,
+      action_active_, output.sensor_stale, output.safety_stopped});
     diagnostic_msgs::msg::DiagnosticArray message;
     message.header.stamp = now();
     message.status.push_back(status);

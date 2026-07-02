@@ -21,7 +21,8 @@ bash scripts/acceptance_test.sh microphone-offline
 bash scripts/acceptance_test.sh microphone-online
 ```
 
-`mock` 是每次提交前的最低门槛；当前记录为 98 项测试、0 failure。`online` 使用少量
+`mock` 是每次提交前的最低门槛；当前记录为 130 项 colcon 测试、2 项仓库约束测试、
+0 failure。`online` 使用少量
 DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里程计位移验真。
 `all` 是完整自动 release gate，包含 mock、在线、离线、Gazebo 和在线/离线语音到 Gazebo，
 但明确排除必须由真人说话的麦克风验收。运行 `--help` 可查看模式语义。
@@ -49,7 +50,8 @@ DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里
 | provider | `smoke_test_online_real.sh`、`benchmark_offline.sh` | 云/本地模型可用和真实延迟 |
 | 物理仿真 | `smoke_test_gazebo*.sh` | Gazebo 执行动作并产生合理 `/odom` |
 | 人工声学 | `accept_voice_simulation_microphone.sh` | WSLg 麦克风、真实人声和重试体验 |
-| 验收 CLI | `test_acceptance_cli.sh` | release gate 与交互式入口保持可发现、返回码稳定 |
+| 仓库约束 | `tests/repository/` | 用户脚本与集成探针分区、关键探针保持可发现 |
+| 验收 CLI | `tests/integration/test_acceptance_cli.sh` | release gate 与交互式入口保持可发现、返回码稳定 |
 
 直接运行测试：
 
@@ -59,6 +61,7 @@ colcon test --event-handlers console_direct+
 colcon test-result --verbose
 
 pytest -q src/embodied_online_agent/test src/embodied_offline_agent/test
+pytest -q tests/repository
 bash scripts/smoke_test_recognition_retry.sh
 ```
 
@@ -129,7 +132,7 @@ WAKE_WORD_ENABLED=true SPEAKER_ENABLED=false \
 
 | Gate | 结果 | 关键证据 |
 |---|---|---|
-| `mock` | PASS | 98 tests，Lifecycle/BT/Action/plugin/component/namespace 全通过 |
+| `mock` | PASS | 130 colcon + 2 repository tests，全链 smoke 通过 |
 | `online` | PASS | 实际 DashScope ASR、LLM、TTS 与 Guard/hardware mock |
 | `offline` | PASS | ZipFormer、Q8 llama.cpp、Sherpa-TTS、双缓冲与 hardware mock |
 | `gazebo` | PASS | `/scan`、`/cmd_vel`、`/odom`、Action result 与 BT confirm |

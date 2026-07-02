@@ -20,7 +20,7 @@ trap cleanup EXIT
 
 activate_lifecycle_node simulation_control
 
-if ! timeout 20 python "$WORKSPACE/scripts/test_typed_action_server.py"; then
+if ! timeout 20 python "$WORKSPACE/tests/integration/test_typed_action_server.py"; then
   cat "$LOG_FILE" >&2
   exit 1
 fi

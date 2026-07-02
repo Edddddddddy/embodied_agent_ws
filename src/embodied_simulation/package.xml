@@ -3,7 +3,7 @@
   <name>embodied_simulation</name>
   <version>0.1.0</version>
   <description>Voice-driven TurtleBot3 simulation control and lidar safety.</description>
-  <maintainer email="ubuntu@example.com">ubuntu</maintainer>
+  <maintainer email="Edddddddddy@users.noreply.github.com">Edddddddddy</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

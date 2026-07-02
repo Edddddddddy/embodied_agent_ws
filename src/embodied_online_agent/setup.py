@@ -17,8 +17,8 @@ setup(
     install_requires=["setuptools"],
     tests_require=["pytest"],
     zip_safe=True,
-    maintainer="ubuntu",
-    maintainer_email="ubuntu@example.com",
+    maintainer="Edddddddddy",
+    maintainer_email="Edddddddddy@users.noreply.github.com",
     description="Streaming online voice agent for an embodied robot",
     license="Apache-2.0",
     entry_points={

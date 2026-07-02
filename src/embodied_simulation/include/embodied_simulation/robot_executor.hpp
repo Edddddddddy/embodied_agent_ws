@@ -15,6 +15,8 @@ class RobotExecutor
 public:
   virtual ~RobotExecutor() = default;
 
+  // 插件契约：execute/step 不得长时间阻塞 ROS executor；stop 必须幂等并立即归零。
+  // Gazebo 与 mock 两个 adapter 共同证明这个 pluginlib seam 是真实可替换点。
   virtual void configure(const ControllerConfig & config) = 0;
   virtual bool execute(
     const embodied_agent_interfaces::msg::RobotCommand & command,
@@ -28,6 +30,7 @@ public:
     double range_max,
     double now_s) = 0;
   virtual ControllerOutput step(double now_s) = 0;
+  // 名称会进入 ACK 与 diagnostics，必须稳定，不能包含一次运行的随机信息。
   virtual std::string mode_name() const = 0;
   virtual std::string backend_name() const = 0;
 };
