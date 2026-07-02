@@ -3,6 +3,7 @@
 
 import json
 import math
+import os
 import threading
 import time
 
@@ -34,10 +35,14 @@ class VoiceGazeboProbe(Node):
         self.scan_received = False
         self.asr_text = None
         self.action_ack = None
+        self.action_result = None
         self.create_subscription(Odometry, "/odom", self._on_odom, 10)
         self.create_subscription(LaserScan, "/scan", self._on_scan, 10)
         self.create_subscription(String, "/agent/asr_final", self._on_asr, 10)
         self.create_subscription(String, "/robot/action_ack", self._on_ack, 10)
+        self.create_subscription(
+            String, "/robot/action_result", self._on_result, 10
+        )
 
     def _on_odom(self, message):
         self.position = (
@@ -55,6 +60,9 @@ class VoiceGazeboProbe(Node):
         payload = json.loads(message.data)
         if payload.get("action") == "move":
             self.action_ack = payload
+
+    def _on_result(self, message):
+        self.action_result = json.loads(message.data)
 
 
 def resample(pcm, source_rate, target_rate):
@@ -76,6 +84,7 @@ def wait_until(predicate, timeout, description):
 
 
 def main():
+    require_typed_result = os.getenv("REQUIRE_TYPED_ACTION_RESULT") == "true"
     tts = SherpaVitsTts(
         "/home/ubuntu/embodied_agent_ws/models/vits-melo-tts-zh_en", 2, 0, 1.0
     )
@@ -110,9 +119,21 @@ def main():
             "ZipFormer produced no final transcript",
         )
         wait_until(
-            lambda: node.position is not None
-            and math.hypot(node.position[0] - start[0], node.position[1] - start[1]) > 0.05
-            and node.action_ack is not None,
+            lambda: (
+                node.position is not None
+                and math.hypot(
+                    node.position[0] - start[0], node.position[1] - start[1]
+                ) > 0.05
+                and node.action_ack is not None
+                and (
+                    not require_typed_result
+                    or (
+                        node.action_result is not None
+                        and node.action_result.get("success") is True
+                        and node.action_result.get("message") == "succeeded"
+                    )
+                )
+            ),
             35.0,
             f"voice command did not move TurtleBot3; asr={node.asr_text!r}",
         )
@@ -125,6 +146,7 @@ def main():
             "asr_text": node.asr_text,
             "distance_m": round(distance, 3),
             "action_ack": node.action_ack,
+            "action_result": node.action_result,
             "voice_to_gazebo_motion": True,
         }, ensure_ascii=False, indent=2))
     finally:

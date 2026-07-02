@@ -4,7 +4,8 @@ WORKSPACE="${WORKSPACE:-/home/ubuntu/embodied_agent_ws}"
 source "$WORKSPACE/scripts/activate.sh"
 
 LOG_FILE="$(mktemp)"
-ros2 launch embodied_simulation simulation_control.launch.py >"$LOG_FILE" 2>&1 &
+ros2 launch embodied_simulation simulation_control.launch.py \
+  use_typed_actions:=false >"$LOG_FILE" 2>&1 &
 CONTROL_PID=$!
 ros2 run embodied_agent_cpp action_guard >>"$LOG_FILE" 2>&1 &
 GUARD_PID=$!

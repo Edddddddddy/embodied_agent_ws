@@ -31,6 +31,7 @@ DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里
 | 类型兼容 | `smoke_test_typed_action.sh` | 旧 JSON 与 typed command 同时发布且字段等价 |
 | Action 状态 | `smoke_test_typed_action_server.sh` | 成功、反馈、取消、阻塞、超时和抢占 |
 | Action 全链 | `smoke_test_typed_action_pipeline.sh` | JSON -> typed -> Action -> 仿真控制 |
+| Action + Gazebo | `smoke_test_gazebo_typed_action.sh` | terminal result 与真实 `/odom` 位移 |
 | provider | `smoke_test_online_real.sh`、`benchmark_offline.sh` | 云/本地模型可用和真实延迟 |
 | 物理仿真 | `smoke_test_gazebo*.sh` | Gazebo 执行动作并产生合理 `/odom` |
 | 人工声学 | `accept_voice_simulation_microphone.sh` | WSLg 麦克风、真实人声和重试体验 |
@@ -64,6 +65,9 @@ bash scripts/accept_voice_simulation_microphone.sh online
 
 系统依次要求：ASR final、action candidate、guarded command、simulation ACK、非零
 `/cmd_vel` 和合理 `/odom` 位移。只看到识别文本不算通过。
+
+`voice_turtlebot3.launch.py` 默认启用 typed Action。`acceptance_test.sh gazebo` 会同时验证
+默认链与显式 typed terminal result；`gazebo-voice` 要求离线语音链收到成功 result 后才通过。
 
 单独验收唤醒词：
 

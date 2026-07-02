@@ -3,6 +3,7 @@
 
 import json
 import math
+import os
 import threading
 import time
 
@@ -20,9 +21,14 @@ class GazeboProbe(Node):
         self.position = None
         self.scan_received = False
         self.ack = None
+        self.action_result = None
+        self.move_result = None
         self.create_subscription(Odometry, "/odom", self._on_odom, 10)
         self.create_subscription(LaserScan, "/scan", self._on_scan, 10)
         self.create_subscription(String, "/robot/action_ack", self._on_ack, 10)
+        self.create_subscription(
+            String, "/robot/action_result", self._on_result, 10
+        )
 
     def _on_odom(self, message):
         self.position = (
@@ -35,6 +41,11 @@ class GazeboProbe(Node):
 
     def _on_ack(self, message):
         self.ack = json.loads(message.data)
+
+    def _on_result(self, message):
+        self.action_result = json.loads(message.data)
+        if self.action_result.get("message") == "succeeded":
+            self.move_result = self.action_result
 
     def action(self, name, arguments):
         data = json.dumps({"name": name, "arguments": arguments})
@@ -51,6 +62,7 @@ def wait_until(predicate, timeout, description):
 
 
 def main():
+    require_typed_result = os.getenv("REQUIRE_TYPED_ACTION_RESULT") == "true"
     rclpy.init()
     node = GazeboProbe()
     executor = rclpy.executors.SingleThreadedExecutor()
@@ -69,11 +81,22 @@ def main():
         start = node.position
         node.action("move", {"linear_x": 0.18, "duration_s": 2.0})
         wait_until(
-            lambda: node.position is not None
-            and math.hypot(node.position[0] - start[0], node.position[1] - start[1]) > 0.08
-            and node.ack is not None
-            and node.ack.get("action") == "move"
-            and node.ack.get("backend") == "simulation",
+            lambda: (
+                node.position is not None
+                and math.hypot(
+                    node.position[0] - start[0], node.position[1] - start[1]
+                ) > 0.08
+                and node.ack is not None
+                and node.ack.get("action") == "move"
+                and node.ack.get("backend") == "simulation"
+                and (
+                not require_typed_result
+                or (
+                    node.move_result is not None
+                    and node.move_result.get("success") is True
+                )
+                )
+            ),
             10.0,
             "TurtleBot3 did not move after action command",
         )
@@ -92,6 +115,7 @@ def main():
             "scan_received": node.scan_received,
             "distance_m": round(distance, 3),
             "action_ack": node.ack,
+            "move_action_result": node.move_result,
         }, ensure_ascii=False, indent=2))
     finally:
         executor.shutdown()

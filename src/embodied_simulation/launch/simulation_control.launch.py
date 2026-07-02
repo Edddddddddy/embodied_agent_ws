@@ -19,7 +19,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument("config", default_value=default_config),
         DeclareLaunchArgument("use_sim_time", default_value="false"),
-        DeclareLaunchArgument("use_typed_actions", default_value="false"),
+        DeclareLaunchArgument("use_typed_actions", default_value="true"),
         Node(
             package="embodied_simulation",
             executable="simulation_control_node",

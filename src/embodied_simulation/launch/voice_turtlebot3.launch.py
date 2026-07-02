@@ -70,7 +70,7 @@ def generate_launch_description():
         DeclareLaunchArgument("capture_enabled", default_value=microphone),
         DeclareLaunchArgument("speaker_enabled", default_value="false"),
         DeclareLaunchArgument("wake_word_enabled", default_value="true"),
-        DeclareLaunchArgument("use_typed_actions", default_value="false"),
+        DeclareLaunchArgument("use_typed_actions", default_value="true"),
         DeclareLaunchArgument("x_pose", default_value="-2.0"),
         DeclareLaunchArgument("y_pose", default_value="-0.5"),
         SetEnvironmentVariable("TURTLEBOT3_MODEL", "burger"),

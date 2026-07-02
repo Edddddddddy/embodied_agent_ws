@@ -192,7 +192,8 @@ flowchart LR
 完成状态：已完成。`SimulationController` 暴露 `/robot/execute_command` Action server，
 新增纯 C++ `ActionExecution` 状态机和 `typed_action_bridge`；成功、进度、主动取消、目标
 抢占、雷达阻塞、硬超时及最终停车均通过自动验收。launch 参数 `use_typed_actions` 可在
-不删除旧路径的情况下启用新链，测试基线增加到 61 项。
+不删除旧路径的情况下切换执行链。补充验收后 typed Action 已成为仿真 launch 默认路径，
+真实 Gazebo 位移和离线语音→LLM→Action terminal result 均已通过；旧链仍有独立回归测试。
 
 ### Loop 3：Lifecycle
 

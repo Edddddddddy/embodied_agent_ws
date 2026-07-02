@@ -46,8 +46,8 @@ case "$LEVEL" in
   mock) run_base ;;
   online) python scripts/test_online_api.py; bash scripts/smoke_test_online_real.sh ;;
   offline) check_offline_runtime; bash scripts/benchmark_offline.sh; bash scripts/evaluate_instruction_following.sh; bash scripts/smoke_test_offline_real.sh; bash scripts/smoke_test_offline_voice_real.sh ;;
-  gazebo) bash scripts/smoke_test_gazebo.sh ;;
-  gazebo-voice) check_offline_runtime; bash scripts/smoke_test_gazebo_voice.sh ;;
+  gazebo) bash scripts/smoke_test_gazebo.sh; bash scripts/smoke_test_gazebo_typed_action.sh ;;
+  gazebo-voice) check_offline_runtime; USE_TYPED_ACTIONS=true bash scripts/smoke_test_gazebo_voice.sh ;;
   gazebo-voice-online) check_offline_runtime; bash scripts/smoke_test_gazebo_voice_online.sh ;;
   all) run_base; python scripts/test_online_api.py; bash scripts/smoke_test_online_real.sh; check_offline_runtime; bash scripts/benchmark_offline.sh; bash scripts/evaluate_instruction_following.sh; bash scripts/smoke_test_offline_real.sh; bash scripts/smoke_test_offline_voice_real.sh ;;
   *) echo "Usage: $0 {preflight|mock|online|offline|gazebo|gazebo-voice|gazebo-voice-online|all}" >&2; exit 2 ;;
