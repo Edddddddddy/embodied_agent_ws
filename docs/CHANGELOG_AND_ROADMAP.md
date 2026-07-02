@@ -21,6 +21,7 @@
 | 全链交付 | 当前 | 在线/离线/Gazebo/语音到 Gazebo release gates 与求职材料 |
 | 发布前整修 | 当前 | 测试分区、diagnostics 深模块、中文设计注释、LICENSE 与贡献规范 |
 | 文档与结构收敛 | 当前 | 七份重叠笔记合并为三份，完成模块依赖与入口审计 |
+| rich simulation demo | 当前 | `arc` 弧线动作、组合动作顺序执行、mock demo 验收与企业化分支流程 |
 
 ## 2. 当前结论
 

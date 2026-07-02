@@ -5,7 +5,7 @@
 面向 TurtleBot3 与端侧机器人的在线/离线语音控制系统：从麦克风、流式 ASR、LLM
 动作解析，一直到 C++ 安全仲裁、Gazebo 仿真或 UART/SPI 硬件输出。
 
-> 当前定位是“可复现的工程原型”：优先保证 `move / turn / stop` 的完整链路，
+> 当前定位是“可复现的工程原型”：优先保证 `move / turn / stop / arc` 的完整链路，
 > 不追求复杂导航行为。目标环境为 Ubuntu 24.04、ROS 2 Jazzy、Python 3.12、C++17。
 
 ## 能做什么
@@ -15,6 +15,7 @@
 - 声学前端：C++ PortAudio、NLMS AEC、VAD、0.4 秒静音断句。
 - 识别恢复：热词偏置、唤醒别名、失败反馈和持续重试。
 - 动作安全：结构化动作、C++ schema 校验、限幅、急停和 watchdog。
+- 丰富演示：支持原地转一圈、绕圈/画圆、走正方形和“演示一下”组合动作。
 - 生命周期：Guard 与仿真执行器采用 C++ LifecycleNode，由 Nav2 manager 有序激活。
 - 行为编排：BehaviorTree.CPP XML 执行验证、安全检查、异步动作与结果确认。
 - 执行插件：pluginlib 按参数切换 Gazebo 与无仿真的 mock executor。
@@ -82,6 +83,7 @@ WAKE_WORD_ENABLED=true \
 bash scripts/acceptance_test.sh mock     # 单元/结构测试及无模型全链
 bash scripts/acceptance_test.sh online   # 少量云 API 调用
 bash scripts/acceptance_test.sh offline  # 本地模型、语音和性能
+bash scripts/acceptance_test.sh demo     # mock 仿真组合动作演示
 bash scripts/acceptance_test.sh gazebo   # Gazebo 可信动作与里程计
 bash scripts/acceptance_test.sh gazebo-voice  # 离线语音模型直达 Gazebo
 bash scripts/acceptance_test.sh all      # 全部自动 release gates（不含真人麦克风）
@@ -108,6 +110,7 @@ launch 默认 `lifecycle_autostart:=true`；调试启动顺序时可设为 `fals
 
 ```bash
 bash scripts/smoke_test_mock_executor.sh
+bash scripts/smoke_test_demo_sequence.sh
 bash scripts/smoke_test_composed_executor.sh
 bash scripts/smoke_test_namespaced_executor.sh
 ```
@@ -126,6 +129,11 @@ TTS 首音频 222–242 ms；离线
 Q8 CPU decode 34.10 token/s、语音全链 2.313 s；typed Action/BT 驱动 Gazebo 位移
 0.330 m，在线语音 typed 闭环位移 0.163 m。原始 0.6B 模型动作准确率仅 2/8，fallback 后为 7/8，因此 LoRA 仍明确标记为
 未完成，不能用 fallback 成绩冒充模型成绩。完整证据见[测试与验收](docs/TESTING_AND_ACCEPTANCE.md)。
+
+2026-07-03 新增 rich simulation demo 能力：`arc` 动作会在安全层规范化为 typed
+`MOVE(linear_x, angular_z, duration_s)`，Gazebo/mock executor 可执行弧线速度；
+“走正方形”和“演示一下”会在 Agent 层拆成有序 primitive action，并按
+`/robot/action_result` 逐步推进，任一步失败会自动补发 `stop`。
 
 ## 项目结构
 

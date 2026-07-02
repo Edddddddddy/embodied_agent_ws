@@ -11,7 +11,8 @@ from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Empty, String, UInt8MultiArray
 
 from embodied_online_agent.memory import ConversationMemory
-from embodied_online_agent.command_fallback import parse_fallback_action, should_block_model_actions
+from embodied_online_agent.action_sequence import SequentialActionPublisher
+from embodied_online_agent.command_fallback import parse_fallback_actions, should_block_model_actions
 from embodied_online_agent.protocol import SentenceChunker, TaggedStreamParser
 from embodied_online_agent.recognition_retry import RecognitionRetryTracker
 from embodied_online_agent.wakeword import WakeWordGate
@@ -44,6 +45,9 @@ class OfflineAgentNode(Node):
         self._retry_tracker = RecognitionRetryTracker(
             self._param("recognition_max_retries")
         )
+        self._action_sequencer = SequentialActionPublisher(
+            self._param("action_sequence_wait_timeout_s")
+        )
         prompt_path = Path(
             get_package_share_directory("embodied_online_agent")
         ) / "prompts" / "system_prompt_zh.txt"
@@ -68,6 +72,7 @@ class OfflineAgentNode(Node):
         self._audio_pub = self.create_publisher(UInt8MultiArray, "/audio/tts_pcm", audio_qos)
         self.create_subscription(String, "/agent/text_input", self._on_text, 10)
         self.create_subscription(Empty, "/agent/clear_memory", self._on_clear, 10)
+        self.create_subscription(String, "/robot/action_result", self._on_action_result, 10)
 
         self._asr, self._llm, self._tts = self._create_providers()
         if self._param("microphone_enabled"):
@@ -116,6 +121,7 @@ class OfflineAgentNode(Node):
             "tts_chunk_max_chars": 24,
             "tts_pcm_chunk_ms": 80,
             "mock_token_delay_s": 0.0,
+            "action_sequence_wait_timeout_s": 12.0,
         }
         for name, value in defaults.items():
             self.declare_parameter(name, value)
@@ -233,6 +239,9 @@ class OfflineAgentNode(Node):
     def _on_clear(self, _message):
         self._memory.clear()
 
+    def _on_action_result(self, message):
+        self._action_sequencer.notify_result(message.data)
+
     def _accept_transcript(self, transcript):
         command = self._wake_gate.process(transcript)
         if command is None:
@@ -317,9 +326,9 @@ class OfflineAgentNode(Node):
                 model_actions.extend(events.actions)
             final = parser.finish()
             model_actions.extend(final.actions)
-            fallback_action = parse_fallback_action(user_text)
-            if fallback_action is not None:
-                self._publish_actions([fallback_action])
+            fallback_actions = parse_fallback_actions(user_text)
+            if fallback_actions:
+                self._publish_actions(fallback_actions)
             elif should_block_model_actions(user_text):
                 if model_actions:
                     self.get_logger().warning("model actions blocked by semantic safety policy")
@@ -363,11 +372,21 @@ class OfflineAgentNode(Node):
                 self._publish_state("listening")
 
     def _publish_actions(self, actions):
-        count = 0
-        for action in actions:
-            self._action_pub.publish(String(data=json.dumps(action.as_dict(), ensure_ascii=False)))
-            count += 1
-        return count
+        action_list = list(actions)
+
+        def publish_payload(payload):
+            self._action_pub.publish(String(data=payload))
+
+        report = self._action_sequencer.publish(
+            action_list,
+            publish_payload,
+            wait_for_results=len(action_list) > 1,
+        )
+        if report.failed:
+            self.get_logger().warning(
+                f"action sequence stopped after {report.completed} completed step(s): {report.reason}"
+            )
+        return report.published
 
     def _publish_state(self, state):
         self._state_pub.publish(String(data=state))

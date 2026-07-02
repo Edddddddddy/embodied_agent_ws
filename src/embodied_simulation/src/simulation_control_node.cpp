@@ -290,8 +290,20 @@ private:
              command.mode == "obstacle_avoidance" ||
              command.mode == "wall_following";
     }
+    if (command.action_type == Command::WAVE) {
+      return command.count >= 1 && command.count <= 5;
+    }
+    if (command.action_type == Command::SET_LED) {
+      return command.color == "off" ||
+             command.color == "red" ||
+             command.color == "green" ||
+             command.color == "blue" ||
+             command.color == "yellow" ||
+             command.color == "white";
+    }
     if (command.action_type == Command::MOVE) {
       return std::isfinite(command.linear_x) &&
+             std::isfinite(command.angular_z) &&
              std::isfinite(command.duration_s) &&
              command.duration_s >= 0.0 && command.duration_s <= 10.0;
     }
@@ -350,6 +362,22 @@ private:
         goal_handle, accepted,
         accepted ? "mode_changed" : "unsupported_mode");
       publish_action_ack("set_mode", accepted ? "accepted" : "rejected");
+      return;
+    }
+    if (command.action_type == Command::WAVE) {
+      const bool accepted = executor_->execute(command, now_seconds());
+      finish_immediate_action(
+        goal_handle, accepted,
+        accepted ? "wave_acknowledged" : "executor_rejected");
+      publish_action_ack("wave", accepted ? "accepted" : "rejected");
+      return;
+    }
+    if (command.action_type == Command::SET_LED) {
+      const bool accepted = executor_->execute(command, now_seconds());
+      finish_immediate_action(
+        goal_handle, accepted,
+        accepted ? "led_acknowledged" : "executor_rejected");
+      publish_action_ack("set_led", accepted ? "accepted" : "rejected");
       return;
     }
 
@@ -534,6 +562,7 @@ private:
       if (name == "move") {
         typed_command.action_type = typed_command.MOVE;
         typed_command.linear_x = arguments.at("linear_x").get<double>();
+        typed_command.angular_z = arguments.value("angular_z", 0.0);
         typed_command.duration_s = arguments.at("duration_s").get<double>();
         executor_->execute(typed_command, now_seconds());
         publish_mode();
@@ -551,6 +580,16 @@ private:
         publish_action_ack(name, "accepted");
       } else if (name == "set_mode") {
         const bool accepted = set_mode(arguments.at("mode").get<std::string>());
+        publish_action_ack(name, accepted ? "accepted" : "rejected");
+      } else if (name == "wave") {
+        typed_command.action_type = typed_command.WAVE;
+        typed_command.count = arguments.at("count").get<int>();
+        const bool accepted = executor_->execute(typed_command, now_seconds());
+        publish_action_ack(name, accepted ? "accepted" : "rejected");
+      } else if (name == "set_led") {
+        typed_command.action_type = typed_command.SET_LED;
+        typed_command.color = arguments.at("color").get<std::string>();
+        const bool accepted = executor_->execute(typed_command, now_seconds());
         publish_action_ack(name, accepted ? "accepted" : "rejected");
       } else {
         publish_action_ack(name, "ignored");

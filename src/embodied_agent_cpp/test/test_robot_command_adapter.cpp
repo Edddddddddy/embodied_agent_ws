@@ -22,6 +22,23 @@ TEST(RobotCommandAdapterTest, ConvertsAndClampsMoveIntoTypedCommand)
   EXPECT_DOUBLE_EQ(result.legacy_command["arguments"]["linear_x"], 0.5);
 }
 
+TEST(RobotCommandAdapterTest, ConvertsArcIntoTypedCurvedMove)
+{
+  embodied_agent_cpp::RobotCommandAdapter adapter;
+  const auto result = adapter.convert(
+    R"({"name":"arc","arguments":{"linear_x":0.12,"angular_z":0.45,"duration_s":6.0}})",
+    "arc-1", "online_agent");
+
+  ASSERT_TRUE(result.valid) << result.error;
+  EXPECT_EQ(
+    result.typed_command.action_type,
+    embodied_agent_interfaces::msg::RobotCommand::MOVE);
+  EXPECT_DOUBLE_EQ(result.typed_command.linear_x, 0.12);
+  EXPECT_DOUBLE_EQ(result.typed_command.angular_z, 0.45);
+  EXPECT_DOUBLE_EQ(result.typed_command.duration_s, 6.0);
+  EXPECT_EQ(result.legacy_command["name"], "move");
+}
+
 TEST(RobotCommandAdapterTest, ConvertsTurnAndStopWithoutAmbiguousFields)
 {
   embodied_agent_cpp::RobotCommandAdapter adapter;

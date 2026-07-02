@@ -12,6 +12,7 @@ source scripts/activate.sh
 bash scripts/acceptance_test.sh mock
 bash scripts/acceptance_test.sh online
 bash scripts/acceptance_test.sh offline
+bash scripts/acceptance_test.sh demo
 bash scripts/acceptance_test.sh gazebo
 bash scripts/acceptance_test.sh gazebo-voice
 bash scripts/acceptance_test.sh all
@@ -21,7 +22,8 @@ bash scripts/acceptance_test.sh microphone-offline
 bash scripts/acceptance_test.sh microphone-online
 ```
 
-`mock` 是每次提交前的最低门槛；当前记录为 130 项 colcon 测试、2 项仓库约束测试、
+`mock` 是每次提交前的最低门槛；`demo` 使用 mock executor 验证组合动作、accessory ACK
+和弧线速度。当前记录为 130 项 colcon 测试、2 项仓库约束测试、
 0 failure。`online` 使用少量
 DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里程计位移验真。
 `all` 是完整自动 release gate，包含 mock、在线、离线、Gazebo 和在线/离线语音到 Gazebo，
@@ -43,6 +45,7 @@ DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里
 | executor 插件 | `test_robot_executor_plugins.cpp` | 两个 pluginlib adapter 可发现且行为一致 |
 | 参数与 lint | `test_node_configuration.cpp`、ament lint | 无效控制参数在 configure 前失败，产品 C++/CMake/XML 可静态检查 |
 | mock 插件全链 | `smoke_test_mock_executor.sh` | 不改 Guard/BT 即可切换 backend |
+| 组合演示 | `smoke_test_demo_sequence.sh` | `set_led → wave → move → turn → arc → stop` 顺序执行 |
 | 组件化等价 | `smoke_test_composed_executor.sh` | 同一控制实现可在多线程 component container 中完成 Action/BT 链 |
 | 命名空间 | `smoke_test_namespaced_executor.sh` | 相对名称、Action、BT、速度和 diagnostics 均隔离到 `/robot1` |
 | Action 全链 | `smoke_test_typed_action_pipeline.sh` | JSON -> typed -> Action -> 仿真控制 |

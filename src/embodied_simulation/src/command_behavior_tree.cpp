@@ -32,8 +32,20 @@ bool valid_command(const RobotCommand & command)
            command.mode == "obstacle_avoidance" ||
            command.mode == "wall_following";
   }
+  if (command.action_type == RobotCommand::WAVE) {
+    return command.count >= 1 && command.count <= 5;
+  }
+  if (command.action_type == RobotCommand::SET_LED) {
+    return command.color == "off" ||
+           command.color == "red" ||
+           command.color == "green" ||
+           command.color == "blue" ||
+           command.color == "yellow" ||
+           command.color == "white";
+  }
   if (command.action_type == RobotCommand::MOVE) {
     return std::isfinite(command.linear_x) &&
+           std::isfinite(command.angular_z) &&
            std::isfinite(command.duration_s) &&
            command.duration_s >= 0.0 && command.duration_s <= 10.0;
   }

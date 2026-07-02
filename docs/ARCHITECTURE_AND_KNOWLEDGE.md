@@ -112,8 +112,14 @@ PortAudio 回调只搬运数据，不执行网络、日志或模型推理；这�
 | `simulation_control.launch.py` | 独立/组合部署、namespace 与 Lifecycle 管理 |
 | `voice_turtlebot3.launch.py` | Agent、Guard、Gazebo、bridge 的组合启动 |
 
-当前产品主链只承诺 `move / turn / stop`；避障和沿墙用于展示安全控制模块，不继续扩展
-成完整导航栈。Gazebo ACK 和 `/odom` 位移共同证明命令确实经过了仿真执行器。
+当前产品主链承诺 `move / turn / stop / arc` 和少量 accessory action；避障和沿墙用于展示
+安全控制模块，不继续扩展成完整导航栈。`arc` 在 ActionGuard 中规范化为 typed
+`MOVE(linear_x, angular_z, duration_s)`，因此不需要改 ROS msg/action 版本。Gazebo ACK
+和 `/odom` 位移共同证明命令确实经过了仿真执行器。
+
+组合演示动作不下沉到 executor。Agent 层将“走正方形”“演示一下”等口令拆成 primitive
+action，并通过 `/robot/action_result` 等待上一条结束后再发布下一条；任一步失败或超时
+会补发 `stop`，防止组合动作继续推进。
 
 `SimulationControlNode` 只实现一次并注册为 `rclcpp_components` component；独立可执行文件
 通过 factory 创建同一个类，因此两种部署不会形成两份控制逻辑。独立模式使用双线程

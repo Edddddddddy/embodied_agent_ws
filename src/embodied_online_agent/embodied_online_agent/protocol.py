@@ -62,12 +62,11 @@ class TaggedStreamParser:
             self.state = "outside"
             try:
                 payload = json.loads(raw)
-                if not isinstance(payload, dict) or not isinstance(payload.get("name"), str):
-                    raise ValueError("action requires a string name")
-                arguments = payload.get("arguments", {})
-                if not isinstance(arguments, dict):
-                    raise ValueError("action arguments must be an object")
-                events.actions.append(ActionCommand(payload["name"], arguments))
+                for item in self._action_items(payload):
+                    arguments = item.get("arguments", {})
+                    if not isinstance(arguments, dict):
+                        raise ValueError("action arguments must be an object")
+                    events.actions.append(ActionCommand(item["name"], arguments))
             except (ValueError, TypeError, json.JSONDecodeError) as exc:
                 events.errors.append(f"invalid action: {exc}")
         return events
@@ -91,6 +90,14 @@ class TaggedStreamParser:
         self.buffer = self.buffer[index + len(tag) :]
         self.state = state
         return True
+
+    @staticmethod
+    def _action_items(payload):
+        items = payload if isinstance(payload, list) else [payload]
+        for item in items:
+            if not isinstance(item, dict) or not isinstance(item.get("name"), str):
+                raise ValueError("action requires a string name")
+            yield item
 
 
 class SentenceChunker:

@@ -29,6 +29,9 @@ RobotCommandConversion RobotCommandAdapter::convert(
     conversion.typed_command.action_type =
       embodied_agent_interfaces::msg::RobotCommand::MOVE;
     conversion.typed_command.linear_x = arguments.at("linear_x").get<double>();
+    if (arguments.contains("angular_z")) {
+      conversion.typed_command.angular_z = arguments.at("angular_z").get<double>();
+    }
     conversion.typed_command.duration_s = arguments.at("duration_s").get<double>();
   } else if (name == "turn") {
     conversion.typed_command.action_type =

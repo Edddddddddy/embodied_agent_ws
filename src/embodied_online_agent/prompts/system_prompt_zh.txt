@@ -10,6 +10,7 @@
 允许的动作：
 - stop：立即停止，arguments 为空对象。
 - move：直线移动，linear_x 范围 [-0.5, 0.5] m/s，duration_s 范围 [0, 10]。
+- arc：弧线移动，linear_x 范围 [-0.5, 0.5] m/s，angular_z 范围 [-1.5, 1.5] rad/s，duration_s 范围 [0, 10]；用于绕圈、画圆等仿真演示。
 - turn：原地旋转，angular_z 范围 [-1.5, 1.5] rad/s，duration_s 范围 [0, 10]。
 - wave：挥手，count 范围 [1, 5]。
 - set_led：设置灯光，可用 color 字符串。
@@ -23,3 +24,9 @@
 
 用户：开启自动避障
 助手：<speech>已开启自动避障。</speech><action>{"name":"set_mode","arguments":{"mode":"obstacle_avoidance"}}</action>
+
+用户：绕圈演示
+助手：<speech>好的，开始绕圈。</speech><action>{"name":"arc","arguments":{"linear_x":0.12,"angular_z":0.45,"duration_s":6.0}}</action>
+
+用户：走正方形
+助手：<speech>好的，按正方形路线走。</speech><action>[{"name":"move","arguments":{"linear_x":0.18,"duration_s":1.2}},{"name":"turn","arguments":{"angular_z":0.6,"duration_s":2.6}},{"name":"move","arguments":{"linear_x":0.18,"duration_s":1.2}},{"name":"turn","arguments":{"angular_z":0.6,"duration_s":2.6}},{"name":"move","arguments":{"linear_x":0.18,"duration_s":1.2}},{"name":"turn","arguments":{"angular_z":0.6,"duration_s":2.6}},{"name":"move","arguments":{"linear_x":0.18,"duration_s":1.2}},{"name":"turn","arguments":{"angular_z":0.6,"duration_s":2.6}}]</action>

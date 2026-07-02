@@ -12,6 +12,7 @@ Automated modes:
   mock                Build, unit tests, and dependency-free ROS smokes
   online              Minimal-token live ASR/LLM/TTS verification
   offline             Real ZipFormer/llama.cpp/Sherpa-TTS verification
+  demo                Rich mock demo: ordered actions, accessories, and arc motion
   gazebo              Legacy and typed Action physical motion verification
   gazebo-voice        Offline synthesized speech through typed Action to Gazebo
   gazebo-voice-online Online voice provider through typed Action to Gazebo
@@ -58,6 +59,7 @@ run_base() {
   bash scripts/smoke_test_typed_action_server.sh
   bash scripts/smoke_test_typed_action_pipeline.sh
   bash scripts/smoke_test_mock_executor.sh
+  bash scripts/smoke_test_demo_sequence.sh
   bash scripts/smoke_test_composed_executor.sh
   bash scripts/smoke_test_namespaced_executor.sh
   bash scripts/smoke_test_offline.sh
@@ -97,11 +99,12 @@ case "$LEVEL" in
   mock) run_base ;;
   online) run_online ;;
   offline) run_offline ;;
+  demo) bash scripts/smoke_test_demo_sequence.sh ;;
   gazebo) run_gazebo ;;
   gazebo-voice) check_offline_runtime; USE_TYPED_ACTIONS=true bash scripts/smoke_test_gazebo_voice.sh ;;
   gazebo-voice-online) bash scripts/smoke_test_gazebo_voice_online.sh ;;
   microphone-offline) bash scripts/accept_voice_simulation_microphone.sh offline ;;
   microphone-online) bash scripts/accept_voice_simulation_microphone.sh online ;;
-  all) run_base; run_online; run_offline; run_gazebo; USE_TYPED_ACTIONS=true bash scripts/smoke_test_gazebo_voice.sh; bash scripts/smoke_test_gazebo_voice_online.sh ;;
+  all) run_base; run_online; run_offline; bash scripts/smoke_test_demo_sequence.sh; run_gazebo; USE_TYPED_ACTIONS=true bash scripts/smoke_test_gazebo_voice.sh; bash scripts/smoke_test_gazebo_voice_online.sh ;;
   *) usage >&2; exit 2 ;;
 esac

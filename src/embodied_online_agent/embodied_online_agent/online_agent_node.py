@@ -12,7 +12,8 @@ from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Empty, String, UInt8MultiArray
 
 from .memory import ConversationMemory
-from .command_fallback import parse_fallback_action, should_block_model_actions
+from .action_sequence import SequentialActionPublisher
+from .command_fallback import parse_fallback_actions, should_block_model_actions
 from .metrics import LatencyTracker
 from .protocol import SentenceChunker, TaggedStreamParser
 from .recognition_retry import RecognitionRetryTracker
@@ -41,6 +42,9 @@ class OnlineAgentNode(Node):
         self.retry_tracker = RecognitionRetryTracker(
             self._param("recognition_max_retries")
         )
+        self.action_sequencer = SequentialActionPublisher(
+            self._param("action_sequence_wait_timeout_s")
+        )
         self.memory = ConversationMemory(
             self._param("memory_path"),
             max_turns=self._param("memory_max_turns"),
@@ -61,6 +65,7 @@ class OnlineAgentNode(Node):
         self.metrics_pub = self.create_publisher(String, "/agent/metrics", 10)
         self.create_subscription(String, "/agent/text_input", self._on_text_input, 10)
         self.create_subscription(Empty, "/agent/clear_memory", self._on_clear_memory, 10)
+        self.create_subscription(String, "/robot/action_result", self._on_action_result, 10)
 
         audio_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
@@ -128,6 +133,7 @@ class OnlineAgentNode(Node):
             "tts_first_audio_target_ms": 300.0,
             "mock_token_delay_s": 0.0,
             "online_warmup_enabled": True,
+            "action_sequence_wait_timeout_s": 12.0,
         }
         for name, value in defaults.items():
             self.declare_parameter(name, value)
@@ -206,6 +212,9 @@ class OnlineAgentNode(Node):
         self.memory.clear()
         self.get_logger().info("conversation memory cleared")
 
+    def _on_action_result(self, message: String):
+        self.action_sequencer.notify_result(message.data)
+
     def _accept_transcript(self, transcript: str):
         command = self.wake_gate.process(transcript)
         if command is None:
@@ -280,9 +289,9 @@ class OnlineAgentNode(Node):
 
             final_events = parser.finish()
             model_actions.extend(final_events.actions)
-            fallback_action = parse_fallback_action(user_text)
-            if fallback_action is not None:
-                self._publish_actions([fallback_action])
+            fallback_actions = parse_fallback_actions(user_text)
+            if fallback_actions:
+                self._publish_actions(fallback_actions)
             elif should_block_model_actions(user_text):
                 if model_actions:
                     self.get_logger().warning("model actions blocked by semantic safety policy")
@@ -327,13 +336,22 @@ class OnlineAgentNode(Node):
                 self._publish_state("listening")
 
     def _publish_actions(self, actions):
-        count = 0
-        for action in actions:
-            payload = json.dumps(action.as_dict(), ensure_ascii=False)
+        action_list = list(actions)
+
+        def publish_payload(payload: str):
             self.action_candidate_pub.publish(String(data=payload))
             self.get_logger().info(f"action candidate: {payload}")
-            count += 1
-        return count
+
+        report = self.action_sequencer.publish(
+            action_list,
+            publish_payload,
+            wait_for_results=len(action_list) > 1,
+        )
+        if report.failed:
+            self.get_logger().warning(
+                f"action sequence stopped after {report.completed} completed step(s): {report.reason}"
+            )
+        return report.published
 
     def _on_tts_audio(self, pcm16: bytes):
         self.metrics.mark_tts_first_audio()
