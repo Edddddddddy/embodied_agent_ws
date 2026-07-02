@@ -132,3 +132,90 @@ GitHub 星数采样于 2026-07-02，会随时间变化；功能依据各项目�
 - 为每个模型复制一个 ROS 节点。
 - 使用模糊字符串匹配无限扩充短唤醒词；短词应由声学 KWS 解决。
 - 把模型、编译产物或 llama.cpp 源码提交进主仓库。
+
+## 7. Nav2 + BehaviorTree.CPP 规范化开发安排
+
+目标不是扩展复杂导航，而是采用 Nav2 已验证的 ROS 2/C++ 工程模式规范现有
+“语音 -> LLM 动作 -> 安全执行 -> Gazebo”主链。开发分支为
+`refactor/nav2-bt-architecture`；冻结版本由分支和标签
+`backup/pre-nav2-bt-refactor-20260702`、`pre-nav2-bt-refactor-20260702` 保存。
+
+### 迁移原则
+
+- **跑通优先**：新旧链路并存，通过 launch 参数选择；新链完全验收后才删除旧路径。
+- **兼容迁移**：保留 JSON topic adapter，逐步将内部 seam 换成强类型 msg/action。
+- **每轮可回滚**：每个 loop 独立提交，以 51 项基线测试和对应新增测试为合入条件。
+- **采用模式而非复制规模**：学习 Nav2 lifecycle、action、pluginlib、BT 和诊断，不引入
+  当前用不到的地图、规划器和复杂导航功能。
+
+### Loop 0：冻结与预检
+
+- 冻结当前提交、分支和标签，保存 51 项测试基线。
+- 确认 ROS 2 Jazzy 已安装 Navigation2 1.3.x、BehaviorTree.CPP 4.9.x。
+- 画出旧 topic seam 与新 action seam 的兼容迁移图。
+- 验收：工作区干净，旧 `acceptance_test.sh mock` 原样通过。
+
+兼容迁移期间的数据流：
+
+```mermaid
+flowchart LR
+  Agent["在线/离线 Agent"] --> Candidate["JSON action_candidate"]
+  Candidate --> Guard["C++ ActionGuard"]
+  Guard --> Legacy["旧 JSON action_command"]
+  Guard --> Typed["新 typed Action goal"]
+  Legacy --> Adapter["兼容 adapter"] --> Typed
+  Typed --> Lifecycle["Lifecycle BT Orchestrator"]
+  Lifecycle --> Plugin["RobotExecutor plugin"]
+  Plugin --> Gazebo["Gazebo /cmd_vel"]
+  Plugin --> Mock["Mock executor"]
+  Plugin --> Transport["UART/SPI executor"]
+```
+
+### Loop 1：强类型 ROS 2 interface
+
+- 新建 `embodied_agent_interfaces` 包。
+- 定义动作 goal、feedback、result 以及拒绝/执行状态；保留 command id 和时间戳。
+- 增加 JSON topic -> typed interface adapter，在线/离线 Agent 暂时无需修改。
+- 验收：错误字段被 adapter 拒绝，合法 move/turn/stop 与旧链结果一致。
+
+### Loop 2：可取消 ROS 2 Action 执行
+
+- C++ 仿真执行器提供 Action server，支持反馈、取消、超时和抢占。
+- 兼容 adapter 将旧 `/robot/action_command` 转发为 Action goal。
+- watchdog、急停、LaserScan 安全优先级保持不变。
+- 验收：执行中取消立即输出零速；超时与障碍均返回明确 result。
+
+### Loop 3：Lifecycle
+
+- 将 Guard 和 executor 改造成 lifecycle nodes。
+- `configure` 加载参数/插件，`activate` 才发布和接收动作，`deactivate` 强制停车。
+- 采用 Nav2 lifecycle manager 或轻量兼容管理器统一启动顺序。
+- 验收：未激活不执行；deactivate/cleanup 无残留速度和线程。
+
+### Loop 4：BehaviorTree.CPP 编排
+
+- XML 描述 `Validate -> CheckSafety -> Execute -> ConfirmResult`。
+- 实现异步 C++ TreeNodes，支持 halt/cancel，blackboard 传递 typed command。
+- 增加拒绝、障碍、超时和恢复分支；通过日志观察状态转移。
+- 验收：正常、拒绝、取消、障碍四条树路径均有 GTest/集成测试。
+
+### Loop 5：pluginlib executor
+
+- 定义小型 `RobotExecutor` interface。
+- 实现 Gazebo、mock 两个 adapter，证明 seam 真实存在；UART/SPI 随后接入同一 interface。
+- launch/YAML 选择插件，不再在节点中硬编码 backend 分支。
+- 验收：不修改 BT/Guard 即可切换 Gazebo 和 mock。
+
+### Loop 6：ROS 2 工程完善
+
+- 组件化节点、MultiThreadedExecutor/callback group、QoS 和参数校验。
+- 增加 diagnostics、结构化日志、命名空间和 launch 分层。
+- 统一 CMake、package export、clang-format/ament lint 和测试目录。
+- 验收：组合/独立进程两种启动方式结果一致，无线程退出和 DDS 残留问题。
+
+### Loop 7：全链交付
+
+- 重跑 mock、online、offline、Gazebo 和真实麦克风验收。
+- 对比重构前后的延迟、CPU、代码结构和失败可观测性。
+- 更新架构图、接口说明、插件教程、简历项目描述和面试问题笔记。
+- 验收：旧功能无回退，新 Action/BT/Lifecycle/pluginlib 路径成为默认路径。
