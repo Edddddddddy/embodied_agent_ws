@@ -48,6 +48,7 @@ def generate_launch_description():
     speaker = LaunchConfiguration("speaker_enabled")
     wake_word = LaunchConfiguration("wake_word_enabled")
     use_typed_actions = LaunchConfiguration("use_typed_actions")
+    use_behavior_tree = LaunchConfiguration("use_behavior_tree")
     lifecycle_autostart = LaunchConfiguration("lifecycle_autostart")
 
     online_condition = IfCondition(
@@ -72,6 +73,7 @@ def generate_launch_description():
         DeclareLaunchArgument("speaker_enabled", default_value="false"),
         DeclareLaunchArgument("wake_word_enabled", default_value="true"),
         DeclareLaunchArgument("use_typed_actions", default_value="true"),
+        DeclareLaunchArgument("use_behavior_tree", default_value="true"),
         DeclareLaunchArgument("lifecycle_autostart", default_value="true"),
         DeclareLaunchArgument("x_pose", default_value="-2.0"),
         DeclareLaunchArgument("y_pose", default_value="-0.5"),
@@ -135,6 +137,9 @@ def generate_launch_description():
                     "legacy_command_enabled": ParameterValue(
                         PythonExpression(["'", use_typed_actions, "' != 'true'"]),
                         value_type=bool,
+                    ),
+                    "use_behavior_tree": ParameterValue(
+                        use_behavior_tree, value_type=bool
                     ),
                 },
             ],

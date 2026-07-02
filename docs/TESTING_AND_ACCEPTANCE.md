@@ -16,7 +16,7 @@ bash scripts/acceptance_test.sh gazebo
 bash scripts/acceptance_test.sh gazebo-voice
 ```
 
-`mock` 是每次提交前的最低门槛；当前记录为 61 项测试、0 failure。`online` 使用少量
+`mock` 是每次提交前的最低门槛；当前记录为 67 项测试、0 failure。`online` 使用少量
 DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里程计位移验真。
 
 ## 2. 分层测试矩阵
@@ -31,6 +31,7 @@ DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里
 | Lifecycle | `smoke_test_lifecycle.sh` | 未激活门控、激活执行、停用零速和 cleanup |
 | 类型兼容 | `smoke_test_typed_action.sh` | 旧 JSON 与 typed command 同时发布且字段等价 |
 | Action 状态 | `smoke_test_typed_action_server.sh` | 成功、反馈、取消、阻塞、超时和抢占 |
+| BT 编排 | `test_command_behavior_tree.cpp` | 验证、反应式安全、取消、超时与恢复 |
 | Action 全链 | `smoke_test_typed_action_pipeline.sh` | JSON -> typed -> Action -> 仿真控制 |
 | Action + Gazebo | `smoke_test_gazebo_typed_action.sh` | terminal result 与真实 `/odom` 位移 |
 | provider | `smoke_test_online_real.sh`、`benchmark_offline.sh` | 云/本地模型可用和真实延迟 |
@@ -69,6 +70,8 @@ bash scripts/accept_voice_simulation_microphone.sh online
 
 `voice_turtlebot3.launch.py` 默认启用 typed Action。`acceptance_test.sh gazebo` 会同时验证
 默认链与显式 typed terminal result；`gazebo-voice` 要求离线语音链收到成功 result 后才通过。
+typed Action 验收同时要求 `/robot/bt_status` 到达 `confirm/succeeded`，因此不是只验证 XML
+能加载，而是验证真实动作确实穿过了整棵树。
 所有主 launch 默认由 Nav2 lifecycle manager 自动配置并激活 Guard/仿真执行器；
 `lifecycle_autostart:=false` 可用于手工检查未激活状态不会执行动作。
 

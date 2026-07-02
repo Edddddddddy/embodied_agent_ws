@@ -6,6 +6,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(ament_cmake REQUIRED)
+find_package(ament_index_cpp REQUIRED)
+find_package(behaviortree_cpp REQUIRED)
 find_package(embodied_agent_interfaces REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(lifecycle_msgs REQUIRED)
@@ -18,12 +20,15 @@ find_package(std_msgs REQUIRED)
 
 add_library(simulation_control_core
   src/action_execution.cpp
+  src/command_behavior_tree.cpp
   src/simulation_controller.cpp
 )
 target_include_directories(simulation_control_core PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
+ament_target_dependencies(simulation_control_core PUBLIC
+  behaviortree_cpp embodied_agent_interfaces)
 
 add_executable(simulation_control_node src/simulation_control_node.cpp)
 target_link_libraries(simulation_control_node
@@ -31,7 +36,7 @@ target_link_libraries(simulation_control_node
   nlohmann_json::nlohmann_json
 )
 ament_target_dependencies(simulation_control_node
-  embodied_agent_interfaces geometry_msgs lifecycle_msgs rclcpp rclcpp_action
+  ament_index_cpp embodied_agent_interfaces geometry_msgs lifecycle_msgs rclcpp rclcpp_action
   rclcpp_lifecycle sensor_msgs std_msgs
 )
 
@@ -49,9 +54,11 @@ if(BUILD_TESTING)
   target_link_libraries(test_simulation_controller simulation_control_core)
   ament_add_gtest(test_action_execution test/test_action_execution.cpp)
   target_link_libraries(test_action_execution simulation_control_core)
+  ament_add_gtest(test_command_behavior_tree test/test_command_behavior_tree.cpp)
+  target_link_libraries(test_command_behavior_tree simulation_control_core)
 endif()
 
 ament_export_include_directories(include)
 ament_export_libraries(simulation_control_core)
-ament_export_dependencies(embodied_agent_interfaces)
+ament_export_dependencies(behaviortree_cpp embodied_agent_interfaces)
 ament_package()

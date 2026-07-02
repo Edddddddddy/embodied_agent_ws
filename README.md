@@ -14,6 +14,7 @@
 - 识别恢复：热词偏置、唤醒别名、失败反馈和持续重试。
 - 动作安全：结构化动作、C++ schema 校验、限幅、急停和 watchdog。
 - 生命周期：Guard 与仿真执行器采用 C++ LifecycleNode，由 Nav2 manager 有序激活。
+- 行为编排：BehaviorTree.CPP XML 执行验证、安全检查、异步动作与结果确认。
 - 控制后端：TurtleBot3 Gazebo、UART、SPI 和无硬件 mock。
 - 自动验收：单元测试、ROS 冒烟、云模型、离线模型和 Gazebo 物理位移验证。
 
@@ -28,7 +29,8 @@ flowchart LR
   LLM --> Parser["speech/action 增量解析"]
   Parser --> TTS["在线或离线 TTS"]
   Parser --> Guard["C++ ActionGuard"]
-  Guard --> Sim["Gazebo /cmd_vel"]
+  Guard --> BT["BehaviorTree.CPP<br/>Validate / Safety / Execute / Confirm"]
+  BT --> Sim["Gazebo /cmd_vel"]
   Guard --> HW["UART / SPI"]
   TTS --> Speaker["C++ 播放队列"]
 ```
@@ -71,7 +73,7 @@ WAKE_WORD_ENABLED=true \
 ## 验收入口
 
 ```bash
-bash scripts/acceptance_test.sh mock     # 61 项测试及无模型链路
+bash scripts/acceptance_test.sh mock     # 67 项测试及无模型链路
 bash scripts/acceptance_test.sh online   # 少量云 API 调用
 bash scripts/acceptance_test.sh offline  # 本地模型、语音和性能
 bash scripts/acceptance_test.sh gazebo   # Gazebo 可信动作与里程计

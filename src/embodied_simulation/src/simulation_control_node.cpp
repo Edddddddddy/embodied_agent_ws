@@ -2,11 +2,14 @@
 #include <cmath>
 #include <cstdint>
 #include <functional>
+#include <fstream>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <string>
 
 #include <embodied_agent_interfaces/action/execute_robot_command.hpp>
+#include <ament_index_cpp/get_package_share_directory.hpp>
 #include <geometry_msgs/msg/twist.hpp>
 #include <lifecycle_msgs/msg/state.hpp>
 #include <nlohmann/json.hpp>
@@ -18,6 +21,7 @@
 #include <std_msgs/msg/string.hpp>
 
 #include "embodied_simulation/action_execution.hpp"
+#include "embodied_simulation/command_behavior_tree.hpp"
 #include "embodied_simulation/simulation_controller.hpp"
 
 namespace embodied_simulation
@@ -47,9 +51,30 @@ protected:
     mode_pub_ = create_publisher<std_msgs::msg::String>("/robot/control_mode", 10);
     state_pub_ = create_publisher<std_msgs::msg::String>("/robot/simulation_state", 10);
     action_ack_pub_ = create_publisher<std_msgs::msg::String>("/robot/action_ack", 10);
+    bt_status_pub_ = create_publisher<std_msgs::msg::String>("/robot/bt_status", 10);
     const bool legacy_command_enabled =
       bool_parameter("legacy_command_enabled", true);
     action_timeout_s_ = double_parameter("action_timeout_s", 12.0);
+    use_behavior_tree_ = bool_parameter("use_behavior_tree", true);
+    if (use_behavior_tree_) {
+      const auto default_tree =
+        ament_index_cpp::get_package_share_directory("embodied_simulation") +
+        "/config/command_tree.xml";
+      const auto tree_path = string_parameter("bt_xml_path", default_tree);
+      std::ifstream stream(tree_path);
+      if (!stream) {
+        RCLCPP_ERROR(get_logger(), "failed to open BT XML: %s", tree_path.c_str());
+        return CallbackReturn::FAILURE;
+      }
+      std::ostringstream xml;
+      xml << stream.rdbuf();
+      try {
+        behavior_tree_ = std::make_unique<CommandBehaviorTree>(xml.str());
+      } catch (const std::exception & error) {
+        RCLCPP_ERROR(get_logger(), "failed to load BT XML: %s", error.what());
+        return CallbackReturn::FAILURE;
+      }
+    }
     if (legacy_command_enabled) {
       action_sub_ = create_subscription<std_msgs::msg::String>(
         "/robot/action_command", 10,
@@ -95,6 +120,7 @@ protected:
     mode_pub_->on_activate();
     state_pub_->on_activate();
     action_ack_pub_->on_activate();
+    bt_status_pub_->on_activate();
     timer_->reset();
     publish_mode();
     RCLCPP_INFO(get_logger(), "simulation control activated; mode=manual");
@@ -104,6 +130,9 @@ protected:
   CallbackReturn on_deactivate(const rclcpp_lifecycle::State &) override
   {
     if (active_goal_) {
+      if (behavior_tree_) {
+        publish_bt_status(behavior_tree_->cancel("deactivated"));
+      }
       finish_active_action(ActionExecutionState::kCanceled, "deactivated");
     }
     if (controller_) {
@@ -113,6 +142,7 @@ protected:
     if (timer_) {
       timer_->cancel();
     }
+    bt_status_pub_->on_deactivate();
     action_ack_pub_->on_deactivate();
     state_pub_->on_deactivate();
     mode_pub_->on_deactivate();
@@ -161,6 +191,15 @@ private:
       declare_parameter(name, default_value);
     }
     return get_parameter(name).as_bool();
+  }
+
+  std::string string_parameter(
+    const std::string & name, const std::string & default_value)
+  {
+    if (!has_parameter(name)) {
+      declare_parameter(name, default_value);
+    }
+    return get_parameter(name).as_string();
   }
 
   ControllerConfig load_config()
@@ -221,7 +260,7 @@ private:
       RCLCPP_WARN(get_logger(), "rejected typed action goal while inactive");
       return rclcpp_action::GoalResponse::REJECT;
     }
-    if (!supported_action_goal(goal->command)) {
+    if (!supported_action_goal(goal->command) && !behavior_tree_) {
       RCLCPP_WARN(get_logger(), "rejected unsupported typed action goal");
       return rclcpp_action::GoalResponse::REJECT;
     }
@@ -239,6 +278,9 @@ private:
   void handle_accepted(const std::shared_ptr<GoalHandle> goal_handle)
   {
     if (active_goal_) {
+      if (behavior_tree_) {
+        publish_bt_status(behavior_tree_->cancel("preempted_by_new_goal"));
+      }
       finish_active_action(
         ActionExecutionState::kCanceled, "preempted_by_new_goal");
     }
@@ -260,15 +302,33 @@ private:
       return;
     }
 
+    if (behavior_tree_) {
+      active_goal_ = goal_handle;
+      behavior_tree_->start(command);
+      const auto initial = behavior_tree_->tick(
+        false, ActionExecutionState::kRunning, "accepted");
+      publish_bt_status(initial);
+      if (initial.outcome == CommandTreeOutcome::kRejected) {
+        finish_immediate_action(goal_handle, false, initial.detail);
+        publish_action_ack("unknown", "rejected", initial.detail);
+        active_goal_.reset();
+        return;
+      }
+    }
+
     const double now = now_seconds();
     if (command.action_type == Command::MOVE) {
       controller_->set_manual_command(
         command.linear_x, 0.0, command.duration_s, now);
       active_action_name_ = "move";
-    } else {
+    } else if (command.action_type == Command::TURN) {
       controller_->set_manual_command(
         0.0, command.angular_z, command.duration_s, now);
       active_action_name_ = "turn";
+    } else {
+      finish_immediate_action(goal_handle, false, "invalid_command");
+      active_goal_.reset();
+      return;
     }
     active_goal_ = goal_handle;
     action_execution_.emplace(
@@ -349,6 +409,32 @@ private:
     }
     const auto update = action_execution_->update(
       now, active_goal_->is_canceling(), output.safety_stopped);
+    if (behavior_tree_) {
+      const std::string detail =
+        update.state == ActionExecutionState::kSucceeded ? "succeeded" :
+        update.state == ActionExecutionState::kCanceled ? "canceled" :
+        update.state == ActionExecutionState::kTimedOut ? "timed_out" :
+        output.reason;
+      const auto tree_result = behavior_tree_->tick(
+        output.safety_stopped, update.state, detail);
+      publish_bt_status(tree_result);
+      if (tree_result.outcome == CommandTreeOutcome::kRunning) {
+        publish_action_feedback(
+          ExecuteRobotCommand::Feedback::PHASE_EXECUTING,
+          static_cast<float>(update.progress), tree_result.stage + ":" + detail);
+        return false;
+      }
+      if (tree_result.outcome == CommandTreeOutcome::kSucceeded) {
+        finish_active_action(ActionExecutionState::kSucceeded, tree_result.detail);
+      } else if (tree_result.outcome == CommandTreeOutcome::kCanceled) {
+        finish_active_action(ActionExecutionState::kCanceled, tree_result.detail);
+      } else if (tree_result.outcome == CommandTreeOutcome::kTimedOut) {
+        finish_active_action(ActionExecutionState::kTimedOut, tree_result.detail);
+      } else {
+        finish_active_action(ActionExecutionState::kBlocked, tree_result.detail);
+      }
+      return true;
+    }
     if (update.state == ActionExecutionState::kRunning) {
       publish_action_feedback(
         ExecuteRobotCommand::Feedback::PHASE_EXECUTING,
@@ -470,6 +556,46 @@ private:
     action_ack_pub_->publish(message);
   }
 
+  static const char * tree_outcome_name(CommandTreeOutcome outcome)
+  {
+    switch (outcome) {
+      case CommandTreeOutcome::kRunning: return "running";
+      case CommandTreeOutcome::kSucceeded: return "succeeded";
+      case CommandTreeOutcome::kRejected: return "rejected";
+      case CommandTreeOutcome::kCanceled: return "canceled";
+      case CommandTreeOutcome::kTimedOut: return "timed_out";
+      case CommandTreeOutcome::kBlocked: return "blocked";
+      case CommandTreeOutcome::kFailed: return "failed";
+    }
+    return "failed";
+  }
+
+  void publish_bt_status(const CommandTreeResult & result)
+  {
+    if (!bt_status_pub_ || !bt_status_pub_->is_activated()) {
+      return;
+    }
+    const std::string command_id = active_goal_ ?
+      active_goal_->get_goal()->command.command_id : "";
+    const std::string signature = command_id + ":" + result.stage + ":" +
+      tree_outcome_name(result.outcome) + ":" + result.detail;
+    if (signature == last_bt_status_) {
+      return;
+    }
+    last_bt_status_ = signature;
+    std_msgs::msg::String message;
+    message.data = nlohmann::json{
+      {"command_id", command_id},
+      {"stage", result.stage},
+      {"outcome", tree_outcome_name(result.outcome)},
+      {"detail", result.detail},
+    }.dump();
+    bt_status_pub_->publish(message);
+    RCLCPP_INFO(
+      get_logger(), "BT %s -> %s (%s)", result.stage.c_str(),
+      tree_outcome_name(result.outcome), result.detail.c_str());
+  }
+
   void publish_mode()
   {
     std_msgs::msg::String message;
@@ -496,6 +622,7 @@ private:
     emergency_sub_.reset();
     mode_sub_.reset();
     action_sub_.reset();
+    bt_status_pub_.reset();
     action_ack_pub_.reset();
     state_pub_.reset();
     mode_pub_.reset();
@@ -504,6 +631,8 @@ private:
     action_execution_.reset();
     active_action_name_.clear();
     action_sequence_ = 0;
+    behavior_tree_.reset();
+    last_bt_status_.clear();
   }
 
   void control_tick()
@@ -540,6 +669,8 @@ private:
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::String>::SharedPtr state_pub_;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::String>::SharedPtr
     action_ack_pub_;
+  rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::String>::SharedPtr
+    bt_status_pub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr action_sub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr mode_sub_;
   rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr emergency_sub_;
@@ -551,6 +682,9 @@ private:
   std::shared_ptr<GoalHandle> active_goal_;
   std::optional<ActionExecution> action_execution_;
   std::string active_action_name_;
+  bool use_behavior_tree_{true};
+  std::unique_ptr<CommandBehaviorTree> behavior_tree_;
+  std::string last_bt_status_;
 };
 
 }  // namespace embodied_simulation

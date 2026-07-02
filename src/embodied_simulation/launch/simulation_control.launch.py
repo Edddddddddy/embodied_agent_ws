@@ -16,11 +16,13 @@ def generate_launch_description():
         "simulation_control.yaml",
     )
     use_typed_actions = LaunchConfiguration("use_typed_actions")
+    use_behavior_tree = LaunchConfiguration("use_behavior_tree")
     autostart = LaunchConfiguration("autostart")
     return LaunchDescription([
         DeclareLaunchArgument("config", default_value=default_config),
         DeclareLaunchArgument("use_sim_time", default_value="false"),
         DeclareLaunchArgument("use_typed_actions", default_value="true"),
+        DeclareLaunchArgument("use_behavior_tree", default_value="true"),
         DeclareLaunchArgument("autostart", default_value="true"),
         LifecycleNode(
             package="embodied_simulation",
@@ -37,6 +39,9 @@ def generate_launch_description():
                     "legacy_command_enabled": ParameterValue(
                         PythonExpression(["'", use_typed_actions, "' != 'true'"]),
                         value_type=bool,
+                    ),
+                    "use_behavior_tree": ParameterValue(
+                        use_behavior_tree, value_type=bool
                     ),
                 },
             ],

@@ -3,6 +3,7 @@ simulation_control:
     control_rate_hz: 20.0
     legacy_command_enabled: true
     action_timeout_s: 12.0
+    use_behavior_tree: true
     max_linear_speed: 0.22
     max_angular_speed: 1.0
     linear_acceleration: 0.5

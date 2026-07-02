@@ -99,7 +99,7 @@ GitHub 星数采样于 2026-07-02，会随时间变化；功能依据各项目�
 
 1. 录制 30–60 秒 GIF：说“向前走一秒” -> ASR 文本 -> 动作 JSON -> Gazebo 移动。
 2. 提供 `docker compose up demo` 或 devcontainer，缓存 ROS 依赖；mock demo 不下载模型。
-3. GitHub Actions 自动跑 build、61 项测试和 headless mock/simulation smoke。
+3. GitHub Actions 自动跑 build、67 项测试和 headless mock/simulation smoke。
 4. 补 Apache-2.0 LICENSE、CONTRIBUTING、release notes、issue 模板和架构图。
 5. 发布 `v0.1.0`，README 只保留一个主 CTA：Run the voice-to-Gazebo demo。
 
@@ -215,6 +215,13 @@ publisher 停用前发布零速，cleanup 回收 timer、Action server、subscri
 - 实现异步 C++ TreeNodes，支持 halt/cancel，blackboard 传递 typed command。
 - 增加拒绝、障碍、超时和恢复分支；通过日志观察状态转移。
 - 验收：正常、拒绝、取消、障碍四条树路径均有 GTest/集成测试。
+
+完成状态：已完成。新增 `CommandBehaviorTree` 深模块和外部 XML，使用 ReactiveSequence
+实现 `ValidateCommand -> CheckSafety -> ExecuteCommand -> ConfirmResult`；blackboard 传递
+typed command、安全状态、ActionExecution 状态和失败原因。树支持 RUNNING、halt/cancel、
+雷达阻断、硬超时与新命令恢复，并通过 `/robot/bt_status` 暴露阶段变化。纯 C++ GTest 与
+ROS Action 集成测试覆盖正常、拒绝、取消、障碍、超时和恢复；`use_behavior_tree` 可回退
+到旧执行路径。
 
 ### Loop 5：pluginlib executor
 

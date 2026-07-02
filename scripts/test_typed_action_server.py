@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Exercise typed ROS Action behavior without starting Gazebo."""
+"""Exercise typed ROS Action and BehaviorTree behavior without Gazebo."""
 
+import json
 import time
 
 import rclpy
@@ -8,6 +9,7 @@ from geometry_msgs.msg import Twist
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
+from std_msgs.msg import String
 
 from embodied_agent_interfaces.action import ExecuteRobotCommand
 from embodied_agent_interfaces.msg import RobotCommand
@@ -22,7 +24,9 @@ class ActionProbe(Node):
         self.scan_pub = self.create_publisher(LaserScan, "/scan", 10)
         self.velocities = []
         self.feedback = []
+        self.bt_statuses = []
         self.create_subscription(Twist, "/cmd_vel", self._on_velocity, 10)
+        self.create_subscription(String, "/robot/bt_status", self._on_bt_status, 10)
 
     def _on_velocity(self, message):
         self.velocities.append((message.linear.x, message.angular.z))
@@ -39,6 +43,27 @@ class ActionProbe(Node):
 
     def _on_feedback(self, message):
         self.feedback.append(message.feedback)
+
+    def _on_bt_status(self, message):
+        self.bt_statuses.append(json.loads(message.data))
+
+    def assert_bt_status(self, command_id, stage, outcome):
+        def observed():
+            return any(
+                item.get("command_id") == command_id
+                and item.get("stage") == stage
+                and item.get("outcome") == outcome
+                for item in self.bt_statuses
+            )
+
+        deadline = time.monotonic() + 1.0
+        while not observed() and time.monotonic() < deadline:
+            rclpy.spin_once(self, timeout_sec=0.05)
+        if not observed():
+            raise RuntimeError(
+                f"missing BT status {command_id}/{stage}/{outcome}: "
+                f"{self.bt_statuses}"
+            )
 
     def send(self, command, timeout=5.0):
         goal = ExecuteRobotCommand.Goal()
@@ -86,6 +111,16 @@ def main():
         node.publish_scan()
         time.sleep(0.1)
 
+        invalid_command = RobotCommand()
+        invalid_command.command_id = "integration-rejected"
+        invalid_command.source = "test"
+        invalid_command.action_type = RobotCommand.UNKNOWN
+        rejected = node.execute(invalid_command)
+        if rejected.status != rejected.STATUS_REJECTED:
+            raise RuntimeError(f"unexpected validation result: {rejected}")
+        node.assert_bt_status("integration-rejected", "validate", "rejected")
+        print("PASS: BT validation -> rejected Action result")
+
         command = RobotCommand()
         command.command_id = "integration-success"
         command.source = "test"
@@ -105,6 +140,8 @@ def main():
             raise RuntimeError("action never produced forward velocity")
         if not node.velocities or abs(node.velocities[-1][0]) > 1e-6:
             raise RuntimeError("robot did not stop after action completion")
+        node.assert_bt_status("integration-success", "execute", "running")
+        node.assert_bt_status("integration-success", "confirm", "succeeded")
         print("PASS: typed Action goal -> feedback -> success -> stop")
 
         cancel_command = RobotCommand()
@@ -124,6 +161,7 @@ def main():
         if canceled.status != canceled.STATUS_CANCELED:
             raise RuntimeError(f"unexpected cancel result: {canceled}")
         node.assert_stopped()
+        node.assert_bt_status("integration-cancel", "execute", "canceled")
         print("PASS: typed Action cancellation -> canceled result -> stop")
 
         blocked_command = RobotCommand()
@@ -136,6 +174,7 @@ def main():
         if blocked.status != blocked.STATUS_BLOCKED:
             raise RuntimeError(f"unexpected blocked result: {blocked}")
         node.assert_stopped()
+        node.assert_bt_status("integration-blocked", "safety", "blocked")
         print("PASS: lidar safety stop -> blocked Action result")
 
         timeout_command = RobotCommand()
@@ -148,6 +187,7 @@ def main():
         if timed_out.status != timed_out.STATUS_TIMED_OUT:
             raise RuntimeError(f"unexpected timeout result: {timed_out}")
         node.assert_stopped()
+        node.assert_bt_status("integration-timeout", "execute", "timed_out")
         print("PASS: hard execution timeout -> timed_out Action result")
 
         preempted_command = RobotCommand()

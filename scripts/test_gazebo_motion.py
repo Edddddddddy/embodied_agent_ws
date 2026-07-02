@@ -23,12 +23,14 @@ class GazeboProbe(Node):
         self.ack = None
         self.action_result = None
         self.move_result = None
+        self.move_bt_result = None
         self.create_subscription(Odometry, "/odom", self._on_odom, 10)
         self.create_subscription(LaserScan, "/scan", self._on_scan, 10)
         self.create_subscription(String, "/robot/action_ack", self._on_ack, 10)
         self.create_subscription(
             String, "/robot/action_result", self._on_result, 10
         )
+        self.create_subscription(String, "/robot/bt_status", self._on_bt, 10)
 
     def _on_odom(self, message):
         self.position = (
@@ -46,6 +48,11 @@ class GazeboProbe(Node):
         self.action_result = json.loads(message.data)
         if self.action_result.get("message") == "succeeded":
             self.move_result = self.action_result
+
+    def _on_bt(self, message):
+        status = json.loads(message.data)
+        if status.get("outcome") == "succeeded":
+            self.move_bt_result = status
 
     def action(self, name, arguments):
         data = json.dumps({"name": name, "arguments": arguments})
@@ -94,6 +101,8 @@ def main():
                 or (
                     node.move_result is not None
                     and node.move_result.get("success") is True
+                    and node.move_bt_result is not None
+                    and node.move_bt_result.get("stage") == "confirm"
                 )
                 )
             ),
@@ -116,6 +125,7 @@ def main():
             "distance_m": round(distance, 3),
             "action_ack": node.ack,
             "move_action_result": node.move_result,
+            "move_bt_result": node.move_bt_result,
         }, ensure_ascii=False, indent=2))
     finally:
         executor.shutdown()
