@@ -10,6 +10,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(embodied_agent_interfaces REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_action REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(nlohmann_json REQUIRED)
 find_package(PkgConfig REQUIRED)
@@ -44,6 +45,11 @@ add_executable(action_guard src/action_guard_node.cpp)
 target_link_libraries(action_guard embodied_agent_core)
 ament_target_dependencies(action_guard embodied_agent_interfaces rclcpp std_msgs)
 
+add_executable(typed_action_bridge src/typed_action_bridge_node.cpp)
+target_link_libraries(typed_action_bridge nlohmann_json::nlohmann_json)
+ament_target_dependencies(
+  typed_action_bridge embodied_agent_interfaces rclcpp rclcpp_action std_msgs)
+
 add_executable(robot_action_stub src/robot_action_stub_node.cpp)
 target_link_libraries(robot_action_stub nlohmann_json::nlohmann_json)
 ament_target_dependencies(robot_action_stub rclcpp std_msgs)
@@ -56,6 +62,7 @@ install(TARGETS
   embodied_agent_core
   audio_frontend
   action_guard
+  typed_action_bridge
   robot_action_stub
   hardware_controller
   ARCHIVE DESTINATION lib

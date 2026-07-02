@@ -26,6 +26,11 @@ command id、source 和时间戳。`ExecuteRobotCommand.action` 定义后续执�
 feedback、result、取消、超时和阻塞状态。迁移期间 ActionGuard 同时发布旧 JSON 和新
 `/robot/action_command_typed`，因此既不破坏现有执行器，也为 Action/BT 链提供稳定 seam。
 
+`typed_action_bridge` 将 typed topic 转成 `/robot/execute_command` Action goal，并把
+feedback/result 转发为可观察话题。仿真 Action server 复用纯 C++ `ActionExecution`
+状态机，统一成功进度、用户取消、目标抢占、雷达阻塞和硬超时语义；任一终止路径都会
+调用 `SimulationController::stop()`。
+
 ### `embodied_agent_cpp`
 
 | 文件 | 责任 |
@@ -94,6 +99,9 @@ PortAudio 回调只搬运数据，不执行网络、日志或模型推理；这�
 | `/agent/action_candidate` | parser -> ActionGuard | 未可信动作 JSON |
 | `/robot/action_command` | ActionGuard -> executor | 已校验、已限幅动作 |
 | `/robot/action_command_typed` | ActionGuard -> 新 executor | 等价的强类型可信动作 |
+| `/robot/execute_command` | Action client -> SimulationController | 可取消、反馈、超时的 ROS Action |
+| `/robot/action_feedback` | typed bridge -> 观测者 | command id、阶段、进度和执行原因 |
+| `/robot/action_result` | typed bridge -> 观测者 | 成功、拒绝、取消、阻塞或超时结果 |
 | `/robot/action_rejected` | ActionGuard -> 观测者 | schema 或安全拒绝原因 |
 | `/robot/action_ack` | executor -> 观测者 | 接受、发送或执行结果 |
 | `/cmd_vel` | SimulationController -> Gazebo | 标准差速速度 |

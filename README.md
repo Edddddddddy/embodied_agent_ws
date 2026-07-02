@@ -70,7 +70,7 @@ WAKE_WORD_ENABLED=true \
 ## 验收入口
 
 ```bash
-bash scripts/acceptance_test.sh mock     # 56 项测试及无模型链路
+bash scripts/acceptance_test.sh mock     # 61 项测试及无模型链路
 bash scripts/acceptance_test.sh online   # 少量云 API 调用
 bash scripts/acceptance_test.sh offline  # 本地模型、语音和性能
 bash scripts/acceptance_test.sh gazebo   # Gazebo 可信动作与里程计
@@ -78,6 +78,13 @@ bash scripts/acceptance_test.sh gazebo   # Gazebo 可信动作与里程计
 
 性能数字是验收目标而不是硬编码承诺。当前实测、限制和复现方法见
 [测试与验收](docs/TESTING_AND_ACCEPTANCE.md)。
+
+规范化重构期间默认继续使用旧 topic 执行路径。启用新的强类型 ROS 2 Action 链：
+
+```bash
+ros2 launch embodied_simulation voice_turtlebot3.launch.py \
+  provider_mode:=mock use_typed_actions:=true
+```
 
 ## 项目结构
 

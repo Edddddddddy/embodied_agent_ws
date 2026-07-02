@@ -98,7 +98,7 @@ GitHub 星数采样于 2026-07-02，会随时间变化；功能依据各项目�
 
 1. 录制 30–60 秒 GIF：说“向前走一秒” -> ASR 文本 -> 动作 JSON -> Gazebo 移动。
 2. 提供 `docker compose up demo` 或 devcontainer，缓存 ROS 依赖；mock demo 不下载模型。
-3. GitHub Actions 自动跑 build、56 项测试和 headless mock/simulation smoke。
+3. GitHub Actions 自动跑 build、61 项测试和 headless mock/simulation smoke。
 4. 补 Apache-2.0 LICENSE、CONTRIBUTING、release notes、issue 模板和架构图。
 5. 发布 `v0.1.0`，README 只保留一个主 CTA：Run the voice-to-Gazebo demo。
 
@@ -188,6 +188,11 @@ flowchart LR
 - 兼容 adapter 将旧 `/robot/action_command` 转发为 Action goal。
 - watchdog、急停、LaserScan 安全优先级保持不变。
 - 验收：执行中取消立即输出零速；超时与障碍均返回明确 result。
+
+完成状态：已完成。`SimulationController` 暴露 `/robot/execute_command` Action server，
+新增纯 C++ `ActionExecution` 状态机和 `typed_action_bridge`；成功、进度、主动取消、目标
+抢占、雷达阻塞、硬超时及最终停车均通过自动验收。launch 参数 `use_typed_actions` 可在
+不删除旧路径的情况下启用新链，测试基线增加到 61 项。
 
 ### Loop 3：Lifecycle
 

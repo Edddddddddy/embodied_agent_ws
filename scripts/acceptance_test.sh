@@ -25,6 +25,8 @@ run_base() {
   bash scripts/smoke_test.sh
   bash scripts/smoke_test_online_wake_config.sh
   bash scripts/smoke_test_typed_action.sh
+  bash scripts/smoke_test_typed_action_server.sh
+  bash scripts/smoke_test_typed_action_pipeline.sh
   bash scripts/smoke_test_offline.sh
   bash scripts/smoke_test_hardware.sh
   bash scripts/smoke_test_simulation.sh

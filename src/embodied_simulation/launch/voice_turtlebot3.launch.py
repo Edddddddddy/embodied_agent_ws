@@ -12,6 +12,7 @@ from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def include_launch(package, filename, arguments=None, condition=None):
@@ -46,6 +47,7 @@ def generate_launch_description():
     capture = LaunchConfiguration("capture_enabled")
     speaker = LaunchConfiguration("speaker_enabled")
     wake_word = LaunchConfiguration("wake_word_enabled")
+    use_typed_actions = LaunchConfiguration("use_typed_actions")
 
     online_condition = IfCondition(
         PythonExpression([
@@ -68,6 +70,7 @@ def generate_launch_description():
         DeclareLaunchArgument("capture_enabled", default_value=microphone),
         DeclareLaunchArgument("speaker_enabled", default_value="false"),
         DeclareLaunchArgument("wake_word_enabled", default_value="true"),
+        DeclareLaunchArgument("use_typed_actions", default_value="false"),
         DeclareLaunchArgument("x_pose", default_value="-2.0"),
         DeclareLaunchArgument("y_pose", default_value="-0.5"),
         SetEnvironmentVariable("TURTLEBOT3_MODEL", "burger"),
@@ -111,7 +114,23 @@ def generate_launch_description():
             executable="simulation_control_node",
             name="simulation_control",
             output="screen",
-            parameters=[control_config, {"use_sim_time": True}],
+            parameters=[
+                control_config,
+                {
+                    "use_sim_time": True,
+                    "legacy_command_enabled": ParameterValue(
+                        PythonExpression(["'", use_typed_actions, "' != 'true'"]),
+                        value_type=bool,
+                    ),
+                },
+            ],
+        ),
+        Node(
+            package="embodied_agent_cpp",
+            executable="typed_action_bridge",
+            name="typed_action_bridge",
+            output="screen",
+            condition=IfCondition(use_typed_actions),
         ),
         include_launch(
             "embodied_online_agent",

@@ -3,15 +3,19 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 
+#include <embodied_agent_interfaces/action/execute_robot_command.hpp>
 #include <geometry_msgs/msg/twist.hpp>
 #include <nlohmann/json.hpp>
+#include <rclcpp_action/rclcpp_action.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
 #include <std_msgs/msg/empty.hpp>
 #include <std_msgs/msg/string.hpp>
 
+#include "embodied_simulation/action_execution.hpp"
 #include "embodied_simulation/simulation_controller.hpp"
 
 namespace embodied_simulation
@@ -20,6 +24,10 @@ namespace embodied_simulation
 class SimulationControlNode : public rclcpp::Node
 {
 public:
+  using ExecuteRobotCommand =
+    embodied_agent_interfaces::action::ExecuteRobotCommand;
+  using GoalHandle = rclcpp_action::ServerGoalHandle<ExecuteRobotCommand>;
+
   SimulationControlNode()
   : Node("simulation_control"), controller_(load_config())
   {
@@ -28,9 +36,26 @@ public:
     mode_pub_ = create_publisher<std_msgs::msg::String>("/robot/control_mode", 10);
     state_pub_ = create_publisher<std_msgs::msg::String>("/robot/simulation_state", 10);
     action_ack_pub_ = create_publisher<std_msgs::msg::String>("/robot/action_ack", 10);
-    action_sub_ = create_subscription<std_msgs::msg::String>(
-      "/robot/action_command", 10,
-      std::bind(&SimulationControlNode::on_action, this, _1));
+    const bool legacy_command_enabled =
+      declare_parameter("legacy_command_enabled", true);
+    action_timeout_s_ = declare_parameter("action_timeout_s", 12.0);
+    if (legacy_command_enabled) {
+      action_sub_ = create_subscription<std_msgs::msg::String>(
+        "/robot/action_command", 10,
+        std::bind(&SimulationControlNode::on_action, this, _1));
+    }
+    action_server_ = rclcpp_action::create_server<ExecuteRobotCommand>(
+      this,
+      "/robot/execute_command",
+      std::bind(
+        &SimulationControlNode::handle_goal, this,
+        std::placeholders::_1, std::placeholders::_2),
+      std::bind(
+        &SimulationControlNode::handle_cancel, this,
+        std::placeholders::_1),
+      std::bind(
+        &SimulationControlNode::handle_accepted, this,
+        std::placeholders::_1));
     mode_sub_ = create_subscription<std_msgs::msg::String>(
       "/robot/control_mode_request", 10,
       std::bind(&SimulationControlNode::on_mode_request, this, _1));
@@ -76,6 +101,188 @@ private:
   double now_seconds() const
   {
     return get_clock()->now().seconds();
+  }
+
+  static bool supported_action_goal(
+    const embodied_agent_interfaces::msg::RobotCommand & command)
+  {
+    using Command = embodied_agent_interfaces::msg::RobotCommand;
+    if (command.action_type == Command::STOP) {
+      return true;
+    }
+    if (command.action_type == Command::SET_MODE) {
+      return command.mode == "manual" ||
+             command.mode == "obstacle_avoidance" ||
+             command.mode == "wall_following";
+    }
+    if (command.action_type == Command::MOVE) {
+      return std::isfinite(command.linear_x) &&
+             std::isfinite(command.duration_s) &&
+             command.duration_s >= 0.0 && command.duration_s <= 10.0;
+    }
+    if (command.action_type == Command::TURN) {
+      return std::isfinite(command.angular_z) &&
+             std::isfinite(command.duration_s) &&
+             command.duration_s >= 0.0 && command.duration_s <= 10.0;
+    }
+    return false;
+  }
+
+  rclcpp_action::GoalResponse handle_goal(
+    const rclcpp_action::GoalUUID &,
+    std::shared_ptr<const ExecuteRobotCommand::Goal> goal)
+  {
+    if (!supported_action_goal(goal->command)) {
+      RCLCPP_WARN(get_logger(), "rejected unsupported typed action goal");
+      return rclcpp_action::GoalResponse::REJECT;
+    }
+    return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
+  }
+
+  rclcpp_action::CancelResponse handle_cancel(
+    const std::shared_ptr<GoalHandle> goal_handle)
+  {
+    return active_goal_ == goal_handle ?
+           rclcpp_action::CancelResponse::ACCEPT :
+           rclcpp_action::CancelResponse::REJECT;
+  }
+
+  void handle_accepted(const std::shared_ptr<GoalHandle> goal_handle)
+  {
+    if (active_goal_) {
+      finish_active_action(
+        ActionExecutionState::kCanceled, "preempted_by_new_goal");
+    }
+
+    const auto & command = goal_handle->get_goal()->command;
+    using Command = embodied_agent_interfaces::msg::RobotCommand;
+    if (command.action_type == Command::STOP) {
+      controller_.stop();
+      finish_immediate_action(goal_handle, true, "stopped");
+      publish_action_ack("stop", "accepted");
+      return;
+    }
+    if (command.action_type == Command::SET_MODE) {
+      const bool accepted = set_mode(command.mode);
+      finish_immediate_action(
+        goal_handle, accepted,
+        accepted ? "mode_changed" : "unsupported_mode");
+      publish_action_ack("set_mode", accepted ? "accepted" : "rejected");
+      return;
+    }
+
+    const double now = now_seconds();
+    if (command.action_type == Command::MOVE) {
+      controller_.set_manual_command(
+        command.linear_x, 0.0, command.duration_s, now);
+      active_action_name_ = "move";
+    } else {
+      controller_.set_manual_command(
+        0.0, command.angular_z, command.duration_s, now);
+      active_action_name_ = "turn";
+    }
+    active_goal_ = goal_handle;
+    action_execution_.emplace(
+      command.duration_s, action_timeout_s_, now);
+    publish_action_feedback(
+      ExecuteRobotCommand::Feedback::PHASE_ACCEPTED, 0.0F, "accepted");
+    publish_action_ack(active_action_name_, "accepted");
+  }
+
+  void finish_immediate_action(
+    const std::shared_ptr<GoalHandle> & goal_handle,
+    bool success,
+    const std::string & message)
+  {
+    auto result = std::make_shared<ExecuteRobotCommand::Result>();
+    result->success = success;
+    result->status = success ?
+      ExecuteRobotCommand::Result::STATUS_SUCCEEDED :
+      ExecuteRobotCommand::Result::STATUS_REJECTED;
+    result->message = message;
+    if (success) {
+      goal_handle->succeed(result);
+    } else {
+      goal_handle->abort(result);
+    }
+  }
+
+  void publish_action_feedback(
+    std::uint8_t phase, float progress, const std::string & detail)
+  {
+    if (!active_goal_) {
+      return;
+    }
+    auto feedback = std::make_shared<ExecuteRobotCommand::Feedback>();
+    feedback->phase = phase;
+    feedback->progress = progress;
+    feedback->detail = detail;
+    active_goal_->publish_feedback(feedback);
+  }
+
+  void finish_active_action(
+    ActionExecutionState state, const std::string & message)
+  {
+    if (!active_goal_) {
+      return;
+    }
+    controller_.stop();
+    auto result = std::make_shared<ExecuteRobotCommand::Result>();
+    result->success = state == ActionExecutionState::kSucceeded;
+    result->message = message;
+    if (state == ActionExecutionState::kSucceeded) {
+      result->status = ExecuteRobotCommand::Result::STATUS_SUCCEEDED;
+      active_goal_->succeed(result);
+    } else if (state == ActionExecutionState::kCanceled) {
+      result->status = ExecuteRobotCommand::Result::STATUS_CANCELED;
+      if (active_goal_->is_canceling()) {
+        active_goal_->canceled(result);
+      } else {
+        active_goal_->abort(result);
+      }
+    } else if (state == ActionExecutionState::kTimedOut) {
+      result->status = ExecuteRobotCommand::Result::STATUS_TIMED_OUT;
+      active_goal_->abort(result);
+    } else {
+      result->status = ExecuteRobotCommand::Result::STATUS_BLOCKED;
+      active_goal_->abort(result);
+    }
+    publish_action_ack(active_action_name_, message);
+    active_goal_.reset();
+    action_execution_.reset();
+    active_action_name_.clear();
+  }
+
+  bool update_active_action(const ControllerOutput & output, double now)
+  {
+    if (!active_goal_ || !action_execution_) {
+      return false;
+    }
+    const auto update = action_execution_->update(
+      now, active_goal_->is_canceling(), output.safety_stopped);
+    if (update.state == ActionExecutionState::kRunning) {
+      publish_action_feedback(
+        ExecuteRobotCommand::Feedback::PHASE_EXECUTING,
+        static_cast<float>(update.progress), output.reason);
+      return false;
+    }
+    switch (update.state) {
+      case ActionExecutionState::kSucceeded:
+        finish_active_action(update.state, "succeeded");
+        break;
+      case ActionExecutionState::kCanceled:
+        finish_active_action(update.state, "canceled");
+        break;
+      case ActionExecutionState::kBlocked:
+        finish_active_action(update.state, output.reason);
+        break;
+      case ActionExecutionState::kTimedOut:
+        finish_active_action(update.state, "timed_out");
+        break;
+      case ActionExecutionState::kRunning:
+        break;
+    }
+    return true;
   }
 
   void on_action(const std_msgs::msg::String::SharedPtr message)
@@ -171,10 +378,12 @@ private:
 
   void control_tick()
   {
-    const auto output = controller_.step(now_seconds());
+    const double now = now_seconds();
+    const auto output = controller_.step(now);
+    const bool action_stopped = update_active_action(output, now);
     geometry_msgs::msg::Twist velocity;
-    velocity.linear.x = output.velocity.linear_x;
-    velocity.angular.z = output.velocity.angular_z;
+    velocity.linear.x = action_stopped ? 0.0 : output.velocity.linear_x;
+    velocity.angular.z = action_stopped ? 0.0 : output.velocity.angular_z;
     cmd_vel_pub_->publish(velocity);
 
     nlohmann::json state{
@@ -205,6 +414,11 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
   rclcpp::TimerBase::SharedPtr timer_;
   std::uint64_t action_sequence_{0};
+  double action_timeout_s_{12.0};
+  rclcpp_action::Server<ExecuteRobotCommand>::SharedPtr action_server_;
+  std::shared_ptr<GoalHandle> active_goal_;
+  std::optional<ActionExecution> action_execution_;
+  std::string active_action_name_;
 };
 
 }  // namespace embodied_simulation
