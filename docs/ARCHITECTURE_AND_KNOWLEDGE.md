@@ -48,7 +48,8 @@ PortAudio 回调只搬运数据，不执行网络、日志或模型推理；这�
 | `metrics.py` | LLM 首 token 与 TTS 首音频时延 |
 
 `providers/base.py` 是真实 seam：同一 interface 至少有 mock 与云端两个 adapter，测试可以
-不访问外网。`types.py` 保留动作值对象；回归测试证明 command fallback 依赖该 interface。
+不访问外网。`types.py` 中的 `ActionCommand` 和 `LatencySnapshot` 分别作为动作解析与
+延迟观测的值对象；二者都有实际调用方，并通过回归测试保护。
 
 ### `embodied_offline_agent`
 

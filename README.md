@@ -70,7 +70,7 @@ WAKE_WORD_ENABLED=true \
 ## 验收入口
 
 ```bash
-bash scripts/acceptance_test.sh mock     # 49 项测试及无模型链路
+bash scripts/acceptance_test.sh mock     # 51 项测试及无模型链路
 bash scripts/acceptance_test.sh online   # 少量云 API 调用
 bash scripts/acceptance_test.sh offline  # 本地模型、语音和性能
 bash scripts/acceptance_test.sh gazebo   # Gazebo 可信动作与里程计

@@ -16,7 +16,7 @@ bash scripts/acceptance_test.sh gazebo
 bash scripts/acceptance_test.sh gazebo-voice
 ```
 
-`mock` 是每次提交前的最低门槛；当前记录为 49 项测试、0 failure。`online` 使用少量
+`mock` 是每次提交前的最低门槛；当前记录为 51 项测试、0 failure。`online` 使用少量
 DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里程计位移验真。
 
 ## 2. 分层测试矩阵
