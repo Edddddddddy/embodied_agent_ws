@@ -27,20 +27,47 @@
 最有辨识度的能力是：同一个 ROS 2 安全动作 seam 同时连接在线语音、全离线 CPU 模型、
 Gazebo 物理仿真和硬件传输。这条纵向闭环应成为项目对外叙事中心。
 
-## 3. 近期同类高星项目对比
+## 3. 仿真与语言智能专项对标
 
-GitHub 星数采样于 2026-07-01，会随时间变化；功能依据各项目官方 README。
+GitHub 星数采样于 2026-07-02，会随时间变化；功能依据各项目官方 README。严格限定为
+“仿真是主要运行环境、自然语言或大模型参与决策、能够复现实验”后，没有一个上万星项目
+完整覆盖本项目路线。高星集中在通用仿真基础设施，最接近的语言 Agent 项目多为数百到
+一千余星，因此应分两组学习。
 
-| 项目 | 星数约 | 强项 | 相对不足/与本项目关系 |
+### 高星仿真基础设施
+
+| 项目 | 星数约 | 值得学习 | 不应照搬 |
 |---|---:|---|---|
-| [xiaozhi-esp32](https://github.com/78/xiaozhi-esp32) | 27.8k | 流式语音、离线唤醒、MCP、70+ 硬件、OTA、多语言与强演示内容 | 不以 ROS 2/Gazebo 和机器人运动安全为核心；其产品化、硬件生态和传播远强于本项目 |
-| [LeRobot](https://github.com/huggingface/lerobot) | 25.4k | 统一 Robot interface、标准数据集、预训练策略、Hub、PyPI、丰富硬件和社区 | 重点是数据/训练/VLA，不是语音 Agent；本项目缺少它的标准数据与可安装 SDK 体验 |
-| [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) | 13.3k | ASR/TTS/KWS/VAD/增强、多平台、多语言、NPU 和完整示例 | 是语音基础设施而非机器人闭环；本项目应复用其 KWS/增强，不应重复造轮子 |
-| [RAI](https://github.com/RobotecAI/rai) | 532 | ROS 2 原生 agentic framework、ASR/TTS、仿真、benchmark、多模态、正式文档与 ROS 社区连接 | 与本项目最接近；本项目链路更小更易读，但缺少工具扩展、多机器人配置和 benchmark 产品化 |
+| [Isaac Lab](https://github.com/isaac-sim/IsaacLab) | 7.6k | GPU 并行环境、统一传感器/任务配置、CI、教程和 Show & Tell 社区 | 依赖 NVIDIA/Isaac，重点是机器人学习，不是语音或 ROS Agent |
+| [ManiSkill](https://github.com/mani-skill/ManiSkill) | 3.1k | GPU 并行仿真、标准任务、demonstration 和 benchmark | 偏机械臂策略学习，与轻量 WSL/Gazebo 移动机器人不同 |
+| [Habitat-Lab](https://github.com/facebookresearch/habitat-lab) | 3.0k | instruction following、Sense-Plan-Act、标准指标、人机协同和 ROS-X-Habitat | 官方已提示停止主动维护；体系较重，不宜迁移整个技术栈 |
+| [RoboCasa](https://github.com/robocasa/robocasa) | 1.5k | 365 个 LLM 辅助设计任务、2500+ 场景、演示数据、模型 leaderboard | 侧重厨房操作和训练数据，不解决流式语音交互 |
+| [InternUtopia](https://github.com/InternRobotics/InternUtopia) | 1.3k | LLM 驱动 NPC、社会交互、任务生成、导航/操作 benchmark | 依赖 Isaac Sim 和 GPU，资产规模远超当前项目需要 |
 
-四者共同做对的事情：README 首屏立即说明价值；一条命令产生可见结果；有稳定 interface
-连接多种硬件/模型；提供视频、教程、release、CI、贡献指南和社区入口。高星不是靠继续
-添加“沿墙/灯光”等零散功能，而是降低第一次成功的成本，并让别人容易扩展和展示。
+### 与本项目路线最接近
+
+| 项目 | 星数约 | 直接启发 | 本项目可形成的差异 |
+|---|---:|---|---|
+| [ROS-LLM](https://github.com/Auromix/ROS-LLM) | 806 | 自然语言到 ROS 运动/导航、可扩展 robot function、Turtlesim 快速演示 | 本项目已有在线/离线语音、C++ Guard、Gazebo 物理位移和更严格验收 |
+| [RAI](https://github.com/RobotecAI/rai) | 532 | ROS 2 agentic framework、语音、仿真、benchmark 和多模态工具 | 本项目更轻量，可聚焦“可测的实时语音安全控制”而非通用多 Agent |
+| [Embodied Agent Interface](https://github.com/embodied-agent-interface/embodied-agent-interface) | 295 | 将 LLM 决策拆成目标理解、子目标分解、动作排序、状态转移，并定位 hallucination/affordance/planning 错误 | 可把同样的细粒度评测扩展到 ASR、唤醒、动作 Guard 和仿真执行层 |
+| [RoboChain](https://github.com/NoneJou072/robochain) | 131 | ROS 2 + LLM 仿真交互的直接参考 | 本项目测试、离线链路和安全执行更完整，但缺少任务级规划展示 |
+
+真正值得借鉴的不是更换 Gazebo，而是把当前单条链路提升为一个小而独特的
+**Spoken Embodied Agent Benchmark**：同一条语音指令逐层记录 ASR、目标理解、动作生成、
+安全仲裁、执行 ACK 和仿真任务成功率。现有项目通常评 LLM 规划或仿真策略，很少把真实
+流式语音错误与机器人安全执行放在同一个可复现 benchmark 中，这是本项目更有意义的
+创新位置。
+
+建议围绕四个实验场景扩展，而不是增加复杂硬件：
+
+1. **语音扰动鲁棒性**：干净语音、噪声、同音词、口音和多次重试，报告每层错误来源。
+2. **闭环任务修正**：仿真返回受阻/拒绝/超时后，LLM 基于 ACK 和 LaserScan 重新规划。
+3. **安全反事实评测**：对危险、越界、幻觉动作比较“模型输出”和“Guard 最终执行”。
+4. **语言生成场景**：用模板或 LLM 自动产生指令、障碍布局和验收谓词，批量运行 Gazebo。
+
+共同的工程经验仍然成立：README 首屏展示可见结果；一条命令启动最小场景；任务、模型
+和指标使用稳定 interface；提供视频、可下载结果、CI、release 和贡献教程。
 
 ## 4. 本项目主要不足
 
