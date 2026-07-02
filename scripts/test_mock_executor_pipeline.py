@@ -6,6 +6,7 @@ import threading
 import time
 
 import rclpy
+from diagnostic_msgs.msg import DiagnosticArray
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from std_msgs.msg import String
@@ -21,12 +22,16 @@ class MockExecutorProbe(Node):
         self.ack = None
         self.result = None
         self.bt_status = None
+        self.diagnostic = None
         self.create_subscription(Twist, "/cmd_vel", self._on_velocity, 10)
         self.create_subscription(String, "/robot/action_ack", self._on_ack, 10)
         self.create_subscription(
             String, "/robot/action_result", self._on_result, 10
         )
         self.create_subscription(String, "/robot/bt_status", self._on_bt, 10)
+        self.create_subscription(
+            DiagnosticArray, "/diagnostics", self._on_diagnostics, 10
+        )
 
     def _on_velocity(self, message):
         self.velocities.append((message.linear.x, message.angular.z))
@@ -45,6 +50,12 @@ class MockExecutorProbe(Node):
         payload = json.loads(message.data)
         if payload.get("outcome") == "succeeded":
             self.bt_status = payload
+
+    def _on_diagnostics(self, message):
+        for status in message.status:
+            values = {item.key: item.value for item in status.values}
+            if status.name.endswith("simulation_control"):
+                self.diagnostic = values
 
 
 def wait_until(predicate, timeout, description):
@@ -80,6 +91,7 @@ def main():
             lambda: node.result is not None
             and node.bt_status is not None
             and node.ack is not None
+            and node.diagnostic is not None
             and any(abs(linear) > 0.01 for linear, _ in node.velocities),
             5.0,
             "mock plugin did not complete the Action/BT pipeline",
@@ -93,12 +105,17 @@ def main():
         )
         if node.ack.get("backend") != "mock":
             raise RuntimeError(f"unexpected executor backend: {node.ack}")
+        if node.diagnostic.get("executor_backend") != "mock":
+            raise RuntimeError(f"unexpected diagnostics: {node.diagnostic}")
+        if node.diagnostic.get("lifecycle_state") != "active":
+            raise RuntimeError(f"inactive diagnostics: {node.diagnostic}")
         print(json.dumps({
             "backend": node.ack.get("backend"),
             "action_result": node.result,
             "bt_result": node.bt_status,
             "observed_motion": True,
             "stopped": True,
+            "diagnostics": node.diagnostic,
         }, indent=2))
     finally:
         executor.shutdown()

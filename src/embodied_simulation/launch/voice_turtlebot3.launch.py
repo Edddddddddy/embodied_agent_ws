@@ -51,6 +51,7 @@ def generate_launch_description():
     use_behavior_tree = LaunchConfiguration("use_behavior_tree")
     executor_plugin = LaunchConfiguration("executor_plugin")
     lifecycle_autostart = LaunchConfiguration("lifecycle_autostart")
+    use_composition = LaunchConfiguration("use_composition")
 
     online_condition = IfCondition(
         PythonExpression([
@@ -80,6 +81,7 @@ def generate_launch_description():
             default_value="embodied_simulation/GazeboRobotExecutor",
         ),
         DeclareLaunchArgument("lifecycle_autostart", default_value="true"),
+        DeclareLaunchArgument("use_composition", default_value="false"),
         DeclareLaunchArgument("x_pose", default_value="-2.0"),
         DeclareLaunchArgument("y_pose", default_value="-0.5"),
         SetEnvironmentVariable("TURTLEBOT3_MODEL", "burger"),
@@ -113,49 +115,23 @@ def generate_launch_description():
             output="screen",
         ),
         Node(
-            package="nav2_lifecycle_manager",
-            executable="lifecycle_manager",
-            name="simulation_lifecycle_manager",
-            output="screen",
-            parameters=[{
-                "autostart": ParameterValue(lifecycle_autostart, value_type=bool),
-                "node_names": ["simulation_control"],
-                "bond_timeout": 0.0,
-            }],
-        ),
-        Node(
             package="ros_gz_bridge",
             executable="parameter_bridge",
             arguments=["--ros-args", "-p", f"config_file:={bridge}"],
             output="screen",
         ),
-        LifecycleNode(
-            package="embodied_simulation",
-            executable="simulation_control_node",
-            name="simulation_control",
-            namespace="",
-            output="screen",
-            parameters=[
-                control_config,
-                {
-                    "use_sim_time": True,
-                    "legacy_command_enabled": ParameterValue(
-                        PythonExpression(["'", use_typed_actions, "' != 'true'"]),
-                        value_type=bool,
-                    ),
-                    "use_behavior_tree": ParameterValue(
-                        use_behavior_tree, value_type=bool
-                    ),
-                    "executor_plugin": executor_plugin,
-                },
-            ],
-        ),
-        Node(
-            package="embodied_agent_cpp",
-            executable="typed_action_bridge",
-            name="typed_action_bridge",
-            output="screen",
-            condition=IfCondition(use_typed_actions),
+        include_launch(
+            "embodied_simulation",
+            "simulation_control.launch.py",
+            {
+                "config": control_config,
+                "use_sim_time": "true",
+                "use_typed_actions": use_typed_actions,
+                "use_behavior_tree": use_behavior_tree,
+                "executor_plugin": executor_plugin,
+                "autostart": lifecycle_autostart,
+                "use_composition": use_composition,
+            },
         ),
         include_launch(
             "embodied_online_agent",

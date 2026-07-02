@@ -16,7 +16,7 @@ bash scripts/acceptance_test.sh gazebo
 bash scripts/acceptance_test.sh gazebo-voice
 ```
 
-`mock` 是每次提交前的最低门槛；当前记录为 70 项测试、0 failure。`online` 使用少量
+`mock` 是每次提交前的最低门槛；当前记录为 98 项测试、0 failure。`online` 使用少量
 DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里程计位移验真。
 
 ## 2. 分层测试矩阵
@@ -33,7 +33,10 @@ DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里
 | Action 状态 | `smoke_test_typed_action_server.sh` | 成功、反馈、取消、阻塞、超时和抢占 |
 | BT 编排 | `test_command_behavior_tree.cpp` | 验证、反应式安全、取消、超时与恢复 |
 | executor 插件 | `test_robot_executor_plugins.cpp` | 两个 pluginlib adapter 可发现且行为一致 |
+| 参数与 lint | `test_node_configuration.cpp`、ament lint | 无效控制参数在 configure 前失败，产品 C++/CMake/XML 可静态检查 |
 | mock 插件全链 | `smoke_test_mock_executor.sh` | 不改 Guard/BT 即可切换 backend |
+| 组件化等价 | `smoke_test_composed_executor.sh` | 同一控制实现可在多线程 component container 中完成 Action/BT 链 |
+| 命名空间 | `smoke_test_namespaced_executor.sh` | 相对名称、Action、BT、速度和 diagnostics 均隔离到 `/robot1` |
 | Action 全链 | `smoke_test_typed_action_pipeline.sh` | JSON -> typed -> Action -> 仿真控制 |
 | Action + Gazebo | `smoke_test_gazebo_typed_action.sh` | terminal result 与真实 `/odom` 位移 |
 | provider | `smoke_test_online_real.sh`、`benchmark_offline.sh` | 云/本地模型可用和真实延迟 |
@@ -76,6 +79,8 @@ typed Action 验收同时要求 `/robot/bt_status` 到达 `confirm/succeeded`，
 能加载，而是验证真实动作确实穿过了整棵树。
 所有主 launch 默认由 Nav2 lifecycle manager 自动配置并激活 Guard/仿真执行器；
 `lifecycle_autostart:=false` 可用于手工检查未激活状态不会执行动作。
+命名空间验收会等待 diagnostics 确认 Lifecycle 已进入 active 后再发目标，避免把“节点已
+发现”误当成“控制器已就绪”的启动竞态。
 
 单独验收唤醒词：
 

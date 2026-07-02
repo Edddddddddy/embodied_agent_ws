@@ -1,15 +1,20 @@
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <functional>
 #include <fstream>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <sstream>
 #include <string>
 
 #include <embodied_agent_interfaces/action/execute_robot_command.hpp>
 #include <ament_index_cpp/get_package_share_directory.hpp>
+#include <diagnostic_msgs/msg/diagnostic_array.hpp>
+#include <diagnostic_msgs/msg/diagnostic_status.hpp>
+#include <diagnostic_msgs/msg/key_value.hpp>
 #include <geometry_msgs/msg/twist.hpp>
 #include <lifecycle_msgs/msg/state.hpp>
 #include <nlohmann/json.hpp>
@@ -17,14 +22,17 @@
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_lifecycle/lifecycle_node.hpp>
+#include <rclcpp_components/register_node_macro.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
 #include <std_msgs/msg/empty.hpp>
 #include <std_msgs/msg/string.hpp>
 
 #include "embodied_simulation/action_execution.hpp"
 #include "embodied_simulation/command_behavior_tree.hpp"
+#include "embodied_simulation/node_configuration.hpp"
 #include "embodied_simulation/robot_executor.hpp"
 #include "embodied_simulation/simulation_controller.hpp"
+#include "embodied_simulation/simulation_control_factory.hpp"
 
 namespace embodied_simulation
 {
@@ -38,8 +46,8 @@ public:
   using CallbackReturn =
     rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
 
-  SimulationControlNode()
-  : LifecycleNode("simulation_control"),
+  explicit SimulationControlNode(const rclcpp::NodeOptions & options)
+  : LifecycleNode("simulation_control", "", options),
     executor_loader_("embodied_simulation", "embodied_simulation::RobotExecutor")
   {
     RCLCPP_INFO(get_logger(), "simulation control lifecycle node created");
@@ -52,23 +60,40 @@ protected:
     const auto controller_config = load_config();
     executor_plugin_ = string_parameter(
       "executor_plugin", "embodied_simulation/GazeboRobotExecutor");
+    action_timeout_s_ = double_parameter("action_timeout_s", 12.0);
+    const auto validation = validate_node_configuration(
+      controller_config, get_parameter("control_rate_hz").as_double(),
+      action_timeout_s_, executor_plugin_);
+    if (!validation.valid) {
+      RCLCPP_ERROR(
+        get_logger(), "invalid simulation configuration: %s",
+        validation.error.c_str());
+      return CallbackReturn::FAILURE;
+    }
     try {
       executor_ = executor_loader_.createSharedInstance(executor_plugin_);
       executor_->configure(controller_config);
+      executor_backend_ = executor_->backend_name();
     } catch (const pluginlib::PluginlibException & error) {
       RCLCPP_ERROR(
         get_logger(), "failed to load executor plugin %s: %s",
         executor_plugin_.c_str(), error.what());
       return CallbackReturn::FAILURE;
     }
-    cmd_vel_pub_ = create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10);
-    mode_pub_ = create_publisher<std_msgs::msg::String>("/robot/control_mode", 10);
-    state_pub_ = create_publisher<std_msgs::msg::String>("/robot/simulation_state", 10);
-    action_ack_pub_ = create_publisher<std_msgs::msg::String>("/robot/action_ack", 10);
-    bt_status_pub_ = create_publisher<std_msgs::msg::String>("/robot/bt_status", 10);
+    cmd_vel_pub_ = create_publisher<geometry_msgs::msg::Twist>(
+      "cmd_vel", rclcpp::QoS(10).reliable());
+    mode_pub_ = create_publisher<std_msgs::msg::String>(
+      "robot/control_mode", rclcpp::QoS(10).reliable());
+    state_pub_ = create_publisher<std_msgs::msg::String>(
+      "robot/simulation_state", rclcpp::QoS(10).reliable());
+    action_ack_pub_ = create_publisher<std_msgs::msg::String>(
+      "robot/action_ack", rclcpp::QoS(10).reliable());
+    bt_status_pub_ = create_publisher<std_msgs::msg::String>(
+      "robot/bt_status", rclcpp::QoS(10).reliable());
+    diagnostics_pub_ = create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
+      "diagnostics", rclcpp::QoS(10).reliable());
     const bool legacy_command_enabled =
       bool_parameter("legacy_command_enabled", true);
-    action_timeout_s_ = double_parameter("action_timeout_s", 12.0);
     use_behavior_tree_ = bool_parameter("use_behavior_tree", true);
     if (use_behavior_tree_) {
       const auto default_tree =
@@ -91,12 +116,12 @@ protected:
     }
     if (legacy_command_enabled) {
       action_sub_ = create_subscription<std_msgs::msg::String>(
-        "/robot/action_command", 10,
+        "robot/action_command", rclcpp::QoS(10).reliable(),
         std::bind(&SimulationControlNode::on_action, this, _1));
     }
     action_server_ = rclcpp_action::create_server<ExecuteRobotCommand>(
       this,
-      "/robot/execute_command",
+      "robot/execute_command",
       std::bind(
         &SimulationControlNode::handle_goal, this,
         std::placeholders::_1, std::placeholders::_2),
@@ -107,15 +132,15 @@ protected:
         &SimulationControlNode::handle_accepted, this,
         std::placeholders::_1));
     mode_sub_ = create_subscription<std_msgs::msg::String>(
-      "/robot/control_mode_request", 10,
+      "robot/control_mode_request", rclcpp::QoS(10).reliable(),
       std::bind(&SimulationControlNode::on_mode_request, this, _1));
     emergency_sub_ = create_subscription<std_msgs::msg::Empty>(
-      "/robot/emergency_stop", 10,
+      "robot/emergency_stop", rclcpp::QoS(10).reliable(),
       std::bind(&SimulationControlNode::on_emergency_stop, this, _1));
 
     auto scan_qos = rclcpp::SensorDataQoS().keep_last(5);
     scan_sub_ = create_subscription<sensor_msgs::msg::LaserScan>(
-      "/scan", scan_qos,
+      "scan", scan_qos,
       std::bind(&SimulationControlNode::on_scan, this, _1));
 
     const auto period = std::chrono::duration<double>(
@@ -124,6 +149,13 @@ protected:
       std::chrono::duration_cast<std::chrono::nanoseconds>(period),
       std::bind(&SimulationControlNode::control_tick, this));
     timer_->cancel();
+    diagnostics_callback_group_ = create_callback_group(
+      rclcpp::CallbackGroupType::MutuallyExclusive);
+    diagnostics_timer_ = create_wall_timer(
+      std::chrono::seconds(1),
+      std::bind(&SimulationControlNode::publish_diagnostics, this),
+      diagnostics_callback_group_);
+    diagnostics_timer_->cancel();
     RCLCPP_INFO(get_logger(), "simulation control configured");
     return CallbackReturn::SUCCESS;
   }
@@ -135,7 +167,9 @@ protected:
     state_pub_->on_activate();
     action_ack_pub_->on_activate();
     bt_status_pub_->on_activate();
+    diagnostics_pub_->on_activate();
     timer_->reset();
+    diagnostics_timer_->reset();
     publish_mode();
     RCLCPP_INFO(get_logger(), "simulation control activated; mode=manual");
     return CallbackReturn::SUCCESS;
@@ -156,6 +190,10 @@ protected:
     if (timer_) {
       timer_->cancel();
     }
+    if (diagnostics_timer_) {
+      diagnostics_timer_->cancel();
+    }
+    diagnostics_pub_->on_deactivate();
     bt_status_pub_->on_deactivate();
     action_ack_pub_->on_deactivate();
     state_pub_->on_deactivate();
@@ -318,6 +356,7 @@ private:
 
     if (behavior_tree_) {
       active_goal_ = goal_handle;
+      action_active_ = true;
       behavior_tree_->start(command);
       const auto initial = behavior_tree_->tick(
         false, ActionExecutionState::kRunning, "accepted");
@@ -326,6 +365,7 @@ private:
         finish_immediate_action(goal_handle, false, initial.detail);
         publish_action_ack("unknown", "rejected", initial.detail);
         active_goal_.reset();
+        action_active_ = false;
         return;
       }
     }
@@ -351,6 +391,7 @@ private:
       return;
     }
     active_goal_ = goal_handle;
+    action_active_ = true;
     action_execution_.emplace(
       command.duration_s, action_timeout_s_, now);
     publish_action_feedback(
@@ -418,6 +459,7 @@ private:
     }
     publish_action_ack(active_action_name_, message);
     active_goal_.reset();
+    action_active_ = false;
     action_execution_.reset();
     active_action_name_.clear();
   }
@@ -637,26 +679,82 @@ private:
     cmd_vel_pub_->publish(geometry_msgs::msg::Twist());
   }
 
+  static diagnostic_msgs::msg::KeyValue diagnostic_value(
+    const std::string & key, const std::string & value)
+  {
+    diagnostic_msgs::msg::KeyValue item;
+    item.key = key;
+    item.value = value;
+    return item;
+  }
+
+  void publish_diagnostics()
+  {
+    if (!diagnostics_pub_ || !diagnostics_pub_->is_activated() || !executor_) {
+      return;
+    }
+    ControllerOutput output;
+    {
+      std::lock_guard<std::mutex> lock(diagnostics_mutex_);
+      output = diagnostic_output_;
+    }
+    diagnostic_msgs::msg::DiagnosticStatus status;
+    status.name = get_fully_qualified_name();
+    status.hardware_id = executor_backend_;
+    if (output.safety_stopped) {
+      status.level = diagnostic_msgs::msg::DiagnosticStatus::ERROR;
+      status.message = output.reason;
+    } else if (output.sensor_stale && executor_backend_ == "simulation") {
+      status.level = diagnostic_msgs::msg::DiagnosticStatus::WARN;
+      status.message = output.reason;
+    } else {
+      status.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
+      status.message = "ready";
+    }
+    status.values = {
+      diagnostic_value("lifecycle_state", get_current_state().label()),
+      diagnostic_value("executor_plugin", executor_plugin_),
+      diagnostic_value("executor_backend", executor_backend_),
+      diagnostic_value("control_mode", SimulationController::mode_name(output.mode)),
+      diagnostic_value("active_action", action_active_ ? "true" : "false"),
+      diagnostic_value("sensor_stale", output.sensor_stale ? "true" : "false"),
+      diagnostic_value("safety_stopped", output.safety_stopped ? "true" : "false"),
+      diagnostic_value("reason", output.reason),
+    };
+    diagnostic_msgs::msg::DiagnosticArray message;
+    message.header.stamp = now();
+    message.status.push_back(status);
+    diagnostics_pub_->publish(message);
+  }
+
   void reset_interfaces()
   {
     if (timer_) {
       timer_->cancel();
     }
     timer_.reset();
+    if (diagnostics_timer_) {
+      diagnostics_timer_->cancel();
+    }
+    diagnostics_timer_.reset();
+    diagnostics_callback_group_.reset();
     action_server_.reset();
     scan_sub_.reset();
     emergency_sub_.reset();
     mode_sub_.reset();
     action_sub_.reset();
+    diagnostics_pub_.reset();
     bt_status_pub_.reset();
     action_ack_pub_.reset();
     state_pub_.reset();
     mode_pub_.reset();
     cmd_vel_pub_.reset();
     active_goal_.reset();
+    action_active_ = false;
     action_execution_.reset();
     active_action_name_.clear();
     action_sequence_ = 0;
+    executor_backend_.clear();
     behavior_tree_.reset();
     last_bt_status_.clear();
   }
@@ -665,6 +763,10 @@ private:
   {
     const double now = now_seconds();
     const auto output = executor_->step(now);
+    {
+      std::lock_guard<std::mutex> lock(diagnostics_mutex_);
+      diagnostic_output_ = output;
+    }
     const bool action_stopped = update_active_action(output, now);
     geometry_msgs::msg::Twist velocity;
     velocity.linear.x = action_stopped ? 0.0 : output.velocity.linear_x;
@@ -691,6 +793,7 @@ private:
   pluginlib::ClassLoader<RobotExecutor> executor_loader_;
   std::shared_ptr<RobotExecutor> executor_;
   std::string executor_plugin_;
+  std::string executor_backend_;
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr
     cmd_vel_pub_;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::String>::SharedPtr mode_pub_;
@@ -699,11 +802,15 @@ private:
     action_ack_pub_;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::String>::SharedPtr
     bt_status_pub_;
+  rclcpp_lifecycle::LifecyclePublisher<
+    diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diagnostics_pub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr action_sub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr mode_sub_;
   rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr emergency_sub_;
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
   rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::TimerBase::SharedPtr diagnostics_timer_;
+  rclcpp::CallbackGroup::SharedPtr diagnostics_callback_group_;
   std::uint64_t action_sequence_{0};
   double action_timeout_s_{12.0};
   rclcpp_action::Server<ExecuteRobotCommand>::SharedPtr action_server_;
@@ -713,17 +820,17 @@ private:
   bool use_behavior_tree_{true};
   std::unique_ptr<CommandBehaviorTree> behavior_tree_;
   std::string last_bt_status_;
+  std::atomic_bool action_active_{false};
+  std::mutex diagnostics_mutex_;
+  ControllerOutput diagnostic_output_;
 };
+
+std::shared_ptr<rclcpp_lifecycle::LifecycleNode> make_simulation_control_node(
+  const rclcpp::NodeOptions & options)
+{
+  return std::make_shared<SimulationControlNode>(options);
+}
 
 }  // namespace embodied_simulation
 
-int main(int argc, char ** argv)
-{
-  rclcpp::init(argc, argv);
-  auto node = std::make_shared<embodied_simulation::SimulationControlNode>();
-  rclcpp::executors::SingleThreadedExecutor executor;
-  executor.add_node(node->get_node_base_interface());
-  executor.spin();
-  rclcpp::shutdown();
-  return 0;
-}
+RCLCPP_COMPONENTS_REGISTER_NODE(embodied_simulation::SimulationControlNode)

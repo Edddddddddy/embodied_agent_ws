@@ -99,7 +99,7 @@ GitHub 星数采样于 2026-07-02，会随时间变化；功能依据各项目�
 
 1. 录制 30–60 秒 GIF：说“向前走一秒” -> ASR 文本 -> 动作 JSON -> Gazebo 移动。
 2. 提供 `docker compose up demo` 或 devcontainer，缓存 ROS 依赖；mock demo 不下载模型。
-3. GitHub Actions 自动跑 build、70 项测试和 headless mock/simulation smoke。
+3. GitHub Actions 自动跑 build、98 项测试和 headless mock/simulation smoke。
 4. 补 Apache-2.0 LICENSE、CONTRIBUTING、release notes、issue 模板和架构图。
 5. 发布 `v0.1.0`，README 只保留一个主 CTA：Run the voice-to-Gazebo demo。
 
@@ -243,6 +243,13 @@ ROS Action 集成测试覆盖正常、拒绝、取消、障碍、超时和恢复
 - 增加 diagnostics、结构化日志、命名空间和 launch 分层。
 - 统一 CMake、package export、clang-format/ament lint 和测试目录。
 - 验收：组合/独立进程两种启动方式结果一致，无线程退出和 DDS 残留问题。
+
+完成状态：已完成。`SimulationControlNode` 注册为 ROS 2 component，独立 executable 通过
+factory 复用同一实现并使用双线程 executor；launch 可在独立/组合模式间切换。新增参数
+交叉校验、显式 QoS、标准 diagnostics、独立 callback group 和线程安全状态快照。执行层
+全部改用相对名称，并通过 `namespace:=robot1` 验证 typed Action、BT、`cmd_vel` 与诊断
+隔离。`voice_turtlebot3.launch.py` 复用执行子 launch，消除重复节点声明。新增 cppcheck、
+CMake/XML lint、组件化和命名空间冒烟；当前基线为 98 项测试、0 failure。
 
 ### Loop 7：全链交付
 

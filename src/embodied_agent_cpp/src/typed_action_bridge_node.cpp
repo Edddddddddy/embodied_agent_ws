@@ -24,14 +24,14 @@ public:
   : Node("typed_action_bridge")
   {
     client_ = rclcpp_action::create_client<ExecuteRobotCommand>(
-      this, "/robot/execute_command");
+      this, "robot/execute_command");
     feedback_pub_ = create_publisher<std_msgs::msg::String>(
-      "/robot/action_feedback", 10);
+      "robot/action_feedback", rclcpp::QoS(10).reliable());
     result_pub_ = create_publisher<std_msgs::msg::String>(
-      "/robot/action_result", 10);
+      "robot/action_result", rclcpp::QoS(10).reliable());
     command_sub_ = create_subscription<
       embodied_agent_interfaces::msg::RobotCommand>(
-      "/robot/action_command_typed", 10,
+      "robot/action_command_typed", rclcpp::QoS(10).reliable(),
       std::bind(&TypedActionBridgeNode::on_command, this, std::placeholders::_1));
     RCLCPP_INFO(get_logger(), "typed command to Action bridge ready");
   }

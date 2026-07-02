@@ -16,6 +16,9 @@
 - 生命周期：Guard 与仿真执行器采用 C++ LifecycleNode，由 Nav2 manager 有序激活。
 - 行为编排：BehaviorTree.CPP XML 执行验证、安全检查、异步动作与结果确认。
 - 执行插件：pluginlib 按参数切换 Gazebo 与无仿真的 mock executor。
+- 组件化部署：同一 C++ 控制实现支持独立进程和 ROS 2 component container。
+- 可观测性：标准 diagnostics 报告生命周期、执行后端、动作与安全停车状态。
+- 多机器人隔离：执行链使用相对 ROS 名称，可整体放入 `namespace`。
 - 控制后端：TurtleBot3 Gazebo、UART、SPI 和无硬件 mock。
 - 自动验收：单元测试、ROS 冒烟、云模型、离线模型和 Gazebo 物理位移验证。
 
@@ -74,7 +77,7 @@ WAKE_WORD_ENABLED=true \
 ## 验收入口
 
 ```bash
-bash scripts/acceptance_test.sh mock     # 70 项测试及无模型链路
+bash scripts/acceptance_test.sh mock     # 98 项测试及无模型链路
 bash scripts/acceptance_test.sh online   # 少量云 API 调用
 bash scripts/acceptance_test.sh offline  # 本地模型、语音和性能
 bash scripts/acceptance_test.sh gazebo   # Gazebo 可信动作与里程计
@@ -98,11 +101,15 @@ launch 默认 `lifecycle_autostart:=true`；调试启动顺序时可设为 `fals
 
 ```bash
 bash scripts/smoke_test_mock_executor.sh
+bash scripts/smoke_test_composed_executor.sh
+bash scripts/smoke_test_namespaced_executor.sh
 ```
 
 launch 参数 `executor_plugin` 默认为
 `embodied_simulation/GazeboRobotExecutor`，也可选择
 `embodied_simulation/MockRobotExecutor`。
+`simulation_control.launch.py` 可通过 `use_composition:=true` 改为组件容器，通过
+`namespace:=robot1` 隔离整条执行链；两者可同时使用。
 
 ## 项目结构
 

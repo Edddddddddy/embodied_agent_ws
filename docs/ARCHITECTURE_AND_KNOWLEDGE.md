@@ -105,10 +105,25 @@ PortAudio 回调只搬运数据，不执行网络、日志或模型推理；这�
 | `robot_executor.hpp` | Gazebo/mock 共用的小型执行 interface |
 | `robot_executor_plugins.cpp` | pluginlib Gazebo 与 mock adapters |
 | `simulation_control_node.cpp` | Lifecycle Action server、LaserScan、Twist、ACK 的 ROS seam |
+| `simulation_control_main.cpp` | 独立进程入口与双线程 MultiThreadedExecutor |
+| `simulation_control_factory.hpp` | 独立入口复用 component 实现的工厂 seam |
+| `node_configuration.cpp` | configure 前的控制参数与插件名交叉校验 |
+| `simulation_control.launch.py` | 独立/组合部署、namespace 与 Lifecycle 管理 |
 | `voice_turtlebot3.launch.py` | Agent、Guard、Gazebo、bridge 的组合启动 |
 
 当前产品主链只承诺 `move / turn / stop`；避障和沿墙用于展示安全控制模块，不继续扩展
 成完整导航栈。Gazebo ACK 和 `/odom` 位移共同证明命令确实经过了仿真执行器。
+
+`SimulationControlNode` 只实现一次并注册为 `rclcpp_components` component；独立可执行文件
+通过 factory 创建同一个类，因此两种部署不会形成两份控制逻辑。独立模式使用双线程
+`MultiThreadedExecutor`，diagnostics timer 位于单独的互斥 callback group；控制快照通过
+mutex/atomic 读取，诊断发布不会与 Action 控制状态发生数据竞争。
+
+控制节点所有执行相关 topic 和 Action 都使用相对名称，launch 的 `namespace` 会同时作用于
+component container、Lifecycle manager、控制组件和 typed bridge。速度/动作/状态使用
+reliable QoS，LaserScan 使用 sensor-data QoS。标准 `/diagnostics`（加 namespace 后为
+`/<namespace>/diagnostics`）报告 lifecycle state、executor plugin/backend、control mode、
+active action、sensor stale、safety stopped 与原因。
 
 ## 3. 关键话题
 
