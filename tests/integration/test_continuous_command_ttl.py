@@ -66,8 +66,11 @@ def main():
     thread.start()
     try:
         wait_until(
-            lambda: node.text_pub.get_subscription_count() > 0
-            and node.count_publishers("/robot/action_result") > 0,
+            lambda: (
+                node.text_pub.get_subscription_count() > 0
+                and node.count_publishers("/robot/action_result") > 0
+                and node.count_subscribers("/robot/action_command_typed") > 0
+            ),
             15.0,
             "continuous voice pipeline was not discovered",
         )

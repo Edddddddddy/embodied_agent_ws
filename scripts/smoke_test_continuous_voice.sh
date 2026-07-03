@@ -56,6 +56,7 @@ fi
 PIDS+=("$!")
 
 activate_lifecycle_node action_guard
+wait_for_topic_subscribers /robot/action_command_typed
 if ! timeout 35 python3 "$WORKSPACE/tests/integration/test_continuous_voice_control.py"; then
   cat "$LOG_FILE" >&2
   exit 1
