@@ -53,6 +53,7 @@ audio_frontend:
     vad_provider: energy
     endpoint_events_enabled: true
     vad_rms_threshold: 0.018
+    metrics_period_s: 0.5
     silence_timeout_s: 0.4
     speech_end_silence_s: 0.4
     min_utterance_ms: 100.0

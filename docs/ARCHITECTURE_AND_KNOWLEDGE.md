@@ -53,8 +53,8 @@ rclcpp lifecycle node，而不是 Nav2 自带 bond 的节点基类。
 
 | 文件 | 责任 |
 |---|---|
-| `audio_processing.hpp/.cpp` | Energy VAD、speech endpoint、AudioEnhancer/NLMS AEC，纯计算可单测 |
-| `audio_frontend_node.cpp` | PortAudio 回调、有界队列、PCM 发布和播放 |
+| `audio_processing.hpp/.cpp` | Energy VAD、speech endpoint、AudioFrameMetrics、AudioEnhancer/NLMS AEC，纯计算可单测 |
+| `audio_frontend_node.cpp` | PortAudio 回调、有界队列、PCM 发布、播放和前端诊断 |
 | `action_validator.hpp/.cpp` | 动作白名单、参数 schema、速度与时长限幅 |
 | `action_guard_node.cpp` | Lifecycle Guard；仅 active 时将 candidate 转成可信动作 |
 | `hardware_protocol.hpp/.cpp` | 版本、序号、payload 和 CRC 帧 |
@@ -163,6 +163,7 @@ active action、sensor stale、safety stopped 与原因。
 |---|---|---|
 | `/audio/clean_pcm` | AudioFrontend -> ASR | AEC 后 PCM16 |
 | `/audio/silence_timeout` | AudioFrontend -> Agent | 连续静音 0.4 秒 |
+| `/audio/frontend_metrics` | AudioFrontend -> UI/验收器 | rms、peak、speech、丢帧计数，用于真实麦克风排障 |
 | `/agent/asr_final` | ASR -> 观测者 | 最终识别文本 |
 | `/agent/recognition_feedback` | Agent -> UI/验收器 | 唤醒失败重试、命令归一化反馈 |
 | `/agent/state` | Agent -> UI/验收器 | listening、queued、thinking、speaking、session_awake、sleeping |

@@ -32,10 +32,15 @@ def test_monitor_formats_session_and_wake_events():
         {"provider": "mock_kws", "transcript": "小智", "score": 1.0},
         ensure_ascii=False,
     )
+    audio = json.dumps(
+        {"rms": 0.0305, "peak": 1000, "speech": True, "dropped_input_frames": 0},
+        ensure_ascii=False,
+    )
 
     assert monitor.format_session_state("awake") == "[session] awake"
     assert monitor.format_wake_event(wake) == "[wake] text:wake"
     assert monitor.format_kws_event(kws) == "[kws] mock_kws detected 小智 score=1.0"
+    assert monitor.format_audio_metrics(audio) == "[audio] rms=0.0305 peak=1000 speech=True dropped=0"
 
 
 def test_monitor_formats_asr_queue_action_and_result_events():

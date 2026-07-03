@@ -7,6 +7,7 @@
 #include <deque>
 #include <memory>
 #include <mutex>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -14,6 +15,7 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/empty.hpp"
+#include "std_msgs/msg/string.hpp"
 #include "std_msgs/msg/u_int8_multi_array.hpp"
 
 #include "embodied_agent_cpp/audio_processing.hpp"
@@ -38,7 +40,9 @@ public:
     speech_end_silence_s_(declare_parameter("speech_end_silence_s", silence_timeout_s_)),
     min_utterance_s_(declare_parameter("min_utterance_ms", 100.0) / 1000.0),
     max_utterance_s_(declare_parameter("max_utterance_s", 12.0)),
-    vad_(declare_parameter("vad_rms_threshold", 0.018)),
+    vad_rms_threshold_(declare_parameter("vad_rms_threshold", 0.018)),
+    metrics_period_s_(declare_parameter("metrics_period_s", 0.5)),
+    vad_(vad_rms_threshold_),
     endpoint_(speech_end_silence_s_, min_utterance_s_, max_utterance_s_),
     audio_enhancer_name_(declare_parameter("audio_enhancer", "nlms")),
     aec_enabled_(declare_parameter("aec_enabled", true)),
@@ -53,6 +57,8 @@ public:
       "/audio/speech_started", 10);
     speech_ended_publisher_ = create_publisher<std_msgs::msg::Empty>(
       "/audio/speech_ended", 10);
+    frontend_metrics_publisher_ = create_publisher<std_msgs::msg::String>(
+      "/audio/frontend_metrics", 10);
     tts_reference_subscription_ = create_subscription<std_msgs::msg::UInt8MultiArray>(
       "/audio/tts_pcm",
       rclcpp::SensorDataQoS(),
@@ -212,13 +218,15 @@ private:
       }
 
       auto cleaned = audio_enhancer_->process(frame);
+      const auto metrics = compute_audio_frame_metrics(cleaned, vad_rms_threshold_);
+      maybe_publish_metrics(metrics);
       std_msgs::msg::UInt8MultiArray message;
       message.data.resize(cleaned.size() * sizeof(int16_t));
       std::memcpy(message.data.data(), cleaned.data(), message.data.size());
       cleaned_audio_publisher_->publish(std::move(message));
 
       if (endpoint_events_enabled_) {
-        const bool speech = vad_.is_speech(cleaned);
+        const bool speech = metrics.speech;
         const double frame_seconds = static_cast<double>(cleaned.size()) / microphone_rate_;
         const auto endpoint_event = endpoint_.update(speech, frame_seconds);
         if (endpoint_event.speech_started) {
@@ -296,6 +304,31 @@ private:
     return std::make_unique<NlmsAudioEnhancer>(config);
   }
 
+  void maybe_publish_metrics(const AudioFrameMetrics & metrics)
+  {
+    if (metrics_period_s_ <= 0.0 || frontend_metrics_publisher_ == nullptr) {
+      return;
+    }
+    const auto now = get_clock()->now();
+    if (last_metrics_publish_.nanoseconds() != 0 &&
+      (now - last_metrics_publish_).seconds() < metrics_period_s_)
+    {
+      return;
+    }
+    last_metrics_publish_ = now;
+    std::ostringstream json;
+    json << "{\"rms\":" << metrics.rms
+         << ",\"peak\":" << metrics.peak
+         << ",\"speech\":" << (metrics.speech ? "true" : "false")
+         << ",\"vad_provider\":\"" << vad_provider_ << "\""
+         << ",\"dropped_input_frames\":" << dropped_input_frames_
+         << ",\"dropped_playback_chunks\":" << dropped_playback_chunks_
+         << "}";
+    std_msgs::msg::String message;
+    message.data = json.str();
+    frontend_metrics_publisher_->publish(message);
+  }
+
   static constexpr std::size_t kMaximumInputFrames = 50;
   static constexpr std::size_t kMaximumPlaybackChunks = 100;
 
@@ -311,6 +344,8 @@ private:
   double speech_end_silence_s_;
   double min_utterance_s_;
   double max_utterance_s_;
+  double vad_rms_threshold_;
+  double metrics_period_s_;
   EnergyVad vad_;
   SpeechEndpointDetector endpoint_;
   std::string audio_enhancer_name_;
@@ -339,7 +374,9 @@ private:
   rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr silence_publisher_;
   rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr speech_started_publisher_;
   rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr speech_ended_publisher_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr frontend_metrics_publisher_;
   rclcpp::Subscription<std_msgs::msg::UInt8MultiArray>::SharedPtr tts_reference_subscription_;
+  rclcpp::Time last_metrics_publish_{0, 0, RCL_ROS_TIME};
 };
 
 }  // namespace embodied_agent_cpp

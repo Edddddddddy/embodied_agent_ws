@@ -9,6 +9,17 @@
 namespace embodied_agent_cpp
 {
 
+struct AudioFrameMetrics
+{
+  double rms{0.0};
+  int16_t peak{0};
+  bool speech{false};
+};
+
+AudioFrameMetrics compute_audio_frame_metrics(
+  const std::vector<int16_t> & samples,
+  double speech_threshold);
+
 class EnergyVad
 {
 public:

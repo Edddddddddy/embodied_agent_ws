@@ -26,6 +26,21 @@ TEST(EnergyVadTest, DistinguishesSpeechFromSilence)
   EXPECT_TRUE(vad.is_speech(std::vector<int16_t>(320, 1000)));
 }
 
+TEST(AudioFrameMetricsTest, ReportsRmsPeakAndSpeechDecision)
+{
+  const auto silence = embodied_agent_cpp::compute_audio_frame_metrics(
+    std::vector<int16_t>(320, 0), 0.01);
+  EXPECT_DOUBLE_EQ(silence.rms, 0.0);
+  EXPECT_EQ(silence.peak, 0);
+  EXPECT_FALSE(silence.speech);
+
+  const auto voice = embodied_agent_cpp::compute_audio_frame_metrics(
+    std::vector<int16_t>(320, 1000), 0.01);
+  EXPECT_NEAR(voice.rms, 1000.0 / 32768.0, 1e-6);
+  EXPECT_EQ(voice.peak, 1000);
+  EXPECT_TRUE(voice.speech);
+}
+
 TEST(SilenceDetectorTest, EmitsOnceAfterFourHundredMilliseconds)
 {
   embodied_agent_cpp::SilenceDetector detector(0.4);

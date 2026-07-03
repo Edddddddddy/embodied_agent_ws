@@ -173,11 +173,14 @@ VAD endpoint 与 AudioEnhancer seam：
 bash scripts/smoke_test_audio_endpoint.sh
 ros2 topic echo /audio/speech_started
 ros2 topic echo /audio/speech_ended
+ros2 topic echo /audio/frontend_metrics
 ```
 
 当前 `vad_provider:=energy`，端点参数包括 `speech_end_silence_s`、`min_utterance_ms`、
 `max_utterance_s`。AudioFrontend 会同步发布旧 `/audio/silence_timeout` 以兼容已有测试；
 Agent 对 `speech_ended` 与 `silence_timeout` 的同次事件做 50 ms 去重，避免双 commit。
+`/audio/frontend_metrics` 每 `metrics_period_s` 秒发布一次诊断 JSON；真实麦克风排障时，
+重点看 `rms` 是否明显大于静音、`speech` 是否随说话切换、`dropped_input_frames` 是否增长。
 Silero VAD 已作为可选 sidecar 接入：AudioFrontend 继续发布 `/audio/clean_pcm`，当
 `vad_provider:=silero` 时内置 energy endpoint 自动关闭，由 `silero_vad` 节点发布
 `/audio/speech_started`、`/audio/speech_ended` 与可观测 `/audio/vad_event`。

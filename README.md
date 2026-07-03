@@ -172,7 +172,8 @@ Q8 CPU decode 34.10 token/s、语音全链 2.313 s；typed Action/BT 驱动 Gaze
 online/offline Agent 已订阅 `speech_ended` 触发 ASR commit，并对旧
 `silence_timeout` 做 50 ms 去重兼容。`vad_provider:=silero` 会启动可选 Python
 sidecar，AudioFrontend 只发布 `/audio/clean_pcm`，由 sidecar 接管端点事件；默认配置
-不强制安装 silero-vad/onnxruntime。
+不强制安装 silero-vad/onnxruntime。AudioFrontend 同时发布 `/audio/frontend_metrics`
+诊断 JSON，包含 `rms/peak/speech/dropped_*`，用于真实麦克风排查音量、VAD 阈值和丢帧。
 
 2026-07-03 新增 WakeProvider seam：当前文本唤醒逻辑被包装为
 `TextWakeProvider`，并发布 `/agent/wake_event` 与 `/agent/session_state`。连续控制测试

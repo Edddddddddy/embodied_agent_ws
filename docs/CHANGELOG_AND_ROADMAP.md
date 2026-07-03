@@ -24,6 +24,7 @@
 | rich simulation demo | 当前 | `arc` 弧线动作、组合动作顺序执行、mock demo 验收与企业化分支流程 |
 | 连续语音控制 | 当前 | 一次唤醒多命令队列、退出控制、stop 抢占与 online/offline mock 验收 |
 | VAD endpoint seam | 当前 | speech_started/speech_ended topic、端点参数和 legacy silence 兼容 |
+| Audio frontend metrics | 当前 | `/audio/frontend_metrics` 暴露 rms/peak/speech/丢帧，辅助真实麦克风调参 |
 | WakeProvider seam | 当前 | TextWakeProvider、wake_event/session_state topic、wake_event_input 外部 KWS 注入入口 |
 | KeywordWake sidecar | 当前 | mock_text 无模型验收、sherpa-onnx KeywordSpotter adapter 和 kws_event 诊断 topic |
 | AudioEnhancer seam | 当前 | NLMS AEC adapter、audio_enhancer/aec/ns/agc 参数与 WebRTC adapter 预留 |

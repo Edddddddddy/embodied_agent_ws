@@ -8,6 +8,28 @@
 namespace embodied_agent_cpp
 {
 
+AudioFrameMetrics compute_audio_frame_metrics(
+  const std::vector<int16_t> & samples,
+  double speech_threshold)
+{
+  AudioFrameMetrics metrics;
+  if (samples.empty()) {
+    return metrics;
+  }
+  double squared_sum = 0.0;
+  int peak = 0;
+  for (const int16_t sample : samples) {
+    const int magnitude = std::abs(static_cast<int>(sample));
+    peak = std::max(peak, magnitude);
+    const double normalized = static_cast<double>(sample) / 32768.0;
+    squared_sum += normalized * normalized;
+  }
+  metrics.rms = std::sqrt(squared_sum / static_cast<double>(samples.size()));
+  metrics.peak = static_cast<int16_t>(std::min(peak, 32767));
+  metrics.speech = metrics.rms >= speech_threshold;
+  return metrics;
+}
+
 EnergyVad::EnergyVad(double threshold)
 : threshold_(threshold)
 {
