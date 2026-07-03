@@ -11,6 +11,8 @@ from .wake_provider import TextWakeProvider, WakeDecision, WakeEvent, WakeEventK
 
 DEFAULT_SLEEP_WORDS = ("退出控制", "结束控制", "休眠", "睡眠", "先这样")
 DEFAULT_PRIORITY_STOP_WORDS = ("停下", "停止", "急停", "刹车", "别动")
+DEFAULT_FILLER_WORDS = ("嗯", "嗯嗯", "啊", "哦", "噢", "呃", "额", "唔")
+_PUNCTUATION_CHARS = " \t\r\n，。！？!?、,.；;：:"
 
 
 class SessionEventKind(str, Enum):
@@ -179,6 +181,9 @@ class ContinuousVoiceSession:
         enabled: bool,
         sleep_words: Iterable[str] = DEFAULT_SLEEP_WORDS,
         priority_stop_words: Iterable[str] = DEFAULT_PRIORITY_STOP_WORDS,
+        filler_words: Iterable[str] = DEFAULT_FILLER_WORDS,
+        duplicate_window_s: float = 1.2,
+        clock=time.monotonic,
     ):
         self._wake_provider = (
             wake_gate
@@ -188,6 +193,11 @@ class ContinuousVoiceSession:
         self.enabled = enabled
         self._sleep_words = tuple(word for word in sleep_words if word)
         self._priority_stop_words = tuple(word for word in priority_stop_words if word)
+        self._filler_words = tuple(self._normalize_short_text(word) for word in filler_words if word)
+        self._duplicate_window_s = max(0.0, float(duplicate_window_s))
+        self._clock = clock
+        self._last_command_text = ""
+        self._last_command_at = 0.0
 
     def accept(self, transcript: str) -> SessionDecision:
         text = transcript.strip()
@@ -200,6 +210,21 @@ class ContinuousVoiceSession:
                 ),
                 accepted=False,
                 reason="empty",
+                command=None,
+                priority_stop=False,
+            )
+
+        # 真实 ASR 长时间开麦时经常输出“嗯。”、“啊。”这类语气词 final。
+        # 在会话层提前过滤，避免无意义文本进入 LLM 或动作队列。
+        if self._is_filler(text):
+            return self._decision_from_wake(
+                WakeDecision(
+                    None,
+                    self._wake_provider.active,
+                    WakeEvent(WakeEventKind.REJECTED, "text", transcript, None),
+                ),
+                accepted=False,
+                reason="filler",
                 command=None,
                 priority_stop=False,
             )
@@ -234,6 +259,16 @@ class ContinuousVoiceSession:
             )
 
         priority_stop = self._contains_any(command, self._priority_stop_words)
+        if not priority_stop and self._is_duplicate_command(command):
+            return self._decision_from_wake(
+                wake_decision,
+                accepted=False,
+                reason="duplicate_command",
+                command=None,
+                priority_stop=False,
+            )
+        if not priority_stop:
+            self._remember_command(command)
         return self._decision_from_wake(
             wake_decision,
             accepted=True,
@@ -265,6 +300,26 @@ class ContinuousVoiceSession:
     @staticmethod
     def _contains_any(text: str, words: Iterable[str]) -> bool:
         return any(word in text for word in words)
+
+    @staticmethod
+    def _normalize_short_text(text: str) -> str:
+        return "".join(ch for ch in text if ch not in _PUNCTUATION_CHARS).lower()
+
+    def _is_filler(self, text: str) -> bool:
+        normalized = self._normalize_short_text(text)
+        return bool(normalized) and normalized in self._filler_words
+
+    def _is_duplicate_command(self, command: str) -> bool:
+        if self._duplicate_window_s <= 0.0:
+            return False
+        normalized = self._normalize_short_text(command)
+        if not normalized or normalized != self._last_command_text:
+            return False
+        return (self._clock() - self._last_command_at) <= self._duplicate_window_s
+
+    def _remember_command(self, command: str) -> None:
+        self._last_command_text = self._normalize_short_text(command)
+        self._last_command_at = self._clock()
 
     @staticmethod
     def _session_kind(wake_event: WakeEvent, accepted: bool) -> SessionEventKind:

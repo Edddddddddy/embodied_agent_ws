@@ -35,6 +35,45 @@ def test_one_wake_word_opens_a_continuous_control_session():
     assert second_command.command == "左转九十度"
 
 
+def test_continuous_session_ignores_short_asr_fillers():
+    gate = WakeWordGate(["小智"], enabled=True, active_timeout_s=60.0)
+    session = ContinuousVoiceSession(gate, enabled=True)
+
+    filler = session.accept("嗯。")
+
+    assert not filler.accepted
+    assert filler.reason == "filler"
+    assert filler.event.kind == SessionEventKind.REJECTED
+
+
+def test_continuous_session_deduplicates_repeated_asr_finals_briefly():
+    now = [100.0]
+    gate = WakeWordGate(
+        ["小智"],
+        enabled=True,
+        active_timeout_s=60.0,
+        clock=lambda: now[0],
+    )
+    session = ContinuousVoiceSession(
+        gate,
+        enabled=True,
+        duplicate_window_s=1.2,
+        clock=lambda: now[0],
+    )
+    session.accept("小智")
+
+    first = session.accept("向前走一秒")
+    now[0] += 0.5
+    duplicate = session.accept("向前走一秒。")
+    now[0] += 1.3
+    repeated_later = session.accept("向前走一秒")
+
+    assert first.accepted
+    assert not duplicate.accepted
+    assert duplicate.reason == "duplicate_command"
+    assert repeated_later.accepted
+
+
 def test_sleep_phrase_closes_the_continuous_control_session():
     gate = WakeWordGate(["小智"], enabled=True, active_timeout_s=60.0)
     session = ContinuousVoiceSession(gate, enabled=True)
