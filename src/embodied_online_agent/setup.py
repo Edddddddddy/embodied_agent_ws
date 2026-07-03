@@ -17,6 +17,7 @@ setup(
     install_requires=["setuptools"],
     extras_require={
         "fuzzy": ["rapidfuzz>=3.0.0"],
+        "kws": ["openwakeword>=0.6.0"],
     },
     tests_require=["pytest"],
     zip_safe=True,

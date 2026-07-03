@@ -118,6 +118,60 @@ class SherpaKeywordWakeDetector:
         return KeywordWakeMatch(keyword, self.provider_name)
 
 
+class OpenWakeWordDetector:
+    """openWakeWord adapter for optional acoustic wake-word detection.
+
+    openWakeWord 的官方 Python API 接收 16 kHz / int16 音频帧，并返回每个模型的
+    0~1 置信度分数。这里把它包装成与 sherpa/text 相同的 `KeywordWakeMatch`，使连续
+    会话状态机只依赖标准 wake event，而不关心具体 KWS 实现。
+    """
+
+    provider_name = "openwakeword"
+
+    def __init__(
+        self,
+        *,
+        model_paths: Iterable[str] = (),
+        threshold: float = 0.5,
+        inference_framework: str = "onnx",
+        vad_threshold: float | None = None,
+        enable_speex_noise_suppression: bool = False,
+        provider_name: str = "openwakeword",
+    ):
+        import numpy as np
+        from openwakeword.model import Model
+
+        self.provider_name = provider_name
+        self._np = np
+        self._threshold = float(threshold)
+        kwargs = {
+            "inference_framework": inference_framework,
+            "enable_speex_noise_suppression": bool(enable_speex_noise_suppression),
+        }
+        models = [path for path in model_paths if str(path).strip()]
+        if models:
+            kwargs["wakeword_models"] = models
+        if vad_threshold is not None and float(vad_threshold) >= 0.0:
+            kwargs["vad_threshold"] = float(vad_threshold)
+        self._model = Model(**kwargs)
+
+    def detect_text(self, _text: str) -> KeywordWakeMatch | None:
+        return None
+
+    def detect_audio(self, pcm16: bytes) -> KeywordWakeMatch | None:
+        if not pcm16:
+            return None
+        samples = self._np.frombuffer(pcm16, dtype="<i2").astype(self._np.int16)
+        predictions = self._model.predict(samples)
+        if not isinstance(predictions, dict) or not predictions:
+            return None
+        keyword, score = max(predictions.items(), key=lambda item: float(item[1]))
+        score = float(score)
+        if score < self._threshold:
+            return None
+        return KeywordWakeMatch(str(keyword), self.provider_name, score)
+
+
 class KeywordWakeBridge:
     """把 detector match 转成 `/agent/wake_event_input` JSON，并处理冷却时间。"""
 

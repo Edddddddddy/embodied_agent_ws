@@ -11,6 +11,7 @@ from std_msgs.msg import String, UInt8MultiArray
 
 from .keyword_wake import (
     KeywordWakeBridge,
+    OpenWakeWordDetector,
     SherpaKeywordWakeDetector,
     TextKeywordWakeDetector,
 )
@@ -21,6 +22,7 @@ class KeywordWakeNode(Node):
 
     - `mock_text`：无外部依赖，订阅 `/agent/kws_text_input`，适合验收 sidecar 链路。
     - `sherpa`：订阅 `/audio/clean_pcm`，使用 sherpa-onnx KeywordSpotter。
+    - `openwakeword`：订阅 `/audio/clean_pcm`，使用可选 openWakeWord 模型。
     """
 
     def __init__(self):
@@ -63,8 +65,29 @@ class KeywordWakeNode(Node):
             self.create_subscription(
                 UInt8MultiArray, "/audio/clean_pcm", self._on_audio, audio_qos
             )
+        elif self._mode == "openwakeword":
+            self._detector = OpenWakeWordDetector(
+                model_paths=self.get_parameter("openwakeword_models").value,
+                threshold=float(self.get_parameter("openwakeword_threshold").value),
+                inference_framework=str(
+                    self.get_parameter("openwakeword_inference_framework").value
+                ),
+                vad_threshold=float(self.get_parameter("openwakeword_vad_threshold").value),
+                enable_speex_noise_suppression=bool(
+                    self.get_parameter("openwakeword_speex_noise_suppression").value
+                ),
+                provider_name=str(self.get_parameter("provider_name").value),
+            )
+            audio_qos = QoSProfile(
+                history=HistoryPolicy.KEEP_LAST,
+                depth=int(self.get_parameter("input_queue_depth").value),
+                reliability=ReliabilityPolicy.BEST_EFFORT,
+            )
+            self.create_subscription(
+                UInt8MultiArray, "/audio/clean_pcm", self._on_audio, audio_qos
+            )
         else:
-            raise ValueError("mode must be disabled, mock_text, or sherpa")
+            raise ValueError("mode must be disabled, mock_text, sherpa, or openwakeword")
 
         self.get_logger().info(
             "keyword wake sidecar ready: mode=%s provider=%s"
@@ -87,6 +110,11 @@ class KeywordWakeNode(Node):
             "sherpa_keywords_file": "",
             "sherpa_num_threads": 1,
             "sherpa_provider": "cpu",
+            "openwakeword_models": [],
+            "openwakeword_threshold": 0.5,
+            "openwakeword_inference_framework": "onnx",
+            "openwakeword_vad_threshold": -1.0,
+            "openwakeword_speex_noise_suppression": False,
         }
         for name, value in defaults.items():
             self.declare_parameter(name, value)

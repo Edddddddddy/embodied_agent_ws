@@ -239,13 +239,26 @@ bash scripts/acceptance_test.sh continuous-kws-mock
 `/agent/wake_event_input` 是外部声学 KWS 的稳定入口；手工发布 `manual_kws` wake 后，
 下一句不带“小智”的 `/agent/text_input` 也应进入同一套连续命令队列。后续
 sherpa-onnx/openWakeWord adapter 只需要按这个 topic 契约发布 wake/sleep。
-`keyword_wake` sidecar 当前提供两种模式：
+`keyword_wake` sidecar 当前提供三种主要模式：
 
 - `kws_provider:=mock_text`：订阅 `/agent/kws_text_input`，无模型验收 KWS 链路。
 - `continuous-kws-mock`：启动 mock KWS、online/offline mock Agent、ActionGuard 和 mock
   executor，验证“不唤醒拒绝命令 -> KWS 唤醒 -> 不带小智的命令执行”。
 - `kws_provider:=sherpa`：订阅 `/audio/clean_pcm`，使用 sherpa-onnx `KeywordSpotter`；
   需要在 `keyword_wake` 参数组里配置 `sherpa_tokens/encoder/decoder/joiner/keywords_file`。
+- `kws_provider:=openwakeword`：订阅 `/audio/clean_pcm`，使用 openWakeWord
+  `Model.predict()` 的分数输出；需要安装可选依赖并配置 `openwakeword_models`、
+  `openwakeword_threshold` 与 `openwakeword_inference_framework`。openWakeWord 官方
+  预训练模型主要面向英文，中文“小智”建议使用 sherpa KWS 或后续 LiveKit/openWakeWord
+  自训练模型。
+
+openWakeWord 可选依赖安装：
+
+```bash
+source .venv/bin/activate
+pip install -e "src/embodied_online_agent[kws]"
+KWS_PROVIDER=openwakeword bash scripts/continuous_voice_control.sh offline
+```
 
 ## 4. 当前实测基线
 

@@ -195,12 +195,17 @@ sidecar，AudioFrontend 只发布 `/audio/clean_pcm`，由 sidecar 接管端点�
 2026-07-03 新增 `keyword_wake` sidecar：`mock_text` 模式订阅 `/agent/kws_text_input`
 并发布 `/agent/wake_event_input`，用于无模型验收 KWS 链路；`sherpa` 模式订阅
 `/audio/clean_pcm`，按 sherpa-onnx 官方 `KeywordSpotter` API 进行流式关键词检测。
+`openwakeword` 模式同样订阅 `/audio/clean_pcm`，按 openWakeWord `Model.predict()`
+分数阈值触发 wake event，作为英文/通用唤醒词或自训练模型的可选 provider。
 验收入口：
 
 ```bash
 bash scripts/acceptance_test.sh kws-sidecar
 bash scripts/acceptance_test.sh continuous-kws-mock
 KWS_PROVIDER=mock_text bash scripts/continuous_voice_control.sh offline
+# 安装可选依赖并配置 openwakeword_models 后，可切换为真实声学唤醒
+pip install -e "src/embodied_online_agent[kws]"
+KWS_PROVIDER=openwakeword bash scripts/continuous_voice_control.sh offline
 ```
 
 2026-07-03 新增 CommandNormalizer：ASR final 在进入 wake/session/priority_stop 判定前会

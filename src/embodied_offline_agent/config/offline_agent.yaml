@@ -96,3 +96,9 @@ keyword_wake:
     sherpa_keywords_file: ""
     sherpa_num_threads: 1
     sherpa_provider: cpu
+    openwakeword_models: []
+    openwakeword_threshold: 0.5
+    openwakeword_inference_framework: onnx
+    # -1 表示不启用 openWakeWord 内置 Silero VAD gate；端点检测仍由项目 VAD seam 负责。
+    openwakeword_vad_threshold: -1.0
+    openwakeword_speex_noise_suppression: false

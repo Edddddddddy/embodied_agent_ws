@@ -4,6 +4,7 @@ import types
 
 from embodied_online_agent.keyword_wake import (
     KeywordWakeBridge,
+    OpenWakeWordDetector,
     SherpaKeywordWakeDetector,
     TextKeywordWakeDetector,
 )
@@ -91,3 +92,56 @@ def test_sherpa_keyword_detector_uses_keyword_spotter_api(monkeypatch):
     assert match.keyword == "小智"
     assert match.provider == "sherpa_kws"
     assert calls == {"reset": 1, "decoded": 1}
+
+
+def test_openwakeword_detector_reports_highest_score_above_threshold(monkeypatch):
+    class FakeModel:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.last_audio = None
+
+        def predict(self, audio):
+            self.last_audio = audio
+            assert audio.dtype.name == "int16"
+            assert audio.tolist() == [1, 2]
+            return {"小智": 0.42, "hey_jarvis": 0.81}
+
+    fake_openwakeword_model = types.SimpleNamespace(Model=FakeModel)
+    monkeypatch.setitem(
+        sys.modules, "openwakeword.model", fake_openwakeword_model
+    )
+
+    detector = OpenWakeWordDetector(
+        model_paths=["xiaozhi.onnx"],
+        threshold=0.5,
+        inference_framework="onnx",
+        provider_name="openwakeword",
+    )
+
+    match = detector.detect_audio(b"\x01\x00\x02\x00")
+
+    assert match is not None
+    assert match.keyword == "hey_jarvis"
+    assert match.provider == "openwakeword"
+    assert match.score == 0.81
+
+
+def test_openwakeword_detector_ignores_scores_below_threshold(monkeypatch):
+    class FakeModel:
+        def __init__(self, **_kwargs):
+            pass
+
+        def predict(self, _audio):
+            return {"小智": 0.49}
+
+    monkeypatch.setitem(
+        sys.modules, "openwakeword.model", types.SimpleNamespace(Model=FakeModel)
+    )
+
+    detector = OpenWakeWordDetector(
+        model_paths=["xiaozhi.onnx"],
+        threshold=0.5,
+        provider_name="openwakeword",
+    )
+
+    assert detector.detect_audio(b"\x01\x00\x02\x00") is None
