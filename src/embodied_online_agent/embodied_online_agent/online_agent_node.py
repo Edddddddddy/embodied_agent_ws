@@ -416,7 +416,10 @@ class OnlineAgentNode(Node):
     def _run_command_worker(self):
         while not self._stopping:
             try:
-                item = self._command_queue.get(timeout=0.1)
+                item = self._command_queue.get(
+                    timeout=0.1,
+                    on_stale=self._publish_stale_command_event,
+                )
             except queue.Empty:
                 continue
             try:
@@ -442,6 +445,11 @@ class OnlineAgentNode(Node):
                 raise
             finally:
                 self._command_queue.task_done()
+
+    def _publish_stale_command_event(self, item):
+        self._publish_queue_event(
+            self._command_tracker.queue_expired(item, size=self._command_queue.size())
+        )
 
     def _run_turn(self, user_text: str):
         self._publish_state("thinking")

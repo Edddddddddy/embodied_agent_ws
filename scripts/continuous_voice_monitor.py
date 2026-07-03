@@ -85,6 +85,8 @@ def format_queue_event(serialized: str) -> str:
         return f"[queue] rejected {text} reason={reason}"
     if event == "clear":
         return f"[queue] clear dropped={dropped}"
+    if event == "expired":
+        return f"[queue] expired {text} reason={reason} size={size}"
     return f"[queue] {event}"
 
 

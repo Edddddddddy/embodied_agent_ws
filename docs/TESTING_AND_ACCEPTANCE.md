@@ -150,7 +150,8 @@ bash scripts/continuous_voice_control.sh online
 `speaker_enabled:=false`。说一次“小智”后，60 秒内可以
 连续说“向前走一秒 / 左转九十度 / 绕圈 / 走正方形”等命令；Agent 忙于执行上一条时不会
 丢弃新的 ASR final，而是排入队列。普通命令在队列里等待超过 30 秒会自动过期跳过，
-避免执行已经失去上下文的旧命令；说“停下/急停”会清空等待队列并立即发布 stop；说
+避免执行已经失去上下文的旧命令，并在 `/agent/command_queue` 发布 `expired` 事件；说
+“停下/急停”会清空等待队列并立即发布 stop；说
 “退出控制/休眠/结束控制”会关闭会话，后续命令必须重新唤醒。
 验收探针还会检查 `/agent/wake_event` 中出现 `wake/continue/sleep/rejected`，以及
 `/agent/session_state` 中出现 `awake/sleeping`；同时检查 `/agent/command_queue` 里有
@@ -164,6 +165,7 @@ bash scripts/continuous_voice_control.sh online
 [wake] text:wake
 [asr] 向前走一秒
 [queue] enqueue 向前走一秒 size=1
+[queue] expired 向前走一秒 reason=stale_command size=1
 [exec] started 向前走一秒
 [action] executing move
 [result] succeeded

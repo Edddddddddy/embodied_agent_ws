@@ -107,15 +107,17 @@ def test_bounded_command_queue_rejects_when_full():
 
 def test_command_queue_skips_stale_normal_commands():
     now = [10.0]
+    stale = []
     commands = ContinuousCommandQueue(max_size=4, max_age_s=2.0, clock=lambda: now[0])
     assert commands.put("向前走一秒").accepted
     now[0] += 3.0
     assert commands.put("左转九十度").accepted
 
-    item = commands.get(timeout=0.01)
+    item = commands.get(timeout=0.01, on_stale=stale.append)
 
     assert item.text == "左转九十度"
     assert item.created_at == 13.0
+    assert [item.text for item in stale] == ["向前走一秒"]
 
 
 def test_command_queue_never_skips_stale_priority_stop():
@@ -138,6 +140,7 @@ def test_command_execution_tracker_reports_queue_events():
     enqueue = tracker.queue_event("enqueue", "向前走一秒", accepted)
     queue_full = tracker.queue_event("enqueue", "左转九十度", rejected)
     cleared = tracker.queue_event("clear", "", QueueSnapshot(True, size=0, dropped=2))
+    expired = tracker.queue_expired(QueuedCommand("向前走一秒", created_at=10.0), size=1)
 
     assert enqueue.as_dict() == {
         "event": "enqueue",
@@ -151,6 +154,9 @@ def test_command_execution_tracker_reports_queue_events():
     assert queue_full.as_dict()["event"] == "rejected"
     assert queue_full.as_dict()["reason"] == "queue_full"
     assert cleared.as_dict()["dropped"] == 2
+    assert expired.as_dict()["event"] == "expired"
+    assert expired.as_dict()["text"] == "向前走一秒"
+    assert expired.as_dict()["reason"] == "stale_command"
 
 
 def test_command_execution_tracker_reports_execution_events():

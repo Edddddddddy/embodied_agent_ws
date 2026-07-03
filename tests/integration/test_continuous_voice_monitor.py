@@ -66,6 +66,15 @@ def test_monitor_formats_asr_queue_action_and_result_events():
         {"event": "enqueue", "text": "向前走一秒", "size": 2},
         ensure_ascii=False,
     )
+    expired_event = json.dumps(
+        {
+            "event": "expired",
+            "text": "向前走一秒",
+            "size": 1,
+            "reason": "stale_command",
+        },
+        ensure_ascii=False,
+    )
     execution_event = json.dumps(
         {"event": "started", "text": "向前走一秒"},
         ensure_ascii=False,
@@ -78,6 +87,10 @@ def test_monitor_formats_asr_queue_action_and_result_events():
 
     assert monitor.format_asr_final("向前走一秒") == "[asr] 向前走一秒"
     assert monitor.format_queue_event(queue_event) == "[queue] enqueue 向前走一秒 size=2"
+    assert (
+        monitor.format_queue_event(expired_event)
+        == "[queue] expired 向前走一秒 reason=stale_command size=1"
+    )
     assert monitor.format_execution_event(execution_event) == "[exec] started 向前走一秒"
     assert monitor.format_action_candidate(candidate) == "[action] executing move"
     assert monitor.format_action_result(result) == "[result] succeeded"

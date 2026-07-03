@@ -3,7 +3,7 @@ import threading
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Iterable, Optional
+from typing import Callable, Iterable, Optional
 
 from .wakeword import WakeWordGate
 from .wake_provider import TextWakeProvider, WakeDecision, WakeEvent, WakeEventKind
@@ -143,6 +143,17 @@ class CommandExecutionTracker:
 
     def execution_started(self, item: "QueuedCommand") -> CommandExecutionEvent:
         return CommandExecutionEvent("started", self.source, item.text)
+
+    def queue_expired(self, item: "QueuedCommand", *, size: int) -> CommandQueueEvent:
+        return CommandQueueEvent(
+            "expired",
+            self.source,
+            item.text,
+            size,
+            dropped=1,
+            reason="stale_command",
+            priority_stop=item.priority_stop,
+        )
 
     def execution_finished(
         self,
@@ -320,11 +331,17 @@ class ContinuousCommandQueue:
                 return QueueSnapshot(False, self._queue.qsize(), dropped, "queue_full")
             return QueueSnapshot(True, self._queue.qsize(), dropped)
 
-    def get(self, timeout: float = 0.1) -> QueuedCommand:
+    def get(
+        self,
+        timeout: float = 0.1,
+        on_stale: Callable[[QueuedCommand], None] | None = None,
+    ) -> QueuedCommand:
         while True:
             item = self._queue.get(timeout=timeout)
             if not self._is_stale(item):
                 return item
+            if on_stale is not None:
+                on_stale(item)
             self._queue.task_done()
 
     def _is_stale(self, item: QueuedCommand) -> bool:
