@@ -32,6 +32,7 @@
 | LiveKit WakeWord provider | 当前 | `keyword_wake` 新增 livekit optional adapter 与 fake runtime smoke，为后续中文“小智”ONNX 训练模型预留入口 |
 | KWS score diagnostics | 当前 | openWakeWord/LiveKit 发布 `/agent/kws_score`，monitor 展示 top score/threshold，方便真实模型阈值调参 |
 | KWS score calibration | 当前 | `kws_score_calibration.py` 汇总 `/agent/kws_score`，输出推荐阈值、触发比例和误唤醒/漏唤醒提示 |
+| Voice readiness check | 当前 | `voice_control_readiness_check.py` 汇总音频前端和 KWS 分数，给出连续语音演示 go/no-go 报告 |
 | KWS 连续控制验收 | 当前 | continuous-kws-mock 验证 KWS sidecar 唤醒后直接进入 Agent 队列并执行动作 |
 | AudioEnhancer seam | 当前 | NLMS AEC adapter、audio_enhancer/aec/ns/agc 参数与 WebRTC adapter 预留 |
 | 连续演示 monitor | 当前 | 终端持续打印 session/asr/queue/action/result，便于真人麦克风演示 |

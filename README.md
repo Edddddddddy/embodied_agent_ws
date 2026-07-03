@@ -105,6 +105,9 @@ bash scripts/continuous_voice_control.sh online
 ```bash
 # 另一个终端先启动 continuous_voice_control.sh 或任意包含 audio_frontend 的 launch
 python3 scripts/audio_frontend_calibration.py --duration 8
+
+# 同时检查音频和声学 KWS；使用 openwakeword/livekit 时建议加 --require-kws
+python3 scripts/voice_control_readiness_check.py --duration 8 --require-kws
 ```
 
 脚本会订阅 `/audio/frontend_metrics`，根据 `rms/speech/dropped_*` 给出麦克风音量、
@@ -208,6 +211,7 @@ bash scripts/acceptance_test.sh kws-sidecar
 bash scripts/acceptance_test.sh openwakeword-sidecar
 bash scripts/acceptance_test.sh livekit-sidecar
 bash scripts/acceptance_test.sh kws-calibration
+bash scripts/acceptance_test.sh voice-readiness
 bash scripts/acceptance_test.sh continuous-kws-mock
 KWS_PROVIDER=mock_text bash scripts/continuous_voice_control.sh offline
 # 安装可选依赖并配置 openwakeword_models 后，可切换为真实声学唤醒

@@ -192,6 +192,9 @@ bash scripts/continuous_voice_control.sh offline
 # 终端 2：收集 8 秒指标并输出调参建议
 python3 scripts/audio_frontend_calibration.py --duration 8
 python3 scripts/audio_frontend_calibration.py --duration 8 --json
+
+# 同时检查音频前端与声学 KWS 分数；使用 openwakeword/livekit 时建议加 --require-kws
+python3 scripts/voice_control_readiness_check.py --duration 8 --require-kws
 ```
 
 常见结果解释：
@@ -303,6 +306,7 @@ python3 scripts/kws_score_calibration.py --duration 8 --json
 
 ```bash
 bash scripts/acceptance_test.sh kws-calibration
+bash scripts/acceptance_test.sh voice-readiness
 ```
 
 ## 4. 当前实测基线
