@@ -27,6 +27,7 @@
 | WakeProvider seam | 当前 | TextWakeProvider、wake_event/session_state topic 与 KWS adapter 预留 |
 | AudioEnhancer seam | 当前 | NLMS AEC adapter、audio_enhancer/aec/ns/agc 参数与 WebRTC adapter 预留 |
 | 连续演示 monitor | 当前 | 终端持续打印 session/asr/queue/action/result，便于真人麦克风演示 |
+| CommandExecutionTracker | 当前 | command_queue/command_execution topic 暴露队列长度和执行生命周期 |
 
 ## 2. 当前结论
 

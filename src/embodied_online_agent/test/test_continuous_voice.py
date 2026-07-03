@@ -1,6 +1,9 @@
 from embodied_online_agent.continuous_voice import (
+    CommandExecutionTracker,
     ContinuousCommandQueue,
     ContinuousVoiceSession,
+    QueuedCommand,
+    QueueSnapshot,
     SessionEventKind,
 )
 from embodied_online_agent.wakeword import WakeWordGate
@@ -83,3 +86,40 @@ def test_bounded_command_queue_rejects_when_full():
 
     assert not rejected.accepted
     assert rejected.reason == "queue_full"
+
+
+def test_command_execution_tracker_reports_queue_events():
+    tracker = CommandExecutionTracker(source="online")
+    accepted = QueueSnapshot(True, size=2)
+    rejected = QueueSnapshot(False, size=2, reason="queue_full")
+
+    enqueue = tracker.queue_event("enqueue", "向前走一秒", accepted)
+    queue_full = tracker.queue_event("enqueue", "左转九十度", rejected)
+    cleared = tracker.queue_event("clear", "", QueueSnapshot(True, size=0, dropped=2))
+
+    assert enqueue.as_dict() == {
+        "event": "enqueue",
+        "source": "online",
+        "text": "向前走一秒",
+        "size": 2,
+        "dropped": 0,
+        "reason": "",
+        "priority_stop": False,
+    }
+    assert queue_full.as_dict()["event"] == "rejected"
+    assert queue_full.as_dict()["reason"] == "queue_full"
+    assert cleared.as_dict()["dropped"] == 2
+
+
+def test_command_execution_tracker_reports_execution_events():
+    tracker = CommandExecutionTracker(source="offline")
+    item = QueuedCommand("绕圈", created_at=10.0)
+
+    started = tracker.execution_started(item)
+    finished = tracker.execution_finished(item, success=True, reason="completed")
+
+    assert started.as_dict()["event"] == "started"
+    assert started.as_dict()["text"] == "绕圈"
+    assert finished.as_dict()["event"] == "finished"
+    assert finished.as_dict()["success"] is True
+    assert finished.as_dict()["reason"] == "completed"

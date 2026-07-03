@@ -27,7 +27,7 @@ bash scripts/acceptance_test.sh continuous-online
 
 `mock` 是每次提交前的最低门槛；`demo` 使用 mock executor 验证组合动作、accessory ACK
 和弧线速度；`continuous-mock` 验证一次唤醒、多命令队列、退出控制和 online/offline
-状态机复用。当前记录为 156 项 colcon 测试、2 项仓库约束测试、0 failure。`online` 使用少量
+状态机复用。当前记录为 158 项 colcon 测试、2 项仓库约束测试、0 failure。`online` 使用少量
 DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里程计位移验真。
 `all` 是完整自动 release gate，包含 mock、在线、离线、Gazebo 和在线/离线语音到 Gazebo，
 但明确排除必须由真人说话的麦克风验收。运行 `--help` 可查看模式语义。
@@ -50,7 +50,7 @@ DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里
 | 参数与 lint | `test_node_configuration.cpp`、ament lint | 无效控制参数在 configure 前失败，产品 C++/CMake/XML 可静态检查 |
 | mock 插件全链 | `smoke_test_mock_executor.sh` | 不改 Guard/BT 即可切换 backend |
 | 组合演示 | `smoke_test_demo_sequence.sh` | `set_led → wave → move → turn → arc → stop` 顺序执行 |
-| 连续语音 | `smoke_test_continuous_voice.sh` | 一次唤醒后多条命令排队，退出控制后重新门控，发布 wake/session topic |
+| 连续语音 | `smoke_test_continuous_voice.sh` | 一次唤醒后多条命令排队，发布 wake/session/queue/execution topic |
 | 组件化等价 | `smoke_test_composed_executor.sh` | 同一控制实现可在多线程 component container 中完成 Action/BT 链 |
 | 命名空间 | `smoke_test_namespaced_executor.sh` | 相对名称、Action、BT、速度和 diagnostics 均隔离到 `/robot1` |
 | Action 全链 | `smoke_test_typed_action_pipeline.sh` | JSON -> typed -> Action -> 仿真控制 |
@@ -126,14 +126,16 @@ bash scripts/continuous_voice_control.sh online
 丢弃新的 ASR final，而是排入队列。说“停下/急停”会清空等待队列并立即发布 stop；说
 “退出控制/休眠/结束控制”会关闭会话，后续命令必须重新唤醒。
 验收探针还会检查 `/agent/wake_event` 中出现 `wake/continue/sleep/rejected`，以及
-`/agent/session_state` 中出现 `awake/sleeping`。
+`/agent/session_state` 中出现 `awake/sleeping`；同时检查 `/agent/command_queue` 里有
+真实 `size`，`/agent/command_execution` 里有 `started/finished`。
 人工脚本默认启动 `scripts/continuous_voice_monitor.py`，终端会持续打印：
 
 ```text
 [session] awake
 [wake] text:wake
 [asr] 向前走一秒
-[queue] enqueue size=1
+[queue] enqueue 向前走一秒 size=1
+[exec] started 向前走一秒
 [action] executing move
 [result] succeeded
 ```

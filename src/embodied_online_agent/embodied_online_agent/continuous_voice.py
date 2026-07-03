@@ -70,6 +70,90 @@ class QueueSnapshot:
     reason: str = ""
 
 
+@dataclass(frozen=True)
+class CommandQueueEvent:
+    event: str
+    source: str
+    text: str
+    size: int
+    dropped: int = 0
+    reason: str = ""
+    priority_stop: bool = False
+
+    def as_dict(self) -> dict:
+        return {
+            "event": self.event,
+            "source": self.source,
+            "text": self.text,
+            "size": self.size,
+            "dropped": self.dropped,
+            "reason": self.reason,
+            "priority_stop": self.priority_stop,
+        }
+
+
+@dataclass(frozen=True)
+class CommandExecutionEvent:
+    event: str
+    source: str
+    text: str
+    success: Optional[bool] = None
+    reason: str = ""
+
+    def as_dict(self) -> dict:
+        return {
+            "event": self.event,
+            "source": self.source,
+            "text": self.text,
+            "success": self.success,
+            "reason": self.reason,
+        }
+
+
+class CommandExecutionTracker:
+    """连续控制的可观测事件生成器。
+
+    队列本身只负责线程安全地存取命令；tracker 负责把 enqueue/clear/started/finished
+    变成稳定 JSON 契约，供 monitor、测试或 UI 观察。
+    """
+
+    def __init__(self, source: str):
+        self.source = source
+
+    def queue_event(
+        self,
+        event: str,
+        text: str,
+        snapshot: QueueSnapshot,
+        *,
+        priority_stop: bool = False,
+    ) -> CommandQueueEvent:
+        normalized = event
+        if event == "enqueue" and not snapshot.accepted:
+            normalized = "rejected"
+        return CommandQueueEvent(
+            normalized,
+            self.source,
+            text,
+            snapshot.size,
+            snapshot.dropped,
+            snapshot.reason,
+            priority_stop,
+        )
+
+    def execution_started(self, item: "QueuedCommand") -> CommandExecutionEvent:
+        return CommandExecutionEvent("started", self.source, item.text)
+
+    def execution_finished(
+        self,
+        item: "QueuedCommand",
+        *,
+        success: bool,
+        reason: str,
+    ) -> CommandExecutionEvent:
+        return CommandExecutionEvent("finished", self.source, item.text, success, reason)
+
+
 class ContinuousVoiceSession:
     """把文本级唤醒词升级为“一次唤醒，多轮控制”的会话状态机。
 

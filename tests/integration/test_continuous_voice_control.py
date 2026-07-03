@@ -17,11 +17,17 @@ class ContinuousVoiceProbe(Node):
         self.states = []
         self.session_states = []
         self.wake_events = []
+        self.queue_events = []
+        self.execution_events = []
         self.candidates = []
         self.results = []
         self.create_subscription(String, "/agent/state", self._on_state, 10)
         self.create_subscription(String, "/agent/session_state", self._on_session_state, 10)
         self.create_subscription(String, "/agent/wake_event", self._on_wake_event, 10)
+        self.create_subscription(String, "/agent/command_queue", self._on_queue_event, 10)
+        self.create_subscription(
+            String, "/agent/command_execution", self._on_execution_event, 10
+        )
         self.create_subscription(
             String, "/agent/action_candidate", self._on_candidate, 10
         )
@@ -35,6 +41,12 @@ class ContinuousVoiceProbe(Node):
 
     def _on_wake_event(self, message):
         self.wake_events.append(json.loads(message.data))
+
+    def _on_queue_event(self, message):
+        self.queue_events.append(json.loads(message.data))
+
+    def _on_execution_event(self, message):
+        self.execution_events.append(json.loads(message.data))
 
     def _on_candidate(self, message):
         self.candidates.append(json.loads(message.data))
@@ -95,6 +107,18 @@ def main():
         wake_kinds = [event.get("kind") for event in node.wake_events]
         if "wake" not in wake_kinds or "sleep" not in wake_kinds:
             raise RuntimeError(f"wake/session events were not published: {node.wake_events}")
+        queue_sizes = [
+            event.get("size")
+            for event in node.queue_events
+            if event.get("event") == "enqueue"
+        ]
+        execution_kinds = [event.get("event") for event in node.execution_events]
+        if not queue_sizes or max(queue_sizes) < 1:
+            raise RuntimeError(f"queue events were not published: {node.queue_events}")
+        if "started" not in execution_kinds or "finished" not in execution_kinds:
+            raise RuntimeError(
+                f"execution events were not published: {node.execution_events}"
+            )
 
         print(json.dumps({
             "candidate_sequence": names,
@@ -102,6 +126,8 @@ def main():
             "states_tail": node.states[-6:],
             "session_states_tail": node.session_states[-6:],
             "wake_event_kinds": wake_kinds,
+            "queue_sizes": queue_sizes,
+            "execution_event_kinds": execution_kinds,
             "status": "PASS",
         }, ensure_ascii=False, indent=2))
     finally:

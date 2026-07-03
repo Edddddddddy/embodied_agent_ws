@@ -16,6 +16,7 @@ from .memory import ConversationMemory
 from .action_sequence import SequentialActionPublisher
 from .command_fallback import parse_fallback_actions, should_block_model_actions
 from .continuous_voice import ContinuousCommandQueue, ContinuousVoiceSession
+from .continuous_voice import CommandExecutionTracker, QueueSnapshot
 from .metrics import LatencyTracker
 from .protocol import SentenceChunker, TaggedStreamParser
 from .recognition_retry import RecognitionRetryTracker
@@ -40,6 +41,7 @@ class OnlineAgentNode(Node):
         self._command_queue = ContinuousCommandQueue(
             int(self._param("continuous_command_queue_size"))
         )
+        self._command_tracker = CommandExecutionTracker("online")
         self._command_worker_thread = None
         self.metrics = LatencyTracker()
         self.wake_gate = WakeWordGate(
@@ -77,6 +79,10 @@ class OnlineAgentNode(Node):
         self.state_pub = self.create_publisher(String, "/agent/state", 10)
         self.wake_event_pub = self.create_publisher(String, "/agent/wake_event", 10)
         self.session_state_pub = self.create_publisher(String, "/agent/session_state", 10)
+        self.command_queue_pub = self.create_publisher(String, "/agent/command_queue", 10)
+        self.command_execution_pub = self.create_publisher(
+            String, "/agent/command_execution", 10
+        )
         self.recognition_feedback_pub = self.create_publisher(
             String, "/agent/recognition_feedback", 10
         )
@@ -277,7 +283,10 @@ class OnlineAgentNode(Node):
         self._publish_session_event(decision.event)
         if not decision.accepted or decision.command is None:
             if decision.reason == "session_sleep":
-                self._command_queue.clear()
+                dropped = self._command_queue.clear()
+                self._publish_queue_event(
+                    "clear", "", QueueSnapshot(True, self._command_queue.size(), dropped)
+                )
                 self.action_sequencer.cancel("session_sleep")
                 self._publish_state("sleeping")
                 self.get_logger().info("continuous voice session sleeping")
@@ -297,6 +306,12 @@ class OnlineAgentNode(Node):
         if self._continuous_enabled:
             if decision.priority_stop:
                 dropped = self._command_queue.clear()
+                self._publish_queue_event(
+                    "clear",
+                    command,
+                    QueueSnapshot(True, self._command_queue.size(), dropped),
+                    priority_stop=True,
+                )
                 self.action_sequencer.cancel("priority_stop")
                 self.get_logger().info("priority stop received; cancelling current sequence")
                 if dropped:
@@ -305,6 +320,7 @@ class OnlineAgentNode(Node):
                 self._publish_state("listening")
                 return
             snapshot = self._command_queue.put(command)
+            self._publish_queue_event("enqueue", command, snapshot)
             if snapshot.accepted:
                 self.get_logger().info(
                     f"continuous command queued: size={snapshot.size}, text={command}"
@@ -334,9 +350,24 @@ class OnlineAgentNode(Node):
             try:
                 with self._state_lock:
                     self._busy = True
+                self._publish_execution_event(
+                    self._command_tracker.execution_started(item)
+                )
                 self.metrics.reset()
                 self.metrics.mark_asr_final()
                 self._run_turn(item.text)
+                self._publish_execution_event(
+                    self._command_tracker.execution_finished(
+                        item, success=True, reason="completed"
+                    )
+                )
+            except Exception as exc:
+                self._publish_execution_event(
+                    self._command_tracker.execution_finished(
+                        item, success=False, reason=str(exc)
+                    )
+                )
+                raise
             finally:
                 self._command_queue.task_done()
 
@@ -482,6 +513,26 @@ class OnlineAgentNode(Node):
             String(data=json.dumps(event.wake_event.as_dict(), ensure_ascii=False))
         )
         self.session_state_pub.publish(String(data=event.session_state))
+
+    def _publish_queue_event(
+        self,
+        event: str,
+        text: str,
+        snapshot: QueueSnapshot,
+        *,
+        priority_stop: bool = False,
+    ):
+        payload = self._command_tracker.queue_event(
+            event, text, snapshot, priority_stop=priority_stop
+        )
+        self.command_queue_pub.publish(
+            String(data=json.dumps(payload.as_dict(), ensure_ascii=False))
+        )
+
+    def _publish_execution_event(self, event):
+        self.command_execution_pub.publish(
+            String(data=json.dumps(event.as_dict(), ensure_ascii=False))
+        )
 
     def shutdown(self):
         self._stopping = True

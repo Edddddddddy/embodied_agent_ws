@@ -95,7 +95,7 @@ bash scripts/continuous_voice_control.sh online
 `停下`、`退出控制`。连续模式不会在 Agent busy 时丢弃 ASR final，而是进入 FIFO 队列；
 `停下/急停` 会清空等待队列、取消正在等待结果的组合动作，并立即发布 `stop`。
 脚本会启动 `continuous_voice_monitor.py`，持续打印 `[session]`、`[asr]`、`[queue]`、
-`[action]`、`[result]`，便于现场演示链路；如需关闭可设置
+`[exec]`、`[action]`、`[result]`，便于现场演示链路；如需关闭可设置
 `CONTINUOUS_MONITOR_ENABLED=false`。
 
 ## 验收入口
@@ -159,7 +159,7 @@ Q8 CPU decode 34.10 token/s、语音全链 2.313 s；typed Action/BT 驱动 Gaze
 
 2026-07-03 新增连续语音控制第一阶段：online/offline Agent 复用
 `ContinuousVoiceSession` 与 `ContinuousCommandQueue`，支持一次唤醒后的多命令排队、
-退出控制休眠、stop 优先级抢占。当前自动证据：156 项 colcon 测试通过，
+退出控制休眠、stop 优先级抢占。当前自动证据：158 项 colcon 测试通过，
 `acceptance_test.sh continuous-mock` 分别验证 online/offline mock 的
 `小智 -> move -> turn -> arc -> 退出控制` 链路。
 
@@ -173,6 +173,10 @@ online/offline Agent 已订阅 `speech_ended` 触发 ASR commit，并对旧
 `TextWakeProvider`，并发布 `/agent/wake_event` 与 `/agent/session_state`。连续控制测试
 已验证 `wake -> continue -> sleep -> rejected` 事件链；sherpa-onnx KWS、openWakeWord
 和 LiveKit WakeWord 仍是后续可选 adapter。
+
+2026-07-03 新增 CommandExecutionTracker：online/offline 连续模式发布
+`/agent/command_queue` 与 `/agent/command_execution`，用于观测真实队列长度、清队列、
+命令开始和命令完成。monitor 不再靠本地计数猜 queue size。
 
 2026-07-03 新增 AudioEnhancer seam：AudioFrontend 不再直接依赖 `NlmsEchoCanceller`，
 而是通过 `AudioEnhancer` interface 调用；默认 `NlmsAudioEnhancer` 支持
