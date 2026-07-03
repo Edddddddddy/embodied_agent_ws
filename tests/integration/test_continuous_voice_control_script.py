@@ -24,6 +24,7 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
             "NOISE_SUPPRESSION_ENABLED": "true",
             "AUTO_GAIN_ENABLED": "true",
             "CONTINUOUS_MONITOR_ENABLED": "false",
+            "CONTINUOUS_PREFLIGHT_ENABLED": "true",
         }
     )
 
@@ -45,6 +46,7 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
     assert "AEC_ENABLED=false" in result.stdout
     assert "NOISE_SUPPRESSION_ENABLED=true" in result.stdout
     assert "AUTO_GAIN_ENABLED=true" in result.stdout
+    assert "CONTINUOUS_PREFLIGHT_ENABLED=true" in result.stdout
     assert "wake_word_enabled:=false" in result.stdout
     assert "audio_enhancer:=webrtc" in result.stdout
     assert "noise_suppression_enabled:=true" in result.stdout

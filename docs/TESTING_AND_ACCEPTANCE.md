@@ -17,6 +17,7 @@ bash scripts/acceptance_test.sh continuous-mock
 bash scripts/acceptance_test.sh continuous-ttl
 bash scripts/acceptance_test.sh continuous-timeout
 bash scripts/acceptance_test.sh continuous-kws-mock
+bash scripts/acceptance_test.sh provider-preflight
 bash scripts/acceptance_test.sh gazebo
 bash scripts/acceptance_test.sh gazebo-voice
 bash scripts/acceptance_test.sh all
@@ -34,6 +35,8 @@ bash scripts/acceptance_test.sh continuous-online
 队列里的陈旧普通命令会发布 `expired` 并跳过执行；`continuous-timeout` 验证会话窗口
 超时后普通命令被拒绝，重新带唤醒词后才执行；`continuous-kws-mock` 验证 `keyword_wake` sidecar
 真实打开 Agent 会话并执行动作。当前记录以 `colcon test-result --verbose` 输出为准。
+`provider-preflight` 不启动 ROS，只检查可选 Silero/openWakeWord/LiveKit/sherpa provider
+的 Python 依赖和关键模型路径，适合真实麦克风演示前快速失败。
 `online` 使用少量
 DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里程计位移验真。
 `all` 是完整自动 release gate，包含 mock、在线、离线、Gazebo 和在线/离线语音到 Gazebo，
@@ -60,6 +63,7 @@ DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里
 | 连续语音 | `smoke_test_continuous_voice.sh` | 一次唤醒后多条命令排队，急停抢占，最终 `/cmd_vel` 归零 |
 | 连续队列 TTL | `smoke_test_continuous_command_ttl.sh` | 长组合动作占用 worker 时，陈旧普通命令发布 `expired` 且不执行 |
 | 连续会话超时 | `smoke_test_continuous_session_timeout.sh` | `voice_session_timeout_s` 后普通命令拒绝，重新唤醒后执行 |
+| provider 预检 | `voice_provider_preflight.py` | 可选 VAD/KWS provider 缺依赖、缺模型路径时提前失败 |
 | 组件化等价 | `smoke_test_composed_executor.sh` | 同一控制实现可在多线程 component container 中完成 Action/BT 链 |
 | 命名空间 | `smoke_test_namespaced_executor.sh` | 相对名称、Action、BT、速度和 diagnostics 均隔离到 `/robot1` |
 | Action 全链 | `smoke_test_typed_action_pipeline.sh` | JSON -> typed -> Action -> 仿真控制 |
@@ -216,6 +220,7 @@ WebRTC enhancer，以及 NS/AGC 是否真正生效。
 bash scripts/continuous_voice_control.sh offline
 
 # 终端 2：收集 8 秒指标并输出调参建议
+python3 scripts/voice_provider_preflight.py --mode offline --vad-provider "${VAD_PROVIDER:-energy}" --kws-provider "${KWS_PROVIDER:-none}"
 python3 scripts/audio_frontend_calibration.py --duration 8
 python3 scripts/audio_frontend_calibration.py --duration 8 --json
 

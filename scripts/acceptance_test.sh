@@ -23,6 +23,7 @@ Automated modes:
   livekit-sidecar     Dependency-free LiveKit WakeWord adapter runtime smoke test
   kws-calibration     Dependency-free KWS score calibration smoke test
   voice-readiness     Dependency-free voice readiness smoke test
+  provider-preflight  Dependency-free optional VAD/KWS provider preflight
   gazebo              Legacy and typed Action physical motion verification
   gazebo-voice        Offline synthesized speech through typed Action to Gazebo
   gazebo-voice-online Online voice provider through typed Action to Gazebo
@@ -73,6 +74,7 @@ run_base() {
   bash scripts/smoke_test_livekit_wakeword_sidecar.sh
   bash scripts/smoke_test_kws_score_calibration.sh
   bash scripts/smoke_test_voice_readiness.sh
+  pytest -q tests/integration/test_voice_provider_preflight.py
   bash scripts/smoke_test_lifecycle.sh
   bash scripts/smoke_test_typed_action.sh
   bash scripts/smoke_test_typed_action_server.sh
@@ -133,6 +135,7 @@ case "$LEVEL" in
   livekit-sidecar) bash scripts/smoke_test_livekit_wakeword_sidecar.sh ;;
   kws-calibration) bash scripts/smoke_test_kws_score_calibration.sh ;;
   voice-readiness) bash scripts/smoke_test_voice_readiness.sh ;;
+  provider-preflight) pytest -q tests/integration/test_voice_provider_preflight.py ;;
   gazebo) run_gazebo ;;
   gazebo-voice) check_offline_runtime; USE_TYPED_ACTIONS=true bash scripts/smoke_test_gazebo_voice.sh ;;
   gazebo-voice-online) bash scripts/smoke_test_gazebo_voice_online.sh ;;

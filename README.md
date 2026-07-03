@@ -123,6 +123,10 @@ CONTINUOUS_PRINT_CONFIG=true \
 真实麦克风体验不稳定时，先运行音频前端校准脚本，而不是直接调 ASR 或 LLM：
 
 ```bash
+# 启用可选 provider 前先做无 ROS 预检，缺依赖/模型路径会提前报出
+python3 scripts/voice_provider_preflight.py --mode offline --vad-provider energy --kws-provider none
+python3 scripts/voice_provider_preflight.py --mode offline --vad-provider silero --kws-provider sherpa
+
 # 另一个终端先启动 continuous_voice_control.sh 或任意包含 audio_frontend 的 launch
 python3 scripts/audio_frontend_calibration.py --duration 8
 
@@ -137,6 +141,9 @@ WebRTC、NS 或 AGC 但当前仍回退到 NLMS，校准脚本会明确给出 fal
 人工脚本可通过 `AUDIO_ENHANCER`、`AEC_ENABLED`、`NOISE_SUPPRESSION_ENABLED`、
 `AUTO_GAIN_ENABLED` 覆盖这些参数；当前真实可用的是 NLMS AEC，WebRTC enhancer
 仍是后续扩展。
+`continuous_voice_control.sh` 默认会在启动前运行 `voice_provider_preflight.py`；
+如只想打印配置可用 `CONTINUOUS_PRINT_CONFIG=true`，如需临时跳过预检可设置
+`CONTINUOUS_PREFLIGHT_ENABLED=false`。
 
 ## 验收入口
 
@@ -148,6 +155,7 @@ bash scripts/acceptance_test.sh demo     # mock 仿真组合动作演示
 bash scripts/acceptance_test.sh continuous-mock  # 连续会话与命令队列
 bash scripts/acceptance_test.sh continuous-timeout  # 会话超时后要求重新唤醒
 bash scripts/acceptance_test.sh continuous-kws-mock  # KWS sidecar 唤醒后执行动作
+bash scripts/acceptance_test.sh provider-preflight  # 可选 VAD/KWS 依赖和模型配置预检
 bash scripts/acceptance_test.sh gazebo   # Gazebo 可信动作与里程计
 bash scripts/acceptance_test.sh gazebo-voice  # 离线语音模型直达 Gazebo
 bash scripts/acceptance_test.sh all      # 全部自动 release gates（不含真人麦克风）

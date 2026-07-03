@@ -33,6 +33,7 @@
 | KWS score diagnostics | 当前 | openWakeWord/LiveKit 发布 `/agent/kws_score`，monitor 展示 top score/threshold，方便真实模型阈值调参 |
 | KWS score calibration | 当前 | `kws_score_calibration.py` 汇总 `/agent/kws_score`，输出推荐阈值、触发比例和误唤醒/漏唤醒提示 |
 | Voice readiness check | 当前 | `voice_control_readiness_check.py` 汇总音频前端和 KWS 分数，给出连续语音演示 go/no-go 报告 |
+| Provider preflight | 当前 | `voice_provider_preflight.py` 在启动 ROS 前检查可选 Silero/openWakeWord/LiveKit/sherpa 依赖与模型路径 |
 | KWS 连续控制验收 | 当前 | continuous-kws-mock 验证 KWS sidecar 唤醒后直接进入 Agent 队列并执行动作 |
 | AudioEnhancer seam | 当前 | NLMS AEC adapter、audio_enhancer/aec/ns/agc 参数与 WebRTC adapter 预留，`/audio/frontend_metrics` 暴露 requested/active 状态与 fallback 诊断 |
 | 连续演示 monitor | 当前 | 终端持续打印 session/asr/queue/action/feedback/result，长动作期间展示 ROS Action 进度 |

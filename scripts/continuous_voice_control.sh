@@ -15,6 +15,7 @@ AUTO_GAIN_ENABLED="${AUTO_GAIN_ENABLED:-false}"
 GUI_ENABLED="${GUI_ENABLED:-true}"
 MONITOR_ENABLED="${CONTINUOUS_MONITOR_ENABLED:-true}"
 PRINT_CONFIG="${CONTINUOUS_PRINT_CONFIG:-false}"
+PREFLIGHT_ENABLED="${CONTINUOUS_PREFLIGHT_ENABLED:-true}"
 source "$WORKSPACE/scripts/activate.sh"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((140 + $$ % 80))}"
 
@@ -48,6 +49,7 @@ AEC_ENABLED=$AEC_ENABLED
 NOISE_SUPPRESSION_ENABLED=$NOISE_SUPPRESSION_ENABLED
 AUTO_GAIN_ENABLED=$AUTO_GAIN_ENABLED
 CONTINUOUS_MONITOR_ENABLED=$MONITOR_ENABLED
+CONTINUOUS_PREFLIGHT_ENABLED=$PREFLIGHT_ENABLED
 GUI_ENABLED=$GUI_ENABLED
 
 ros2 launch embodied_simulation voice_turtlebot3.launch.py \\
@@ -64,6 +66,13 @@ EOF
 if [[ "$PRINT_CONFIG" == "true" ]]; then
   print_configuration
   exit 0
+fi
+
+if [[ "$PREFLIGHT_ENABLED" == "true" ]]; then
+  python3 "$WORKSPACE/scripts/voice_provider_preflight.py" \
+    --mode "$MODE" \
+    --vad-provider "$VAD_PROVIDER" \
+    --kws-provider "$KWS_PROVIDER"
 fi
 
 if ! pactl list short sources 2>/dev/null | grep -q .; then
