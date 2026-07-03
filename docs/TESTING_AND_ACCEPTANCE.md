@@ -249,7 +249,10 @@ ros2 topic echo /audio/frontend_metrics
 ```
 
 当前 `vad_provider:=energy`，端点参数包括 `speech_end_silence_s`、`min_utterance_ms`、
-`max_utterance_s`。AudioFrontend 会同步发布旧 `/audio/silence_timeout` 以兼容已有测试；
+`max_utterance_s`。连续控制脚本额外暴露 `SPEECH_START_THRESHOLD`，并在 launch 层映射为
+C++ AudioFrontend 的 `vad_rms_threshold`；`SPEECH_END_SILENCE_S`、`MIN_UTTERANCE_MS`、
+`MAX_UTTERANCE_S` 则直接透传同名 launch 参数。AudioFrontend 会同步发布旧
+`/audio/silence_timeout` 以兼容已有测试；
 Agent 对 `speech_ended` 与 `silence_timeout` 的同次事件做 50 ms 去重，避免双 commit。
 `/audio/frontend_metrics` 每 `metrics_period_s` 秒发布一次诊断 JSON；真实麦克风排障时，
 重点看 `rms` 是否明显大于静音、`speech` 是否随说话切换、`dropped_input_frames` 是否增长。
@@ -261,6 +264,14 @@ WebRTC enhancer，以及 NS/AGC 是否真正生效。
 ```bash
 # 终端 1：启动包含 audio_frontend 的真实麦克风链路
 bash scripts/continuous_voice_control.sh offline
+
+# 如 VAD 过早/过晚断句，可先用 dry-run 确认参数，再正式启动
+CONTINUOUS_PRINT_CONFIG=true \
+SPEECH_START_THRESHOLD=0.021 \
+SPEECH_END_SILENCE_S=0.38 \
+MIN_UTTERANCE_MS=240 \
+MAX_UTTERANCE_S=7.5 \
+  bash scripts/continuous_voice_control.sh offline
 
 # 终端 2：收集 8 秒指标并输出调参建议
 python3 scripts/voice_provider_preflight.py --mode offline --vad-provider "${VAD_PROVIDER:-energy}" --kws-provider "${KWS_PROVIDER:-none}"

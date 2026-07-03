@@ -18,6 +18,10 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
             "WAKE_WORD_ENABLED": "false",
             "SPEAKER_ENABLED": "true",
             "VAD_PROVIDER": "silero",
+            "SPEECH_START_THRESHOLD": "0.021",
+            "SPEECH_END_SILENCE_S": "0.38",
+            "MIN_UTTERANCE_MS": "240",
+            "MAX_UTTERANCE_S": "7.5",
             "KWS_PROVIDER": "openwakeword",
             "SHERPA_KWS_TOKENS": "/models/kws/tokens.txt",
             "SHERPA_KWS_ENCODER": "/models/kws/encoder.onnx",
@@ -50,6 +54,10 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
     assert "WAKE_WORD_ENABLED=false" in result.stdout
     assert "SPEAKER_ENABLED=true" in result.stdout
     assert "VAD_PROVIDER=silero" in result.stdout
+    assert "SPEECH_START_THRESHOLD=0.021" in result.stdout
+    assert "SPEECH_END_SILENCE_S=0.38" in result.stdout
+    assert "MIN_UTTERANCE_MS=240" in result.stdout
+    assert "MAX_UTTERANCE_S=7.5" in result.stdout
     assert "KWS_PROVIDER=openwakeword" in result.stdout
     assert "OPENWAKEWORD_MODELS=/models/kws/xiaozhi.onnx,/models/kws/nihaoxiaozhi.onnx" in result.stdout
     assert "OPENWAKEWORD_THRESHOLD=0.42" in result.stdout
@@ -61,6 +69,10 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
     assert "AUTO_GAIN_ENABLED=true" in result.stdout
     assert "CONTINUOUS_PREFLIGHT_ENABLED=true" in result.stdout
     assert "wake_word_enabled:=false" in result.stdout
+    assert "speech_start_threshold:=0.021" in result.stdout
+    assert "speech_end_silence_s:=0.38" in result.stdout
+    assert "min_utterance_ms:=240" in result.stdout
+    assert "max_utterance_s:=7.5" in result.stdout
     assert "sherpa_tokens:=\"/models/kws/tokens.txt\"" in result.stdout
     assert "openwakeword_models:=\"/models/kws/xiaozhi.onnx,/models/kws/nihaoxiaozhi.onnx\"" in result.stdout
     assert "openwakeword_threshold:=0.42" in result.stdout
@@ -83,6 +95,10 @@ def test_voice_launches_expose_audio_enhancer_arguments():
         assert "aec_enabled" in content, path
         assert "noise_suppression_enabled" in content, path
         assert "auto_gain_enabled" in content, path
+        assert "speech_start_threshold" in content, path
+        assert "speech_end_silence_s" in content, path
+        assert "min_utterance_ms" in content, path
+        assert "max_utterance_s" in content, path
         assert "openwakeword_models" in content, path
         assert "livekit_wakeword_models" in content, path
         assert "sherpa_tokens" in content, path

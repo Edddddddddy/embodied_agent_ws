@@ -47,6 +47,10 @@ def generate_launch_description():
     capture = LaunchConfiguration("capture_enabled")
     speaker = LaunchConfiguration("speaker_enabled")
     vad_provider = LaunchConfiguration("vad_provider")
+    speech_start_threshold = LaunchConfiguration("speech_start_threshold")
+    speech_end_silence_s = LaunchConfiguration("speech_end_silence_s")
+    min_utterance_ms = LaunchConfiguration("min_utterance_ms")
+    max_utterance_s = LaunchConfiguration("max_utterance_s")
     kws_provider = LaunchConfiguration("kws_provider")
     sherpa_tokens = LaunchConfiguration("sherpa_tokens")
     sherpa_encoder = LaunchConfiguration("sherpa_encoder")
@@ -92,6 +96,10 @@ def generate_launch_description():
         DeclareLaunchArgument("capture_enabled", default_value=microphone),
         DeclareLaunchArgument("speaker_enabled", default_value="false"),
         DeclareLaunchArgument("vad_provider", default_value="energy"),
+        DeclareLaunchArgument("speech_start_threshold", default_value="0.018"),
+        DeclareLaunchArgument("speech_end_silence_s", default_value="0.4"),
+        DeclareLaunchArgument("min_utterance_ms", default_value="100.0"),
+        DeclareLaunchArgument("max_utterance_s", default_value="12.0"),
         DeclareLaunchArgument("kws_provider", default_value="none"),
         DeclareLaunchArgument("sherpa_tokens", default_value=""),
         DeclareLaunchArgument("sherpa_encoder", default_value=""),
@@ -178,6 +186,10 @@ def generate_launch_description():
                 "capture_enabled": capture,
                 "speaker_enabled": speaker,
                 "vad_provider": vad_provider,
+                "speech_start_threshold": speech_start_threshold,
+                "speech_end_silence_s": speech_end_silence_s,
+                "min_utterance_ms": min_utterance_ms,
+                "max_utterance_s": max_utterance_s,
                 "kws_provider": kws_provider,
                 "sherpa_tokens": sherpa_tokens,
                 "sherpa_encoder": sherpa_encoder,
@@ -210,6 +222,10 @@ def generate_launch_description():
                 "capture_enabled": capture,
                 "speaker_enabled": speaker,
                 "vad_provider": vad_provider,
+                "speech_start_threshold": speech_start_threshold,
+                "speech_end_silence_s": speech_end_silence_s,
+                "min_utterance_ms": min_utterance_ms,
+                "max_utterance_s": max_utterance_s,
                 "kws_provider": kws_provider,
                 "sherpa_tokens": sherpa_tokens,
                 "sherpa_encoder": sherpa_encoder,

@@ -7,6 +7,10 @@ COMMAND_MAX_AGE="${CONTINUOUS_COMMAND_MAX_AGE:-30}"
 WAKE_WORD_ENABLED="${WAKE_WORD_ENABLED:-true}"
 SPEAKER_ENABLED="${SPEAKER_ENABLED:-false}"
 VAD_PROVIDER="${VAD_PROVIDER:-energy}"
+SPEECH_START_THRESHOLD="${SPEECH_START_THRESHOLD:-0.018}"
+SPEECH_END_SILENCE_S="${SPEECH_END_SILENCE_S:-0.4}"
+MIN_UTTERANCE_MS="${MIN_UTTERANCE_MS:-100}"
+MAX_UTTERANCE_S="${MAX_UTTERANCE_S:-12.0}"
 KWS_PROVIDER="${KWS_PROVIDER:-none}"
 SHERPA_KWS_TOKENS="${SHERPA_KWS_TOKENS:-}"
 SHERPA_KWS_ENCODER="${SHERPA_KWS_ENCODER:-}"
@@ -52,6 +56,10 @@ ROS_DOMAIN_ID=$ROS_DOMAIN_ID，连续语音控制模式=$MODE
 WAKE_WORD_ENABLED=$WAKE_WORD_ENABLED
 SPEAKER_ENABLED=$SPEAKER_ENABLED
 VAD_PROVIDER=$VAD_PROVIDER（默认 energy；安装 silero-vad 后可设为 silero）
+SPEECH_START_THRESHOLD=$SPEECH_START_THRESHOLD（energy VAD RMS 起始阈值）
+SPEECH_END_SILENCE_S=$SPEECH_END_SILENCE_S
+MIN_UTTERANCE_MS=$MIN_UTTERANCE_MS
+MAX_UTTERANCE_S=$MAX_UTTERANCE_S
 KWS_PROVIDER=$KWS_PROVIDER（默认 none；mock_text 用于 sidecar 验收，sherpa/openwakeword/livekit 用于真实 KWS）
 SHERPA_KWS_TOKENS=$SHERPA_KWS_TOKENS
 SHERPA_KWS_ENCODER=$SHERPA_KWS_ENCODER
@@ -74,6 +82,8 @@ ros2 launch embodied_simulation voice_turtlebot3.launch.py \\
   gui:=$GUI_ENABLED rviz:=false launch_agent:=true agent_type:=$MODE \\
   provider_mode:=$MODE microphone_enabled:=true capture_enabled:=true \\
   speaker_enabled:=$SPEAKER_ENABLED vad_provider:=$VAD_PROVIDER kws_provider:=$KWS_PROVIDER \\
+  speech_start_threshold:=$SPEECH_START_THRESHOLD speech_end_silence_s:=$SPEECH_END_SILENCE_S \\
+  min_utterance_ms:=$MIN_UTTERANCE_MS max_utterance_s:=$MAX_UTTERANCE_S \\
   sherpa_tokens:="$SHERPA_KWS_TOKENS" sherpa_encoder:="$SHERPA_KWS_ENCODER" \\
   sherpa_decoder:="$SHERPA_KWS_DECODER" sherpa_joiner:="$SHERPA_KWS_JOINER" \\
   sherpa_keywords_file:="$SHERPA_KWS_KEYWORDS_FILE" \\
@@ -142,6 +152,8 @@ setsid ros2 launch embodied_simulation voice_turtlebot3.launch.py \
   gui:="$GUI_ENABLED" rviz:=false launch_agent:=true agent_type:="$MODE" \
   provider_mode:="$MODE" microphone_enabled:=true capture_enabled:=true \
   speaker_enabled:="$SPEAKER_ENABLED" vad_provider:="$VAD_PROVIDER" kws_provider:="$KWS_PROVIDER" \
+  speech_start_threshold:="$SPEECH_START_THRESHOLD" speech_end_silence_s:="$SPEECH_END_SILENCE_S" \
+  min_utterance_ms:="$MIN_UTTERANCE_MS" max_utterance_s:="$MAX_UTTERANCE_S" \
   sherpa_tokens:="$SHERPA_KWS_TOKENS" sherpa_encoder:="$SHERPA_KWS_ENCODER" \
   sherpa_decoder:="$SHERPA_KWS_DECODER" sherpa_joiner:="$SHERPA_KWS_JOINER" \
   sherpa_keywords_file:="$SHERPA_KWS_KEYWORDS_FILE" \

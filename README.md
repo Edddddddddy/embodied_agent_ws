@@ -147,6 +147,18 @@ WebRTC、NS 或 AGC 但当前仍回退到 NLMS，校准脚本会明确给出 fal
 人工脚本可通过 `AUDIO_ENHANCER`、`AEC_ENABLED`、`NOISE_SUPPRESSION_ENABLED`、
 `AUTO_GAIN_ENABLED` 覆盖这些参数；当前真实可用的是 NLMS AEC，WebRTC enhancer
 仍是后续扩展。
+Energy VAD 端点也可以直接在连续控制脚本中调参，不必手改 YAML：
+
+```bash
+SPEECH_START_THRESHOLD=0.021 \
+SPEECH_END_SILENCE_S=0.38 \
+MIN_UTTERANCE_MS=240 \
+MAX_UTTERANCE_S=7.5 \
+  bash scripts/continuous_voice_control.sh offline
+```
+
+其中 `SPEECH_START_THRESHOLD` 会映射到底层 C++ `vad_rms_threshold`，其余三个参数直接
+控制 `/audio/speech_started`、`/audio/speech_ended` 的端点行为。
 `continuous_voice_control.sh` 默认会在启动前运行 `voice_provider_preflight.py`；
 如只想打印配置可用 `CONTINUOUS_PRINT_CONFIG=true`，如需临时跳过预检可设置
 `CONTINUOUS_PREFLIGHT_ENABLED=false`。
