@@ -198,12 +198,13 @@ CONTINUOUS_PRINT_CONFIG=true \
 [action] executing move
 [feedback] executing 45% mock_execution
 [result] succeeded
-[summary] asr=3 ignored=1 normalized=1 enqueued=2 expired=0 started=2 finished=2 succeeded=2 failed=0
+[summary] wake=1 sleep=1 retry=0 asr=3 ignored=1 normalized=1 enqueued=2 expired=0 started=2 finished=2 succeeded=2 failed=0
 ```
 
 `[summary]` 在 Ctrl-C 退出 monitor 时打印；`continuous_voice_control.sh` 的清理逻辑也会
-优先用 SIGINT 结束 monitor，确保这行复盘信息尽量落盘。`asr` 是收到的 final 数，
-`ignored` 是 filler/duplicate 过滤数，`normalized` 是错词归一化数，`enqueued/expired` 反映队列健康，
+优先用 SIGINT 结束 monitor，确保这行复盘信息尽量落盘。`wake/sleep/retry` 反映会话门控和
+重试体验，`asr` 是收到的 final 数，`ignored` 是 filler/duplicate 过滤数，
+`normalized` 是错词归一化数，`enqueued/expired` 反映队列健康，
 `started/finished/succeeded/failed` 反映动作执行闭环。如果只想看 launch 原始日志，
 可设置 `CONTINUOUS_MONITOR_ENABLED=false`。
 

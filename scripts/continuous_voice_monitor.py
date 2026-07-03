@@ -172,6 +172,9 @@ class MonitorStats:
     """
 
     asr: int = 0
+    wake: int = 0
+    sleep: int = 0
+    retry: int = 0
     ignored: int = 0
     normalized: int = 0
     enqueued: int = 0
@@ -180,6 +183,13 @@ class MonitorStats:
     finished: int = 0
     succeeded: int = 0
     failed: int = 0
+
+    def record_wake(self, serialized: str) -> None:
+        kind = _json_dict(serialized).get("kind")
+        if kind == "wake":
+            self.wake += 1
+        elif kind == "sleep":
+            self.sleep += 1
 
     def record_asr(self, _text: str) -> None:
         self.asr += 1
@@ -191,6 +201,8 @@ class MonitorStats:
             self.ignored += 1
         elif status == "normalized":
             self.normalized += 1
+        elif status == "retry":
+            self.retry += 1
 
     def record_queue(self, serialized: str) -> None:
         event = _json_dict(serialized).get("event")
@@ -217,7 +229,8 @@ class MonitorStats:
 
     def format_summary(self) -> str:
         return (
-            f"[summary] asr={self.asr} ignored={self.ignored} "
+            f"[summary] wake={self.wake} sleep={self.sleep} retry={self.retry} "
+            f"asr={self.asr} ignored={self.ignored} "
             f"normalized={self.normalized} enqueued={self.enqueued} "
             f"expired={self.expired} started={self.started} "
             f"finished={self.finished} succeeded={self.succeeded} failed={self.failed}"
@@ -258,6 +271,7 @@ class ContinuousVoiceMonitor(Node):
         self._emit(format_session_state(message.data))
 
     def _on_wake(self, message: String) -> None:
+        self._stats.record_wake(message.data)
         self._emit(format_wake_event(message.data))
 
     def _on_kws(self, message: String) -> None:

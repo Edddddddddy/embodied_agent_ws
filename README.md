@@ -121,7 +121,8 @@ CONTINUOUS_PRINT_CONFIG=true \
 脚本会启动 `continuous_voice_monitor.py`，持续打印 `[session]`、`[asr]`、`[queue]`、
 `[exec]`、`[action]`、`[feedback]`、`[result]`，便于现场演示链路；长动作执行期间
 `[feedback]` 会显示 ROS Action 进度，避免误以为系统卡住。Ctrl-C 结束 monitor 时会输出
-`[summary] asr=... ignored=... enqueued=... succeeded=...`，用于复盘长时间语音演示中
+`[summary] wake=... sleep=... retry=... asr=... ignored=... enqueued=... succeeded=...`，
+用于复盘长时间语音演示中
 到底是识别少、过滤多、队列阻塞，还是动作执行失败。如需关闭可设置
 `CONTINUOUS_MONITOR_ENABLED=false`。
 

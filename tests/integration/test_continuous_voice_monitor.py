@@ -142,7 +142,12 @@ def test_monitor_formats_ignored_recognition_feedback():
 
 def test_monitor_stats_summarizes_long_running_session():
     stats = monitor.MonitorStats()
+    stats.record_wake(json.dumps({"kind": "wake", "provider": "text"}, ensure_ascii=False))
+    stats.record_wake(json.dumps({"kind": "sleep", "provider": "text"}, ensure_ascii=False))
     stats.record_asr("向前走一秒")
+    stats.record_recognition_feedback(
+        json.dumps({"status": "retry", "attempt": 1}, ensure_ascii=False)
+    )
     stats.record_recognition_feedback(
         json.dumps({"status": "ignored", "reason": "filler"}, ensure_ascii=False)
     )
@@ -172,7 +177,7 @@ def test_monitor_stats_summarizes_long_running_session():
     stats.record_result(json.dumps({"success": True, "message": "succeeded"}))
 
     assert stats.format_summary() == (
-        "[summary] asr=1 ignored=1 normalized=1 enqueued=1 expired=1 "
+        "[summary] wake=1 sleep=1 retry=1 asr=1 ignored=1 normalized=1 enqueued=1 expired=1 "
         "started=1 finished=1 succeeded=1 failed=0"
     )
 
