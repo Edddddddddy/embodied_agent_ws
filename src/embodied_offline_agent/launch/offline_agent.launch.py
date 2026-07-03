@@ -17,6 +17,7 @@ def generate_launch_description():
     capture = LaunchConfiguration("capture_enabled")
     speaker = LaunchConfiguration("speaker_enabled")
     vad_provider = LaunchConfiguration("vad_provider")
+    kws_provider = LaunchConfiguration("kws_provider")
     continuous_control_enabled = LaunchConfiguration("continuous_control_enabled")
     voice_session_timeout_s = LaunchConfiguration("voice_session_timeout_s")
     hardware_backend = LaunchConfiguration("hardware_backend")
@@ -33,6 +34,7 @@ def generate_launch_description():
         DeclareLaunchArgument("capture_enabled", default_value=microphone),
         DeclareLaunchArgument("speaker_enabled", default_value="false"),
         DeclareLaunchArgument("vad_provider", default_value="energy"),
+        DeclareLaunchArgument("kws_provider", default_value="none"),
         DeclareLaunchArgument("continuous_control_enabled", default_value="false"),
         DeclareLaunchArgument("voice_session_timeout_s", default_value="60.0"),
         DeclareLaunchArgument("hardware_backend", default_value="mock"),
@@ -78,6 +80,14 @@ def generate_launch_description():
                 PythonExpression(["'", vad_provider, "' == 'silero'"])
             ),
             parameters=[config],
+        ),
+        Node(
+            package="embodied_online_agent", executable="keyword_wake",
+            name="keyword_wake", output="screen",
+            condition=IfCondition(
+                PythonExpression(["'", kws_provider, "' != 'none'"])
+            ),
+            parameters=[config, {"mode": kws_provider}],
         ),
         LifecycleNode(
             package="embodied_agent_cpp", executable="action_guard",

@@ -74,6 +74,8 @@ PortAudio 回调只搬运数据，不执行网络、日志或模型推理；这�
 | `command_normalizer.py` | ASR 错词归一化，优先 RapidFuzz，支持默认/外置 YAML 词表 |
 | `command_fallback.py` | 有限机器人命令的确定性语义兜底 |
 | `continuous_voice.py` | 连续会话状态机、命令队列和 stop 优先级语义 |
+| `keyword_wake.py` | KWS detector/bridge seam，mock_text 与 sherpa-onnx KeywordSpotter adapter |
+| `keyword_wake_node.py` | KWS sidecar ROS 节点，发布 `/agent/wake_event_input` |
 | `wake_provider.py` | 文本唤醒 provider seam，输出 wake/continue/sleep/rejected 事件 |
 | `wakeword.py` | 文本唤醒窗口与兼容别名 |
 | `recognition_retry.py` | 可观测重试计数，不锁死监听 |
@@ -166,6 +168,8 @@ active action、sensor stale、safety stopped 与原因。
 | `/agent/state` | Agent -> UI/验收器 | listening、queued、thinking、speaking、session_awake、sleeping |
 | `/agent/wake_event` | WakeProvider -> UI/验收器 | text/sherpa/openWakeWord 等 provider 的 wake/continue/sleep/rejected |
 | `/agent/wake_event_input` | KWS sidecar -> Agent | 外部声学唤醒注入入口，支持 JSON `wake/sleep` |
+| `/agent/kws_event` | KWS sidecar -> UI/验收器 | KWS 检测诊断，包含 provider、transcript、score |
+| `/agent/kws_text_input` | 测试/调试 -> KWS sidecar | `mock_text` detector 的无模型输入 |
 | `/agent/session_state` | ContinuousVoiceSession -> UI/验收器 | awake 或 sleeping |
 | `/agent/command_queue` | CommandExecutionTracker -> UI/验收器 | enqueue、rejected、clear、size、dropped |
 | `/agent/command_execution` | CommandExecutionTracker -> UI/验收器 | started、finished、success、reason |

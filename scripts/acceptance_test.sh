@@ -15,6 +15,7 @@ Automated modes:
   demo                Rich mock demo: ordered actions, accessories, and arc motion
   continuous-mock     One wake word, several queued commands, and sleep gate
   vad-sidecar         Dependency-free Silero VAD sidecar seam smoke test
+  kws-sidecar         Dependency-free keyword wake sidecar seam smoke test
   gazebo              Legacy and typed Action physical motion verification
   gazebo-voice        Offline synthesized speech through typed Action to Gazebo
   gazebo-voice-online Online voice provider through typed Action to Gazebo
@@ -60,6 +61,7 @@ run_base() {
   bash scripts/smoke_test_recognition_retry.sh
   bash scripts/smoke_test_audio_endpoint.sh
   bash scripts/smoke_test_silero_vad_sidecar.sh
+  bash scripts/smoke_test_keyword_wake_sidecar.sh
   bash scripts/smoke_test_lifecycle.sh
   bash scripts/smoke_test_typed_action.sh
   bash scripts/smoke_test_typed_action_server.sh
@@ -109,6 +111,7 @@ case "$LEVEL" in
   demo) bash scripts/smoke_test_demo_sequence.sh ;;
   continuous-mock) bash scripts/smoke_test_continuous_voice.sh online; bash scripts/smoke_test_continuous_voice.sh offline ;;
   vad-sidecar) bash scripts/smoke_test_silero_vad_sidecar.sh ;;
+  kws-sidecar) bash scripts/smoke_test_keyword_wake_sidecar.sh ;;
   gazebo) run_gazebo ;;
   gazebo-voice) check_offline_runtime; USE_TYPED_ACTIONS=true bash scripts/smoke_test_gazebo_voice.sh ;;
   gazebo-voice-online) bash scripts/smoke_test_gazebo_voice_online.sh ;;

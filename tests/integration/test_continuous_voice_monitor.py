@@ -3,11 +3,23 @@
 
 import importlib.util
 import json
+import sys
+import types
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
 MONITOR = ROOT / "scripts" / "continuous_voice_monitor.py"
+
+sys.modules.setdefault("rclpy", types.SimpleNamespace())
+sys.modules.setdefault(
+    "rclpy.node",
+    types.SimpleNamespace(Node=object),
+)
+sys.modules.setdefault(
+    "std_msgs.msg",
+    types.SimpleNamespace(String=object),
+)
 
 spec = importlib.util.spec_from_file_location("continuous_voice_monitor", MONITOR)
 monitor = importlib.util.module_from_spec(spec)
@@ -16,9 +28,14 @@ spec.loader.exec_module(monitor)
 
 def test_monitor_formats_session_and_wake_events():
     wake = json.dumps({"kind": "wake", "provider": "text"}, ensure_ascii=False)
+    kws = json.dumps(
+        {"provider": "mock_kws", "transcript": "小智", "score": 1.0},
+        ensure_ascii=False,
+    )
 
     assert monitor.format_session_state("awake") == "[session] awake"
     assert monitor.format_wake_event(wake) == "[wake] text:wake"
+    assert monitor.format_kws_event(kws) == "[kws] mock_kws detected 小智 score=1.0"
 
 
 def test_monitor_formats_asr_queue_action_and_result_events():

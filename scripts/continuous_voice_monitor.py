@@ -29,6 +29,14 @@ def format_wake_event(serialized: str) -> str:
     return f"[wake] {provider}:{kind}"
 
 
+def format_kws_event(serialized: str) -> str:
+    payload = _json_dict(serialized)
+    provider = payload.get("provider", "unknown")
+    transcript = payload.get("transcript", "")
+    score = payload.get("score", "?")
+    return f"[kws] {provider} detected {transcript} score={score}"
+
+
 def format_asr_final(text: str) -> str:
     return f"[asr] {text}"
 
@@ -103,6 +111,7 @@ class ContinuousVoiceMonitor(Node):
         self._structured_queue_seen = False
         self.create_subscription(String, "/agent/session_state", self._on_session, 10)
         self.create_subscription(String, "/agent/wake_event", self._on_wake, 10)
+        self.create_subscription(String, "/agent/kws_event", self._on_kws, 10)
         self.create_subscription(String, "/agent/asr_final", self._on_asr, 10)
         self.create_subscription(String, "/agent/state", self._on_state, 10)
         self.create_subscription(String, "/agent/command_queue", self._on_queue, 10)
@@ -124,6 +133,9 @@ class ContinuousVoiceMonitor(Node):
 
     def _on_wake(self, message: String) -> None:
         self._emit(format_wake_event(message.data))
+
+    def _on_kws(self, message: String) -> None:
+        self._emit(format_kws_event(message.data))
 
     def _on_asr(self, message: String) -> None:
         self._emit(format_asr_final(message.data))

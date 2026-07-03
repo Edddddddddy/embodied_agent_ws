@@ -83,3 +83,20 @@ silero_vad:
     model_path: ""
     input_queue_depth: 20
     publish_legacy_silence_timeout: true
+
+keyword_wake:
+  ros__parameters:
+    mode: mock_text
+    provider_name: mock_kws
+    keywords: ["小智", "你好小智"]
+    aliases: ["小志", "小治", "晓智", "晓志"]
+    sample_rate: 16000
+    cooldown_s: 1.0
+    input_queue_depth: 20
+    sherpa_tokens: ""
+    sherpa_encoder: ""
+    sherpa_decoder: ""
+    sherpa_joiner: ""
+    sherpa_keywords_file: ""
+    sherpa_num_threads: 1
+    sherpa_provider: cpu

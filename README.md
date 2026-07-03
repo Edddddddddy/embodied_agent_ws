@@ -19,7 +19,8 @@
 - 识别恢复：热词偏置、唤醒别名、命令错词归一化、失败反馈和持续重试。
 - 唤醒 seam：默认 `TextWakeProvider` 发布 `/agent/wake_event` 与
   `/agent/session_state`；外部 KWS sidecar 可通过 `/agent/wake_event_input`
-  注入 `wake/sleep` 事件，后续可接 sherpa-onnx KWS/openWakeWord。
+  注入 `wake/sleep` 事件；`keyword_wake` sidecar 已支持 `mock_text` 和可选
+  `sherpa` KeywordSpotter adapter。
 - 连续控制：一次“小智”唤醒后进入 60 秒会话，后续命令排队顺序执行，停下/急停抢占。
 - 动作安全：结构化动作、C++ schema 校验、限幅、急停和 watchdog。
 - 丰富演示：支持原地转一圈、绕圈/画圆、走正方形和“演示一下”组合动作。
@@ -178,6 +179,16 @@ sidecar，AudioFrontend 只发布 `/audio/clean_pcm`，由 sidecar 接管端点�
 已验证 `wake -> continue -> sleep -> rejected` 事件链；sherpa-onnx KWS、openWakeWord
 和 LiveKit WakeWord 可作为 `/agent/wake_event_input` 的外部 provider 接入。输入示例：
 `{"kind":"wake","provider":"sherpa_kws"}` / `{"kind":"sleep","provider":"sherpa_kws"}`。
+
+2026-07-03 新增 `keyword_wake` sidecar：`mock_text` 模式订阅 `/agent/kws_text_input`
+并发布 `/agent/wake_event_input`，用于无模型验收 KWS 链路；`sherpa` 模式订阅
+`/audio/clean_pcm`，按 sherpa-onnx 官方 `KeywordSpotter` API 进行流式关键词检测。
+验收入口：
+
+```bash
+bash scripts/acceptance_test.sh kws-sidecar
+KWS_PROVIDER=mock_text bash scripts/continuous_voice_control.sh offline
+```
 
 2026-07-03 新增 CommandNormalizer：ASR final 在进入 wake/session/priority_stop 判定前会
 先做命令归一化，当前覆盖“钱进→前进”“作转→左转”“亭下→停下”“让圈→绕圈”等常见

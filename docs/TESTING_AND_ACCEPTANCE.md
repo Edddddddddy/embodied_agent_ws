@@ -207,12 +207,18 @@ ros2 topic echo /agent/wake_event
 ros2 topic echo /agent/session_state
 ros2 topic pub --once /agent/wake_event_input std_msgs/msg/String \
   "{data: '{\"kind\":\"wake\",\"provider\":\"manual_kws\"}'}"
+bash scripts/acceptance_test.sh kws-sidecar
 ```
 
 当前默认 provider 为 `text`，事件包括 `wake`、`continue`、`sleep`、`rejected`。
 `/agent/wake_event_input` 是外部声学 KWS 的稳定入口；手工发布 `manual_kws` wake 后，
 下一句不带“小智”的 `/agent/text_input` 也应进入同一套连续命令队列。后续
 sherpa-onnx/openWakeWord adapter 只需要按这个 topic 契约发布 wake/sleep。
+`keyword_wake` sidecar 当前提供两种模式：
+
+- `kws_provider:=mock_text`：订阅 `/agent/kws_text_input`，无模型验收 KWS 链路。
+- `kws_provider:=sherpa`：订阅 `/audio/clean_pcm`，使用 sherpa-onnx `KeywordSpotter`；
+  需要在 `keyword_wake` 参数组里配置 `sherpa_tokens/encoder/decoder/joiner/keywords_file`。
 
 ## 4. 当前实测基线
 
