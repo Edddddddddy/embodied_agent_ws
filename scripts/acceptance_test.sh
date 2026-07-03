@@ -14,6 +14,7 @@ Automated modes:
   offline             Real ZipFormer/llama.cpp/Sherpa-TTS verification
   demo                Rich mock demo: ordered actions, accessories, and arc motion
   continuous-mock     One wake word, several queued commands, and sleep gate
+  continuous-ttl      Busy continuous queue expires stale non-priority commands
   continuous-kws-mock KWS sidecar opens a continuous session and executes a command
   vad-sidecar         Dependency-free Silero VAD sidecar seam smoke test
   kws-sidecar         Dependency-free keyword wake sidecar seam smoke test
@@ -78,6 +79,7 @@ run_base() {
   bash scripts/smoke_test_mock_executor.sh
   bash scripts/smoke_test_demo_sequence.sh
   bash scripts/smoke_test_continuous_voice.sh online
+  bash scripts/smoke_test_continuous_command_ttl.sh online
   bash scripts/smoke_test_continuous_kws_sidecar.sh online
   bash scripts/smoke_test_composed_executor.sh
   bash scripts/smoke_test_namespaced_executor.sh
@@ -120,6 +122,7 @@ case "$LEVEL" in
   offline) run_offline ;;
   demo) bash scripts/smoke_test_demo_sequence.sh ;;
   continuous-mock) bash scripts/smoke_test_continuous_voice.sh online; bash scripts/smoke_test_continuous_voice.sh offline ;;
+  continuous-ttl) bash scripts/smoke_test_continuous_command_ttl.sh online; bash scripts/smoke_test_continuous_command_ttl.sh offline ;;
   continuous-kws-mock) bash scripts/smoke_test_continuous_kws_sidecar.sh online; bash scripts/smoke_test_continuous_kws_sidecar.sh offline ;;
   vad-sidecar) bash scripts/smoke_test_silero_vad_sidecar.sh ;;
   kws-sidecar) bash scripts/smoke_test_keyword_wake_sidecar.sh ;;

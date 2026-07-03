@@ -18,6 +18,7 @@ def test_critical_full_chain_probes_remain_discoverable():
         "test_mock_executor_pipeline.py",
         "test_online_api.py",
         "test_recognition_retry.py",
+        "test_continuous_command_ttl.py",
         "test_typed_action_server.py",
     }
     present = {path.name for path in integration.glob("test_*")}

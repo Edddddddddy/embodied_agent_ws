@@ -99,6 +99,8 @@ bash scripts/continuous_voice_control.sh online
 普通命令若在队列中等待超过 `continuous_command_max_age_s`（默认 30 秒）会自动过期跳过，
 避免长时间演示时执行已经失去上下文的旧命令；`停下/急停` 不会过期。过期事件会发布到
 `/agent/command_queue`，monitor 显示为 `[queue] expired ...`。
+自动验收可用 `bash scripts/acceptance_test.sh continuous-ttl` 复现实例：先执行长组合动作，
+再排入一条普通命令，确认它过期且没有发布动作候选。
 脚本会启动 `continuous_voice_monitor.py`，持续打印 `[session]`、`[asr]`、`[queue]`、
 `[exec]`、`[action]`、`[result]`，便于现场演示链路；如需关闭可设置
 `CONTINUOUS_MONITOR_ENABLED=false`。

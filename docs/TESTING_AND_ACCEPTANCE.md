@@ -14,6 +14,7 @@ bash scripts/acceptance_test.sh online
 bash scripts/acceptance_test.sh offline
 bash scripts/acceptance_test.sh demo
 bash scripts/acceptance_test.sh continuous-mock
+bash scripts/acceptance_test.sh continuous-ttl
 bash scripts/acceptance_test.sh continuous-kws-mock
 bash scripts/acceptance_test.sh gazebo
 bash scripts/acceptance_test.sh gazebo-voice
@@ -28,7 +29,8 @@ bash scripts/acceptance_test.sh continuous-online
 
 `mock` 是每次提交前的最低门槛；`demo` 使用 mock executor 验证组合动作、accessory ACK
 和弧线速度；`continuous-mock` 验证一次唤醒、多命令队列、退出控制、常见 ASR 错词
-归一化和 online/offline 状态机复用；`continuous-kws-mock` 验证 `keyword_wake` sidecar
+归一化和 online/offline 状态机复用；`continuous-ttl` 验证 Agent 忙于组合动作时，
+队列里的陈旧普通命令会发布 `expired` 并跳过执行；`continuous-kws-mock` 验证 `keyword_wake` sidecar
 真实打开 Agent 会话并执行动作。当前记录以 `colcon test-result --verbose` 输出为准。
 `online` 使用少量
 DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里程计位移验真。
@@ -54,6 +56,7 @@ DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里
 | mock 插件全链 | `smoke_test_mock_executor.sh` | 不改 Guard/BT 即可切换 backend |
 | 组合演示 | `smoke_test_demo_sequence.sh` | `set_led → wave → move → turn → arc → stop` 顺序执行 |
 | 连续语音 | `smoke_test_continuous_voice.sh` | 一次唤醒后多条命令排队，急停抢占，最终 `/cmd_vel` 归零 |
+| 连续队列 TTL | `smoke_test_continuous_command_ttl.sh` | 长组合动作占用 worker 时，陈旧普通命令发布 `expired` 且不执行 |
 | 组件化等价 | `smoke_test_composed_executor.sh` | 同一控制实现可在多线程 component container 中完成 Action/BT 链 |
 | 命名空间 | `smoke_test_namespaced_executor.sh` | 相对名称、Action、BT、速度和 diagnostics 均隔离到 `/robot1` |
 | Action 全链 | `smoke_test_typed_action_pipeline.sh` | JSON -> typed -> Action -> 仿真控制 |

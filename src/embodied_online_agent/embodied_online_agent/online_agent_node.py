@@ -447,7 +447,7 @@ class OnlineAgentNode(Node):
                 self._command_queue.task_done()
 
     def _publish_stale_command_event(self, item):
-        self._publish_queue_event(
+        self._publish_command_queue_payload(
             self._command_tracker.queue_expired(item, size=self._command_queue.size())
         )
 
@@ -605,6 +605,9 @@ class OnlineAgentNode(Node):
         payload = self._command_tracker.queue_event(
             event, text, snapshot, priority_stop=priority_stop
         )
+        self._publish_command_queue_payload(payload)
+
+    def _publish_command_queue_payload(self, payload):
         self.command_queue_pub.publish(
             String(data=json.dumps(payload.as_dict(), ensure_ascii=False))
         )
