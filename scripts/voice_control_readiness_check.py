@@ -91,6 +91,15 @@ def format_readiness_report(report: VoiceReadinessReport) -> str:
         f"  audio_samples: {report.audio.sample_count}",
         f"  audio_rms: max={report.audio.max_rms:.4f}, mean={report.audio.mean_rms:.4f}",
         f"  suggested_vad_threshold: {report.audio.suggested_vad_threshold:.4f}",
+        f"  vad_provider: {report.audio.vad_provider or 'unknown'}",
+        (
+            "  audio_enhancer: "
+            f"requested={report.audio.audio_enhancer_requested or 'unknown'} "
+            f"active={report.audio.audio_enhancer_active or 'unknown'} "
+            f"aec={report.audio.aec_active} "
+            f"ns={report.audio.noise_suppression_active} "
+            f"agc={report.audio.auto_gain_active}"
+        ),
         f"  kws_required: {report.require_kws}",
         f"  kws_samples: {report.kws.sample_count}",
         f"  kws_provider: {report.kws.provider}",

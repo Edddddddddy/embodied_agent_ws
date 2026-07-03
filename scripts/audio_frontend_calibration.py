@@ -24,6 +24,14 @@ class AudioMetricSample:
     speech: bool
     dropped_input_frames: int = 0
     dropped_playback_chunks: int = 0
+    vad_provider: str = ""
+    audio_enhancer_requested: str = ""
+    audio_enhancer_active: str = ""
+    aec_active: bool = False
+    noise_suppression_requested: bool = False
+    noise_suppression_active: bool = False
+    auto_gain_requested: bool = False
+    auto_gain_active: bool = False
 
 
 @dataclass(frozen=True)
@@ -37,7 +45,13 @@ class AudioHealthReport:
     dropped_input_delta: int
     dropped_playback_delta: int
     suggested_vad_threshold: float
-    warnings: tuple[str, ...]
+    vad_provider: str = ""
+    audio_enhancer_requested: str = ""
+    audio_enhancer_active: str = ""
+    aec_active: bool = False
+    noise_suppression_active: bool = False
+    auto_gain_active: bool = False
+    warnings: tuple[str, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -64,6 +78,20 @@ def parse_audio_metrics(serialized: str) -> AudioMetricSample | None:
             speech=bool(payload.get("speech", False)),
             dropped_input_frames=int(payload.get("dropped_input_frames", 0)),
             dropped_playback_chunks=int(payload.get("dropped_playback_chunks", 0)),
+            vad_provider=str(payload.get("vad_provider", "")),
+            audio_enhancer_requested=str(
+                payload.get("audio_enhancer_requested", "")
+            ),
+            audio_enhancer_active=str(payload.get("audio_enhancer_active", "")),
+            aec_active=bool(payload.get("aec_active", False)),
+            noise_suppression_requested=bool(
+                payload.get("noise_suppression_requested", False)
+            ),
+            noise_suppression_active=bool(
+                payload.get("noise_suppression_active", False)
+            ),
+            auto_gain_requested=bool(payload.get("auto_gain_requested", False)),
+            auto_gain_active=bool(payload.get("auto_gain_active", False)),
         )
     except (TypeError, ValueError):
         return None
@@ -101,6 +129,12 @@ def analyze_audio_health(samples: Sequence[AudioMetricSample]) -> AudioHealthRep
             dropped_input_delta=0,
             dropped_playback_delta=0,
             suggested_vad_threshold=0.018,
+            vad_provider="",
+            audio_enhancer_requested="",
+            audio_enhancer_active="",
+            aec_active=False,
+            noise_suppression_active=False,
+            auto_gain_active=False,
             warnings=("no_audio_metrics",),
         )
 
@@ -110,6 +144,7 @@ def analyze_audio_health(samples: Sequence[AudioMetricSample]) -> AudioHealthRep
     speech_ratio = sum(1 for sample in samples if sample.speech) / len(samples)
     dropped_input_delta = _delta(sample.dropped_input_frames for sample in samples)
     dropped_playback_delta = _delta(sample.dropped_playback_chunks for sample in samples)
+    latest = samples[-1]
     warnings: list[str] = []
 
     if max_rms < 0.005:
@@ -122,6 +157,16 @@ def analyze_audio_health(samples: Sequence[AudioMetricSample]) -> AudioHealthRep
         warnings.append("audio_input_overrun")
     if dropped_playback_delta > 0:
         warnings.append("tts_playback_overrun")
+    if (
+        latest.audio_enhancer_requested
+        and latest.audio_enhancer_active
+        and latest.audio_enhancer_requested != latest.audio_enhancer_active
+    ):
+        warnings.append("audio_enhancer_fallback")
+    if latest.noise_suppression_requested and not latest.noise_suppression_active:
+        warnings.append("noise_suppression_unavailable")
+    if latest.auto_gain_requested and not latest.auto_gain_active:
+        warnings.append("auto_gain_unavailable")
 
     return AudioHealthReport(
         sample_count=len(samples),
@@ -131,6 +176,12 @@ def analyze_audio_health(samples: Sequence[AudioMetricSample]) -> AudioHealthRep
         dropped_input_delta=dropped_input_delta,
         dropped_playback_delta=dropped_playback_delta,
         suggested_vad_threshold=_suggest_vad_threshold(max_rms, mean_rms),
+        vad_provider=latest.vad_provider,
+        audio_enhancer_requested=latest.audio_enhancer_requested,
+        audio_enhancer_active=latest.audio_enhancer_active,
+        aec_active=latest.aec_active,
+        noise_suppression_active=latest.noise_suppression_active,
+        auto_gain_active=latest.auto_gain_active,
         warnings=tuple(warnings),
     )
 
@@ -147,6 +198,18 @@ def format_report(report: AudioHealthReport) -> str:
         f"  dropped_input_delta: {report.dropped_input_delta}",
         f"  dropped_playback_delta: {report.dropped_playback_delta}",
         f"  suggested energy vad threshold: {report.suggested_vad_threshold:.4f}",
+        f"  vad_provider: {report.vad_provider or 'unknown'}",
+        (
+            "  audio_enhancer: "
+            f"requested={report.audio_enhancer_requested or 'unknown'} "
+            f"active={report.audio_enhancer_active or 'unknown'}"
+        ),
+        (
+            "  audio_enhancement: "
+            f"aec={report.aec_active} "
+            f"ns={report.noise_suppression_active} "
+            f"agc={report.auto_gain_active}"
+        ),
     ]
     if report.warnings:
         lines.append("  warnings:")
@@ -157,6 +220,9 @@ def format_report(report: AudioHealthReport) -> str:
             "vad_threshold_may_be_too_low_or_environment_noisy": "长时间 speech=true，可能是阈值过低或环境噪声过大。",
             "audio_input_overrun": "输入音频丢帧，可能是 CPU 忙、音频块处理过慢或队列太小。",
             "tts_playback_overrun": "TTS 回放队列丢块，长时间控制建议先关闭 speaker。",
+            "audio_enhancer_fallback": "请求的音频增强器不可用，当前已回退到 active enhancer。",
+            "noise_suppression_unavailable": "已请求降噪但当前增强器未实际启用 NS；如需真实降噪，后续接 WebRTC enhancer。",
+            "auto_gain_unavailable": "已请求自动增益但当前增强器未实际启用 AGC；如需真实 AGC，后续接 WebRTC enhancer。",
         }
         for warning in report.warnings:
             lines.append(f"    - {warning}: {explanations.get(warning, warning)}")

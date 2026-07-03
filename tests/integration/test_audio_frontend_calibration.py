@@ -14,7 +14,12 @@ spec.loader.exec_module(audio_calibration)
 def test_parse_audio_metrics_accepts_frontend_json():
     sample = audio_calibration.parse_audio_metrics(
         '{"rms": 0.023, "peak": 1234, "speech": true, '
-        '"dropped_input_frames": 2, "dropped_playback_chunks": 1}'
+        '"dropped_input_frames": 2, "dropped_playback_chunks": 1, '
+        '"vad_provider": "energy", '
+        '"audio_enhancer_requested": "webrtc", "audio_enhancer_active": "nlms", '
+        '"aec_active": true, '
+        '"noise_suppression_requested": true, "noise_suppression_active": false, '
+        '"auto_gain_requested": true, "auto_gain_active": false}'
     )
 
     assert sample == audio_calibration.AudioMetricSample(
@@ -23,6 +28,14 @@ def test_parse_audio_metrics_accepts_frontend_json():
         speech=True,
         dropped_input_frames=2,
         dropped_playback_chunks=1,
+        vad_provider="energy",
+        audio_enhancer_requested="webrtc",
+        audio_enhancer_active="nlms",
+        aec_active=True,
+        noise_suppression_requested=True,
+        noise_suppression_active=False,
+        auto_gain_requested=True,
+        auto_gain_active=False,
     )
 
 
@@ -79,6 +92,30 @@ def test_dropped_frames_are_reported_from_counter_delta():
 
     assert report.dropped_input_delta == 2
     assert "audio_input_overrun" in report.warnings
+
+
+def test_audio_enhancer_fallbacks_are_reported():
+    samples = [
+        audio_calibration.AudioMetricSample(
+            rms=0.02,
+            peak=1000,
+            speech=True,
+            audio_enhancer_requested="webrtc",
+            audio_enhancer_active="nlms",
+            noise_suppression_requested=True,
+            noise_suppression_active=False,
+            auto_gain_requested=True,
+            auto_gain_active=False,
+        )
+    ]
+
+    report = audio_calibration.analyze_audio_health(samples)
+
+    assert report.audio_enhancer_requested == "webrtc"
+    assert report.audio_enhancer_active == "nlms"
+    assert "audio_enhancer_fallback" in report.warnings
+    assert "noise_suppression_unavailable" in report.warnings
+    assert "auto_gain_unavailable" in report.warnings
 
 
 def test_format_report_explains_warnings_in_chinese():

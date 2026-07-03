@@ -56,7 +56,14 @@ def format_audio_metrics(serialized: str) -> str:
     peak = payload.get("peak", 0)
     speech = payload.get("speech", False)
     dropped = payload.get("dropped_input_frames", 0)
-    return f"[audio] rms={float(rms):.4f} peak={peak} speech={speech} dropped={dropped}"
+    enhancer = payload.get("audio_enhancer_active", "unknown")
+    aec = payload.get("aec_active", False)
+    ns = payload.get("noise_suppression_active", False)
+    agc = payload.get("auto_gain_active", False)
+    return (
+        f"[audio] rms={float(rms):.4f} peak={peak} speech={speech} dropped={dropped} "
+        f"enhancer={enhancer} aec={aec} ns={ns} agc={agc}"
+    )
 
 
 def format_asr_final(text: str) -> str:

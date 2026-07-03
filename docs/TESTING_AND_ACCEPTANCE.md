@@ -191,6 +191,9 @@ ros2 topic echo /audio/frontend_metrics
 Agent 对 `speech_ended` 与 `silence_timeout` 的同次事件做 50 ms 去重，避免双 commit。
 `/audio/frontend_metrics` 每 `metrics_period_s` 秒发布一次诊断 JSON；真实麦克风排障时，
 重点看 `rms` 是否明显大于静音、`speech` 是否随说话切换、`dropped_input_frames` 是否增长。
+该 JSON 还会包含 `audio_enhancer_requested/audio_enhancer_active`、`aec_active`、
+`noise_suppression_active`、`auto_gain_active`，用于确认当前是 NLMS AEC 还是未来
+WebRTC enhancer，以及 NS/AGC 是否真正生效。
 建议在长时间语音控制前先跑一次校准：
 
 ```bash
@@ -212,6 +215,9 @@ python3 scripts/voice_control_readiness_check.py --duration 8 --require-kws
 - `vad_threshold_may_be_too_low_or_environment_noisy`：长时间 `speech=true`，提高阈值或降低环境噪声。
 - `audio_input_overrun`：输入丢帧，检查 CPU 占用、音频块大小和队列。
 - `tts_playback_overrun`：回放丢块，连续控制演示优先保持 `speaker_enabled:=false`。
+- `audio_enhancer_fallback`：请求的增强器不可用，当前已回退到 `audio_enhancer_active`。
+- `noise_suppression_unavailable` / `auto_gain_unavailable`：已请求 NS/AGC，但当前
+  NLMS enhancer 不提供该能力；真实启用需要后续接 WebRTC enhancer。
 
 Silero VAD 已作为可选 sidecar 接入：AudioFrontend 继续发布 `/audio/clean_pcm`，当
 `vad_provider:=silero` 时内置 energy endpoint 自动关闭，由 `silero_vad` 节点发布

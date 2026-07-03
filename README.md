@@ -117,7 +117,9 @@ python3 scripts/voice_control_readiness_check.py --duration 8 --require-kws
 ```
 
 脚本会订阅 `/audio/frontend_metrics`，根据 `rms/speech/dropped_*` 给出麦克风音量、
-VAD 阈值、噪声和丢帧建议，并输出推荐的 energy VAD 阈值起点。
+VAD 阈值、噪声和丢帧建议，并输出推荐的 energy VAD 阈值起点。指标中还会显示
+`audio_enhancer_requested/audio_enhancer_active` 和 `aec/ns/agc` 状态；如果请求
+WebRTC、NS 或 AGC 但当前仍回退到 NLMS，校准脚本会明确给出 fallback warning。
 
 ## 验收入口
 

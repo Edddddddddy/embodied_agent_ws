@@ -321,6 +321,14 @@ private:
          << ",\"peak\":" << metrics.peak
          << ",\"speech\":" << (metrics.speech ? "true" : "false")
          << ",\"vad_provider\":\"" << vad_provider_ << "\""
+         << ",\"audio_enhancer_requested\":\"" << audio_enhancer_name_ << "\""
+         << ",\"audio_enhancer_active\":\"nlms\""
+         << ",\"aec_active\":" << (aec_enabled_ ? "true" : "false")
+         << ",\"noise_suppression_requested\":"
+         << (noise_suppression_enabled_ ? "true" : "false")
+         << ",\"noise_suppression_active\":false"
+         << ",\"auto_gain_requested\":" << (auto_gain_enabled_ ? "true" : "false")
+         << ",\"auto_gain_active\":false"
          << ",\"dropped_input_frames\":" << dropped_input_frames_
          << ",\"dropped_playback_chunks\":" << dropped_playback_chunks_
          << "}";
