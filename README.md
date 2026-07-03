@@ -200,12 +200,14 @@ sidecar，AudioFrontend 只发布 `/audio/clean_pcm`，由 sidecar 接管端点�
 `livekit` 模式订阅同一音频 topic，按 LiveKit WakeWord `WakeWordModel.predict()`
 触发 wake event，适合后续训练中文“小智”ONNX 唤醒词。
 openWakeWord/LiveKit 会额外发布 `/agent/kws_score`，便于观察低于阈值的候选分数并调参。
+可用 `python3 scripts/kws_score_calibration.py --duration 8` 自动汇总分数并给出阈值建议。
 验收入口：
 
 ```bash
 bash scripts/acceptance_test.sh kws-sidecar
 bash scripts/acceptance_test.sh openwakeword-sidecar
 bash scripts/acceptance_test.sh livekit-sidecar
+bash scripts/acceptance_test.sh kws-calibration
 bash scripts/acceptance_test.sh continuous-kws-mock
 KWS_PROVIDER=mock_text bash scripts/continuous_voice_control.sh offline
 # 安装可选依赖并配置 openwakeword_models 后，可切换为真实声学唤醒

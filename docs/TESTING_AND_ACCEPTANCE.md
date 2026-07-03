@@ -288,6 +288,8 @@ openWakeWord/LiveKit 模式会发布 `/agent/kws_score`，用于调唤醒阈值�
 
 ```bash
 ros2 topic echo /agent/kws_score
+python3 scripts/kws_score_calibration.py --duration 8
+python3 scripts/kws_score_calibration.py --duration 8 --json
 ```
 
 字段包括 `top_keyword`、`top_score`、`threshold`、`above_threshold` 和完整 `scores`。
@@ -295,6 +297,12 @@ ros2 topic echo /agent/kws_score
 
 ```text
 [kws-score] livekit_test fake_livekit_wake=0.930 threshold=0.500 above=True
+```
+
+无模型依赖的阈值校准 smoke：
+
+```bash
+bash scripts/acceptance_test.sh kws-calibration
 ```
 
 ## 4. 当前实测基线
