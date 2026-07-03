@@ -138,3 +138,40 @@ def test_monitor_formats_ignored_recognition_feedback():
     )
 
     assert monitor.format_recognition_feedback(feedback) == "[ignore] filler 嗯。"
+
+
+def test_monitor_stats_summarizes_long_running_session():
+    stats = monitor.MonitorStats()
+    stats.record_asr("向前走一秒")
+    stats.record_recognition_feedback(
+        json.dumps({"status": "ignored", "reason": "filler"}, ensure_ascii=False)
+    )
+    stats.record_recognition_feedback(
+        json.dumps({"status": "normalized", "reason": "command_normalized"}, ensure_ascii=False)
+    )
+    stats.record_queue(
+        json.dumps({"event": "enqueue", "text": "向前走一秒", "size": 1}, ensure_ascii=False)
+    )
+    stats.record_queue(
+        json.dumps({"event": "expired", "text": "左转九十度", "size": 0}, ensure_ascii=False)
+    )
+    stats.record_execution(
+        json.dumps({"event": "started", "text": "向前走一秒"}, ensure_ascii=False)
+    )
+    stats.record_execution(
+        json.dumps(
+            {
+                "event": "finished",
+                "text": "向前走一秒",
+                "success": True,
+                "reason": "completed",
+            },
+            ensure_ascii=False,
+        )
+    )
+    stats.record_result(json.dumps({"success": True, "message": "succeeded"}))
+
+    assert stats.format_summary() == (
+        "[summary] asr=1 ignored=1 normalized=1 enqueued=1 expired=1 "
+        "started=1 finished=1 succeeded=1 failed=0"
+    )

@@ -198,9 +198,13 @@ CONTINUOUS_PRINT_CONFIG=true \
 [action] executing move
 [feedback] executing 45% mock_execution
 [result] succeeded
+[summary] asr=3 ignored=1 normalized=1 enqueued=2 expired=0 started=2 finished=2 succeeded=2 failed=0
 ```
 
-如果只想看 launch 原始日志，可设置 `CONTINUOUS_MONITOR_ENABLED=false`。
+`[summary]` 在 Ctrl-C 退出 monitor 时打印：`asr` 是收到的 final 数，`ignored` 是 filler/
+duplicate 过滤数，`normalized` 是错词归一化数，`enqueued/expired` 反映队列健康，
+`started/finished/succeeded/failed` 反映动作执行闭环。如果只想看 launch 原始日志，
+可设置 `CONTINUOUS_MONITOR_ENABLED=false`。
 
 真实 KWS provider 可直接从连续控制脚本配置，不必手改 YAML。脚本会把这些值同时传给
 `voice_provider_preflight.py` 与 `voice_turtlebot3.launch.py`：

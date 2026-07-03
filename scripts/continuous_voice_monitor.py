@@ -3,6 +3,7 @@
 
 import argparse
 import json
+from dataclasses import dataclass
 from typing import Any
 
 import rclpy
@@ -152,11 +153,73 @@ def format_recognition_feedback(serialized: str) -> str:
     return "[feedback] " + (payload.get("reason") or "unknown")
 
 
+@dataclass
+class MonitorStats:
+    """长时间语音演示的轻量统计器。
+
+    统计只依赖已有 JSON topic，退出 monitor 时输出一行 summary，帮助判断问题是在
+    ASR、过滤、队列还是执行阶段。
+    """
+
+    asr: int = 0
+    ignored: int = 0
+    normalized: int = 0
+    enqueued: int = 0
+    expired: int = 0
+    started: int = 0
+    finished: int = 0
+    succeeded: int = 0
+    failed: int = 0
+
+    def record_asr(self, _text: str) -> None:
+        self.asr += 1
+
+    def record_recognition_feedback(self, serialized: str) -> None:
+        payload = _json_dict(serialized)
+        status = payload.get("status")
+        if status == "ignored":
+            self.ignored += 1
+        elif status == "normalized":
+            self.normalized += 1
+
+    def record_queue(self, serialized: str) -> None:
+        event = _json_dict(serialized).get("event")
+        if event == "enqueue":
+            self.enqueued += 1
+        elif event == "expired":
+            self.expired += 1
+
+    def record_execution(self, serialized: str) -> None:
+        event = _json_dict(serialized).get("event")
+        if event == "started":
+            self.started += 1
+        elif event == "finished":
+            self.finished += 1
+
+    def record_result(self, serialized: str) -> None:
+        payload = _json_dict(serialized)
+        if "success" not in payload:
+            return
+        if payload.get("success") is True:
+            self.succeeded += 1
+        else:
+            self.failed += 1
+
+    def format_summary(self) -> str:
+        return (
+            f"[summary] asr={self.asr} ignored={self.ignored} "
+            f"normalized={self.normalized} enqueued={self.enqueued} "
+            f"expired={self.expired} started={self.started} "
+            f"finished={self.finished} succeeded={self.succeeded} failed={self.failed}"
+        )
+
+
 class ContinuousVoiceMonitor(Node):
     def __init__(self):
         super().__init__("continuous_voice_monitor")
         self._queued_seen = 0
         self._structured_queue_seen = False
+        self._stats = MonitorStats()
         self.create_subscription(String, "/agent/session_state", self._on_session, 10)
         self.create_subscription(String, "/agent/wake_event", self._on_wake, 10)
         self.create_subscription(String, "/agent/kws_event", self._on_kws, 10)
@@ -197,6 +260,7 @@ class ContinuousVoiceMonitor(Node):
         self._emit(format_audio_metrics(message.data))
 
     def _on_asr(self, message: String) -> None:
+        self._stats.record_asr(message.data)
         self._emit(format_asr_final(message.data))
 
     def _on_state(self, message: String) -> None:
@@ -208,9 +272,11 @@ class ContinuousVoiceMonitor(Node):
 
     def _on_queue(self, message: String) -> None:
         self._structured_queue_seen = True
+        self._stats.record_queue(message.data)
         self._emit(format_queue_event(message.data))
 
     def _on_execution(self, message: String) -> None:
+        self._stats.record_execution(message.data)
         self._emit(format_execution_event(message.data))
 
     def _on_action(self, message: String) -> None:
@@ -220,10 +286,15 @@ class ContinuousVoiceMonitor(Node):
         self._emit(format_action_feedback(message.data))
 
     def _on_feedback(self, message: String) -> None:
+        self._stats.record_recognition_feedback(message.data)
         self._emit(format_recognition_feedback(message.data))
 
     def _on_result(self, message: String) -> None:
+        self._stats.record_result(message.data)
         self._emit(format_action_result(message.data))
+
+    def emit_summary(self) -> None:
+        self._emit(self._stats.format_summary())
 
 
 def main() -> None:
@@ -236,6 +307,7 @@ def main() -> None:
     except KeyboardInterrupt:
         pass
     finally:
+        node.emit_summary()
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
