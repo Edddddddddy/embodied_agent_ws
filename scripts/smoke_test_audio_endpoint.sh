@@ -9,6 +9,10 @@ setsid ros2 run embodied_agent_cpp audio_frontend --ros-args \
   -p capture_enabled:=false \
   -p speaker_enabled:=false \
   -p vad_provider:=energy \
+  -p audio_enhancer:=nlms \
+  -p aec_enabled:=true \
+  -p noise_suppression_enabled:=false \
+  -p auto_gain_enabled:=false \
   -p speech_end_silence_s:=0.4 \
   -p min_utterance_ms:=100.0 \
   -p max_utterance_s:=12.0 \
@@ -38,5 +42,13 @@ ros2 param get /audio_frontend vad_provider | grep -q "energy" || {
   cat "$LOG_FILE" >&2
   exit 1
 }
+ros2 param get /audio_frontend audio_enhancer | grep -q "nlms" || {
+  cat "$LOG_FILE" >&2
+  exit 1
+}
+ros2 param get /audio_frontend aec_enabled | grep -q "True" || {
+  cat "$LOG_FILE" >&2
+  exit 1
+}
 
-echo "PASS: audio endpoint topics and VAD seam are available"
+echo "PASS: audio endpoint topics, VAD seam, and enhancer seam are available"

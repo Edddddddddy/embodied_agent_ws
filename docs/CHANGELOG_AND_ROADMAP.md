@@ -25,6 +25,7 @@
 | 连续语音控制 | 当前 | 一次唤醒多命令队列、退出控制、stop 抢占与 online/offline mock 验收 |
 | VAD endpoint seam | 当前 | speech_started/speech_ended topic、端点参数和 legacy silence 兼容 |
 | WakeProvider seam | 当前 | TextWakeProvider、wake_event/session_state topic 与 KWS adapter 预留 |
+| AudioEnhancer seam | 当前 | NLMS AEC adapter、audio_enhancer/aec/ns/agc 参数与 WebRTC adapter 预留 |
 
 ## 2. 当前结论
 

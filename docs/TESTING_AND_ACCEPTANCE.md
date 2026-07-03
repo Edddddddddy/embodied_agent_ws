@@ -27,7 +27,7 @@ bash scripts/acceptance_test.sh continuous-online
 
 `mock` 是每次提交前的最低门槛；`demo` 使用 mock executor 验证组合动作、accessory ACK
 和弧线速度；`continuous-mock` 验证一次唤醒、多命令队列、退出控制和 online/offline
-状态机复用。当前记录为 154 项 colcon 测试、2 项仓库约束测试、0 failure。`online` 使用少量
+状态机复用。当前记录为 156 项 colcon 测试、2 项仓库约束测试、0 failure。`online` 使用少量
 DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里程计位移验真。
 `all` 是完整自动 release gate，包含 mock、在线、离线、Gazebo 和在线/离线语音到 Gazebo，
 但明确排除必须由真人说话的麦克风验收。运行 `--help` 可查看模式语义。
@@ -41,7 +41,7 @@ DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里
 | 离线单元 | `embodied_offline_agent/test/` | 双缓冲、指标、ZipFormer 热词参数 |
 | 仿真单元 | `embodied_simulation/test/` | 速度限制、雷达停车、避障、沿墙 PID |
 | ROS mock | `smoke_test*.sh` | 话题发现、动作发布、ACK、watchdog |
-| 音频端点 | `smoke_test_audio_endpoint.sh` | `/audio/speech_started`、`/audio/speech_ended` 与 VAD 参数 seam |
+| 音频端点 | `smoke_test_audio_endpoint.sh` | speech endpoint、VAD 参数和 AudioEnhancer 参数 seam |
 | Lifecycle | `smoke_test_lifecycle.sh` | 未激活门控、激活执行、停用零速和 cleanup |
 | 类型兼容 | `smoke_test_typed_action.sh` | 旧 JSON 与 typed command 同时发布且字段等价 |
 | Action 状态 | `smoke_test_typed_action_server.sh` | 成功、反馈、取消、阻塞、超时和抢占 |
@@ -128,7 +128,7 @@ bash scripts/continuous_voice_control.sh online
 验收探针还会检查 `/agent/wake_event` 中出现 `wake/continue/sleep/rejected`，以及
 `/agent/session_state` 中出现 `awake/sleeping`。
 
-VAD endpoint seam：
+VAD endpoint 与 AudioEnhancer seam：
 
 ```bash
 bash scripts/smoke_test_audio_endpoint.sh
@@ -140,6 +140,9 @@ ros2 topic echo /audio/speech_ended
 `max_utterance_s`。AudioFrontend 会同步发布旧 `/audio/silence_timeout` 以兼容已有测试；
 Agent 对 `speech_ended` 与 `silence_timeout` 的同次事件做 50 ms 去重，避免双 commit。
 Silero VAD 尚未接入，下一步应作为 `vad_provider:=silero` 的可选 adapter。
+当前 `audio_enhancer:=nlms`，`aec_enabled:=true` 默认启用现有 NLMS AEC；
+`noise_suppression_enabled` 与 `auto_gain_enabled` 只是 WebRTC adapter 的预留参数，
+现在开启会回退并告警。
 
 WakeProvider seam：
 

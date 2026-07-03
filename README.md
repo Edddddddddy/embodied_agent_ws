@@ -15,6 +15,7 @@
 - 声学前端：C++ PortAudio、NLMS AEC、VAD、0.4 秒静音断句。
 - VAD seam：AudioFrontend 发布 `/audio/speech_started` 与 `/audio/speech_ended`，
   仍兼容旧 `/audio/silence_timeout`；当前 provider 为 energy，Silero adapter 待接入。
+- 音频增强 seam：`audio_enhancer:=nlms` 默认使用 NLMS AEC，预留 WebRTC AEC/NS/AGC adapter。
 - 识别恢复：热词偏置、唤醒别名、失败反馈和持续重试。
 - 唤醒 seam：默认 `TextWakeProvider` 发布 `/agent/wake_event` 与
   `/agent/session_state`；后续可替换为 sherpa-onnx KWS/openWakeWord。
@@ -155,7 +156,7 @@ Q8 CPU decode 34.10 token/s、语音全链 2.313 s；typed Action/BT 驱动 Gaze
 
 2026-07-03 新增连续语音控制第一阶段：online/offline Agent 复用
 `ContinuousVoiceSession` 与 `ContinuousCommandQueue`，支持一次唤醒后的多命令排队、
-退出控制休眠、stop 优先级抢占。当前自动证据：154 项 colcon 测试通过，
+退出控制休眠、stop 优先级抢占。当前自动证据：156 项 colcon 测试通过，
 `acceptance_test.sh continuous-mock` 分别验证 online/offline mock 的
 `小智 -> move -> turn -> arc -> 退出控制` 链路。
 
@@ -169,6 +170,11 @@ online/offline Agent 已订阅 `speech_ended` 触发 ASR commit，并对旧
 `TextWakeProvider`，并发布 `/agent/wake_event` 与 `/agent/session_state`。连续控制测试
 已验证 `wake -> continue -> sleep -> rejected` 事件链；sherpa-onnx KWS、openWakeWord
 和 LiveKit WakeWord 仍是后续可选 adapter。
+
+2026-07-03 新增 AudioEnhancer seam：AudioFrontend 不再直接依赖 `NlmsEchoCanceller`，
+而是通过 `AudioEnhancer` interface 调用；默认 `NlmsAudioEnhancer` 支持
+`audio_enhancer:=nlms`、`aec_enabled`、`noise_suppression_enabled`、
+`auto_gain_enabled` 等参数。当前 WebRTC AEC/NS/AGC 仍未接入，非 nlms 参数会回退并告警。
 
 ## 项目结构
 

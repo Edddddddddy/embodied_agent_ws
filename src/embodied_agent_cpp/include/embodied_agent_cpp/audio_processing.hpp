@@ -104,4 +104,39 @@ private:
   std::mutex mutex_;
 };
 
+struct AudioEnhancerConfig
+{
+  int microphone_rate{16000};
+  int reference_rate{24000};
+  std::size_t aec_taps{64};
+  double aec_step{0.35};
+  int aec_delay_ms{80};
+  bool aec_enabled{true};
+  bool noise_suppression_enabled{false};
+  bool auto_gain_enabled{false};
+};
+
+class AudioEnhancer
+{
+public:
+  virtual ~AudioEnhancer() = default;
+  virtual void add_reference(const std::vector<int16_t> & samples) = 0;
+  virtual std::vector<int16_t> process(const std::vector<int16_t> & microphone_samples) = 0;
+  virtual void reset() = 0;
+};
+
+class NlmsAudioEnhancer : public AudioEnhancer
+{
+public:
+  explicit NlmsAudioEnhancer(const AudioEnhancerConfig & config);
+
+  void add_reference(const std::vector<int16_t> & samples) override;
+  std::vector<int16_t> process(const std::vector<int16_t> & microphone_samples) override;
+  void reset() override;
+
+private:
+  bool aec_enabled_;
+  NlmsEchoCanceller echo_canceller_;
+};
+
 }  // namespace embodied_agent_cpp

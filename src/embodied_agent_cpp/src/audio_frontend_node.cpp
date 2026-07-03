@@ -39,13 +39,12 @@ public:
     max_utterance_s_(declare_parameter("max_utterance_s", 12.0)),
     vad_(declare_parameter("vad_rms_threshold", 0.018)),
     endpoint_(speech_end_silence_s_, min_utterance_s_, max_utterance_s_),
-    echo_canceller_(
-      microphone_rate_,
-      reference_rate_,
-      static_cast<std::size_t>(declare_parameter("aec_taps", 64)),
-      declare_parameter("aec_step", 0.35),
-      declare_parameter("aec_delay_ms", 80))
+    audio_enhancer_name_(declare_parameter("audio_enhancer", "nlms")),
+    aec_enabled_(declare_parameter("aec_enabled", true)),
+    noise_suppression_enabled_(declare_parameter("noise_suppression_enabled", false)),
+    auto_gain_enabled_(declare_parameter("auto_gain_enabled", false))
   {
+    audio_enhancer_ = create_audio_enhancer();
     cleaned_audio_publisher_ = create_publisher<std_msgs::msg::UInt8MultiArray>(
       "/audio/clean_pcm", rclcpp::SensorDataQoS());
     silence_publisher_ = create_publisher<std_msgs::msg::Empty>("/audio/silence_timeout", 10);
@@ -65,6 +64,17 @@ public:
         get_logger(),
         "vad_provider='%s' is not available yet; falling back to energy VAD",
         vad_provider_.c_str());
+    }
+    if (audio_enhancer_name_ != "nlms") {
+      RCLCPP_WARN(
+        get_logger(),
+        "audio_enhancer='%s' is not available yet; falling back to NLMS",
+        audio_enhancer_name_.c_str());
+    }
+    if (noise_suppression_enabled_ || auto_gain_enabled_) {
+      RCLCPP_WARN(
+        get_logger(),
+        "noise suppression and auto gain require the future WebRTC enhancer; using NLMS AEC only");
     }
 
     if (!capture_enabled_ && !speaker_enabled_) {
@@ -195,7 +205,7 @@ private:
         input_queue_.pop_front();
       }
 
-      auto cleaned = echo_canceller_.process(frame);
+      auto cleaned = audio_enhancer_->process(frame);
       std_msgs::msg::UInt8MultiArray message;
       message.data.resize(cleaned.size() * sizeof(int16_t));
       std::memcpy(message.data.data(), cleaned.data(), message.data.size());
@@ -247,7 +257,7 @@ private:
         samples = std::move(playback_queue_.front());
         playback_queue_.pop_front();
       }
-      echo_canceller_.add_reference(samples);
+      audio_enhancer_->add_reference(samples);
       const PaError error = Pa_WriteStream(output_stream_, samples.data(), samples.size());
       if (error != paNoError && error != paOutputUnderflowed) {
         RCLCPP_ERROR_THROTTLE(
@@ -262,6 +272,20 @@ private:
     if (error != paNoError) {
       throw std::runtime_error(operation + " failed: " + Pa_GetErrorText(error));
     }
+  }
+
+  std::unique_ptr<AudioEnhancer> create_audio_enhancer()
+  {
+    AudioEnhancerConfig config;
+    config.microphone_rate = microphone_rate_;
+    config.reference_rate = reference_rate_;
+    config.aec_taps = static_cast<std::size_t>(declare_parameter("aec_taps", 64));
+    config.aec_step = declare_parameter("aec_step", 0.35);
+    config.aec_delay_ms = declare_parameter("aec_delay_ms", 80);
+    config.aec_enabled = aec_enabled_;
+    config.noise_suppression_enabled = noise_suppression_enabled_;
+    config.auto_gain_enabled = auto_gain_enabled_;
+    return std::make_unique<NlmsAudioEnhancer>(config);
   }
 
   static constexpr std::size_t kMaximumInputFrames = 50;
@@ -280,7 +304,11 @@ private:
   double max_utterance_s_;
   EnergyVad vad_;
   SpeechEndpointDetector endpoint_;
-  NlmsEchoCanceller echo_canceller_;
+  std::string audio_enhancer_name_;
+  bool aec_enabled_;
+  bool noise_suppression_enabled_;
+  bool auto_gain_enabled_;
+  std::unique_ptr<AudioEnhancer> audio_enhancer_;
   std::atomic<bool> running_{false};
   bool portaudio_initialized_{false};
   PaStream * input_stream_{nullptr};

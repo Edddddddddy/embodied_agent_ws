@@ -241,4 +241,37 @@ std::vector<int16_t> NlmsEchoCanceller::resample_reference(
   return output;
 }
 
+NlmsAudioEnhancer::NlmsAudioEnhancer(const AudioEnhancerConfig & config)
+: aec_enabled_(config.aec_enabled),
+  echo_canceller_(
+    config.microphone_rate,
+    config.reference_rate,
+    config.aec_taps,
+    config.aec_step,
+    config.aec_delay_ms)
+{
+}
+
+void NlmsAudioEnhancer::add_reference(const std::vector<int16_t> & samples)
+{
+  if (!aec_enabled_) {
+    return;
+  }
+  echo_canceller_.add_reference(samples);
+}
+
+std::vector<int16_t> NlmsAudioEnhancer::process(
+  const std::vector<int16_t> & microphone_samples)
+{
+  if (!aec_enabled_) {
+    return microphone_samples;
+  }
+  return echo_canceller_.process(microphone_samples);
+}
+
+void NlmsAudioEnhancer::reset()
+{
+  echo_canceller_.reset();
+}
+
 }  // namespace embodied_agent_cpp

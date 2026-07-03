@@ -109,4 +109,47 @@ TEST(NlmsEchoCancellerTest, LearnsRepeatedEcho)
   EXPECT_LT(energy(output), input_energy * 0.1);
 }
 
+TEST(NlmsAudioEnhancerTest, BypassesMicrophoneWhenAecIsDisabled)
+{
+  embodied_agent_cpp::AudioEnhancerConfig config;
+  config.microphone_rate = 16000;
+  config.reference_rate = 16000;
+  config.aec_taps = 32;
+  config.aec_step = 0.2;
+  config.aec_delay_ms = 0;
+  config.aec_enabled = false;
+  embodied_agent_cpp::NlmsAudioEnhancer enhancer(config);
+  const std::vector<int16_t> reference{1000, -1000, 500, -500};
+  const std::vector<int16_t> microphone{10, -20, 30, -40};
+
+  enhancer.add_reference(reference);
+
+  EXPECT_EQ(enhancer.process(microphone), microphone);
+}
+
+TEST(NlmsAudioEnhancerTest, UsesNlmsEchoCancellerWhenAecIsEnabled)
+{
+  constexpr double kPi = 3.14159265358979323846;
+  embodied_agent_cpp::AudioEnhancerConfig config;
+  config.microphone_rate = 16000;
+  config.reference_rate = 16000;
+  config.aec_taps = 32;
+  config.aec_step = 0.15;
+  config.aec_delay_ms = 0;
+  config.aec_enabled = true;
+  embodied_agent_cpp::NlmsAudioEnhancer enhancer(config);
+  std::vector<int16_t> echo(320);
+  for (std::size_t index = 0; index < echo.size(); ++index) {
+    echo[index] = static_cast<int16_t>(5000.0 * std::sin(2.0 * kPi * index / 40.0));
+  }
+  const double input_energy = energy(echo);
+  std::vector<int16_t> output;
+  for (int iteration = 0; iteration < 20; ++iteration) {
+    enhancer.add_reference(echo);
+    output = enhancer.process(echo);
+  }
+
+  EXPECT_LT(energy(output), input_energy * 0.1);
+}
+
 }  // namespace

@@ -49,6 +49,10 @@ audio_frontend:
     speech_end_silence_s: 0.4
     min_utterance_ms: 100.0
     max_utterance_s: 12.0
+    audio_enhancer: nlms
+    aec_enabled: true
+    noise_suppression_enabled: false
+    auto_gain_enabled: false
     aec_taps: 64
     aec_step: 0.35
     aec_delay_ms: 80

@@ -53,7 +53,7 @@ rclcpp lifecycle node，而不是 Nav2 自带 bond 的节点基类。
 
 | 文件 | 责任 |
 |---|---|
-| `audio_processing.hpp/.cpp` | NLMS AEC、能量 VAD、静音检测，纯计算可单测 |
+| `audio_processing.hpp/.cpp` | Energy VAD、speech endpoint、AudioEnhancer/NLMS AEC，纯计算可单测 |
 | `audio_frontend_node.cpp` | PortAudio 回调、有界队列、PCM 发布和播放 |
 | `action_validator.hpp/.cpp` | 动作白名单、参数 schema、速度与时长限幅 |
 | `action_guard_node.cpp` | Lifecycle Guard；仅 active 时将 candidate 转成可信动作 |
@@ -171,7 +171,10 @@ active action、sensor stale、safety stopped 与原因。
 
 ## 4. 流式语音与延迟
 
-- AEC：NLMS 用播放 PCM 作为参考估计回声；真实设备需校准 delay、step、taps，并测双讲。
+- 音频增强：AudioFrontend 只依赖 `AudioEnhancer` interface；默认 adapter 是
+  `NlmsAudioEnhancer`，用播放 PCM 作为参考估计回声。参数 `audio_enhancer:=nlms`、
+  `aec_enabled`、`noise_suppression_enabled`、`auto_gain_enabled` 已预留；真实设备需校准
+  delay、step、taps，并测双讲。WebRTC AEC/NS/AGC adapter 尚未接入。
 - VAD：当前 `vad_provider:=energy` 只负责判断单帧是否有人声；`SpeechEndpointDetector`
   负责发布 `/audio/speech_started`、`/audio/speech_ended`，并用
   `speech_end_silence_s`、`min_utterance_ms`、`max_utterance_s` 控制端点。旧的
@@ -251,7 +254,7 @@ adapter，而不是把串口重试、CRC 和 ROS Action 全塞进一个类。
   →Confirm，支持取消、抢占、障碍、超时和急停；同一实现支持独立进程、component
   container 和 namespace 隔离。
 - 部署 Qwen3-0.6B Q8/llama.cpp、ZipFormer 与 Sherpa-TTS；当前环境 CPU decode
-  34.10 token/s、离线整轮 2.313 s、在线热启动首 token 350–384 ms；建立 154 项 colcon
+  34.10 token/s、离线整轮 2.313 s、在线热启动首 token 350–384 ms；建立 156 项 colcon
   测试、2 项仓库约束测试及 mock/online/offline/Gazebo/continuous mock 分层 release gates。
 - 新增连续语音控制状态机：一次唤醒后多命令 FIFO 排队，退出控制休眠，停下/急停可清空
   等待队列并抢占当前组合动作，适合长时间麦克风控制 Gazebo 演示。
@@ -259,6 +262,8 @@ adapter，而不是把串口重试、CRC 和 ROS Action 全塞进一个类。
   online/offline Agent 可由 `speech_ended` commit ASR；Silero/ONNX adapter 尚未接入。
 - 补齐 WakeProvider seam：文本唤醒输出结构化 wake event 和 session_state，为后续
   sherpa-onnx KWS/openWakeWord adapter 留出替换点。
+- 补齐 AudioEnhancer seam：NLMS AEC 被封装为默认 adapter，AudioFrontend 预留
+  WebRTC AEC/NS/AGC 参数但当前仍回退到 NLMS。
 
 面试时必须主动说明：LoRA 尚未训练；2/8 是原始模型成绩，7/8 是 fallback 后系统成绩；
 冷启动在线 LLM 不达 1 秒；所有性能数字均是当前机器少量样本，不是生产 SLA。
