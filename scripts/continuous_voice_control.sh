@@ -77,6 +77,8 @@ GUI_ENABLED="${GUI_ENABLED:-true}"
 MONITOR_ENABLED="${CONTINUOUS_MONITOR_ENABLED:-true}"
 PRINT_CONFIG="${CONTINUOUS_PRINT_CONFIG:-false}"
 PREFLIGHT_ENABLED="${CONTINUOUS_PREFLIGHT_ENABLED:-true}"
+READINESS_ENABLED="${CONTINUOUS_READINESS_ENABLED:-true}"
+READINESS_DURATION="${CONTINUOUS_READINESS_DURATION:-3.0}"
 source "$WORKSPACE/scripts/activate.sh"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((140 + $$ % 80))}"
 
@@ -133,6 +135,8 @@ NOISE_SUPPRESSION_ENABLED=$NOISE_SUPPRESSION_ENABLED
 AUTO_GAIN_ENABLED=$AUTO_GAIN_ENABLED
 CONTINUOUS_MONITOR_ENABLED=$MONITOR_ENABLED
 CONTINUOUS_PREFLIGHT_ENABLED=$PREFLIGHT_ENABLED
+CONTINUOUS_READINESS_ENABLED=$READINESS_ENABLED
+CONTINUOUS_READINESS_DURATION=$READINESS_DURATION
 GUI_ENABLED=$GUI_ENABLED
 
 ros2 launch embodied_simulation voice_turtlebot3.launch.py \\
@@ -243,4 +247,19 @@ if [[ "$MONITOR_ENABLED" == "true" ]]; then
   python3 "$WORKSPACE/scripts/continuous_voice_monitor.py" &
   MONITOR_PID=$!
 fi
+
+if [[ "$READINESS_ENABLED" == "true" ]]; then
+  readiness_args=(--duration "$READINESS_DURATION")
+  if [[ "$KWS_PROVIDER" == "sherpa" || "$KWS_PROVIDER" == "openwakeword" || "$KWS_PROVIDER" == "livekit" ]]; then
+    readiness_args+=(--require-kws)
+  fi
+  echo
+  echo "正在进行连续语音 readiness check（${READINESS_DURATION}s），请保持麦克风环境接近演示现场..."
+  if python3 "$WORKSPACE/scripts/voice_control_readiness_check.py" "${readiness_args[@]}"; then
+    echo "系统已就绪，可以开始说：小智"
+  else
+    echo "WARN: readiness check 未完全通过；仍继续运行，请根据上方 blockers/warnings 调整麦克风、VAD 或 KWS。" >&2
+  fi
+fi
+
 wait "$LAUNCH_PID"

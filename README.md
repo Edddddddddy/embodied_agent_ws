@@ -124,6 +124,12 @@ CONTINUOUS_PRINT_CONFIG=true \
 延长静音断句、缩短旧命令寿命并降低队列容量，适合嘈杂房间里避免误触发堆积。
 显式设置的 `SPEECH_START_THRESHOLD`、`CONTINUOUS_COMMAND_QUEUE_SIZE` 等环境变量
 优先级高于 preset。
+`continuous_voice_control.sh` 默认在 launch 后运行一次 3 秒 readiness check，
+采样 `/audio/frontend_metrics`（若使用 sherpa/openwakeword/livekit KWS 还会要求
+`/agent/kws_score`），通过后打印 `系统已就绪，可以开始说：小智`；未完全通过只给出
+warning 并继续运行，方便现场根据 blockers/warnings 调整麦克风、VAD 或 KWS。
+如需跳过启动等待，可设置 `CONTINUOUS_READINESS_ENABLED=false`；采样时长可用
+`CONTINUOUS_READINESS_DURATION=5` 调整。
 命令纠错默认开启，可通过 `COMMAND_NORMALIZATION_ENABLED=false` 临时关闭；现场发现新的
 ASR 错词时，推荐复制默认错词表后用 `COMMAND_NORMALIZATION_PATH=/path/to/custom.yaml`
 覆盖，并用 `COMMAND_NORMALIZATION_FUZZY_THRESHOLD=0.77` 微调模糊匹配阈值；

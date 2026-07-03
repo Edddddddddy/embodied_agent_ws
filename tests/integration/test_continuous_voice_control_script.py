@@ -41,6 +41,8 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
             "AUTO_GAIN_ENABLED": "true",
             "CONTINUOUS_MONITOR_ENABLED": "false",
             "CONTINUOUS_PREFLIGHT_ENABLED": "true",
+            "CONTINUOUS_READINESS_ENABLED": "true",
+            "CONTINUOUS_READINESS_DURATION": "3.5",
             "CONTINUOUS_COMMAND_QUEUE_SIZE": "12",
             "COMMAND_NORMALIZATION_ENABLED": "true",
             "COMMAND_NORMALIZATION_FEEDBACK_ENABLED": "false",
@@ -79,6 +81,8 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
     assert "NOISE_SUPPRESSION_ENABLED=true" in result.stdout
     assert "AUTO_GAIN_ENABLED=true" in result.stdout
     assert "CONTINUOUS_PREFLIGHT_ENABLED=true" in result.stdout
+    assert "CONTINUOUS_READINESS_ENABLED=true" in result.stdout
+    assert "CONTINUOUS_READINESS_DURATION=3.5" in result.stdout
     assert "CONTINUOUS_COMMAND_QUEUE_SIZE=12" in result.stdout
     assert "COMMAND_NORMALIZATION_ENABLED=true" in result.stdout
     assert "COMMAND_NORMALIZATION_FEEDBACK_ENABLED=false" in result.stdout
@@ -223,3 +227,15 @@ def test_continuous_voice_control_stops_monitor_gracefully_for_summary():
     )
 
     assert 'kill -INT "$MONITOR_PID"' in content
+
+
+def test_continuous_voice_control_waits_for_readiness_after_launch():
+    content = (ROOT / "scripts" / "continuous_voice_control.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "CONTINUOUS_READINESS_ENABLED" in content
+    assert "voice_control_readiness_check.py" in content
+    assert '--duration "$READINESS_DURATION"' in content
+    assert "--require-kws" in content
+    assert "系统已就绪，可以开始说：小智" in content
