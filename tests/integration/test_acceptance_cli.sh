@@ -14,5 +14,6 @@ fi
 grep -q "all" <<<"$OUTPUT"
 grep -q "microphone-offline" <<<"$OUTPUT"
 grep -q "microphone-online" <<<"$OUTPUT"
+grep -q "openwakeword-sidecar" <<<"$OUTPUT"
 grep -q "excludes interactive microphone" <<<"$OUTPUT"
 echo "PASS: acceptance CLI documents automated and interactive delivery modes"

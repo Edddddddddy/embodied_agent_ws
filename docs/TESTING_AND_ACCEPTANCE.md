@@ -260,6 +260,15 @@ pip install -e "src/embodied_online_agent[kws]"
 KWS_PROVIDER=openwakeword bash scripts/continuous_voice_control.sh offline
 ```
 
+无真实模型依赖的 openWakeWord adapter runtime 冒烟：
+
+```bash
+bash scripts/acceptance_test.sh openwakeword-sidecar
+```
+
+该脚本会临时注入 fake `openwakeword.model.Model`，验证 ROS 节点参数、`/audio/clean_pcm`
+订阅、`Model.predict()` 调用和 `/agent/wake_event_input` 发布，不代表真实唤醒词模型效果。
+
 ## 4. 当前实测基线
 
 环境：WSL Ubuntu 24.04、ROS 2 Jazzy、16 vCPU、约 8 GB RAM；最新复验日期

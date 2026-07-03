@@ -17,6 +17,7 @@ Automated modes:
   continuous-kws-mock KWS sidecar opens a continuous session and executes a command
   vad-sidecar         Dependency-free Silero VAD sidecar seam smoke test
   kws-sidecar         Dependency-free keyword wake sidecar seam smoke test
+  openwakeword-sidecar Dependency-free openWakeWord adapter runtime smoke test
   gazebo              Legacy and typed Action physical motion verification
   gazebo-voice        Offline synthesized speech through typed Action to Gazebo
   gazebo-voice-online Online voice provider through typed Action to Gazebo
@@ -63,6 +64,7 @@ run_base() {
   bash scripts/smoke_test_audio_endpoint.sh
   bash scripts/smoke_test_silero_vad_sidecar.sh
   bash scripts/smoke_test_keyword_wake_sidecar.sh
+  bash scripts/smoke_test_openwakeword_sidecar.sh
   bash scripts/smoke_test_lifecycle.sh
   bash scripts/smoke_test_typed_action.sh
   bash scripts/smoke_test_typed_action_server.sh
@@ -115,6 +117,7 @@ case "$LEVEL" in
   continuous-kws-mock) bash scripts/smoke_test_continuous_kws_sidecar.sh online; bash scripts/smoke_test_continuous_kws_sidecar.sh offline ;;
   vad-sidecar) bash scripts/smoke_test_silero_vad_sidecar.sh ;;
   kws-sidecar) bash scripts/smoke_test_keyword_wake_sidecar.sh ;;
+  openwakeword-sidecar) bash scripts/smoke_test_openwakeword_sidecar.sh ;;
   gazebo) run_gazebo ;;
   gazebo-voice) check_offline_runtime; USE_TYPED_ACTIONS=true bash scripts/smoke_test_gazebo_voice.sh ;;
   gazebo-voice-online) bash scripts/smoke_test_gazebo_voice_online.sh ;;

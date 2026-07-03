@@ -201,6 +201,7 @@ sidecar，AudioFrontend 只发布 `/audio/clean_pcm`，由 sidecar 接管端点�
 
 ```bash
 bash scripts/acceptance_test.sh kws-sidecar
+bash scripts/acceptance_test.sh openwakeword-sidecar
 bash scripts/acceptance_test.sh continuous-kws-mock
 KWS_PROVIDER=mock_text bash scripts/continuous_voice_control.sh offline
 # 安装可选依赖并配置 openwakeword_models 后，可切换为真实声学唤醒
