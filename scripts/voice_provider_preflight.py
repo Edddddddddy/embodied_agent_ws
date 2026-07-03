@@ -62,19 +62,32 @@ def _non_empty(value: object) -> bool:
     return bool(str(value).strip())
 
 
-def _merged_keyword_params(keyword: dict, overrides: Mapping[str, object] | None) -> dict:
-    """Merge CLI/env overrides on top of YAML keyword_wake params.
+def _merged_params(params: dict, overrides: Mapping[str, object] | None) -> dict:
+    """Merge CLI/env overrides on top of YAML params.
 
     Empty override values are ignored intentionally: users can keep using YAML as the
     source of truth, while the continuous voice launcher can still pass optional env
     values without accidentally clearing model paths.
     """
 
-    merged = dict(keyword)
+    merged = dict(params)
     for name, value in (overrides or {}).items():
         if _non_empty(value):
             merged[name] = value
     return merged
+
+
+def _bool_value(value: object, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return default
 
 
 def _truthy_paths(values: object) -> list[str]:
@@ -108,14 +121,15 @@ def check_voice_providers(
     vad_provider: str,
     kws_provider: str,
     config_path: Path | None = None,
+    vad_overrides: Mapping[str, object] | None = None,
     keyword_overrides: Mapping[str, object] | None = None,
     module_finder: Callable[[str], object | None] = importlib.util.find_spec,
 ) -> ProviderPreflightReport:
     config = config_path or _default_config(mode)
     vad = (vad_provider or "energy").strip().lower()
     kws = (kws_provider or "none").strip().lower()
-    silero = _load_section(config, "silero_vad")
-    keyword = _merged_keyword_params(
+    silero = _merged_params(_load_section(config, "silero_vad"), vad_overrides)
+    keyword = _merged_params(
         _load_section(config, "keyword_wake"), keyword_overrides
     )
     blockers: list[str] = []
@@ -126,7 +140,7 @@ def check_voice_providers(
     if vad == "silero":
         if not _has_module("silero_vad", module_finder):
             blockers.append("vad:silero_vad_package_missing")
-        if bool(silero.get("use_onnx", True)) and not _has_module(
+        if _bool_value(silero.get("use_onnx", True), True) and not _has_module(
             "onnxruntime", module_finder
         ):
             blockers.append("vad:onnxruntime_package_missing")
@@ -205,6 +219,8 @@ def main() -> None:
     parser.add_argument("--vad-provider", default="energy")
     parser.add_argument("--kws-provider", default="none")
     parser.add_argument("--config", type=Path, default=None)
+    parser.add_argument("--silero-model-path", default="")
+    parser.add_argument("--silero-use-onnx", default="")
     parser.add_argument("--sherpa-tokens", default="")
     parser.add_argument("--sherpa-encoder", default="")
     parser.add_argument("--sherpa-decoder", default="")
@@ -220,6 +236,10 @@ def main() -> None:
         vad_provider=args.vad_provider,
         kws_provider=args.kws_provider,
         config_path=args.config,
+        vad_overrides={
+            "model_path": args.silero_model_path,
+            "use_onnx": args.silero_use_onnx,
+        },
         keyword_overrides={
             "sherpa_tokens": args.sherpa_tokens,
             "sherpa_encoder": args.sherpa_encoder,

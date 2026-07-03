@@ -65,6 +65,45 @@ def test_silero_requires_python_and_onnxruntime_packages(tmp_path):
     assert "vad:onnxruntime_package_missing" in report.blockers
 
 
+def test_silero_vad_can_be_configured_by_cli_overrides(tmp_path):
+    model = tmp_path / "silero_vad.onnx"
+    model.write_text("stub", encoding="utf-8")
+
+    report = preflight.check_voice_providers(
+        mode="online",
+        vad_provider="silero",
+        kws_provider="none",
+        config_path=write_config(tmp_path / "agent.yaml"),
+        vad_overrides={
+            "model_path": str(model),
+            "use_onnx": "true",
+        },
+        module_finder=finder("silero_vad", "onnxruntime"),
+    )
+
+    assert report.ok
+    assert report.blockers == ()
+
+
+def test_silero_vad_cli_override_reports_missing_model_path(tmp_path):
+    missing = tmp_path / "missing_silero.onnx"
+
+    report = preflight.check_voice_providers(
+        mode="online",
+        vad_provider="silero",
+        kws_provider="none",
+        config_path=write_config(tmp_path / "agent.yaml"),
+        vad_overrides={
+            "model_path": str(missing),
+            "use_onnx": "true",
+        },
+        module_finder=finder("silero_vad", "onnxruntime"),
+    )
+
+    assert not report.ok
+    assert f"vad:silero_model_missing:{missing}" in report.blockers
+
+
 def test_sherpa_kws_requires_package_and_all_model_files(tmp_path):
     config = write_config(tmp_path / "agent.yaml", keyword=str(tmp_path / "missing"))
 

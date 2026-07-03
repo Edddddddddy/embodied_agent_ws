@@ -51,6 +51,9 @@ def generate_launch_description():
     speech_end_silence_s = LaunchConfiguration("speech_end_silence_s")
     min_utterance_ms = LaunchConfiguration("min_utterance_ms")
     max_utterance_s = LaunchConfiguration("max_utterance_s")
+    silero_model_path = LaunchConfiguration("silero_model_path")
+    silero_use_onnx = LaunchConfiguration("silero_use_onnx")
+    silero_threshold = LaunchConfiguration("silero_threshold")
     kws_provider = LaunchConfiguration("kws_provider")
     sherpa_tokens = LaunchConfiguration("sherpa_tokens")
     sherpa_encoder = LaunchConfiguration("sherpa_encoder")
@@ -100,6 +103,9 @@ def generate_launch_description():
         DeclareLaunchArgument("speech_end_silence_s", default_value="0.4"),
         DeclareLaunchArgument("min_utterance_ms", default_value="100.0"),
         DeclareLaunchArgument("max_utterance_s", default_value="12.0"),
+        DeclareLaunchArgument("silero_model_path", default_value=""),
+        DeclareLaunchArgument("silero_use_onnx", default_value="true"),
+        DeclareLaunchArgument("silero_threshold", default_value="0.5"),
         DeclareLaunchArgument("kws_provider", default_value="none"),
         DeclareLaunchArgument("sherpa_tokens", default_value=""),
         DeclareLaunchArgument("sherpa_encoder", default_value=""),
@@ -190,6 +196,9 @@ def generate_launch_description():
                 "speech_end_silence_s": speech_end_silence_s,
                 "min_utterance_ms": min_utterance_ms,
                 "max_utterance_s": max_utterance_s,
+                "silero_model_path": silero_model_path,
+                "silero_use_onnx": silero_use_onnx,
+                "silero_threshold": silero_threshold,
                 "kws_provider": kws_provider,
                 "sherpa_tokens": sherpa_tokens,
                 "sherpa_encoder": sherpa_encoder,
@@ -226,6 +235,9 @@ def generate_launch_description():
                 "speech_end_silence_s": speech_end_silence_s,
                 "min_utterance_ms": min_utterance_ms,
                 "max_utterance_s": max_utterance_s,
+                "silero_model_path": silero_model_path,
+                "silero_use_onnx": silero_use_onnx,
+                "silero_threshold": silero_threshold,
                 "kws_provider": kws_provider,
                 "sherpa_tokens": sherpa_tokens,
                 "sherpa_encoder": sherpa_encoder,

@@ -238,6 +238,18 @@ LIVEKIT_WAKEWORD_THRESHOLD=0.63 \
 会在启动 ROS/Gazebo 前检查依赖和模型路径。`openwakeword_models` 与
 `livekit_wakeword_models` 在 launch 中以字符串传递，`keyword_wake` 节点会按逗号拆成
 模型列表，和 YAML list 写法兼容。
+Silero VAD 也支持同样的“脚本环境变量覆盖 YAML”方式：
+
+```bash
+VAD_PROVIDER=silero \
+SILERO_VAD_MODEL_PATH=/models/vad/silero_vad.onnx \
+SILERO_VAD_USE_ONNX=true \
+SILERO_VAD_THRESHOLD=0.61 \
+  bash scripts/continuous_voice_control.sh offline
+```
+
+`voice_provider_preflight.py` 会优先检查这些覆盖值；launch 会把它们传给
+`silero_vad` sidecar 的 `model_path/use_onnx/threshold` 参数。
 
 VAD endpoint 与 AudioEnhancer seam：
 

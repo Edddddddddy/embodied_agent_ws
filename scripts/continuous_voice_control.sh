@@ -11,6 +11,9 @@ SPEECH_START_THRESHOLD="${SPEECH_START_THRESHOLD:-0.018}"
 SPEECH_END_SILENCE_S="${SPEECH_END_SILENCE_S:-0.4}"
 MIN_UTTERANCE_MS="${MIN_UTTERANCE_MS:-100}"
 MAX_UTTERANCE_S="${MAX_UTTERANCE_S:-12.0}"
+SILERO_VAD_MODEL_PATH="${SILERO_VAD_MODEL_PATH:-}"
+SILERO_VAD_USE_ONNX="${SILERO_VAD_USE_ONNX:-true}"
+SILERO_VAD_THRESHOLD="${SILERO_VAD_THRESHOLD:-0.5}"
 KWS_PROVIDER="${KWS_PROVIDER:-none}"
 SHERPA_KWS_TOKENS="${SHERPA_KWS_TOKENS:-}"
 SHERPA_KWS_ENCODER="${SHERPA_KWS_ENCODER:-}"
@@ -60,6 +63,9 @@ SPEECH_START_THRESHOLD=$SPEECH_START_THRESHOLD（energy VAD RMS 起始阈值）
 SPEECH_END_SILENCE_S=$SPEECH_END_SILENCE_S
 MIN_UTTERANCE_MS=$MIN_UTTERANCE_MS
 MAX_UTTERANCE_S=$MAX_UTTERANCE_S
+SILERO_VAD_MODEL_PATH=$SILERO_VAD_MODEL_PATH
+SILERO_VAD_USE_ONNX=$SILERO_VAD_USE_ONNX
+SILERO_VAD_THRESHOLD=$SILERO_VAD_THRESHOLD
 KWS_PROVIDER=$KWS_PROVIDER（默认 none；mock_text 用于 sidecar 验收，sherpa/openwakeword/livekit 用于真实 KWS）
 SHERPA_KWS_TOKENS=$SHERPA_KWS_TOKENS
 SHERPA_KWS_ENCODER=$SHERPA_KWS_ENCODER
@@ -84,6 +90,8 @@ ros2 launch embodied_simulation voice_turtlebot3.launch.py \\
   speaker_enabled:=$SPEAKER_ENABLED vad_provider:=$VAD_PROVIDER kws_provider:=$KWS_PROVIDER \\
   speech_start_threshold:=$SPEECH_START_THRESHOLD speech_end_silence_s:=$SPEECH_END_SILENCE_S \\
   min_utterance_ms:=$MIN_UTTERANCE_MS max_utterance_s:=$MAX_UTTERANCE_S \\
+  silero_model_path:="$SILERO_VAD_MODEL_PATH" silero_use_onnx:=$SILERO_VAD_USE_ONNX \\
+  silero_threshold:=$SILERO_VAD_THRESHOLD \\
   sherpa_tokens:="$SHERPA_KWS_TOKENS" sherpa_encoder:="$SHERPA_KWS_ENCODER" \\
   sherpa_decoder:="$SHERPA_KWS_DECODER" sherpa_joiner:="$SHERPA_KWS_JOINER" \\
   sherpa_keywords_file:="$SHERPA_KWS_KEYWORDS_FILE" \\
@@ -106,6 +114,8 @@ if [[ "$PREFLIGHT_ENABLED" == "true" ]]; then
     --mode "$MODE" \
     --vad-provider "$VAD_PROVIDER" \
     --kws-provider "$KWS_PROVIDER" \
+    --silero-model-path "$SILERO_VAD_MODEL_PATH" \
+    --silero-use-onnx "$SILERO_VAD_USE_ONNX" \
     --sherpa-tokens "$SHERPA_KWS_TOKENS" \
     --sherpa-encoder "$SHERPA_KWS_ENCODER" \
     --sherpa-decoder "$SHERPA_KWS_DECODER" \
@@ -154,6 +164,8 @@ setsid ros2 launch embodied_simulation voice_turtlebot3.launch.py \
   speaker_enabled:="$SPEAKER_ENABLED" vad_provider:="$VAD_PROVIDER" kws_provider:="$KWS_PROVIDER" \
   speech_start_threshold:="$SPEECH_START_THRESHOLD" speech_end_silence_s:="$SPEECH_END_SILENCE_S" \
   min_utterance_ms:="$MIN_UTTERANCE_MS" max_utterance_s:="$MAX_UTTERANCE_S" \
+  silero_model_path:="$SILERO_VAD_MODEL_PATH" silero_use_onnx:="$SILERO_VAD_USE_ONNX" \
+  silero_threshold:="$SILERO_VAD_THRESHOLD" \
   sherpa_tokens:="$SHERPA_KWS_TOKENS" sherpa_encoder:="$SHERPA_KWS_ENCODER" \
   sherpa_decoder:="$SHERPA_KWS_DECODER" sherpa_joiner:="$SHERPA_KWS_JOINER" \
   sherpa_keywords_file:="$SHERPA_KWS_KEYWORDS_FILE" \

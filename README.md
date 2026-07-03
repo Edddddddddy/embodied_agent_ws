@@ -159,6 +159,17 @@ MAX_UTTERANCE_S=7.5 \
 
 其中 `SPEECH_START_THRESHOLD` 会映射到底层 C++ `vad_rms_threshold`，其余三个参数直接
 控制 `/audio/speech_started`、`/audio/speech_ended` 的端点行为。
+如果启用 Silero VAD，模型路径和阈值也可直接从脚本传入，并会同步覆盖 preflight 与
+ROS launch：
+
+```bash
+VAD_PROVIDER=silero \
+SILERO_VAD_MODEL_PATH=/models/vad/silero_vad.onnx \
+SILERO_VAD_USE_ONNX=true \
+SILERO_VAD_THRESHOLD=0.61 \
+  bash scripts/continuous_voice_control.sh offline
+```
+
 `continuous_voice_control.sh` 默认会在启动前运行 `voice_provider_preflight.py`；
 如只想打印配置可用 `CONTINUOUS_PRINT_CONFIG=true`，如需临时跳过预检可设置
 `CONTINUOUS_PREFLIGHT_ENABLED=false`。
