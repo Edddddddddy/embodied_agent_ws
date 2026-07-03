@@ -26,6 +26,7 @@
 | VAD endpoint seam | 当前 | speech_started/speech_ended topic、端点参数和 legacy silence 兼容 |
 | WakeProvider seam | 当前 | TextWakeProvider、wake_event/session_state topic 与 KWS adapter 预留 |
 | AudioEnhancer seam | 当前 | NLMS AEC adapter、audio_enhancer/aec/ns/agc 参数与 WebRTC adapter 预留 |
+| 连续演示 monitor | 当前 | 终端持续打印 session/asr/queue/action/result，便于真人麦克风演示 |
 
 ## 2. 当前结论
 

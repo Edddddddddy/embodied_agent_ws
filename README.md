@@ -94,6 +94,9 @@ bash scripts/continuous_voice_control.sh online
 推荐话术：`小智`、`向前走一秒`、`左转九十度`、`后退一秒`、`绕圈`、`走正方形`、
 `停下`、`退出控制`。连续模式不会在 Agent busy 时丢弃 ASR final，而是进入 FIFO 队列；
 `停下/急停` 会清空等待队列、取消正在等待结果的组合动作，并立即发布 `stop`。
+脚本会启动 `continuous_voice_monitor.py`，持续打印 `[session]`、`[asr]`、`[queue]`、
+`[action]`、`[result]`，便于现场演示链路；如需关闭可设置
+`CONTINUOUS_MONITOR_ENABLED=false`。
 
 ## 验收入口
 

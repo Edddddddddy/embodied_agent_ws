@@ -94,6 +94,9 @@ PortAudio 回调只搬运数据，不执行网络、日志或模型推理；这�
 `WakeEvent`。ROS 侧 `/agent/wake_event` 暴露 provider、事件种类和原始 transcript，
 `/agent/session_state` 暴露 `awake/sleeping`。后续接 sherpa-onnx KWS 或 openWakeWord 时，
 新的 provider 只需产生相同事件契约，Agent 队列和动作执行层不用感知具体 KWS。
+`scripts/continuous_voice_monitor.py` 是人工演示层，不参与控制；它只订阅 wake、session、
+ASR、action 和 result topic，把链路压缩成 `[session] / [asr] / [queue] / [action] /
+[result]` 行日志。
 
 ### `embodied_offline_agent`
 

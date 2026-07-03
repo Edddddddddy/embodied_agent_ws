@@ -127,6 +127,18 @@ bash scripts/continuous_voice_control.sh online
 “退出控制/休眠/结束控制”会关闭会话，后续命令必须重新唤醒。
 验收探针还会检查 `/agent/wake_event` 中出现 `wake/continue/sleep/rejected`，以及
 `/agent/session_state` 中出现 `awake/sleeping`。
+人工脚本默认启动 `scripts/continuous_voice_monitor.py`，终端会持续打印：
+
+```text
+[session] awake
+[wake] text:wake
+[asr] 向前走一秒
+[queue] enqueue size=1
+[action] executing move
+[result] succeeded
+```
+
+如果只想看 launch 原始日志，可设置 `CONTINUOUS_MONITOR_ENABLED=false`。
 
 VAD endpoint 与 AudioEnhancer seam：
 
