@@ -27,6 +27,7 @@
 | Audio frontend metrics | 当前 | `/audio/frontend_metrics` 暴露 rms/peak/speech/丢帧，辅助真实麦克风调参 |
 | WakeProvider seam | 当前 | TextWakeProvider、wake_event/session_state topic、wake_event_input 外部 KWS 注入入口 |
 | KeywordWake sidecar | 当前 | mock_text 无模型验收、sherpa-onnx KeywordSpotter adapter 和 kws_event 诊断 topic |
+| KWS 连续控制验收 | 当前 | continuous-kws-mock 验证 KWS sidecar 唤醒后直接进入 Agent 队列并执行动作 |
 | AudioEnhancer seam | 当前 | NLMS AEC adapter、audio_enhancer/aec/ns/agc 参数与 WebRTC adapter 预留 |
 | 连续演示 monitor | 当前 | 终端持续打印 session/asr/queue/action/result，便于真人麦克风演示 |
 | CommandExecutionTracker | 当前 | command_queue/command_execution topic 暴露队列长度和执行生命周期 |

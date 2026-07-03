@@ -108,6 +108,7 @@ bash scripts/acceptance_test.sh online   # 少量云 API 调用
 bash scripts/acceptance_test.sh offline  # 本地模型、语音和性能
 bash scripts/acceptance_test.sh demo     # mock 仿真组合动作演示
 bash scripts/acceptance_test.sh continuous-mock  # 连续会话与命令队列
+bash scripts/acceptance_test.sh continuous-kws-mock  # KWS sidecar 唤醒后执行动作
 bash scripts/acceptance_test.sh gazebo   # Gazebo 可信动作与里程计
 bash scripts/acceptance_test.sh gazebo-voice  # 离线语音模型直达 Gazebo
 bash scripts/acceptance_test.sh all      # 全部自动 release gates（不含真人麦克风）
@@ -188,6 +189,7 @@ sidecar，AudioFrontend 只发布 `/audio/clean_pcm`，由 sidecar 接管端点�
 
 ```bash
 bash scripts/acceptance_test.sh kws-sidecar
+bash scripts/acceptance_test.sh continuous-kws-mock
 KWS_PROVIDER=mock_text bash scripts/continuous_voice_control.sh offline
 ```
 

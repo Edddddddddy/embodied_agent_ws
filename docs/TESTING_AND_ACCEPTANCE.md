@@ -14,6 +14,7 @@ bash scripts/acceptance_test.sh online
 bash scripts/acceptance_test.sh offline
 bash scripts/acceptance_test.sh demo
 bash scripts/acceptance_test.sh continuous-mock
+bash scripts/acceptance_test.sh continuous-kws-mock
 bash scripts/acceptance_test.sh gazebo
 bash scripts/acceptance_test.sh gazebo-voice
 bash scripts/acceptance_test.sh all
@@ -27,8 +28,9 @@ bash scripts/acceptance_test.sh continuous-online
 
 `mock` 是每次提交前的最低门槛；`demo` 使用 mock executor 验证组合动作、accessory ACK
 和弧线速度；`continuous-mock` 验证一次唤醒、多命令队列、退出控制、常见 ASR 错词
-归一化和 online/offline 状态机复用。当前记录为 166 项 colcon 测试、2 项仓库约束测试、
-0 failure。`online` 使用少量
+归一化和 online/offline 状态机复用；`continuous-kws-mock` 验证 `keyword_wake` sidecar
+真实打开 Agent 会话并执行动作。当前记录以 `colcon test-result --verbose` 输出为准。
+`online` 使用少量
 DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里程计位移验真。
 `all` 是完整自动 release gate，包含 mock、在线、离线、Gazebo 和在线/离线语音到 Gazebo，
 但明确排除必须由真人说话的麦克风验收。运行 `--help` 可查看模式语义。
@@ -211,6 +213,7 @@ ros2 topic echo /agent/session_state
 ros2 topic pub --once /agent/wake_event_input std_msgs/msg/String \
   "{data: '{\"kind\":\"wake\",\"provider\":\"manual_kws\"}'}"
 bash scripts/acceptance_test.sh kws-sidecar
+bash scripts/acceptance_test.sh continuous-kws-mock
 ```
 
 当前默认 provider 为 `text`，事件包括 `wake`、`continue`、`sleep`、`rejected`。
@@ -220,6 +223,8 @@ sherpa-onnx/openWakeWord adapter 只需要按这个 topic 契约发布 wake/slee
 `keyword_wake` sidecar 当前提供两种模式：
 
 - `kws_provider:=mock_text`：订阅 `/agent/kws_text_input`，无模型验收 KWS 链路。
+- `continuous-kws-mock`：启动 mock KWS、online/offline mock Agent、ActionGuard 和 mock
+  executor，验证“不唤醒拒绝命令 -> KWS 唤醒 -> 不带小智的命令执行”。
 - `kws_provider:=sherpa`：订阅 `/audio/clean_pcm`，使用 sherpa-onnx `KeywordSpotter`；
   需要在 `keyword_wake` 参数组里配置 `sherpa_tokens/encoder/decoder/joiner/keywords_file`。
 
