@@ -46,6 +46,7 @@ def generate_launch_description():
     microphone = LaunchConfiguration("microphone_enabled")
     capture = LaunchConfiguration("capture_enabled")
     speaker = LaunchConfiguration("speaker_enabled")
+    vad_provider = LaunchConfiguration("vad_provider")
     wake_word = LaunchConfiguration("wake_word_enabled")
     continuous_control = LaunchConfiguration("continuous_control_enabled")
     voice_session_timeout = LaunchConfiguration("voice_session_timeout_s")
@@ -75,6 +76,7 @@ def generate_launch_description():
         DeclareLaunchArgument("microphone_enabled", default_value="false"),
         DeclareLaunchArgument("capture_enabled", default_value=microphone),
         DeclareLaunchArgument("speaker_enabled", default_value="false"),
+        DeclareLaunchArgument("vad_provider", default_value="energy"),
         DeclareLaunchArgument("wake_word_enabled", default_value="true"),
         DeclareLaunchArgument("continuous_control_enabled", default_value="false"),
         DeclareLaunchArgument("voice_session_timeout_s", default_value="60.0"),
@@ -145,6 +147,7 @@ def generate_launch_description():
                 "microphone_enabled": microphone,
                 "capture_enabled": capture,
                 "speaker_enabled": speaker,
+                "vad_provider": vad_provider,
                 "wake_word_enabled": wake_word,
                 "continuous_control_enabled": continuous_control,
                 "voice_session_timeout_s": voice_session_timeout,
@@ -161,6 +164,7 @@ def generate_launch_description():
                 "microphone_enabled": microphone,
                 "capture_enabled": capture,
                 "speaker_enabled": speaker,
+                "vad_provider": vad_provider,
                 "wake_word_enabled": wake_word,
                 "continuous_control_enabled": continuous_control,
                 "voice_session_timeout_s": voice_session_timeout,

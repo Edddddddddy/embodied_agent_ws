@@ -44,6 +44,7 @@ audio_frontend:
     reference_sample_rate: 44100
     frame_ms: 20
     vad_provider: energy
+    endpoint_events_enabled: true
     vad_rms_threshold: 0.018
     silence_timeout_s: 0.4
     speech_end_silence_s: 0.4
@@ -56,3 +57,17 @@ audio_frontend:
     aec_taps: 64
     aec_step: 0.35
     aec_delay_ms: 80
+
+silero_vad:
+  ros__parameters:
+    enabled: true
+    sample_rate: 16000
+    frame_ms: 32
+    threshold: 0.5
+    speech_end_silence_s: 0.4
+    min_utterance_ms: 100.0
+    max_utterance_s: 12.0
+    use_onnx: true
+    model_path: ""
+    input_queue_depth: 20
+    publish_legacy_silence_timeout: true

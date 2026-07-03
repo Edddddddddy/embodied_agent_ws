@@ -24,6 +24,7 @@ setup(
     entry_points={
         "console_scripts": [
             "online_agent = embodied_online_agent.online_agent_node:main",
+            "silero_vad = embodied_online_agent.silero_vad_node:main",
         ],
     },
 )

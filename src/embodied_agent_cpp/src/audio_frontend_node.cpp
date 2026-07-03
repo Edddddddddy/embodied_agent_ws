@@ -33,6 +33,7 @@ public:
     frame_ms_(declare_parameter("frame_ms", 20)),
     frames_per_buffer_(static_cast<unsigned long>(microphone_rate_ * frame_ms_ / 1000)),
     vad_provider_(declare_parameter("vad_provider", "energy")),
+    endpoint_events_enabled_(declare_parameter("endpoint_events_enabled", true)),
     silence_timeout_s_(declare_parameter("silence_timeout_s", 0.4)),
     speech_end_silence_s_(declare_parameter("speech_end_silence_s", silence_timeout_s_)),
     min_utterance_s_(declare_parameter("min_utterance_ms", 100.0) / 1000.0),
@@ -59,7 +60,12 @@ public:
         enqueue_playback(message->data);
       });
 
-    if (vad_provider_ != "energy") {
+    if (vad_provider_ == "silero" && !endpoint_events_enabled_) {
+      RCLCPP_INFO(
+        get_logger(),
+        "vad_provider='silero': audio frontend will publish clean PCM only; "
+        "external VAD sidecar owns endpoint events");
+    } else if (vad_provider_ != "energy") {
       RCLCPP_WARN(
         get_logger(),
         "vad_provider='%s' is not available yet; falling back to energy VAD",
@@ -211,15 +217,17 @@ private:
       std::memcpy(message.data.data(), cleaned.data(), message.data.size());
       cleaned_audio_publisher_->publish(std::move(message));
 
-      const bool speech = vad_.is_speech(cleaned);
-      const double frame_seconds = static_cast<double>(cleaned.size()) / microphone_rate_;
-      const auto endpoint_event = endpoint_.update(speech, frame_seconds);
-      if (endpoint_event.speech_started) {
-        speech_started_publisher_->publish(std_msgs::msg::Empty());
-      }
-      if (endpoint_event.speech_ended) {
-        speech_ended_publisher_->publish(std_msgs::msg::Empty());
-        silence_publisher_->publish(std_msgs::msg::Empty());
+      if (endpoint_events_enabled_) {
+        const bool speech = vad_.is_speech(cleaned);
+        const double frame_seconds = static_cast<double>(cleaned.size()) / microphone_rate_;
+        const auto endpoint_event = endpoint_.update(speech, frame_seconds);
+        if (endpoint_event.speech_started) {
+          speech_started_publisher_->publish(std_msgs::msg::Empty());
+        }
+        if (endpoint_event.speech_ended) {
+          speech_ended_publisher_->publish(std_msgs::msg::Empty());
+          silence_publisher_->publish(std_msgs::msg::Empty());
+        }
       }
     }
   }
@@ -298,6 +306,7 @@ private:
   int frame_ms_;
   unsigned long frames_per_buffer_;
   std::string vad_provider_;
+  bool endpoint_events_enabled_;
   double silence_timeout_s_;
   double speech_end_silence_s_;
   double min_utterance_s_;

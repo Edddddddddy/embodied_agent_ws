@@ -155,7 +155,24 @@ ros2 topic echo /audio/speech_ended
 当前 `vad_provider:=energy`，端点参数包括 `speech_end_silence_s`、`min_utterance_ms`、
 `max_utterance_s`。AudioFrontend 会同步发布旧 `/audio/silence_timeout` 以兼容已有测试；
 Agent 对 `speech_ended` 与 `silence_timeout` 的同次事件做 50 ms 去重，避免双 commit。
-Silero VAD 尚未接入，下一步应作为 `vad_provider:=silero` 的可选 adapter。
+Silero VAD 已作为可选 sidecar 接入：AudioFrontend 继续发布 `/audio/clean_pcm`，当
+`vad_provider:=silero` 时内置 energy endpoint 自动关闭，由 `silero_vad` 节点发布
+`/audio/speech_started`、`/audio/speech_ended` 与可观测 `/audio/vad_event`。
+
+无模型依赖的配置冒烟：
+
+```bash
+bash scripts/smoke_test_silero_vad_sidecar.sh
+```
+
+真实启用前需安装可选依赖：
+
+```bash
+source .venv/bin/activate
+pip install silero-vad onnxruntime
+VAD_PROVIDER=silero bash scripts/continuous_voice_control.sh offline
+```
+
 当前 `audio_enhancer:=nlms`，`aec_enabled:=true` 默认启用现有 NLMS AEC；
 `noise_suppression_enabled` 与 `auto_gain_enabled` 只是 WebRTC adapter 的预留参数，
 现在开启会回退并告警。

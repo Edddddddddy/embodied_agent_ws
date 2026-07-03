@@ -14,7 +14,7 @@
 - 离线链路：sherpa-onnx ZipFormer、Qwen3-0.6B Q8/llama.cpp、Sherpa-TTS。
 - 声学前端：C++ PortAudio、NLMS AEC、VAD、0.4 秒静音断句。
 - VAD seam：AudioFrontend 发布 `/audio/speech_started` 与 `/audio/speech_ended`，
-  仍兼容旧 `/audio/silence_timeout`；当前 provider 为 energy，Silero adapter 待接入。
+  仍兼容旧 `/audio/silence_timeout`；默认 provider 为 energy，可选 Silero sidecar。
 - 音频增强 seam：`audio_enhancer:=nlms` 默认使用 NLMS AEC，预留 WebRTC AEC/NS/AGC adapter。
 - 识别恢复：热词偏置、唤醒别名、失败反馈和持续重试。
 - 唤醒 seam：默认 `TextWakeProvider` 发布 `/agent/wake_event` 与
@@ -167,7 +167,9 @@ Q8 CPU decode 34.10 token/s、语音全链 2.313 s；typed Action/BT 驱动 Gaze
 拆开，新增 `vad_provider`、`speech_end_silence_s`、`min_utterance_ms`、
 `max_utterance_s` 参数和 `/audio/speech_started`、`/audio/speech_ended` topic。
 online/offline Agent 已订阅 `speech_ended` 触发 ASR commit，并对旧
-`silence_timeout` 做 50 ms 去重兼容。当前尚未引入 Silero/ONNX 依赖。
+`silence_timeout` 做 50 ms 去重兼容。`vad_provider:=silero` 会启动可选 Python
+sidecar，AudioFrontend 只发布 `/audio/clean_pcm`，由 sidecar 接管端点事件；默认配置
+不强制安装 silero-vad/onnxruntime。
 
 2026-07-03 新增 WakeProvider seam：当前文本唤醒逻辑被包装为
 `TextWakeProvider`，并发布 `/agent/wake_event` 与 `/agent/session_state`。连续控制测试

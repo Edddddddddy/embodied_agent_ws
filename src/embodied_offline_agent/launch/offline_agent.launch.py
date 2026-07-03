@@ -1,7 +1,7 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import LifecycleNode, Node
 from launch_ros.parameter_descriptions import ParameterValue
 from ament_index_python.packages import get_package_share_directory
@@ -16,6 +16,7 @@ def generate_launch_description():
     microphone = LaunchConfiguration("microphone_enabled")
     capture = LaunchConfiguration("capture_enabled")
     speaker = LaunchConfiguration("speaker_enabled")
+    vad_provider = LaunchConfiguration("vad_provider")
     continuous_control_enabled = LaunchConfiguration("continuous_control_enabled")
     voice_session_timeout_s = LaunchConfiguration("voice_session_timeout_s")
     hardware_backend = LaunchConfiguration("hardware_backend")
@@ -31,6 +32,7 @@ def generate_launch_description():
         DeclareLaunchArgument("microphone_enabled", default_value="false"),
         DeclareLaunchArgument("capture_enabled", default_value=microphone),
         DeclareLaunchArgument("speaker_enabled", default_value="false"),
+        DeclareLaunchArgument("vad_provider", default_value="energy"),
         DeclareLaunchArgument("continuous_control_enabled", default_value="false"),
         DeclareLaunchArgument("voice_session_timeout_s", default_value="60.0"),
         DeclareLaunchArgument("hardware_backend", default_value="mock"),
@@ -59,7 +61,23 @@ def generate_launch_description():
         Node(
             package="embodied_agent_cpp", executable="audio_frontend",
             name="audio_frontend", output="screen",
-            parameters=[config, {"capture_enabled": capture, "speaker_enabled": speaker}],
+            parameters=[config, {
+                "capture_enabled": capture,
+                "speaker_enabled": speaker,
+                "vad_provider": vad_provider,
+                "endpoint_events_enabled": ParameterValue(
+                    PythonExpression(["'", vad_provider, "' != 'silero'"]),
+                    value_type=bool,
+                ),
+            }],
+        ),
+        Node(
+            package="embodied_online_agent", executable="silero_vad",
+            name="silero_vad", output="screen",
+            condition=IfCondition(
+                PythonExpression(["'", vad_provider, "' == 'silero'"])
+            ),
+            parameters=[config],
         ),
         LifecycleNode(
             package="embodied_agent_cpp", executable="action_guard",

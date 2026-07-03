@@ -182,11 +182,13 @@ active action、sensor stale、safety stopped 与原因。
   `NlmsAudioEnhancer`，用播放 PCM 作为参考估计回声。参数 `audio_enhancer:=nlms`、
   `aec_enabled`、`noise_suppression_enabled`、`auto_gain_enabled` 已预留；真实设备需校准
   delay、step、taps，并测双讲。WebRTC AEC/NS/AGC adapter 尚未接入。
-- VAD：当前 `vad_provider:=energy` 只负责判断单帧是否有人声；`SpeechEndpointDetector`
-  负责发布 `/audio/speech_started`、`/audio/speech_ended`，并用
-  `speech_end_silence_s`、`min_utterance_ms`、`max_utterance_s` 控制端点。旧的
-  `/audio/silence_timeout` 仍同步发布，Agent 对两种 commit 信号做短时间去重。
-  后续接 Silero/sherpa VAD 时应只替换 provider，不改端点事件契约。
+- VAD：默认 `vad_provider:=energy` 由 C++ AudioFrontend 内置 EnergyVad 判断单帧是否
+  有人声，`SpeechEndpointDetector` 负责发布 `/audio/speech_started`、
+  `/audio/speech_ended`，并用 `speech_end_silence_s`、`min_utterance_ms`、
+  `max_utterance_s` 控制端点。可选 `vad_provider:=silero` 时，AudioFrontend 只发布
+  `/audio/clean_pcm`，Python `silero_vad` sidecar 接管端点事件并额外发布
+  `/audio/vad_event`。旧的 `/audio/silence_timeout` 仍同步发布，Agent 对两种 commit
+  信号做短时间去重。
 - ASR：在线采用实时 WebSocket；离线 ZipFormer 采用流式 transducer 和 modified beam search。
 - 唤醒：当前文本门控前有热词偏置，失败会回到 `retry_listening`。生产级应增加声学 KWS。
 - LLM：token 到达即进入标签解析器；动作必须等完整 JSON，speech 可按标点提前送 TTS。
@@ -267,7 +269,8 @@ adapter，而不是把串口重试、CRC 和 ROS Action 全塞进一个类。
   等待队列并抢占当前组合动作，适合长时间麦克风控制 Gazebo 演示。
 - 新增 CommandExecutionTracker：队列长度和执行开始/结束变为 ROS 可观测事件。
 - 补齐 VAD endpoint seam：C++ AudioFrontend 增加 speech started/ended topic 和端点参数，
-  online/offline Agent 可由 `speech_ended` commit ASR；Silero/ONNX adapter 尚未接入。
+  online/offline Agent 可由 `speech_ended` commit ASR；Silero VAD 已作为可选 sidecar
+  接入，默认不强制安装模型依赖。
 - 补齐 WakeProvider seam：文本唤醒输出结构化 wake event 和 session_state，为后续
   sherpa-onnx KWS/openWakeWord adapter 留出替换点。
 - 补齐 AudioEnhancer seam：NLMS AEC 被封装为默认 adapter，AudioFrontend 预留
