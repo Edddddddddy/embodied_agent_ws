@@ -50,7 +50,7 @@ DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里
 | 参数与 lint | `test_node_configuration.cpp`、ament lint | 无效控制参数在 configure 前失败，产品 C++/CMake/XML 可静态检查 |
 | mock 插件全链 | `smoke_test_mock_executor.sh` | 不改 Guard/BT 即可切换 backend |
 | 组合演示 | `smoke_test_demo_sequence.sh` | `set_led → wave → move → turn → arc → stop` 顺序执行 |
-| 连续语音 | `smoke_test_continuous_voice.sh` | 一次唤醒后多条命令排队，发布 wake/session/queue/execution topic |
+| 连续语音 | `smoke_test_continuous_voice.sh` | 一次唤醒后多条命令排队，急停抢占，最终 `/cmd_vel` 归零 |
 | 组件化等价 | `smoke_test_composed_executor.sh` | 同一控制实现可在多线程 component container 中完成 Action/BT 链 |
 | 命名空间 | `smoke_test_namespaced_executor.sh` | 相对名称、Action、BT、速度和 diagnostics 均隔离到 `/robot1` |
 | Action 全链 | `smoke_test_typed_action_pipeline.sh` | JSON -> typed -> Action -> 仿真控制 |
@@ -127,7 +127,9 @@ bash scripts/continuous_voice_control.sh online
 “退出控制/休眠/结束控制”会关闭会话，后续命令必须重新唤醒。
 验收探针还会检查 `/agent/wake_event` 中出现 `wake/continue/sleep/rejected`，以及
 `/agent/session_state` 中出现 `awake/sleeping`；同时检查 `/agent/command_queue` 里有
-真实 `size`，`/agent/command_execution` 里有 `started/finished`。
+真实 `size`，`/agent/command_execution` 里有 `started/finished`。随后会重新唤醒，发送
+“走正方形”后立刻发送“急停”，要求出现 `stop` candidate、priority stop 清队列事件，
+并确认最终 `/cmd_vel` 为零。
 人工脚本默认启动 `scripts/continuous_voice_monitor.py`，终端会持续打印：
 
 ```text

@@ -176,7 +176,8 @@ online/offline Agent 已订阅 `speech_ended` 触发 ASR commit，并对旧
 
 2026-07-03 新增 CommandExecutionTracker：online/offline 连续模式发布
 `/agent/command_queue` 与 `/agent/command_execution`，用于观测真实队列长度、清队列、
-命令开始和命令完成。monitor 不再靠本地计数猜 queue size。
+命令开始和命令完成。monitor 不再靠本地计数猜 queue size。continuous mock 验收现在还会
+覆盖“走正方形”被“急停”抢占，并确认最终 `/cmd_vel` 归零。
 
 2026-07-03 新增 AudioEnhancer seam：AudioFrontend 不再直接依赖 `NlmsEchoCanceller`，
 而是通过 `AudioEnhancer` interface 调用；默认 `NlmsAudioEnhancer` 支持

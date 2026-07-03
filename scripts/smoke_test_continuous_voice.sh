@@ -60,4 +60,4 @@ if ! timeout 35 python3 "$WORKSPACE/tests/integration/test_continuous_voice_cont
   cat "$LOG_FILE" >&2
   exit 1
 fi
-echo "PASS: one wake word -> continuous queued commands -> sleep gate ($AGENT_KIND)"
+echo "PASS: one wake word -> queued commands -> priority stop -> zero cmd_vel ($AGENT_KIND)"
