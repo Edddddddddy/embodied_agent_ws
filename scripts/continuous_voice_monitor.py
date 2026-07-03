@@ -2,14 +2,44 @@
 """Human-facing monitor for long-running voice control demos."""
 
 import argparse
+import importlib.util
 import json
 import signal
-from dataclasses import dataclass
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
+
+
+def _load_audio_calibration_module():
+    """Load sibling calibration helpers when monitor is imported in tests.
+
+    直接运行脚本时，Python 会把 scripts/ 放进 sys.path，普通 import 能工作；
+    测试通过 spec_from_file_location 导入时不一定有这个路径，因此这里显式兜底。
+    """
+
+    try:
+        import audio_frontend_calibration
+
+        return audio_frontend_calibration
+    except ModuleNotFoundError:
+        module_path = Path(__file__).with_name("audio_frontend_calibration.py")
+        spec = importlib.util.spec_from_file_location(
+            "audio_frontend_calibration", module_path
+        )
+        if spec is None or spec.loader is None:
+            raise
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        return module
+
+
+audio_calibration = _load_audio_calibration_module()
 
 
 def _json_dict(serialized: str) -> dict[str, Any]:
@@ -183,6 +213,7 @@ class MonitorStats:
     finished: int = 0
     succeeded: int = 0
     failed: int = 0
+    audio_samples: list[Any] = field(default_factory=list)
 
     def record_wake(self, serialized: str) -> None:
         kind = _json_dict(serialized).get("kind")
@@ -227,14 +258,33 @@ class MonitorStats:
         else:
             self.failed += 1
 
+    def record_audio(self, serialized: str) -> None:
+        sample = audio_calibration.parse_audio_metrics(serialized)
+        if sample is not None:
+            self.audio_samples.append(sample)
+
     def format_summary(self) -> str:
-        return (
+        base = (
             f"[summary] wake={self.wake} sleep={self.sleep} retry={self.retry} "
             f"asr={self.asr} ignored={self.ignored} "
             f"normalized={self.normalized} enqueued={self.enqueued} "
             f"expired={self.expired} started={self.started} "
             f"finished={self.finished} succeeded={self.succeeded} failed={self.failed}"
         )
+        if not self.audio_samples:
+            return base
+        report = audio_calibration.analyze_audio_health(self.audio_samples)
+        warnings = ",".join(report.warnings) if report.warnings else "none"
+        audio = (
+            f"[summary-audio] samples={report.sample_count} "
+            f"profile={report.recommended_voice_profile} "
+            f"reason={report.profile_reason} "
+            f"mean_rms={report.mean_rms:.4f} max_rms={report.max_rms:.4f} "
+            f"speech_ratio={report.speech_ratio:.2f} "
+            f"dropped_input_delta={report.dropped_input_delta} "
+            f"warnings={warnings}"
+        )
+        return base + "\n" + audio
 
 
 class ContinuousVoiceMonitor(Node):
@@ -281,6 +331,7 @@ class ContinuousVoiceMonitor(Node):
         self._emit(format_kws_score(message.data))
 
     def _on_audio(self, message: String) -> None:
+        self._stats.record_audio(message.data)
         self._emit(format_audio_metrics(message.data))
 
     def _on_asr(self, message: String) -> None:

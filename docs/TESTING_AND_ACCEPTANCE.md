@@ -227,13 +227,16 @@ monitor 和 summary 可用于判断是否应该减慢说话节奏或调大容量
 [feedback] executing 45% mock_execution
 [result] succeeded
 [summary] wake=1 sleep=1 retry=0 asr=3 ignored=1 normalized=1 enqueued=2 expired=0 started=2 finished=2 succeeded=2 failed=0
+[summary-audio] samples=12 profile=noisy_room reason=persistent_speech_or_noise mean_rms=0.0200 max_rms=0.0210 speech_ratio=1.00 dropped_input_delta=0 warnings=vad_threshold_may_be_too_low_or_environment_noisy
 ```
 
 `[summary]` 在 Ctrl-C 退出 monitor 时打印；`continuous_voice_control.sh` 的清理逻辑也会
 优先用 SIGINT 结束 monitor，确保这行复盘信息尽量落盘。`wake/sleep/retry` 反映会话门控和
 重试体验，`asr` 是收到的 final 数，`ignored` 是 filler/duplicate 过滤数，
 `normalized` 是错词归一化数，`enqueued/expired` 反映队列健康，
-`started/finished/succeeded/failed` 反映动作执行闭环。如果只想看 launch 原始日志，
+`started/finished/succeeded/failed` 反映动作执行闭环。若 monitor 收到过
+`/audio/frontend_metrics`，还会打印 `[summary-audio]`，其中 `profile/reason` 直接给出
+下一轮真实麦克风演示应尝试的 `VOICE_CONTROL_PROFILE`。如果只想看 launch 原始日志，
 可设置 `CONTINUOUS_MONITOR_ENABLED=false`。
 
 真实 KWS provider 可直接从连续控制脚本配置，不必手改 YAML。脚本会把这些值同时传给

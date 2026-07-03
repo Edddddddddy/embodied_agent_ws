@@ -38,7 +38,7 @@
 | KWS 连续控制验收 | 当前 | continuous-kws-mock 验证 KWS sidecar 唤醒后直接进入 Agent 队列并执行动作 |
 | AudioEnhancer seam | 当前 | NLMS AEC adapter、audio_enhancer/aec/ns/agc 参数与 WebRTC adapter 预留，`/audio/frontend_metrics` 暴露 requested/active 状态与 fallback 诊断 |
 | 连续演示 monitor | 当前 | 终端持续打印 session/asr/queue/action/feedback/result，长动作期间展示 ROS Action 进度 |
-| 连续演示 summary | 当前 | monitor 退出时汇总 wake/sleep/retry、ASR、ignored、normalized、queue、execution 和 result 数量，辅助长时间麦克风复盘 |
+| 连续演示 summary | 当前 | monitor 退出时汇总 wake/sleep/retry、ASR、ignored、normalized、queue、execution、result 和 audio profile 建议，辅助长时间麦克风复盘 |
 | 连续脚本配置预览 | 当前 | `continuous_voice_control.sh` 支持 `CONTINUOUS_PRINT_CONFIG=true` 无麦克风 dry-run，并透传 WAKE/AEC/NS/AGC 环境变量 |
 | CommandExecutionTracker | 当前 | command_queue/command_execution topic 暴露队列长度和执行生命周期 |
 | 连续队列容量透传 | 当前 | `CONTINUOUS_COMMAND_QUEUE_SIZE` 经脚本和 launch 覆盖 online/offline Agent 队列容量 |

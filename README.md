@@ -137,8 +137,10 @@ ASR 错词时，推荐复制默认错词表后用 `COMMAND_NORMALIZATION_PATH=/p
 `[exec]`、`[action]`、`[feedback]`、`[result]`，便于现场演示链路；长动作执行期间
 `[feedback]` 会显示 ROS Action 进度，避免误以为系统卡住。Ctrl-C 结束 monitor 时会输出
 `[summary] wake=... sleep=... retry=... asr=... ignored=... enqueued=... succeeded=...`，
+如果收到过 `/audio/frontend_metrics`，还会输出
+`[summary-audio] samples=... profile=... reason=... mean_rms=... speech_ratio=...`，
 用于复盘长时间语音演示中
-到底是识别少、过滤多、队列阻塞，还是动作执行失败。如需关闭可设置
+到底是识别少、过滤多、队列阻塞、动作执行失败，还是麦克风/VAD 环境不稳。如需关闭可设置
 `CONTINUOUS_MONITOR_ENABLED=false`。
 
 真实麦克风体验不稳定时，先运行音频前端校准脚本，而不是直接调 ASR 或 LLM：

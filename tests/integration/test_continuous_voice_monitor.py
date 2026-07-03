@@ -10,6 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 MONITOR = ROOT / "scripts" / "continuous_voice_monitor.py"
+sys.path.insert(0, str(ROOT / "scripts"))
 
 sys.modules.setdefault("rclpy", types.SimpleNamespace())
 sys.modules.setdefault(
@@ -180,6 +181,37 @@ def test_monitor_stats_summarizes_long_running_session():
         "[summary] wake=1 sleep=1 retry=1 asr=1 ignored=1 normalized=1 enqueued=1 expired=1 "
         "started=1 finished=1 succeeded=1 failed=0"
     )
+
+
+def test_monitor_stats_summarizes_audio_health_and_recommended_profile():
+    stats = monitor.MonitorStats()
+    for _ in range(4):
+        stats.record_audio(
+            json.dumps(
+                {
+                    "rms": 0.02,
+                    "peak": 900,
+                    "speech": True,
+                    "dropped_input_frames": 0,
+                    "dropped_playback_chunks": 0,
+                    "vad_provider": "energy",
+                    "audio_enhancer_requested": "nlms",
+                    "audio_enhancer_active": "nlms",
+                    "aec_active": True,
+                    "noise_suppression_active": False,
+                    "auto_gain_active": False,
+                },
+                ensure_ascii=False,
+            )
+        )
+
+    summary = stats.format_summary()
+
+    assert "[summary-audio] samples=4" in summary
+    assert "profile=noisy_room" in summary
+    assert "speech_ratio=1.00" in summary
+    assert "mean_rms=0.0200" in summary
+    assert "warnings=vad_threshold_may_be_too_low_or_environment_noisy" in summary
 
 
 def test_monitor_signal_handler_uses_keyboard_interrupt_for_summary_path():
