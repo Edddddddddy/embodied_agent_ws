@@ -231,6 +231,26 @@ class ContinuousVoiceSession:
             priority_stop=priority_stop,
         )
 
+    def external_wake(self, provider: str, transcript: str = "") -> SessionEvent:
+        wake_event = self._wake_provider.external_wake(provider, transcript)
+        return SessionEvent(
+            SessionEventKind.WAKE,
+            "awake",
+            wake_event,
+            transcript,
+            None,
+        )
+
+    def external_sleep(self, provider: str) -> SessionEvent:
+        wake_event = self._wake_provider.external_sleep(provider)
+        return SessionEvent(
+            SessionEventKind.SLEEP,
+            "sleeping",
+            wake_event,
+            "",
+            None,
+        )
+
     @staticmethod
     def _contains_any(text: str, words: Iterable[str]) -> bool:
         return any(word in text for word in words)

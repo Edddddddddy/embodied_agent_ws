@@ -20,6 +20,7 @@ from embodied_online_agent.continuous_voice import CommandExecutionTracker, Queu
 from embodied_online_agent.protocol import SentenceChunker, TaggedStreamParser
 from embodied_online_agent.recognition_retry import RecognitionRetryTracker
 from embodied_online_agent.types import ActionCommand
+from embodied_online_agent.wake_event_input import parse_external_wake_event
 from embodied_online_agent.wakeword import WakeWordGate
 
 from .double_buffer import DoubleBuffer
@@ -100,6 +101,10 @@ class OfflineAgentNode(Node):
         )
         self._audio_pub = self.create_publisher(UInt8MultiArray, "/audio/tts_pcm", audio_qos)
         self.create_subscription(String, "/agent/text_input", self._on_text, 10)
+        if self._param("external_wake_event_enabled"):
+            self.create_subscription(
+                String, "/agent/wake_event_input", self._on_wake_event_input, 10
+            )
         self.create_subscription(Empty, "/agent/clear_memory", self._on_clear, 10)
         self.create_subscription(String, "/robot/action_result", self._on_action_result, 10)
         if self._continuous_enabled:
@@ -166,6 +171,7 @@ class OfflineAgentNode(Node):
             "voice_session_timeout_s": 60.0,
             "continuous_command_queue_size": 8,
             "speech_endpoint_events_enabled": True,
+            "external_wake_event_enabled": True,
         }
         for name, value in defaults.items():
             self.declare_parameter(name, value)
@@ -311,6 +317,36 @@ class OfflineAgentNode(Node):
         self._latency.mark_asr_final()
         self._asr_final_pub.publish(String(data=message.data))
         self._accept_transcript(message.data)
+
+    def _on_wake_event_input(self, message):
+        event = parse_external_wake_event(message.data)
+        if event is None:
+            self.get_logger().warning(
+                f"ignored invalid external wake event payload: {message.data!r}"
+            )
+            return
+        if event.kind == "wake":
+            session_event = self._voice_session.external_wake(
+                event.provider, event.transcript
+            )
+            self._publish_session_event(session_event)
+            self._publish_state("session_awake")
+            self.get_logger().info(
+                f"external wake event accepted from provider={event.provider}"
+            )
+            return
+
+        dropped = self._command_queue.clear()
+        self._publish_queue_event(
+            "clear", "", QueueSnapshot(True, self._command_queue.size(), dropped)
+        )
+        self._action_sequencer.cancel("external_sleep")
+        session_event = self._voice_session.external_sleep(event.provider)
+        self._publish_session_event(session_event)
+        self._publish_state("sleeping")
+        self.get_logger().info(
+            f"external sleep event accepted from provider={event.provider}"
+        )
 
     def _on_clear(self, _message):
         self._memory.clear()

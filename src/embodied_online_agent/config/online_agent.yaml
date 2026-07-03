@@ -15,6 +15,7 @@ online_agent:
     voice_session_timeout_s: 60.0
     continuous_command_queue_size: 8
     speech_endpoint_events_enabled: true
+    external_wake_event_enabled: true
     command_normalization_enabled: true
     command_normalization_feedback_enabled: true
     command_normalization_fuzzy_threshold: 0.82

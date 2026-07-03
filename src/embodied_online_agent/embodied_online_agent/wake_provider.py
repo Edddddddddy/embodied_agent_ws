@@ -96,6 +96,14 @@ class TextWakeProvider:
         self._gate.sleep()
         return WakeEvent(WakeEventKind.SLEEP, self.provider_name)
 
+    def external_wake(self, provider: str, transcript: str = "") -> WakeEvent:
+        self._gate.wake()
+        return WakeEvent(WakeEventKind.WAKE, provider or "external", transcript, None)
+
+    def external_sleep(self, provider: str) -> WakeEvent:
+        self._gate.sleep()
+        return WakeEvent(WakeEventKind.SLEEP, provider or "external")
+
     @property
     def active(self) -> bool:
         return True if not self._gate.enabled else self._gate.active

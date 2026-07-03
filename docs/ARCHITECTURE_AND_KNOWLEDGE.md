@@ -95,8 +95,11 @@ PortAudio 回调只搬运数据，不执行网络、日志或模型推理；这�
 
 唤醒词当前仍是文本级实现：ASR final 先经过 `TextWakeProvider`，再由连续会话消费结构化
 `WakeEvent`。ROS 侧 `/agent/wake_event` 暴露 provider、事件种类和原始 transcript，
-`/agent/session_state` 暴露 `awake/sleeping`。后续接 sherpa-onnx KWS 或 openWakeWord 时，
-新的 provider 只需产生相同事件契约，Agent 队列和动作执行层不用感知具体 KWS。
+`/agent/session_state` 暴露 `awake/sleeping`。外部 KWS sidecar 可向
+`/agent/wake_event_input` 发布 `{"kind":"wake","provider":"sherpa_kws"}` 或
+`{"kind":"sleep","provider":"sherpa_kws"}`，Agent 会把它桥接到同一个会话状态机。
+后续接 sherpa-onnx KWS 或 openWakeWord 时，新的 provider 只需产生相同事件契约，
+Agent 队列和动作执行层不用感知具体 KWS。
 `scripts/continuous_voice_monitor.py` 是人工演示层，不参与控制；它只订阅 wake、session、
 ASR、queue、execution、action 和 result topic，把链路压缩成
 `[session] / [asr] / [queue] / [exec] / [action] / [result]` 行日志。
@@ -162,6 +165,7 @@ active action、sensor stale、safety stopped 与原因。
 | `/agent/recognition_feedback` | Agent -> UI/验收器 | 唤醒失败重试、命令归一化反馈 |
 | `/agent/state` | Agent -> UI/验收器 | listening、queued、thinking、speaking、session_awake、sleeping |
 | `/agent/wake_event` | WakeProvider -> UI/验收器 | text/sherpa/openWakeWord 等 provider 的 wake/continue/sleep/rejected |
+| `/agent/wake_event_input` | KWS sidecar -> Agent | 外部声学唤醒注入入口，支持 JSON `wake/sleep` |
 | `/agent/session_state` | ContinuousVoiceSession -> UI/验收器 | awake 或 sleeping |
 | `/agent/command_queue` | CommandExecutionTracker -> UI/验收器 | enqueue、rejected、clear、size、dropped |
 | `/agent/command_execution` | CommandExecutionTracker -> UI/验收器 | started、finished、success、reason |

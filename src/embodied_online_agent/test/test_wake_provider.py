@@ -53,6 +53,20 @@ def test_text_wake_provider_can_sleep_current_session():
     assert decision.event.kind == WakeEventKind.REJECTED
 
 
+def test_text_wake_provider_accepts_external_wake_event():
+    now = [10.0]
+    provider = TextWakeProvider(["小智"], enabled=True, active_timeout_s=60.0, clock=lambda: now[0])
+
+    event = provider.external_wake("sherpa_kws", transcript="小智")
+    decision = provider.accept("向前走一秒")
+
+    assert event.kind == WakeEventKind.WAKE
+    assert event.provider == "sherpa_kws"
+    assert decision.command == "向前走一秒"
+    assert decision.event.kind == WakeEventKind.CONTINUE
+    assert provider.active
+
+
 def test_disabled_text_wake_provider_is_always_active():
     provider = TextWakeProvider(["小智"], enabled=False, active_timeout_s=60.0)
 

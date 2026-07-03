@@ -15,6 +15,7 @@ class ContinuousVoiceProbe(Node):
     def __init__(self):
         super().__init__("continuous_voice_probe")
         self.text_pub = self.create_publisher(String, "/agent/text_input", 10)
+        self.wake_input_pub = self.create_publisher(String, "/agent/wake_event_input", 10)
         self.states = []
         self.session_states = []
         self.wake_events = []
@@ -87,6 +88,7 @@ def main():
     try:
         wait_until(
             lambda: node.text_pub.get_subscription_count() > 0
+            and node.wake_input_pub.get_subscription_count() > 0
             and node.count_publishers("/robot/action_result") > 0,
             15.0,
             "continuous voice pipeline was not discovered",
@@ -120,7 +122,9 @@ def main():
         if len(node.candidates) != before:
             raise RuntimeError("command without wake word was accepted after sleep")
 
-        node.text_pub.publish(String(data="小智"))
+        node.wake_input_pub.publish(
+            String(data=json.dumps({"kind": "wake", "provider": "test_kws"}))
+        )
         time.sleep(0.1)
         stop_candidate_start = len(node.candidates)
         node.text_pub.publish(String(data="走正方形"))
@@ -152,6 +156,8 @@ def main():
         wake_kinds = [event.get("kind") for event in node.wake_events]
         if "wake" not in wake_kinds or "sleep" not in wake_kinds:
             raise RuntimeError(f"wake/session events were not published: {node.wake_events}")
+        if "test_kws" not in [event.get("provider") for event in node.wake_events]:
+            raise RuntimeError(f"external KWS wake event was not bridged: {node.wake_events}")
         queue_sizes = [
             event.get("size")
             for event in node.queue_events

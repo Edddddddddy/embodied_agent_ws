@@ -51,6 +51,23 @@ def test_sleep_phrase_closes_the_continuous_control_session():
     assert rejected.event.kind == SessionEventKind.REJECTED
 
 
+def test_external_wake_event_opens_same_continuous_session():
+    gate = WakeWordGate(["小智"], enabled=True, active_timeout_s=60.0)
+    session = ContinuousVoiceSession(gate, enabled=True)
+
+    wake_event = session.external_wake("sherpa_kws", transcript="小智")
+    command = session.accept("向前走一秒")
+    sleep_event = session.external_sleep("sherpa_kws")
+    rejected = session.accept("左转九十度")
+
+    assert wake_event.kind == SessionEventKind.WAKE
+    assert wake_event.wake_event.provider == "sherpa_kws"
+    assert command.accepted
+    assert command.command == "向前走一秒"
+    assert sleep_event.kind == SessionEventKind.SLEEP
+    assert rejected.reason == "wake_word_not_detected"
+
+
 def test_stop_intent_is_marked_as_priority_command():
     gate = WakeWordGate(["小智"], enabled=True, active_timeout_s=60.0)
     session = ContinuousVoiceSession(gate, enabled=True)
