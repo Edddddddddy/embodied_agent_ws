@@ -10,6 +10,7 @@ offline_agent:
     continuous_control_enabled: false
     voice_session_timeout_s: 60.0
     continuous_command_queue_size: 8
+    continuous_command_max_age_s: 30.0
     speech_endpoint_events_enabled: true
     external_wake_event_enabled: true
     command_normalization_enabled: true

@@ -41,7 +41,8 @@ class OnlineAgentNode(Node):
         self._last_asr_commit_monotonic = 0.0
         self._continuous_enabled = bool(self._param("continuous_control_enabled"))
         self._command_queue = ContinuousCommandQueue(
-            int(self._param("continuous_command_queue_size"))
+            int(self._param("continuous_command_queue_size")),
+            max_age_s=float(self._param("continuous_command_max_age_s")),
         )
         self._command_tracker = CommandExecutionTracker("online")
         self._command_worker_thread = None
@@ -192,6 +193,7 @@ class OnlineAgentNode(Node):
             "continuous_control_enabled": False,
             "voice_session_timeout_s": 60.0,
             "continuous_command_queue_size": 8,
+            "continuous_command_max_age_s": 30.0,
             "speech_endpoint_events_enabled": True,
             "external_wake_event_enabled": True,
         }

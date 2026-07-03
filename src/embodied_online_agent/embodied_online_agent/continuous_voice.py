@@ -293,8 +293,9 @@ class ContinuousCommandQueue:
     已经交给执行器的动作由 Agent 额外发布 stop/cancel 处理。
     """
 
-    def __init__(self, max_size: int = 8, clock=time.monotonic):
+    def __init__(self, max_size: int = 8, max_age_s: float = 30.0, clock=time.monotonic):
         self._queue: queue.Queue[QueuedCommand] = queue.Queue(maxsize=max(1, max_size))
+        self._max_age_s = max(0.0, float(max_age_s))
         self._clock = clock
         self._lock = threading.Lock()
 
@@ -320,7 +321,16 @@ class ContinuousCommandQueue:
             return QueueSnapshot(True, self._queue.qsize(), dropped)
 
     def get(self, timeout: float = 0.1) -> QueuedCommand:
-        return self._queue.get(timeout=timeout)
+        while True:
+            item = self._queue.get(timeout=timeout)
+            if not self._is_stale(item):
+                return item
+            self._queue.task_done()
+
+    def _is_stale(self, item: QueuedCommand) -> bool:
+        if item.priority_stop or self._max_age_s <= 0.0:
+            return False
+        return (self._clock() - item.created_at) > self._max_age_s
 
     def task_done(self) -> None:
         self._queue.task_done()

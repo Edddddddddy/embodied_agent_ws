@@ -105,6 +105,31 @@ def test_bounded_command_queue_rejects_when_full():
     assert rejected.reason == "queue_full"
 
 
+def test_command_queue_skips_stale_normal_commands():
+    now = [10.0]
+    commands = ContinuousCommandQueue(max_size=4, max_age_s=2.0, clock=lambda: now[0])
+    assert commands.put("向前走一秒").accepted
+    now[0] += 3.0
+    assert commands.put("左转九十度").accepted
+
+    item = commands.get(timeout=0.01)
+
+    assert item.text == "左转九十度"
+    assert item.created_at == 13.0
+
+
+def test_command_queue_never_skips_stale_priority_stop():
+    now = [10.0]
+    commands = ContinuousCommandQueue(max_size=4, max_age_s=2.0, clock=lambda: now[0])
+    assert commands.put("停下", priority_stop=True).accepted
+    now[0] += 30.0
+
+    item = commands.get(timeout=0.01)
+
+    assert item.text == "停下"
+    assert item.priority_stop
+
+
 def test_command_execution_tracker_reports_queue_events():
     tracker = CommandExecutionTracker(source="online")
     accepted = QueueSnapshot(True, size=2)
