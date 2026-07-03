@@ -39,6 +39,7 @@ def test_readiness_passes_when_audio_and_kws_are_healthy():
     assert report.ok is True
     assert report.blockers == ()
     assert report.warnings == ()
+    assert readiness.readiness_exit_code(report) == 0
 
 
 def test_readiness_blocks_when_audio_metrics_are_missing():
@@ -50,6 +51,7 @@ def test_readiness_blocks_when_audio_metrics_are_missing():
     assert report.ok is False
     assert "audio:no_audio_metrics" in report.blockers
     assert "kws:not_required_or_not_running" in report.warnings
+    assert readiness.readiness_exit_code(report) == 1
 
 
 def test_require_kws_blocks_when_kws_scores_are_missing():

@@ -125,6 +125,16 @@ def format_readiness_report(report: VoiceReadinessReport) -> str:
     return "\n".join(lines)
 
 
+def readiness_exit_code(report: VoiceReadinessReport) -> int:
+    """Shell contract: PASS returns 0, BLOCKED returns 1.
+
+    continuous_voice_control.sh 用这个退出码决定是否提示“系统已就绪”。
+    warnings 不阻断演示，只有 blockers 才返回非零。
+    """
+
+    return 0 if report.ok else 1
+
+
 class VoiceReadinessNode:
     def __init__(self, audio_topic: str, kws_topic: str):
         import rclpy
@@ -199,6 +209,7 @@ def main() -> None:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
         print(format_readiness_report(report))
+    sys.exit(readiness_exit_code(report))
 
 
 if __name__ == "__main__":
