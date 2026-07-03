@@ -150,13 +150,18 @@ python3 scripts/voice_provider_preflight.py --mode offline --vad-provider silero
 
 # 另一个终端先启动 continuous_voice_control.sh 或任意包含 audio_frontend 的 launch
 python3 scripts/audio_frontend_calibration.py --duration 8
+# 根据输出的 quick apply 选择 normal/quiet/noisy_room，例如：
+export VOICE_CONTROL_PROFILE=noisy_room
 
 # 同时检查音频和声学 KWS；使用 openwakeword/livekit 时建议加 --require-kws
 python3 scripts/voice_control_readiness_check.py --duration 8 --require-kws
 ```
 
 脚本会订阅 `/audio/frontend_metrics`，根据 `rms/speech/dropped_*` 给出麦克风音量、
-VAD 阈值、噪声和丢帧建议，并输出推荐的 energy VAD 阈值起点。指标中还会显示
+VAD 阈值、噪声和丢帧建议，并输出推荐的 energy VAD 阈值起点与
+`recommended VOICE_CONTROL_PROFILE`。输入太弱或 VAD 太保守时建议 `quiet`，
+持续 speech=true 或环境噪声较高时建议 `noisy_room`，指标均衡时建议 `normal`。
+指标中还会显示
 `audio_enhancer_requested/audio_enhancer_active` 和 `aec/ns/agc` 状态；如果请求
 WebRTC、NS 或 AGC 但当前仍回退到 NLMS，校准脚本会明确给出 fallback warning。
 人工脚本可通过 `AUDIO_ENHANCER`、`AEC_ENABLED`、`NOISE_SUPPRESSION_ENABLED`、

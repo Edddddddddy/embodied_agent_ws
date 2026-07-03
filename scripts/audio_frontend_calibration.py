@@ -51,6 +51,8 @@ class AudioHealthReport:
     aec_active: bool = False
     noise_suppression_active: bool = False
     auto_gain_active: bool = False
+    recommended_voice_profile: str = "normal"
+    profile_reason: str = "balanced_audio_frontend"
     warnings: tuple[str, ...] = ()
 
     @property
@@ -117,6 +119,38 @@ def _suggest_vad_threshold(max_rms: float, mean_rms: float) -> float:
     return round(min(max(candidate, 0.006), 0.05), 4)
 
 
+def _recommend_voice_profile(
+    *,
+    sample_count: int,
+    max_rms: float,
+    mean_rms: float,
+    speech_ratio: float,
+    warnings: Sequence[str],
+) -> tuple[str, str]:
+    """Recommend the continuous_voice_control.sh profile for live demos.
+
+    这里推荐的是“演示前先用哪一档”，不是最终麦克风调参结果：
+    - quiet：输入偏弱或 VAD 太保守，先降低起始阈值；
+    - noisy_room：长时间 speech=true，说明环境噪声/回声容易误触发；
+    - normal：指标相对均衡，保留默认值。
+    """
+
+    warning_set = set(warnings)
+    if sample_count == 0:
+        return "normal", "no_audio_metrics_keep_default_until_frontend_is_running"
+    if "vad_threshold_may_be_too_low_or_environment_noisy" in warning_set:
+        return "noisy_room", "persistent_speech_or_noise"
+    if speech_ratio > 0.85 and mean_rms > 0.01:
+        return "noisy_room", "persistent_speech_or_noise"
+    if "vad_threshold_may_be_too_high" in warning_set:
+        return "quiet", "audible_input_not_detected_as_speech"
+    if "microphone_too_quiet_or_disconnected" in warning_set:
+        return "quiet", "low_input_energy"
+    if max_rms < 0.012 and mean_rms < 0.006:
+        return "quiet", "low_input_energy"
+    return "normal", "balanced_audio_frontend"
+
+
 def analyze_audio_health(samples: Sequence[AudioMetricSample]) -> AudioHealthReport:
     """Analyze collected metrics and return actionable warnings."""
 
@@ -135,6 +169,8 @@ def analyze_audio_health(samples: Sequence[AudioMetricSample]) -> AudioHealthRep
             aec_active=False,
             noise_suppression_active=False,
             auto_gain_active=False,
+            recommended_voice_profile="normal",
+            profile_reason="no_audio_metrics_keep_default_until_frontend_is_running",
             warnings=("no_audio_metrics",),
         )
 
@@ -168,6 +204,14 @@ def analyze_audio_health(samples: Sequence[AudioMetricSample]) -> AudioHealthRep
     if latest.auto_gain_requested and not latest.auto_gain_active:
         warnings.append("auto_gain_unavailable")
 
+    recommended_profile, profile_reason = _recommend_voice_profile(
+        sample_count=len(samples),
+        max_rms=max_rms,
+        mean_rms=mean_rms,
+        speech_ratio=speech_ratio,
+        warnings=warnings,
+    )
+
     return AudioHealthReport(
         sample_count=len(samples),
         max_rms=round(max_rms, 6),
@@ -182,6 +226,8 @@ def analyze_audio_health(samples: Sequence[AudioMetricSample]) -> AudioHealthRep
         aec_active=latest.aec_active,
         noise_suppression_active=latest.noise_suppression_active,
         auto_gain_active=latest.auto_gain_active,
+        recommended_voice_profile=recommended_profile,
+        profile_reason=profile_reason,
         warnings=tuple(warnings),
     )
 
@@ -210,6 +256,9 @@ def format_report(report: AudioHealthReport) -> str:
             f"ns={report.noise_suppression_active} "
             f"agc={report.auto_gain_active}"
         ),
+        f"  recommended VOICE_CONTROL_PROFILE: {report.recommended_voice_profile}",
+        f"  profile reason: {report.profile_reason}",
+        f"  quick apply: export VOICE_CONTROL_PROFILE={report.recommended_voice_profile}",
     ]
     if report.warnings:
         lines.append("  warnings:")

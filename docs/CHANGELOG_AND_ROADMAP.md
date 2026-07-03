@@ -52,6 +52,7 @@
 | Silero VAD 配置透传 | 当前 | `continuous_voice_control.sh` 支持 SILERO_VAD_MODEL_PATH/SILERO_VAD_USE_ONNX/SILERO_VAD_THRESHOLD，并同步覆盖 preflight 与 sidecar launch |
 | 命令纠错配置透传 | 当前 | `continuous_voice_control.sh` 支持 COMMAND_NORMALIZATION_PATH/COMMAND_NORMALIZATION_FUZZY_THRESHOLD/开关，并经 launch 覆盖 online/offline Agent |
 | 连续语音现场 preset | 当前 | `VOICE_CONTROL_PROFILE=normal|quiet|noisy_room` 批量设置 VAD、队列、TTL 与纠错阈值，显式环境变量可覆盖 |
+| 音频校准推荐 profile | 当前 | `audio_frontend_calibration.py` 基于 `/audio/frontend_metrics` 输出 recommended VOICE_CONTROL_PROFILE 与 quick apply 命令 |
 
 ## 2. 当前结论
 

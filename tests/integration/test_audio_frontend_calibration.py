@@ -62,6 +62,7 @@ def test_loud_audio_without_speech_suggests_vad_threshold_is_high():
 
     assert "vad_threshold_may_be_too_high" in report.warnings
     assert report.suggested_vad_threshold > 0.01
+    assert report.recommended_voice_profile == "quiet"
 
 
 def test_stable_speech_samples_pass_health_check():
@@ -76,6 +77,35 @@ def test_stable_speech_samples_pass_health_check():
 
     assert report.ok is True
     assert report.speech_ratio == 0.5
+    assert report.recommended_voice_profile == "normal"
+
+
+def test_noisy_room_samples_recommend_noisy_room_profile():
+    samples = [
+        audio_calibration.AudioMetricSample(rms=0.019, peak=900, speech=True),
+        audio_calibration.AudioMetricSample(rms=0.021, peak=950, speech=True),
+        audio_calibration.AudioMetricSample(rms=0.018, peak=850, speech=True),
+        audio_calibration.AudioMetricSample(rms=0.02, peak=920, speech=True),
+    ]
+
+    report = audio_calibration.analyze_audio_health(samples)
+
+    assert "vad_threshold_may_be_too_low_or_environment_noisy" in report.warnings
+    assert report.recommended_voice_profile == "noisy_room"
+    assert "persistent_speech_or_noise" in report.profile_reason
+
+
+def test_quiet_input_recommends_quiet_profile():
+    samples = [
+        audio_calibration.AudioMetricSample(rms=0.002, peak=80, speech=False),
+        audio_calibration.AudioMetricSample(rms=0.004, peak=160, speech=True),
+        audio_calibration.AudioMetricSample(rms=0.003, peak=100, speech=False),
+    ]
+
+    report = audio_calibration.analyze_audio_health(samples)
+
+    assert report.recommended_voice_profile == "quiet"
+    assert "low_input_energy" in report.profile_reason
 
 
 def test_dropped_frames_are_reported_from_counter_delta():
@@ -125,3 +155,5 @@ def test_format_report_explains_warnings_in_chinese():
 
     assert "WARN: audio frontend calibration" in rendered
     assert "没有收到 /audio/frontend_metrics" in rendered
+    assert "recommended VOICE_CONTROL_PROFILE: normal" in rendered
+    assert "export VOICE_CONTROL_PROFILE=normal" in rendered

@@ -151,6 +151,21 @@ source .venv/bin/activate
 pip install -e "src/embodied_online_agent[fuzzy]"
 ```
 
+真实麦克风环境建议先做 profile 校准：
+
+```bash
+# Terminal 1：启动连续语音控制
+bash scripts/continuous_voice_control.sh offline
+
+# Terminal 2：采样 /audio/frontend_metrics，并按 quick apply 设置 profile
+python3 scripts/audio_frontend_calibration.py --duration 6
+export VOICE_CONTROL_PROFILE=noisy_room
+```
+
+校准输出中的 `recommended VOICE_CONTROL_PROFILE` 是连续语音脚本的现场预设建议：
+`quiet` 适合输入偏弱或 VAD 太保守，`noisy_room` 适合持续噪声/误触发，`normal` 表示
+当前音频端点较均衡。
+
 连续语音控制：
 
 ```bash
