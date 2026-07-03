@@ -100,6 +100,16 @@ bash scripts/continuous_voice_control.sh online
 `[exec]`、`[action]`、`[result]`，便于现场演示链路；如需关闭可设置
 `CONTINUOUS_MONITOR_ENABLED=false`。
 
+真实麦克风体验不稳定时，先运行音频前端校准脚本，而不是直接调 ASR 或 LLM：
+
+```bash
+# 另一个终端先启动 continuous_voice_control.sh 或任意包含 audio_frontend 的 launch
+python3 scripts/audio_frontend_calibration.py --duration 8
+```
+
+脚本会订阅 `/audio/frontend_metrics`，根据 `rms/speech/dropped_*` 给出麦克风音量、
+VAD 阈值、噪声和丢帧建议，并输出推荐的 energy VAD 阈值起点。
+
 ## 验收入口
 
 ```bash

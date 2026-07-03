@@ -33,6 +33,7 @@
 | CommandExecutionTracker | 当前 | command_queue/command_execution topic 暴露队列长度和执行生命周期 |
 | 连续急停验收 | 当前 | continuous-mock 验证 priority stop 清队列、发布 stop、最终 cmd_vel 归零 |
 | 可配置命令纠错 | 当前 | 默认 YAML 错词表、`command_normalization_path` 覆盖参数和离线 sherpa hotwords 扩充 |
+| 音频前端校准 | 当前 | `audio_frontend_calibration.py` 基于 `/audio/frontend_metrics` 输出麦克风、VAD、丢帧诊断和推荐阈值 |
 
 ## 2. 当前结论
 

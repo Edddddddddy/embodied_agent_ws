@@ -183,6 +183,25 @@ ros2 topic echo /audio/frontend_metrics
 Agent 对 `speech_ended` 与 `silence_timeout` 的同次事件做 50 ms 去重，避免双 commit。
 `/audio/frontend_metrics` 每 `metrics_period_s` 秒发布一次诊断 JSON；真实麦克风排障时，
 重点看 `rms` 是否明显大于静音、`speech` 是否随说话切换、`dropped_input_frames` 是否增长。
+建议在长时间语音控制前先跑一次校准：
+
+```bash
+# 终端 1：启动包含 audio_frontend 的真实麦克风链路
+bash scripts/continuous_voice_control.sh offline
+
+# 终端 2：收集 8 秒指标并输出调参建议
+python3 scripts/audio_frontend_calibration.py --duration 8
+python3 scripts/audio_frontend_calibration.py --duration 8 --json
+```
+
+常见结果解释：
+
+- `microphone_too_quiet_or_disconnected`：麦克风输入太小或设备没接通，先检查 WSL/系统输入源。
+- `vad_threshold_may_be_too_high`：有音量但 `speech=false`，降低 energy VAD 阈值。
+- `vad_threshold_may_be_too_low_or_environment_noisy`：长时间 `speech=true`，提高阈值或降低环境噪声。
+- `audio_input_overrun`：输入丢帧，检查 CPU 占用、音频块大小和队列。
+- `tts_playback_overrun`：回放丢块，连续控制演示优先保持 `speaker_enabled:=false`。
+
 Silero VAD 已作为可选 sidecar 接入：AudioFrontend 继续发布 `/audio/clean_pcm`，当
 `vad_provider:=silero` 时内置 energy endpoint 自动关闭，由 `silero_vad` 节点发布
 `/audio/speech_started`、`/audio/speech_ended` 与可观测 `/audio/vad_event`。
