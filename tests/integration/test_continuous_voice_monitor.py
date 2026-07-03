@@ -175,3 +175,12 @@ def test_monitor_stats_summarizes_long_running_session():
         "[summary] asr=1 ignored=1 normalized=1 enqueued=1 expired=1 "
         "started=1 finished=1 succeeded=1 failed=0"
     )
+
+
+def test_monitor_signal_handler_uses_keyboard_interrupt_for_summary_path():
+    try:
+        monitor._interrupt_monitor(None, None)
+    except KeyboardInterrupt:
+        pass
+    else:
+        raise AssertionError("monitor signal handler did not enter summary path")

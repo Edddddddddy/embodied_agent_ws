@@ -115,7 +115,7 @@ LAUNCH_PID=""
 MONITOR_PID=""
 cleanup() {
   [[ -z "$LAUNCH_PID" ]] || kill -TERM -- "-$LAUNCH_PID" 2>/dev/null || true
-  [[ -z "$MONITOR_PID" ]] || kill "$MONITOR_PID" 2>/dev/null || true
+  [[ -z "$MONITOR_PID" ]] || kill -INT "$MONITOR_PID" 2>/dev/null || true
   [[ -z "$SERVER_PID" ]] || kill "$SERVER_PID" 2>/dev/null || true
   wait "$LAUNCH_PID" "$MONITOR_PID" "$SERVER_PID" 2>/dev/null || true
 }

@@ -86,3 +86,11 @@ def test_voice_launches_expose_audio_enhancer_arguments():
         assert "openwakeword_models" in content, path
         assert "livekit_wakeword_models" in content, path
         assert "sherpa_tokens" in content, path
+
+
+def test_continuous_voice_control_stops_monitor_gracefully_for_summary():
+    content = (ROOT / "scripts" / "continuous_voice_control.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'kill -INT "$MONITOR_PID"' in content

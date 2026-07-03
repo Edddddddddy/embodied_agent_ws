@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import signal
 from dataclasses import dataclass
 from typing import Any
 
@@ -153,6 +154,15 @@ def format_recognition_feedback(serialized: str) -> str:
     return "[feedback] " + (payload.get("reason") or "unknown")
 
 
+def _interrupt_monitor(_signum, _frame) -> None:
+    raise KeyboardInterrupt
+
+
+def install_signal_handlers() -> None:
+    signal.signal(signal.SIGINT, _interrupt_monitor)
+    signal.signal(signal.SIGTERM, _interrupt_monitor)
+
+
 @dataclass
 class MonitorStats:
     """长时间语音演示的轻量统计器。
@@ -300,6 +310,7 @@ class ContinuousVoiceMonitor(Node):
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.parse_args()
+    install_signal_handlers()
     rclpy.init()
     node = ContinuousVoiceMonitor()
     try:
