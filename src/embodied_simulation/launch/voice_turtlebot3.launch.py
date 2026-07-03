@@ -48,6 +48,15 @@ def generate_launch_description():
     speaker = LaunchConfiguration("speaker_enabled")
     vad_provider = LaunchConfiguration("vad_provider")
     kws_provider = LaunchConfiguration("kws_provider")
+    sherpa_tokens = LaunchConfiguration("sherpa_tokens")
+    sherpa_encoder = LaunchConfiguration("sherpa_encoder")
+    sherpa_decoder = LaunchConfiguration("sherpa_decoder")
+    sherpa_joiner = LaunchConfiguration("sherpa_joiner")
+    sherpa_keywords_file = LaunchConfiguration("sherpa_keywords_file")
+    openwakeword_models = LaunchConfiguration("openwakeword_models")
+    openwakeword_threshold = LaunchConfiguration("openwakeword_threshold")
+    livekit_wakeword_models = LaunchConfiguration("livekit_wakeword_models")
+    livekit_wakeword_threshold = LaunchConfiguration("livekit_wakeword_threshold")
     audio_enhancer = LaunchConfiguration("audio_enhancer")
     aec_enabled = LaunchConfiguration("aec_enabled")
     noise_suppression_enabled = LaunchConfiguration("noise_suppression_enabled")
@@ -84,6 +93,15 @@ def generate_launch_description():
         DeclareLaunchArgument("speaker_enabled", default_value="false"),
         DeclareLaunchArgument("vad_provider", default_value="energy"),
         DeclareLaunchArgument("kws_provider", default_value="none"),
+        DeclareLaunchArgument("sherpa_tokens", default_value=""),
+        DeclareLaunchArgument("sherpa_encoder", default_value=""),
+        DeclareLaunchArgument("sherpa_decoder", default_value=""),
+        DeclareLaunchArgument("sherpa_joiner", default_value=""),
+        DeclareLaunchArgument("sherpa_keywords_file", default_value=""),
+        DeclareLaunchArgument("openwakeword_models", default_value=""),
+        DeclareLaunchArgument("openwakeword_threshold", default_value="0.5"),
+        DeclareLaunchArgument("livekit_wakeword_models", default_value=""),
+        DeclareLaunchArgument("livekit_wakeword_threshold", default_value="0.5"),
         DeclareLaunchArgument("audio_enhancer", default_value="nlms"),
         DeclareLaunchArgument("aec_enabled", default_value="true"),
         DeclareLaunchArgument("noise_suppression_enabled", default_value="false"),
@@ -161,6 +179,15 @@ def generate_launch_description():
                 "speaker_enabled": speaker,
                 "vad_provider": vad_provider,
                 "kws_provider": kws_provider,
+                "sherpa_tokens": sherpa_tokens,
+                "sherpa_encoder": sherpa_encoder,
+                "sherpa_decoder": sherpa_decoder,
+                "sherpa_joiner": sherpa_joiner,
+                "sherpa_keywords_file": sherpa_keywords_file,
+                "openwakeword_models": openwakeword_models,
+                "openwakeword_threshold": openwakeword_threshold,
+                "livekit_wakeword_models": livekit_wakeword_models,
+                "livekit_wakeword_threshold": livekit_wakeword_threshold,
                 "audio_enhancer": audio_enhancer,
                 "aec_enabled": aec_enabled,
                 "noise_suppression_enabled": noise_suppression_enabled,
@@ -184,6 +211,15 @@ def generate_launch_description():
                 "speaker_enabled": speaker,
                 "vad_provider": vad_provider,
                 "kws_provider": kws_provider,
+                "sherpa_tokens": sherpa_tokens,
+                "sherpa_encoder": sherpa_encoder,
+                "sherpa_decoder": sherpa_decoder,
+                "sherpa_joiner": sherpa_joiner,
+                "sherpa_keywords_file": sherpa_keywords_file,
+                "openwakeword_models": openwakeword_models,
+                "openwakeword_threshold": openwakeword_threshold,
+                "livekit_wakeword_models": livekit_wakeword_models,
+                "livekit_wakeword_threshold": livekit_wakeword_threshold,
                 "audio_enhancer": audio_enhancer,
                 "aec_enabled": aec_enabled,
                 "noise_suppression_enabled": noise_suppression_enabled,

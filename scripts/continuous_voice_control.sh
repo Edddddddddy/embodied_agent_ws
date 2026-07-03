@@ -8,6 +8,15 @@ WAKE_WORD_ENABLED="${WAKE_WORD_ENABLED:-true}"
 SPEAKER_ENABLED="${SPEAKER_ENABLED:-false}"
 VAD_PROVIDER="${VAD_PROVIDER:-energy}"
 KWS_PROVIDER="${KWS_PROVIDER:-none}"
+SHERPA_KWS_TOKENS="${SHERPA_KWS_TOKENS:-}"
+SHERPA_KWS_ENCODER="${SHERPA_KWS_ENCODER:-}"
+SHERPA_KWS_DECODER="${SHERPA_KWS_DECODER:-}"
+SHERPA_KWS_JOINER="${SHERPA_KWS_JOINER:-}"
+SHERPA_KWS_KEYWORDS_FILE="${SHERPA_KWS_KEYWORDS_FILE:-}"
+OPENWAKEWORD_MODELS="${OPENWAKEWORD_MODELS:-}"
+OPENWAKEWORD_THRESHOLD="${OPENWAKEWORD_THRESHOLD:-0.5}"
+LIVEKIT_WAKEWORD_MODELS="${LIVEKIT_WAKEWORD_MODELS:-}"
+LIVEKIT_WAKEWORD_THRESHOLD="${LIVEKIT_WAKEWORD_THRESHOLD:-0.5}"
 AUDIO_ENHANCER="${AUDIO_ENHANCER:-nlms}"
 AEC_ENABLED="${AEC_ENABLED:-true}"
 NOISE_SUPPRESSION_ENABLED="${NOISE_SUPPRESSION_ENABLED:-false}"
@@ -44,6 +53,15 @@ WAKE_WORD_ENABLED=$WAKE_WORD_ENABLED
 SPEAKER_ENABLED=$SPEAKER_ENABLED
 VAD_PROVIDER=$VAD_PROVIDER（默认 energy；安装 silero-vad 后可设为 silero）
 KWS_PROVIDER=$KWS_PROVIDER（默认 none；mock_text 用于 sidecar 验收，sherpa/openwakeword/livekit 用于真实 KWS）
+SHERPA_KWS_TOKENS=$SHERPA_KWS_TOKENS
+SHERPA_KWS_ENCODER=$SHERPA_KWS_ENCODER
+SHERPA_KWS_DECODER=$SHERPA_KWS_DECODER
+SHERPA_KWS_JOINER=$SHERPA_KWS_JOINER
+SHERPA_KWS_KEYWORDS_FILE=$SHERPA_KWS_KEYWORDS_FILE
+OPENWAKEWORD_MODELS=$OPENWAKEWORD_MODELS（逗号分隔多个模型）
+OPENWAKEWORD_THRESHOLD=$OPENWAKEWORD_THRESHOLD
+LIVEKIT_WAKEWORD_MODELS=$LIVEKIT_WAKEWORD_MODELS（逗号分隔多个模型）
+LIVEKIT_WAKEWORD_THRESHOLD=$LIVEKIT_WAKEWORD_THRESHOLD
 AUDIO_ENHANCER=$AUDIO_ENHANCER（当前可用 nlms；webrtc 为后续增强预留，会 fallback 并在 metrics 中显示）
 AEC_ENABLED=$AEC_ENABLED
 NOISE_SUPPRESSION_ENABLED=$NOISE_SUPPRESSION_ENABLED
@@ -56,6 +74,11 @@ ros2 launch embodied_simulation voice_turtlebot3.launch.py \\
   gui:=$GUI_ENABLED rviz:=false launch_agent:=true agent_type:=$MODE \\
   provider_mode:=$MODE microphone_enabled:=true capture_enabled:=true \\
   speaker_enabled:=$SPEAKER_ENABLED vad_provider:=$VAD_PROVIDER kws_provider:=$KWS_PROVIDER \\
+  sherpa_tokens:="$SHERPA_KWS_TOKENS" sherpa_encoder:="$SHERPA_KWS_ENCODER" \\
+  sherpa_decoder:="$SHERPA_KWS_DECODER" sherpa_joiner:="$SHERPA_KWS_JOINER" \\
+  sherpa_keywords_file:="$SHERPA_KWS_KEYWORDS_FILE" \\
+  openwakeword_models:="$OPENWAKEWORD_MODELS" openwakeword_threshold:=$OPENWAKEWORD_THRESHOLD \\
+  livekit_wakeword_models:="$LIVEKIT_WAKEWORD_MODELS" livekit_wakeword_threshold:=$LIVEKIT_WAKEWORD_THRESHOLD \\
   wake_word_enabled:=$WAKE_WORD_ENABLED continuous_control_enabled:=true \\
   voice_session_timeout_s:=$SESSION_TIMEOUT continuous_command_max_age_s:=$COMMAND_MAX_AGE \\
   audio_enhancer:=$AUDIO_ENHANCER aec_enabled:=$AEC_ENABLED \\
@@ -72,7 +95,14 @@ if [[ "$PREFLIGHT_ENABLED" == "true" ]]; then
   python3 "$WORKSPACE/scripts/voice_provider_preflight.py" \
     --mode "$MODE" \
     --vad-provider "$VAD_PROVIDER" \
-    --kws-provider "$KWS_PROVIDER"
+    --kws-provider "$KWS_PROVIDER" \
+    --sherpa-tokens "$SHERPA_KWS_TOKENS" \
+    --sherpa-encoder "$SHERPA_KWS_ENCODER" \
+    --sherpa-decoder "$SHERPA_KWS_DECODER" \
+    --sherpa-joiner "$SHERPA_KWS_JOINER" \
+    --sherpa-keywords-file "$SHERPA_KWS_KEYWORDS_FILE" \
+    --openwakeword-models "$OPENWAKEWORD_MODELS" \
+    --livekit-wakeword-models "$LIVEKIT_WAKEWORD_MODELS"
 fi
 
 if ! pactl list short sources 2>/dev/null | grep -q .; then
@@ -112,6 +142,11 @@ setsid ros2 launch embodied_simulation voice_turtlebot3.launch.py \
   gui:="$GUI_ENABLED" rviz:=false launch_agent:=true agent_type:="$MODE" \
   provider_mode:="$MODE" microphone_enabled:=true capture_enabled:=true \
   speaker_enabled:="$SPEAKER_ENABLED" vad_provider:="$VAD_PROVIDER" kws_provider:="$KWS_PROVIDER" \
+  sherpa_tokens:="$SHERPA_KWS_TOKENS" sherpa_encoder:="$SHERPA_KWS_ENCODER" \
+  sherpa_decoder:="$SHERPA_KWS_DECODER" sherpa_joiner:="$SHERPA_KWS_JOINER" \
+  sherpa_keywords_file:="$SHERPA_KWS_KEYWORDS_FILE" \
+  openwakeword_models:="$OPENWAKEWORD_MODELS" openwakeword_threshold:="$OPENWAKEWORD_THRESHOLD" \
+  livekit_wakeword_models:="$LIVEKIT_WAKEWORD_MODELS" livekit_wakeword_threshold:="$LIVEKIT_WAKEWORD_THRESHOLD" \
   wake_word_enabled:="$WAKE_WORD_ENABLED" \
   continuous_control_enabled:=true voice_session_timeout_s:="$SESSION_TIMEOUT" \
   continuous_command_max_age_s:="$COMMAND_MAX_AGE" \

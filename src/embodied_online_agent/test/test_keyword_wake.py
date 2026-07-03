@@ -9,6 +9,7 @@ from embodied_online_agent.keyword_wake import (
     SherpaKeywordWakeDetector,
     TextKeywordWakeDetector,
 )
+from embodied_online_agent.keyword_wake_node import _string_list_param
 
 
 def test_text_keyword_detector_matches_aliases():
@@ -22,6 +23,15 @@ def test_text_keyword_detector_matches_aliases():
     assert match.keyword == "小志"
     assert match.provider == "mock_kws"
     assert detector.detect_text("向前走一秒") is None
+
+
+def test_keyword_wake_node_accepts_comma_separated_model_paths():
+    assert _string_list_param("xiaozhi.onnx, nihaoxiaozhi.onnx") == [
+        "xiaozhi.onnx",
+        "nihaoxiaozhi.onnx",
+    ]
+    assert _string_list_param(["xiaozhi.onnx", ""]) == ["xiaozhi.onnx"]
+    assert _string_list_param("") == []
 
 
 def test_keyword_bridge_outputs_standard_wake_event_and_applies_cooldown():

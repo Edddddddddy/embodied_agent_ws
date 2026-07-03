@@ -144,6 +144,31 @@ WebRTC、NS 或 AGC 但当前仍回退到 NLMS，校准脚本会明确给出 fal
 `continuous_voice_control.sh` 默认会在启动前运行 `voice_provider_preflight.py`；
 如只想打印配置可用 `CONTINUOUS_PRINT_CONFIG=true`，如需临时跳过预检可设置
 `CONTINUOUS_PREFLIGHT_ENABLED=false`。
+真实 KWS provider 的模型路径也可以直接用环境变量传入，脚本会同时透传给预检和 ROS
+launch：
+
+```bash
+# sherpa-onnx KeywordSpotter
+KWS_PROVIDER=sherpa \
+SHERPA_KWS_TOKENS=/models/kws/tokens.txt \
+SHERPA_KWS_ENCODER=/models/kws/encoder.onnx \
+SHERPA_KWS_DECODER=/models/kws/decoder.onnx \
+SHERPA_KWS_JOINER=/models/kws/joiner.onnx \
+SHERPA_KWS_KEYWORDS_FILE=/models/kws/keywords.txt \
+  bash scripts/continuous_voice_control.sh offline
+
+# openWakeWord，多个模型用逗号分隔
+KWS_PROVIDER=openwakeword \
+OPENWAKEWORD_MODELS=/models/kws/xiaozhi.onnx,/models/kws/nihaoxiaozhi.onnx \
+OPENWAKEWORD_THRESHOLD=0.42 \
+  bash scripts/continuous_voice_control.sh offline
+
+# LiveKit WakeWord
+KWS_PROVIDER=livekit \
+LIVEKIT_WAKEWORD_MODELS=/models/kws/livekit-xiaozhi.onnx \
+LIVEKIT_WAKEWORD_THRESHOLD=0.63 \
+  bash scripts/continuous_voice_control.sh offline
+```
 
 ## 验收入口
 
@@ -250,10 +275,14 @@ bash scripts/acceptance_test.sh continuous-kws-mock
 KWS_PROVIDER=mock_text bash scripts/continuous_voice_control.sh offline
 # 安装可选依赖并配置 openwakeword_models 后，可切换为真实声学唤醒
 pip install -e "src/embodied_online_agent[kws]"
-KWS_PROVIDER=openwakeword bash scripts/continuous_voice_control.sh offline
+KWS_PROVIDER=openwakeword \
+OPENWAKEWORD_MODELS=/models/kws/xiaozhi.onnx \
+  bash scripts/continuous_voice_control.sh offline
 # 配置 livekit_wakeword_models 后，也可切换为 LiveKit WakeWord
 pip install -e "src/embodied_online_agent[livekit-kws]"
-KWS_PROVIDER=livekit bash scripts/continuous_voice_control.sh offline
+KWS_PROVIDER=livekit \
+LIVEKIT_WAKEWORD_MODELS=/models/kws/livekit-xiaozhi.onnx \
+  bash scripts/continuous_voice_control.sh offline
 ```
 
 2026-07-03 新增 CommandNormalizer：ASR final 在进入 wake/session/priority_stop 判定前会

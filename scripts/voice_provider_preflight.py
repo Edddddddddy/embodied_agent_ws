@@ -16,7 +16,7 @@ import os
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Mapping
 
 import yaml
 
@@ -52,11 +52,36 @@ def _load_section(config_path: Path, section: str) -> dict:
     return params if isinstance(params, dict) else {}
 
 
+def _non_empty(value: object) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, Iterable):
+        return bool(_truthy_paths(value))
+    return bool(str(value).strip())
+
+
+def _merged_keyword_params(keyword: dict, overrides: Mapping[str, object] | None) -> dict:
+    """Merge CLI/env overrides on top of YAML keyword_wake params.
+
+    Empty override values are ignored intentionally: users can keep using YAML as the
+    source of truth, while the continuous voice launcher can still pass optional env
+    values without accidentally clearing model paths.
+    """
+
+    merged = dict(keyword)
+    for name, value in (overrides or {}).items():
+        if _non_empty(value):
+            merged[name] = value
+    return merged
+
+
 def _truthy_paths(values: object) -> list[str]:
     if values is None:
         return []
     if isinstance(values, str):
-        candidates = [values]
+        candidates = values.split(",")
     elif isinstance(values, Iterable):
         candidates = [str(value) for value in values]
     else:
@@ -83,13 +108,16 @@ def check_voice_providers(
     vad_provider: str,
     kws_provider: str,
     config_path: Path | None = None,
+    keyword_overrides: Mapping[str, object] | None = None,
     module_finder: Callable[[str], object | None] = importlib.util.find_spec,
 ) -> ProviderPreflightReport:
     config = config_path or _default_config(mode)
     vad = (vad_provider or "energy").strip().lower()
     kws = (kws_provider or "none").strip().lower()
     silero = _load_section(config, "silero_vad")
-    keyword = _load_section(config, "keyword_wake")
+    keyword = _merged_keyword_params(
+        _load_section(config, "keyword_wake"), keyword_overrides
+    )
     blockers: list[str] = []
     warnings: list[str] = []
 
@@ -177,6 +205,13 @@ def main() -> None:
     parser.add_argument("--vad-provider", default="energy")
     parser.add_argument("--kws-provider", default="none")
     parser.add_argument("--config", type=Path, default=None)
+    parser.add_argument("--sherpa-tokens", default="")
+    parser.add_argument("--sherpa-encoder", default="")
+    parser.add_argument("--sherpa-decoder", default="")
+    parser.add_argument("--sherpa-joiner", default="")
+    parser.add_argument("--sherpa-keywords-file", default="")
+    parser.add_argument("--openwakeword-models", default="")
+    parser.add_argument("--livekit-wakeword-models", default="")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
@@ -185,6 +220,15 @@ def main() -> None:
         vad_provider=args.vad_provider,
         kws_provider=args.kws_provider,
         config_path=args.config,
+        keyword_overrides={
+            "sherpa_tokens": args.sherpa_tokens,
+            "sherpa_encoder": args.sherpa_encoder,
+            "sherpa_decoder": args.sherpa_decoder,
+            "sherpa_joiner": args.sherpa_joiner,
+            "sherpa_keywords_file": args.sherpa_keywords_file,
+            "openwakeword_models": args.openwakeword_models,
+            "livekit_wakeword_models": args.livekit_wakeword_models,
+        },
     )
     if args.json:
         payload = asdict(report)

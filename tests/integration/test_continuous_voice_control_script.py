@@ -19,6 +19,15 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
             "SPEAKER_ENABLED": "true",
             "VAD_PROVIDER": "silero",
             "KWS_PROVIDER": "openwakeword",
+            "SHERPA_KWS_TOKENS": "/models/kws/tokens.txt",
+            "SHERPA_KWS_ENCODER": "/models/kws/encoder.onnx",
+            "SHERPA_KWS_DECODER": "/models/kws/decoder.onnx",
+            "SHERPA_KWS_JOINER": "/models/kws/joiner.onnx",
+            "SHERPA_KWS_KEYWORDS_FILE": "/models/kws/keywords.txt",
+            "OPENWAKEWORD_MODELS": "/models/kws/xiaozhi.onnx,/models/kws/nihaoxiaozhi.onnx",
+            "OPENWAKEWORD_THRESHOLD": "0.42",
+            "LIVEKIT_WAKEWORD_MODELS": "/models/kws/livekit-xiaozhi.onnx",
+            "LIVEKIT_WAKEWORD_THRESHOLD": "0.63",
             "AUDIO_ENHANCER": "webrtc",
             "AEC_ENABLED": "false",
             "NOISE_SUPPRESSION_ENABLED": "true",
@@ -42,12 +51,21 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
     assert "SPEAKER_ENABLED=true" in result.stdout
     assert "VAD_PROVIDER=silero" in result.stdout
     assert "KWS_PROVIDER=openwakeword" in result.stdout
+    assert "OPENWAKEWORD_MODELS=/models/kws/xiaozhi.onnx,/models/kws/nihaoxiaozhi.onnx" in result.stdout
+    assert "OPENWAKEWORD_THRESHOLD=0.42" in result.stdout
+    assert "LIVEKIT_WAKEWORD_MODELS=/models/kws/livekit-xiaozhi.onnx" in result.stdout
+    assert "LIVEKIT_WAKEWORD_THRESHOLD=0.63" in result.stdout
     assert "AUDIO_ENHANCER=webrtc" in result.stdout
     assert "AEC_ENABLED=false" in result.stdout
     assert "NOISE_SUPPRESSION_ENABLED=true" in result.stdout
     assert "AUTO_GAIN_ENABLED=true" in result.stdout
     assert "CONTINUOUS_PREFLIGHT_ENABLED=true" in result.stdout
     assert "wake_word_enabled:=false" in result.stdout
+    assert "sherpa_tokens:=\"/models/kws/tokens.txt\"" in result.stdout
+    assert "openwakeword_models:=\"/models/kws/xiaozhi.onnx,/models/kws/nihaoxiaozhi.onnx\"" in result.stdout
+    assert "openwakeword_threshold:=0.42" in result.stdout
+    assert "livekit_wakeword_models:=\"/models/kws/livekit-xiaozhi.onnx\"" in result.stdout
+    assert "livekit_wakeword_threshold:=0.63" in result.stdout
     assert "audio_enhancer:=webrtc" in result.stdout
     assert "noise_suppression_enabled:=true" in result.stdout
 
@@ -65,3 +83,6 @@ def test_voice_launches_expose_audio_enhancer_arguments():
         assert "aec_enabled" in content, path
         assert "noise_suppression_enabled" in content, path
         assert "auto_gain_enabled" in content, path
+        assert "openwakeword_models" in content, path
+        assert "livekit_wakeword_models" in content, path
+        assert "sherpa_tokens" in content, path

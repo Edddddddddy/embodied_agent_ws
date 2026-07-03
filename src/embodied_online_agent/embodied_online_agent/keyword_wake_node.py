@@ -19,6 +19,24 @@ from .keyword_wake import (
 )
 
 
+def _string_list_param(value) -> list[str]:
+    """把 ROS 参数规范成字符串列表。
+
+    launch 文件从命令行接收 `a.onnx,b.onnx` 时通常会传成单个字符串；YAML 中则
+    可能是原生 list。这里统一在节点边界做转换，避免 detector 误把字符串按字符迭代。
+    """
+
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+    try:
+        return [str(item).strip() for item in value if str(item).strip()]
+    except TypeError:
+        text = str(value).strip()
+        return [text] if text else []
+
+
 class KeywordWakeNode(Node):
     """把 KWS detector 输出桥接到 `/agent/wake_event_input`。
 
@@ -75,7 +93,9 @@ class KeywordWakeNode(Node):
             )
         elif self._mode == "openwakeword":
             self._detector = OpenWakeWordDetector(
-                model_paths=self.get_parameter("openwakeword_models").value,
+                model_paths=_string_list_param(
+                    self.get_parameter("openwakeword_models").value
+                ),
                 threshold=float(self.get_parameter("openwakeword_threshold").value),
                 inference_framework=str(
                     self.get_parameter("openwakeword_inference_framework").value
@@ -96,7 +116,9 @@ class KeywordWakeNode(Node):
             )
         elif self._mode == "livekit":
             self._detector = LiveKitWakeWordDetector(
-                model_paths=self.get_parameter("livekit_wakeword_models").value,
+                model_paths=_string_list_param(
+                    self.get_parameter("livekit_wakeword_models").value
+                ),
                 threshold=float(self.get_parameter("livekit_wakeword_threshold").value),
                 provider_name=str(self.get_parameter("provider_name").value),
             )

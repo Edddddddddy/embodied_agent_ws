@@ -196,6 +196,37 @@ CONTINUOUS_PRINT_CONFIG=true \
 
 如果只想看 launch 原始日志，可设置 `CONTINUOUS_MONITOR_ENABLED=false`。
 
+真实 KWS provider 可直接从连续控制脚本配置，不必手改 YAML。脚本会把这些值同时传给
+`voice_provider_preflight.py` 与 `voice_turtlebot3.launch.py`：
+
+```bash
+# sherpa-onnx KeywordSpotter
+KWS_PROVIDER=sherpa \
+SHERPA_KWS_TOKENS=/models/kws/tokens.txt \
+SHERPA_KWS_ENCODER=/models/kws/encoder.onnx \
+SHERPA_KWS_DECODER=/models/kws/decoder.onnx \
+SHERPA_KWS_JOINER=/models/kws/joiner.onnx \
+SHERPA_KWS_KEYWORDS_FILE=/models/kws/keywords.txt \
+  bash scripts/continuous_voice_control.sh offline
+
+# openWakeWord；多个模型用逗号分隔
+KWS_PROVIDER=openwakeword \
+OPENWAKEWORD_MODELS=/models/kws/xiaozhi.onnx,/models/kws/nihaoxiaozhi.onnx \
+OPENWAKEWORD_THRESHOLD=0.42 \
+  bash scripts/continuous_voice_control.sh offline
+
+# LiveKit WakeWord
+KWS_PROVIDER=livekit \
+LIVEKIT_WAKEWORD_MODELS=/models/kws/livekit-xiaozhi.onnx \
+LIVEKIT_WAKEWORD_THRESHOLD=0.63 \
+  bash scripts/continuous_voice_control.sh offline
+```
+
+`CONTINUOUS_PRINT_CONFIG=true` 会打印最终 launch 命令；`CONTINUOUS_PREFLIGHT_ENABLED=true`
+会在启动 ROS/Gazebo 前检查依赖和模型路径。`openwakeword_models` 与
+`livekit_wakeword_models` 在 launch 中以字符串传递，`keyword_wake` 节点会按逗号拆成
+模型列表，和 YAML list 写法兼容。
+
 VAD endpoint 与 AudioEnhancer seam：
 
 ```bash

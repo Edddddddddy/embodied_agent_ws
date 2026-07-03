@@ -94,6 +94,48 @@ def test_openwakeword_without_custom_models_is_allowed_but_warns(tmp_path):
     assert "kws:openwakeword_using_default_models" in report.warnings
 
 
+def test_openwakeword_cli_override_reports_missing_model_path(tmp_path):
+    report = preflight.check_voice_providers(
+        mode="online",
+        vad_provider="energy",
+        kws_provider="openwakeword",
+        config_path=write_config(tmp_path / "agent.yaml"),
+        keyword_overrides={
+            "openwakeword_models": str(tmp_path / "custom_wakeword.onnx")
+        },
+        module_finder=finder("openwakeword.model"),
+    )
+
+    assert not report.ok
+    assert any(
+        item.startswith("kws:openwakeword_model_missing:") for item in report.blockers
+    )
+    assert "kws:openwakeword_using_default_models" not in report.warnings
+
+
+def test_sherpa_kws_can_be_configured_by_cli_overrides(tmp_path):
+    for name in ["tokens.txt", "encoder.onnx", "decoder.onnx", "joiner.onnx", "keywords.txt"]:
+        (tmp_path / name).write_text("stub", encoding="utf-8")
+
+    report = preflight.check_voice_providers(
+        mode="offline",
+        vad_provider="energy",
+        kws_provider="sherpa",
+        config_path=write_config(tmp_path / "agent.yaml"),
+        keyword_overrides={
+            "sherpa_tokens": str(tmp_path / "tokens.txt"),
+            "sherpa_encoder": str(tmp_path / "encoder.onnx"),
+            "sherpa_decoder": str(tmp_path / "decoder.onnx"),
+            "sherpa_joiner": str(tmp_path / "joiner.onnx"),
+            "sherpa_keywords_file": str(tmp_path / "keywords.txt"),
+        },
+        module_finder=finder("sherpa_onnx"),
+    )
+
+    assert report.ok
+    assert report.blockers == ()
+
+
 def test_livekit_requires_custom_model_paths(tmp_path):
     report = preflight.check_voice_providers(
         mode="online",
