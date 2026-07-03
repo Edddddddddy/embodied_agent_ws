@@ -2,13 +2,22 @@ import queue
 import threading
 import time
 from dataclasses import dataclass
+from enum import Enum
 from typing import Iterable, Optional
 
 from .wakeword import WakeWordGate
+from .wake_provider import TextWakeProvider, WakeDecision, WakeEvent, WakeEventKind
 
 
 DEFAULT_SLEEP_WORDS = ("退出控制", "结束控制", "休眠", "睡眠", "先这样")
 DEFAULT_PRIORITY_STOP_WORDS = ("停下", "停止", "急停", "刹车", "别动")
+
+
+class SessionEventKind(str, Enum):
+    WAKE = "wake"
+    COMMAND = "command"
+    REJECTED = "rejected"
+    SLEEP = "sleep"
 
 
 @dataclass(frozen=True)
@@ -24,6 +33,25 @@ class SessionDecision:
     reason: str
     session_active: bool
     priority_stop: bool = False
+    event: "SessionEvent" = None
+
+
+@dataclass(frozen=True)
+class SessionEvent:
+    kind: SessionEventKind
+    session_state: str
+    wake_event: WakeEvent
+    transcript: str = ""
+    command: Optional[str] = None
+
+    def as_dict(self) -> dict:
+        return {
+            "kind": self.kind.value,
+            "session_state": self.session_state,
+            "wake_event": self.wake_event.as_dict(),
+            "transcript": self.transcript,
+            "command": self.command,
+        }
 
 
 @dataclass(frozen=True)
@@ -51,13 +79,17 @@ class ContinuousVoiceSession:
 
     def __init__(
         self,
-        wake_gate: WakeWordGate,
+        wake_gate: WakeWordGate | TextWakeProvider,
         *,
         enabled: bool,
         sleep_words: Iterable[str] = DEFAULT_SLEEP_WORDS,
         priority_stop_words: Iterable[str] = DEFAULT_PRIORITY_STOP_WORDS,
     ):
-        self._wake_gate = wake_gate
+        self._wake_provider = (
+            wake_gate
+            if isinstance(wake_gate, TextWakeProvider)
+            else TextWakeProvider.from_gate(wake_gate)
+        )
         self.enabled = enabled
         self._sleep_words = tuple(word for word in sleep_words if word)
         self._priority_stop_words = tuple(word for word in priority_stop_words if word)
@@ -65,29 +97,89 @@ class ContinuousVoiceSession:
     def accept(self, transcript: str) -> SessionDecision:
         text = transcript.strip()
         if not text:
-            return SessionDecision(None, False, "empty", self._wake_gate.active)
+            return self._decision_from_wake(
+                WakeDecision(
+                    None,
+                    self._wake_provider.active,
+                    WakeEvent(WakeEventKind.REJECTED, "text", transcript, None),
+                ),
+                accepted=False,
+                reason="empty",
+                command=None,
+                priority_stop=False,
+            )
 
         if self.enabled and self._contains_any(text, self._sleep_words):
-            self._wake_gate.sleep()
-            return SessionDecision(None, False, "session_sleep", False)
+            wake_event = self._wake_provider.sleep()
+            return SessionDecision(
+                None,
+                False,
+                "session_sleep",
+                False,
+                False,
+                SessionEvent(
+                    SessionEventKind.SLEEP,
+                    "sleeping",
+                    wake_event,
+                    transcript,
+                    None,
+                ),
+            )
 
-        command = self._wake_gate.process(text)
+        wake_decision = self._wake_provider.accept(text)
+        command = wake_decision.command
         if command is None:
-            reason = "session_awake" if self._wake_gate.active else "wake_word_not_detected"
-            return SessionDecision(None, False, reason, self._wake_gate.active)
+            reason = "session_awake" if wake_decision.active else "wake_word_not_detected"
+            return self._decision_from_wake(
+                wake_decision,
+                accepted=False,
+                reason=reason,
+                command=None,
+                priority_stop=False,
+            )
 
         priority_stop = self._contains_any(command, self._priority_stop_words)
-        return SessionDecision(
-            command,
-            True,
-            "accepted",
-            self._wake_gate.active,
+        return self._decision_from_wake(
+            wake_decision,
+            accepted=True,
+            reason="accepted",
+            command=command,
             priority_stop=priority_stop,
         )
 
     @staticmethod
     def _contains_any(text: str, words: Iterable[str]) -> bool:
         return any(word in text for word in words)
+
+    @staticmethod
+    def _session_kind(wake_event: WakeEvent, accepted: bool) -> SessionEventKind:
+        if wake_event.kind == WakeEventKind.SLEEP:
+            return SessionEventKind.SLEEP
+        if accepted:
+            return SessionEventKind.COMMAND
+        if wake_event.kind == WakeEventKind.WAKE:
+            return SessionEventKind.WAKE
+        return SessionEventKind.REJECTED
+
+    def _decision_from_wake(
+        self,
+        wake_decision: WakeDecision,
+        *,
+        accepted: bool,
+        reason: str,
+        command: Optional[str],
+        priority_stop: bool,
+    ) -> SessionDecision:
+        kind = self._session_kind(wake_decision.event, accepted)
+        state = "awake" if wake_decision.active else "sleeping"
+        return SessionDecision(
+            command,
+            accepted,
+            reason,
+            wake_decision.active,
+            priority_stop,
+            SessionEvent(kind, state, wake_decision.event, wake_decision.event.transcript, command),
+        )
 
 
 class ContinuousCommandQueue:

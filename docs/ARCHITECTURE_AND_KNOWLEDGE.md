@@ -73,6 +73,7 @@ PortAudio 回调只搬运数据，不执行网络、日志或模型推理；这�
 | `protocol.py` | `<speech>/<action>` 增量解析与按句 TTS 分块 |
 | `command_fallback.py` | 有限机器人命令的确定性语义兜底 |
 | `continuous_voice.py` | 连续会话状态机、命令队列和 stop 优先级语义 |
+| `wake_provider.py` | 文本唤醒 provider seam，输出 wake/continue/sleep/rejected 事件 |
 | `wakeword.py` | 文本唤醒窗口与兼容别名 |
 | `recognition_retry.py` | 可观测重试计数，不锁死监听 |
 | `memory.py` | 有界、原子写入的对话记忆 |
@@ -88,6 +89,11 @@ PortAudio 回调只搬运数据，不执行网络、日志或模型推理；这�
 `continuous_control_enabled:=true` 时不再因 `_busy` 丢弃 ASR final，而是让 worker 串行
 消费队列。stop 会同时清空等待队列、调用 `SequentialActionPublisher.cancel()` 取消正在
 等待 result 的组合动作，并立即发布 `stop` candidate。
+
+唤醒词当前仍是文本级实现：ASR final 先经过 `TextWakeProvider`，再由连续会话消费结构化
+`WakeEvent`。ROS 侧 `/agent/wake_event` 暴露 provider、事件种类和原始 transcript，
+`/agent/session_state` 暴露 `awake/sleeping`。后续接 sherpa-onnx KWS 或 openWakeWord 时，
+新的 provider 只需产生相同事件契约，Agent 队列和动作执行层不用感知具体 KWS。
 
 ### `embodied_offline_agent`
 
@@ -149,6 +155,8 @@ active action、sensor stale、safety stopped 与原因。
 | `/agent/asr_final` | ASR -> 观测者 | 最终识别文本 |
 | `/agent/recognition_feedback` | Agent -> UI/验收器 | 失败原因、次数和重试提示 |
 | `/agent/state` | Agent -> UI/验收器 | listening、queued、thinking、speaking、session_awake、sleeping |
+| `/agent/wake_event` | WakeProvider -> UI/验收器 | text/sherpa/openWakeWord 等 provider 的 wake/continue/sleep/rejected |
+| `/agent/session_state` | ContinuousVoiceSession -> UI/验收器 | awake 或 sleeping |
 | `/agent/action_candidate` | parser -> ActionGuard | 未可信动作 JSON |
 | `/robot/action_command` | ActionGuard -> executor | 已校验、已限幅动作 |
 | `/robot/action_command_typed` | ActionGuard -> 新 executor | 等价的强类型可信动作 |
@@ -243,12 +251,14 @@ adapter，而不是把串口重试、CRC 和 ROS Action 全塞进一个类。
   →Confirm，支持取消、抢占、障碍、超时和急停；同一实现支持独立进程、component
   container 和 namespace 隔离。
 - 部署 Qwen3-0.6B Q8/llama.cpp、ZipFormer 与 Sherpa-TTS；当前环境 CPU decode
-  34.10 token/s、离线整轮 2.313 s、在线热启动首 token 350–384 ms；建立 149 项 colcon
+  34.10 token/s、离线整轮 2.313 s、在线热启动首 token 350–384 ms；建立 154 项 colcon
   测试、2 项仓库约束测试及 mock/online/offline/Gazebo/continuous mock 分层 release gates。
 - 新增连续语音控制状态机：一次唤醒后多命令 FIFO 排队，退出控制休眠，停下/急停可清空
   等待队列并抢占当前组合动作，适合长时间麦克风控制 Gazebo 演示。
 - 补齐 VAD endpoint seam：C++ AudioFrontend 增加 speech started/ended topic 和端点参数，
   online/offline Agent 可由 `speech_ended` commit ASR；Silero/ONNX adapter 尚未接入。
+- 补齐 WakeProvider seam：文本唤醒输出结构化 wake event 和 session_state，为后续
+  sherpa-onnx KWS/openWakeWord adapter 留出替换点。
 
 面试时必须主动说明：LoRA 尚未训练；2/8 是原始模型成绩，7/8 是 fallback 后系统成绩；
 冷启动在线 LLM 不达 1 秒；所有性能数字均是当前机器少量样本，不是生产 SLA。

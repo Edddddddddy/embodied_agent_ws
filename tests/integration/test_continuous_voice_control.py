@@ -15,9 +15,13 @@ class ContinuousVoiceProbe(Node):
         super().__init__("continuous_voice_probe")
         self.text_pub = self.create_publisher(String, "/agent/text_input", 10)
         self.states = []
+        self.session_states = []
+        self.wake_events = []
         self.candidates = []
         self.results = []
         self.create_subscription(String, "/agent/state", self._on_state, 10)
+        self.create_subscription(String, "/agent/session_state", self._on_session_state, 10)
+        self.create_subscription(String, "/agent/wake_event", self._on_wake_event, 10)
         self.create_subscription(
             String, "/agent/action_candidate", self._on_candidate, 10
         )
@@ -25,6 +29,12 @@ class ContinuousVoiceProbe(Node):
 
     def _on_state(self, message):
         self.states.append(message.data)
+
+    def _on_session_state(self, message):
+        self.session_states.append(message.data)
+
+    def _on_wake_event(self, message):
+        self.wake_events.append(json.loads(message.data))
 
     def _on_candidate(self, message):
         self.candidates.append(json.loads(message.data))
@@ -72,17 +82,26 @@ def main():
             raise RuntimeError(f"unexpected continuous command order: {names}")
 
         node.text_pub.publish(String(data="退出控制"))
-        wait_until(lambda: "sleeping" in node.states, 5.0, "session did not sleep")
+        wait_until(
+            lambda: "sleeping" in node.states and "sleeping" in node.session_states,
+            5.0,
+            "session did not sleep",
+        )
         before = len(node.candidates)
         node.text_pub.publish(String(data="向前走一秒"))
         time.sleep(1.0)
         if len(node.candidates) != before:
             raise RuntimeError("command without wake word was accepted after sleep")
+        wake_kinds = [event.get("kind") for event in node.wake_events]
+        if "wake" not in wake_kinds or "sleep" not in wake_kinds:
+            raise RuntimeError(f"wake/session events were not published: {node.wake_events}")
 
         print(json.dumps({
             "candidate_sequence": names,
             "result_count": len(node.results),
             "states_tail": node.states[-6:],
+            "session_states_tail": node.session_states[-6:],
+            "wake_event_kinds": wake_kinds,
             "status": "PASS",
         }, ensure_ascii=False, indent=2))
     finally:

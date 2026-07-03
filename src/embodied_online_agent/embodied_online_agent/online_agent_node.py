@@ -75,6 +75,8 @@ class OnlineAgentNode(Node):
             String, "/agent/action_candidate", 10
         )
         self.state_pub = self.create_publisher(String, "/agent/state", 10)
+        self.wake_event_pub = self.create_publisher(String, "/agent/wake_event", 10)
+        self.session_state_pub = self.create_publisher(String, "/agent/session_state", 10)
         self.recognition_feedback_pub = self.create_publisher(
             String, "/agent/recognition_feedback", 10
         )
@@ -272,6 +274,7 @@ class OnlineAgentNode(Node):
 
     def _accept_transcript(self, transcript: str):
         decision = self.voice_session.accept(transcript)
+        self._publish_session_event(decision.event)
         if not decision.accepted or decision.command is None:
             if decision.reason == "session_sleep":
                 self._command_queue.clear()
@@ -473,6 +476,12 @@ class OnlineAgentNode(Node):
 
     def _publish_state(self, state: str):
         self.state_pub.publish(String(data=state))
+
+    def _publish_session_event(self, event):
+        self.wake_event_pub.publish(
+            String(data=json.dumps(event.wake_event.as_dict(), ensure_ascii=False))
+        )
+        self.session_state_pub.publish(String(data=event.session_state))
 
     def shutdown(self):
         self._stopping = True

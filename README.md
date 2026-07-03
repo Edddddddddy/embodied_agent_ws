@@ -16,6 +16,8 @@
 - VAD seam：AudioFrontend 发布 `/audio/speech_started` 与 `/audio/speech_ended`，
   仍兼容旧 `/audio/silence_timeout`；当前 provider 为 energy，Silero adapter 待接入。
 - 识别恢复：热词偏置、唤醒别名、失败反馈和持续重试。
+- 唤醒 seam：默认 `TextWakeProvider` 发布 `/agent/wake_event` 与
+  `/agent/session_state`；后续可替换为 sherpa-onnx KWS/openWakeWord。
 - 连续控制：一次“小智”唤醒后进入 60 秒会话，后续命令排队顺序执行，停下/急停抢占。
 - 动作安全：结构化动作、C++ schema 校验、限幅、急停和 watchdog。
 - 丰富演示：支持原地转一圈、绕圈/画圆、走正方形和“演示一下”组合动作。
@@ -153,7 +155,7 @@ Q8 CPU decode 34.10 token/s、语音全链 2.313 s；typed Action/BT 驱动 Gaze
 
 2026-07-03 新增连续语音控制第一阶段：online/offline Agent 复用
 `ContinuousVoiceSession` 与 `ContinuousCommandQueue`，支持一次唤醒后的多命令排队、
-退出控制休眠、stop 优先级抢占。当前自动证据：149 项 colcon 测试通过，
+退出控制休眠、stop 优先级抢占。当前自动证据：154 项 colcon 测试通过，
 `acceptance_test.sh continuous-mock` 分别验证 online/offline mock 的
 `小智 -> move -> turn -> arc -> 退出控制` 链路。
 
@@ -162,6 +164,11 @@ Q8 CPU decode 34.10 token/s、语音全链 2.313 s；typed Action/BT 驱动 Gaze
 `max_utterance_s` 参数和 `/audio/speech_started`、`/audio/speech_ended` topic。
 online/offline Agent 已订阅 `speech_ended` 触发 ASR commit，并对旧
 `silence_timeout` 做 50 ms 去重兼容。当前尚未引入 Silero/ONNX 依赖。
+
+2026-07-03 新增 WakeProvider seam：当前文本唤醒逻辑被包装为
+`TextWakeProvider`，并发布 `/agent/wake_event` 与 `/agent/session_state`。连续控制测试
+已验证 `wake -> continue -> sleep -> rejected` 事件链；sherpa-onnx KWS、openWakeWord
+和 LiveKit WakeWord 仍是后续可选 adapter。
 
 ## 项目结构
 

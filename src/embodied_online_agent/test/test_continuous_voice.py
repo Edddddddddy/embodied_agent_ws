@@ -1,8 +1,7 @@
-from queue import Full
-
 from embodied_online_agent.continuous_voice import (
     ContinuousCommandQueue,
     ContinuousVoiceSession,
+    SessionEventKind,
 )
 from embodied_online_agent.wakeword import WakeWordGate
 
@@ -24,8 +23,11 @@ def test_one_wake_word_opens_a_continuous_control_session():
     second_command = session.accept("左转九十度")
 
     assert wake_only.reason == "session_awake"
+    assert wake_only.event.kind == SessionEventKind.WAKE
+    assert wake_only.event.session_state == "awake"
     assert first_command.accepted
     assert first_command.command == "向前走一秒"
+    assert first_command.event.kind == SessionEventKind.COMMAND
     assert second_command.accepted
     assert second_command.command == "左转九十度"
 
@@ -40,7 +42,10 @@ def test_sleep_phrase_closes_the_continuous_control_session():
 
     assert sleeping.reason == "session_sleep"
     assert not sleeping.session_active
+    assert sleeping.event.kind == SessionEventKind.SLEEP
+    assert sleeping.event.session_state == "sleeping"
     assert rejected.reason == "wake_word_not_detected"
+    assert rejected.event.kind == SessionEventKind.REJECTED
 
 
 def test_stop_intent_is_marked_as_priority_command():
@@ -52,6 +57,7 @@ def test_stop_intent_is_marked_as_priority_command():
     assert decision.accepted
     assert decision.priority_stop
     assert decision.command == "急停"
+    assert decision.event.kind == SessionEventKind.COMMAND
 
 
 def test_priority_stop_clears_waiting_commands_before_enqueueing_stop():

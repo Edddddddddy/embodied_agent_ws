@@ -24,6 +24,7 @@
 | rich simulation demo | 当前 | `arc` 弧线动作、组合动作顺序执行、mock demo 验收与企业化分支流程 |
 | 连续语音控制 | 当前 | 一次唤醒多命令队列、退出控制、stop 抢占与 online/offline mock 验收 |
 | VAD endpoint seam | 当前 | speech_started/speech_ended topic、端点参数和 legacy silence 兼容 |
+| WakeProvider seam | 当前 | TextWakeProvider、wake_event/session_state topic 与 KWS adapter 预留 |
 
 ## 2. 当前结论
 
