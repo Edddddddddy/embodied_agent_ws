@@ -71,7 +71,7 @@ PortAudio 回调只搬运数据，不执行网络、日志或模型推理；这�
 | `online_agent_node.py` | ROS 与一轮在线对话的编排 |
 | `providers/` | mock、Qwen 实时 ASR/TTS、OpenAI-compatible LLM adapter |
 | `protocol.py` | `<speech>/<action>` 增量解析与按句 TTS 分块 |
-| `command_normalizer.py` | ASR 错词归一化，优先 RapidFuzz，默认错词表 fallback |
+| `command_normalizer.py` | ASR 错词归一化，优先 RapidFuzz，支持默认/外置 YAML 词表 |
 | `command_fallback.py` | 有限机器人命令的确定性语义兜底 |
 | `continuous_voice.py` | 连续会话状态机、命令队列和 stop 优先级语义 |
 | `wake_provider.py` | 文本唤醒 provider seam，输出 wake/continue/sleep/rejected 事件 |

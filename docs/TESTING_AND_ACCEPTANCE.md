@@ -125,6 +125,10 @@ ros2 topic echo /agent/recognition_feedback
 `CommandNormalizer` 在 wake/session/priority_stop 判定前运行，能把“钱进一秒”“作转九十度”
 “让圈”“亭下”等常见 ASR 错词转成规范命令。`continuous-mock` 会故意发送这些错词，
 并要求 online/offline 都发布 `command_normalized` 反馈和正确动作序列。
+默认错词表是 `src/embodied_online_agent/config/command_normalization_zh.yaml`，安装后会随
+`embodied_online_agent` 包一起进入 share 目录。真实麦克风测试中发现新错词时，优先复制
+该 YAML 并用 `command_normalization_path:=/path/to/your.yaml` 覆盖；如果离线 ASR 总是把
+某个控制短语听歪，再同步补充 `src/embodied_offline_agent/config/hotwords_zh.txt`。
 默认不强制安装外部依赖；如需启用成熟 RapidFuzz scorer，可执行：
 
 ```bash

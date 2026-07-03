@@ -62,7 +62,8 @@ class OnlineAgentNode(Node):
             self._param("recognition_max_retries")
         )
         self.command_normalizer = CommandNormalizer(
-            fuzzy_threshold=float(self._param("command_normalization_fuzzy_threshold"))
+            fuzzy_threshold=float(self._param("command_normalization_fuzzy_threshold")),
+            rules_path=self._command_normalization_path(),
         )
         self.action_sequencer = SequentialActionPublisher(
             self._param("action_sequence_wait_timeout_s")
@@ -163,6 +164,7 @@ class OnlineAgentNode(Node):
             "command_normalization_enabled": True,
             "command_normalization_feedback_enabled": True,
             "command_normalization_fuzzy_threshold": 0.82,
+            "command_normalization_path": "",
             "memory_path": "~/.ros/embodied_agent/memory.json",
             "memory_max_turns": 10,
             "system_prompt_path": "",
@@ -200,6 +202,16 @@ class OnlineAgentNode(Node):
         else:
             path = Path(get_package_share_directory("embodied_online_agent")) / "prompts" / "system_prompt_zh.txt"
         return path.read_text(encoding="utf-8")
+
+    def _command_normalization_path(self) -> Path | str:
+        configured = self._param("command_normalization_path")
+        if configured:
+            return Path(os.path.expanduser(configured))
+        return (
+            Path(get_package_share_directory("embodied_online_agent"))
+            / "config"
+            / "command_normalization_zh.yaml"
+        )
 
     def _create_providers(self):
         if self.mode == "mock":

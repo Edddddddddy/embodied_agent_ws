@@ -14,6 +14,9 @@ offline_agent:
     command_normalization_enabled: true
     command_normalization_feedback_enabled: true
     command_normalization_fuzzy_threshold: 0.82
+    # 留空时加载 embodied_online_agent/config/command_normalization_zh.yaml。
+    # 离线/在线共用同一份错词表，避免两条链路行为不一致。
+    command_normalization_path: ""
     memory_path: "~/.ros/embodied_agent/offline_memory.json"
     memory_max_turns: 6
     system_prompt_path: ""

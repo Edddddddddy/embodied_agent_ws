@@ -181,7 +181,10 @@ sidecar，AudioFrontend 只发布 `/audio/clean_pcm`，由 sidecar 接管端点�
 先做命令归一化，当前覆盖“钱进→前进”“作转→左转”“亭下→停下”“让圈→绕圈”等常见
 短控制词错识别；若安装 RapidFuzz 会自动用其相似度 scorer，否则使用内置错词表和
 轻量匹配。归一化事件通过 `/agent/recognition_feedback` 发布，monitor 显示为
-`[normalize] 原文 -> 规范文本`。
+`[normalize] 原文 -> 规范文本`。默认会加载
+`src/embodied_online_agent/config/command_normalization_zh.yaml`，也可通过
+`command_normalization_path` 指向自己的错词表；离线 ASR 热词表位于
+`src/embodied_offline_agent/config/hotwords_zh.txt`。
 
 2026-07-03 新增 CommandExecutionTracker：online/offline 连续模式发布
 `/agent/command_queue` 与 `/agent/command_execution`，用于观测真实队列长度、清队列、

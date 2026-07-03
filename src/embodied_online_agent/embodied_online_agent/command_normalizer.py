@@ -15,10 +15,83 @@ import json
 import re
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
+from pathlib import Path
 from typing import Iterable, Protocol
 
 
 _PUNCTUATION = re.compile(r"[，。！？!?\s]")
+
+
+DEFAULT_ALIASES: tuple[tuple[str, str], ...] = (
+    ("你好小志", "你好小智"),
+    ("你好小治", "你好小智"),
+    ("晓智", "小智"),
+    ("晓志", "小智"),
+    ("小志", "小智"),
+    ("小治", "小智"),
+    ("小只", "小智"),
+    ("小之", "小智"),
+    ("向钱", "向前"),
+    ("相前", "向前"),
+    ("像前", "向前"),
+    ("项前", "向前"),
+    ("前景", "前进"),
+    ("前镜", "前进"),
+    ("钱进", "前进"),
+    ("后腿", "后退"),
+    ("候退", "后退"),
+    ("厚退", "后退"),
+    ("作转", "左转"),
+    ("坐转", "左转"),
+    ("左传", "左转"),
+    ("佐转", "左转"),
+    ("有转", "右转"),
+    ("又转", "右转"),
+    ("右传", "右转"),
+    ("右赚", "右转"),
+    ("亭下", "停下"),
+    ("听下", "停下"),
+    ("停吓", "停下"),
+    ("停夏", "停下"),
+    ("吉停", "急停"),
+    ("急亭", "急停"),
+    ("让圈", "绕圈"),
+    ("饶圈", "绕圈"),
+    ("绕权", "绕圈"),
+    ("花圆", "画圆"),
+    ("画原", "画圆"),
+    ("化圆", "画圆"),
+    ("证方形", "正方形"),
+    ("正方向", "正方形"),
+    ("正方行", "正方形"),
+    ("演示以下", "演示一下"),
+    ("演示一夏", "演示一下"),
+    ("展示以下", "展示一下"),
+    ("退出控住", "退出控制"),
+    ("结束控住", "结束控制"),
+    ("休民", "休眠"),
+)
+
+
+DEFAULT_CANONICAL_PHRASES: tuple[str, ...] = (
+    "小智",
+    "你好小智",
+    "向前",
+    "前进",
+    "后退",
+    "左转",
+    "右转",
+    "停下",
+    "停止",
+    "急停",
+    "绕圈",
+    "画圆",
+    "正方形",
+    "演示一下",
+    "退出控制",
+    "结束控制",
+    "休眠",
+)
 
 
 @dataclass(frozen=True)
@@ -67,6 +140,134 @@ class NormalizationResult:
         )
 
 
+@dataclass(frozen=True)
+class NormalizationRules:
+    aliases: tuple[tuple[str, str], ...] = DEFAULT_ALIASES
+    canonical_phrases: tuple[str, ...] = DEFAULT_CANONICAL_PHRASES
+
+    @classmethod
+    def defaults(cls) -> "NormalizationRules":
+        return cls()
+
+    @classmethod
+    def from_yaml(cls, path: str | Path | None) -> "NormalizationRules":
+        if not path:
+            return cls.defaults()
+        config_path = Path(path).expanduser()
+        if not config_path.exists():
+            return cls.defaults()
+
+        data = _load_yaml_dict(config_path)
+        aliases = list(DEFAULT_ALIASES)
+        for item in data.get("aliases", []) or []:
+            parsed = _parse_alias_item(item)
+            if parsed is not None:
+                aliases.append(parsed)
+
+        canonical = list(DEFAULT_CANONICAL_PHRASES)
+        for phrase in data.get("canonical_phrases", []) or []:
+            value = str(phrase).strip()
+            if value and value not in canonical:
+                canonical.append(value)
+
+        return cls(tuple(_dedupe_pairs(aliases)), tuple(_dedupe(canonical)))
+
+
+def _load_yaml_dict(path: Path) -> dict:
+    text = path.read_text(encoding="utf-8")
+    try:
+        import yaml
+
+        loaded = yaml.safe_load(text) or {}
+        return loaded if isinstance(loaded, dict) else {}
+    except Exception:
+        return _load_simple_yaml(text)
+
+
+def _load_simple_yaml(text: str) -> dict:
+    """解析本项目命令词表用到的 YAML 子集。
+
+    支持：
+      aliases:
+        - source: 钱进
+          target: 前进
+        - [作转, 左转]
+      canonical_phrases:
+        - 前进
+    """
+
+    result: dict[str, list] = {"aliases": [], "canonical_phrases": []}
+    section = ""
+    pending_alias: dict[str, str] | None = None
+    for raw in text.splitlines():
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped in {"aliases:", "canonical_phrases:"}:
+            if pending_alias:
+                result["aliases"].append(pending_alias)
+                pending_alias = None
+            section = stripped[:-1]
+            continue
+        if section == "aliases":
+            if stripped.startswith("- [") and stripped.endswith("]"):
+                inside = stripped[3:-1]
+                parts = [part.strip().strip("'\"") for part in inside.split(",", 1)]
+                if len(parts) == 2:
+                    result["aliases"].append(parts)
+                continue
+            if stripped.startswith("- source:"):
+                if pending_alias:
+                    result["aliases"].append(pending_alias)
+                pending_alias = {"source": stripped.split(":", 1)[1].strip().strip("'\"")}
+                continue
+            if stripped.startswith("target:") and pending_alias is not None:
+                pending_alias["target"] = stripped.split(":", 1)[1].strip().strip("'\"")
+                continue
+        elif section == "canonical_phrases" and stripped.startswith("- "):
+            result["canonical_phrases"].append(stripped[2:].strip().strip("'\""))
+    if pending_alias:
+        result["aliases"].append(pending_alias)
+    return result
+
+
+def _parse_alias_item(item) -> tuple[str, str] | None:
+    if isinstance(item, dict):
+        source = str(item.get("source", "")).strip()
+        target = str(item.get("target", "")).strip()
+    elif isinstance(item, (list, tuple)) and len(item) == 2:
+        source = str(item[0]).strip()
+        target = str(item[1]).strip()
+    else:
+        return None
+    if not source or not target:
+        return None
+    return (source, target)
+
+
+def _dedupe(values: Iterable[str]) -> list[str]:
+    seen = set()
+    result = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
+
+
+def _dedupe_pairs(values: Iterable[tuple[str, str]]) -> list[tuple[str, str]]:
+    seen = set()
+    result = []
+    for source, target in values:
+        key = (source, target)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(key)
+    return result
+
+
 class SimilarityScorer(Protocol):
     name: str
 
@@ -105,81 +306,17 @@ def default_scorer() -> SimilarityScorer:
 class CommandNormalizer:
     """规范化 ASR 文本，尽量只修控制命令，不改普通聊天内容。"""
 
-    # 按长短从前到后匹配，避免“演示一下”先被“一下”之类短词扰动。
-    _ALIASES: tuple[tuple[str, str], ...] = (
-        ("你好小志", "你好小智"),
-        ("你好小治", "你好小智"),
-        ("晓智", "小智"),
-        ("晓志", "小智"),
-        ("小志", "小智"),
-        ("小治", "小智"),
-        ("小只", "小智"),
-        ("小之", "小智"),
-        ("向钱", "向前"),
-        ("相前", "向前"),
-        ("像前", "向前"),
-        ("项前", "向前"),
-        ("前景", "前进"),
-        ("前镜", "前进"),
-        ("钱进", "前进"),
-        ("后腿", "后退"),
-        ("候退", "后退"),
-        ("厚退", "后退"),
-        ("作转", "左转"),
-        ("坐转", "左转"),
-        ("左传", "左转"),
-        ("佐转", "左转"),
-        ("有转", "右转"),
-        ("又转", "右转"),
-        ("右传", "右转"),
-        ("右赚", "右转"),
-        ("亭下", "停下"),
-        ("听下", "停下"),
-        ("停吓", "停下"),
-        ("停夏", "停下"),
-        ("吉停", "急停"),
-        ("急亭", "急停"),
-        ("让圈", "绕圈"),
-        ("饶圈", "绕圈"),
-        ("绕权", "绕圈"),
-        ("花圆", "画圆"),
-        ("画原", "画圆"),
-        ("化圆", "画圆"),
-        ("证方形", "正方形"),
-        ("正方向", "正方形"),
-        ("正方行", "正方形"),
-        ("演示以下", "演示一下"),
-        ("演示一夏", "演示一下"),
-        ("展示以下", "展示一下"),
-        ("退出控住", "退出控制"),
-        ("结束控住", "结束控制"),
-        ("休民", "休眠"),
-    )
-
-    # 只有这些领域词会参与模糊替换；普通句子不会被整句改写。
-    _CANONICAL_PHRASES: tuple[str, ...] = (
-        "小智",
-        "你好小智",
-        "向前",
-        "前进",
-        "后退",
-        "左转",
-        "右转",
-        "停下",
-        "停止",
-        "急停",
-        "绕圈",
-        "画圆",
-        "正方形",
-        "演示一下",
-        "退出控制",
-        "结束控制",
-        "休眠",
-    )
-
-    def __init__(self, *, scorer: SimilarityScorer | None = None, fuzzy_threshold: float = 0.82):
+    def __init__(
+        self,
+        *,
+        scorer: SimilarityScorer | None = None,
+        fuzzy_threshold: float = 0.82,
+        rules: NormalizationRules | None = None,
+        rules_path: str | Path | None = None,
+    ):
         self._scorer = scorer or default_scorer()
         self._fuzzy_threshold = fuzzy_threshold
+        self._rules = rules or NormalizationRules.from_yaml(rules_path)
 
     def normalize(self, text: str) -> NormalizationResult:
         original = text.strip()
@@ -200,7 +337,8 @@ class CommandNormalizer:
     def _apply_aliases(self, text: str) -> tuple[str, list[NormalizationMatch]]:
         matches: list[NormalizationMatch] = []
         result = text
-        for source, target in self._ALIASES:
+        # 按长短从前到后匹配，避免“演示一下”先被“一下”之类短词扰动。
+        for source, target in sorted(self._rules.aliases, key=lambda item: len(item[0]), reverse=True):
             if source in result:
                 result = result.replace(source, target)
                 matches.append(NormalizationMatch(source, target, 1.0, "alias"))
@@ -209,7 +347,7 @@ class CommandNormalizer:
     def _apply_fuzzy_phrases(self, text: str) -> tuple[str, list[NormalizationMatch]]:
         result = text
         matches: list[NormalizationMatch] = []
-        for phrase in self._CANONICAL_PHRASES:
+        for phrase in self._rules.canonical_phrases:
             if phrase in result:
                 continue
             candidate = self._best_window(result, phrase)

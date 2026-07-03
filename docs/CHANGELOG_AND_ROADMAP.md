@@ -29,6 +29,7 @@
 | 连续演示 monitor | 当前 | 终端持续打印 session/asr/queue/action/result，便于真人麦克风演示 |
 | CommandExecutionTracker | 当前 | command_queue/command_execution topic 暴露队列长度和执行生命周期 |
 | 连续急停验收 | 当前 | continuous-mock 验证 priority stop 清队列、发布 stop、最终 cmd_vel 归零 |
+| 可配置命令纠错 | 当前 | 默认 YAML 错词表、`command_normalization_path` 覆盖参数和离线 sherpa hotwords 扩充 |
 
 ## 2. 当前结论
 
