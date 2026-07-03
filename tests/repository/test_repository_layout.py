@@ -20,7 +20,10 @@ def test_critical_full_chain_probes_remain_discoverable():
         "test_recognition_retry.py",
         "test_continuous_command_ttl.py",
         "test_continuous_session_timeout.py",
+        "test_continuous_voice_control.py",
         "test_continuous_voice_control_script.py",
+        "test_continuous_voice_monitor.py",
+        "test_continuous_kws_sidecar.py",
         "test_voice_provider_preflight.py",
         "test_audio_frontend_calibration.py",
         "test_typed_action_server.py",
@@ -66,3 +69,46 @@ def test_audio_endpoint_events_remain_wired_through_frontend_and_agents():
     assert "endpoint_events_enabled" in audio_frontend
     assert "speech_started_publisher_->publish" in audio_frontend
     assert "speech_ended_publisher_->publish" in audio_frontend
+
+
+def test_continuous_voice_state_machine_remains_shared_by_online_and_offline_agents():
+    """online/offline Agent 必须共享连续会话、队列与执行追踪模块。
+
+    连续语音控制最容易在修 bug 时退回“两份差不多的状态机”。这里用结构测试锁住
+    deep module 边界：状态机/队列/执行事件在 embodied_online_agent.continuous_voice，
+    两个 Agent 只负责 ROS wiring 和 provider 差异。
+    """
+
+    shared = (
+        ROOT
+        / "src"
+        / "embodied_online_agent"
+        / "embodied_online_agent"
+        / "continuous_voice.py"
+    ).read_text(encoding="utf-8")
+    online_agent = (
+        ROOT
+        / "src"
+        / "embodied_online_agent"
+        / "embodied_online_agent"
+        / "online_agent_node.py"
+    ).read_text(encoding="utf-8")
+    offline_agent = (
+        ROOT
+        / "src"
+        / "embodied_offline_agent"
+        / "embodied_offline_agent"
+        / "offline_agent_node.py"
+    ).read_text(encoding="utf-8")
+
+    for class_name in (
+        "ContinuousVoiceSession",
+        "ContinuousCommandQueue",
+        "CommandExecutionTracker",
+    ):
+        assert f"class {class_name}" in shared
+        assert class_name in online_agent
+        assert class_name in offline_agent
+
+    assert "from .continuous_voice import" in online_agent
+    assert "from embodied_online_agent.continuous_voice import" in offline_agent
