@@ -125,3 +125,16 @@ def test_monitor_formats_normalization_feedback():
     )
 
     assert monitor.format_recognition_feedback(feedback) == "[normalize] 钱进一秒 -> 前进一秒"
+
+
+def test_monitor_formats_ignored_recognition_feedback():
+    feedback = json.dumps(
+        {
+            "status": "ignored",
+            "reason": "filler",
+            "transcript": "嗯。",
+        },
+        ensure_ascii=False,
+    )
+
+    assert monitor.format_recognition_feedback(feedback) == "[ignore] filler 嗯。"

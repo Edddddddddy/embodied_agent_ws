@@ -171,6 +171,9 @@ CONTINUOUS_PRINT_CONFIG=true \
 连续说“向前走一秒 / 左转九十度 / 绕圈 / 走正方形”等命令；Agent 忙于执行上一条时不会
 丢弃新的 ASR final，而是排入队列。会话层会忽略“嗯/啊/哦/呃”等短 filler，并对短时间
 重复出现的同一句 ASR final 去重；这两个规则只处理明显噪声，避免把正常的二次命令误删。
+过滤结果会发布到 `/agent/recognition_feedback`，monitor 显示为 `[ignore] filler ...`
+或 `[ignore] duplicate_command ...`，因此真实麦克风验收时可以区分“系统卡住”和“系统正在
+主动过滤噪声”。
 普通命令在队列里等待超过 30 秒会自动过期跳过，
 避免执行已经失去上下文的旧命令，并在 `/agent/command_queue` 发布 `expired` 事件；说
 “停下/急停”会清空等待队列并立即发布 stop；说
@@ -188,6 +191,7 @@ CONTINUOUS_PRINT_CONFIG=true \
 [session] awake
 [wake] text:wake
 [asr] 向前走一秒
+[ignore] filler 嗯。
 [queue] enqueue 向前走一秒 size=1
 [queue] expired 向前走一秒 reason=stale_command size=1
 [exec] started 向前走一秒

@@ -43,7 +43,7 @@
 | 连续急停验收 | 当前 | continuous-mock 验证 priority stop 清队列、发布 stop、最终 cmd_vel 归零 |
 | 连续命令 TTL | 当前 | `continuous_command_max_age_s` 默认 30 秒，普通旧命令过期跳过并发布 `expired` 事件，急停/停下永不过期；`continuous-ttl` 覆盖真实 ROS 链路 |
 | 连续会话超时 | 当前 | `continuous-timeout` 验证 `voice_session_timeout_s` 到期后普通命令拒绝，重新唤醒后恢复执行 |
-| 连续语音去噪 | 当前 | 会话层忽略短 filler，并对短窗口内重复 ASR final 去重，降低长时间开麦误排队 |
+| 连续语音去噪 | 当前 | 会话层忽略短 filler，并对短窗口内重复 ASR final 去重；`/agent/recognition_feedback` 与 monitor 可观察过滤原因 |
 | 可配置命令纠错 | 当前 | 默认 YAML 错词表、`command_normalization_path` 覆盖参数和离线 sherpa hotwords 扩充 |
 | 音频前端校准 | 当前 | `audio_frontend_calibration.py` 基于 `/audio/frontend_metrics` 输出麦克风、VAD、AEC/NS/AGC、丢帧诊断和推荐阈值 |
 

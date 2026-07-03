@@ -141,6 +141,10 @@ def format_recognition_feedback(serialized: str) -> str:
         original = payload.get("original", "")
         normalized = payload.get("normalized", "")
         return f"[normalize] {original} -> {normalized}"
+    if payload.get("status") == "ignored":
+        reason = payload.get("reason", "unknown")
+        transcript = payload.get("transcript", "")
+        return f"[ignore] {reason} {transcript}".rstrip()
     if payload.get("status") == "retry":
         attempt = payload.get("attempt", "?")
         prompt = payload.get("prompt", "请再说一次")

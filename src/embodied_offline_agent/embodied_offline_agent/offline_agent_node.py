@@ -372,6 +372,9 @@ class OfflineAgentNode(Node):
             elif decision.reason == "session_awake":
                 self._publish_state("session_awake")
                 self.get_logger().info("continuous voice session awake")
+            elif decision.reason in {"filler", "duplicate_command"}:
+                self._publish_ignored_recognition(transcript, decision.reason)
+                self._publish_state("listening")
             elif self._param("wake_word_enabled") and not self._wake_gate.active:
                 feedback = self._retry_tracker.failed(transcript)
                 self._recognition_feedback_pub.publish(
@@ -627,6 +630,17 @@ class OfflineAgentNode(Node):
         self._command_execution_pub.publish(
             String(data=json.dumps(event.as_dict(), ensure_ascii=False))
         )
+
+    def _publish_ignored_recognition(self, transcript, reason):
+        payload = {
+            "status": "ignored",
+            "reason": reason,
+            "transcript": transcript,
+        }
+        self._recognition_feedback_pub.publish(
+            String(data=json.dumps(payload, ensure_ascii=False))
+        )
+        self.get_logger().info(f"ignored ASR final: reason={reason}, text={transcript}")
 
     def shutdown(self):
         self._stopping = True

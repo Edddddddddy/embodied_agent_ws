@@ -104,7 +104,7 @@ def main():
         time.sleep(0.5)
         # 这里故意使用常见 ASR 错词，验证命令归一化接在 Agent 主链路里，
         # 而不是只在单元测试里“看起来可用”。
-        for phrase in ["小智", "钱进一秒", "作转九十度", "让圈"]:
+        for phrase in ["小智", "嗯。", "钱进一秒", "钱进一秒。", "作转九十度", "让圈"]:
             node.text_pub.publish(String(data=phrase))
             time.sleep(0.2)
 
@@ -188,6 +188,15 @@ def main():
             raise RuntimeError(
                 f"normalization feedback was not published: {node.recognition_feedback}"
             )
+        ignored_reasons = {
+            event.get("reason")
+            for event in node.recognition_feedback
+            if event.get("status") == "ignored"
+        }
+        if not {"filler", "duplicate_command"}.issubset(ignored_reasons):
+            raise RuntimeError(
+                f"ignored recognition feedback was not published: {node.recognition_feedback}"
+            )
 
         print(json.dumps({
             "candidate_sequence": names,
@@ -199,6 +208,7 @@ def main():
             "execution_event_kinds": execution_kinds,
             "feedback_count": len(node.feedback),
             "normalization_count": len(normalized),
+            "ignored_reasons": sorted(ignored_reasons),
             "final_cmd_vel": node.velocities[-1] if node.velocities else None,
             "status": "PASS",
         }, ensure_ascii=False, indent=2))
