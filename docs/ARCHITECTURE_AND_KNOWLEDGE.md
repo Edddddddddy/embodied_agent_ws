@@ -71,6 +71,7 @@ PortAudio 回调只搬运数据，不执行网络、日志或模型推理；这�
 | `online_agent_node.py` | ROS 与一轮在线对话的编排 |
 | `providers/` | mock、Qwen 实时 ASR/TTS、OpenAI-compatible LLM adapter |
 | `protocol.py` | `<speech>/<action>` 增量解析与按句 TTS 分块 |
+| `command_normalizer.py` | ASR 错词归一化，优先 RapidFuzz，默认错词表 fallback |
 | `command_fallback.py` | 有限机器人命令的确定性语义兜底 |
 | `continuous_voice.py` | 连续会话状态机、命令队列和 stop 优先级语义 |
 | `wake_provider.py` | 文本唤醒 provider seam，输出 wake/continue/sleep/rejected 事件 |
@@ -158,7 +159,7 @@ active action、sensor stale、safety stopped 与原因。
 | `/audio/clean_pcm` | AudioFrontend -> ASR | AEC 后 PCM16 |
 | `/audio/silence_timeout` | AudioFrontend -> Agent | 连续静音 0.4 秒 |
 | `/agent/asr_final` | ASR -> 观测者 | 最终识别文本 |
-| `/agent/recognition_feedback` | Agent -> UI/验收器 | 失败原因、次数和重试提示 |
+| `/agent/recognition_feedback` | Agent -> UI/验收器 | 唤醒失败重试、命令归一化反馈 |
 | `/agent/state` | Agent -> UI/验收器 | listening、queued、thinking、speaking、session_awake、sleeping |
 | `/agent/wake_event` | WakeProvider -> UI/验收器 | text/sherpa/openWakeWord 等 provider 的 wake/continue/sleep/rejected |
 | `/agent/session_state` | ContinuousVoiceSession -> UI/验收器 | awake 或 sleeping |
@@ -263,7 +264,7 @@ adapter，而不是把串口重试、CRC 和 ROS Action 全塞进一个类。
   →Confirm，支持取消、抢占、障碍、超时和急停；同一实现支持独立进程、component
   container 和 namespace 隔离。
 - 部署 Qwen3-0.6B Q8/llama.cpp、ZipFormer 与 Sherpa-TTS；当前环境 CPU decode
-  34.10 token/s、离线整轮 2.313 s、在线热启动首 token 350–384 ms；建立 158 项 colcon
+  34.10 token/s、离线整轮 2.313 s、在线热启动首 token 350–384 ms；建立 166 项 colcon
   测试、2 项仓库约束测试及 mock/online/offline/Gazebo/continuous mock 分层 release gates。
 - 新增连续语音控制状态机：一次唤醒后多命令 FIFO 排队，退出控制休眠，停下/急停可清空
   等待队列并抢占当前组合动作，适合长时间麦克风控制 Gazebo 演示。

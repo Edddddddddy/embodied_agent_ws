@@ -14,6 +14,7 @@ from std_msgs.msg import Empty, String, UInt8MultiArray
 from embodied_online_agent.memory import ConversationMemory
 from embodied_online_agent.action_sequence import SequentialActionPublisher
 from embodied_online_agent.command_fallback import parse_fallback_actions, should_block_model_actions
+from embodied_online_agent.command_normalizer import CommandNormalizer
 from embodied_online_agent.continuous_voice import ContinuousCommandQueue, ContinuousVoiceSession
 from embodied_online_agent.continuous_voice import CommandExecutionTracker, QueueSnapshot
 from embodied_online_agent.protocol import SentenceChunker, TaggedStreamParser
@@ -62,6 +63,9 @@ class OfflineAgentNode(Node):
         )
         self._retry_tracker = RecognitionRetryTracker(
             self._param("recognition_max_retries")
+        )
+        self._command_normalizer = CommandNormalizer(
+            fuzzy_threshold=float(self._param("command_normalization_fuzzy_threshold"))
         )
         self._action_sequencer = SequentialActionPublisher(
             self._param("action_sequence_wait_timeout_s")
@@ -139,6 +143,9 @@ class OfflineAgentNode(Node):
             "asr_max_active_paths": 4,
             "asr_modeling_unit": "cjkchar",
             "recognition_max_retries": 3,
+            "command_normalization_enabled": True,
+            "command_normalization_feedback_enabled": True,
+            "command_normalization_fuzzy_threshold": 0.82,
             "llm_base_url": "http://127.0.0.1:8080/v1",
             "llm_model": "Qwen3-0.6B-Q8_0.gguf",
             "llm_temperature": 0.7,
@@ -300,6 +307,7 @@ class OfflineAgentNode(Node):
         self._action_sequencer.notify_result(message.data)
 
     def _accept_transcript(self, transcript):
+        transcript = self._normalize_transcript(transcript)
         decision = self._voice_session.accept(transcript)
         self._publish_session_event(decision.event)
         if not decision.accepted or decision.command is None:
@@ -364,6 +372,20 @@ class OfflineAgentNode(Node):
         threading.Thread(
             target=self._run_turn, args=(command, turn_latency), daemon=True
         ).start()
+
+    def _normalize_transcript(self, transcript):
+        if not self._param("command_normalization_enabled"):
+            return transcript
+        result = self._command_normalizer.normalize(transcript)
+        if result.changed:
+            self.get_logger().info(
+                f"normalized ASR command: '{result.original}' -> '{result.text}'"
+            )
+            if self._param("command_normalization_feedback_enabled"):
+                self._recognition_feedback_pub.publish(
+                    String(data=result.to_feedback_json())
+                )
+        return result.text
 
     def _run_command_worker(self):
         while not self._stopping:

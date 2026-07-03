@@ -17,6 +17,7 @@ from .action_sequence import SequentialActionPublisher
 from .command_fallback import parse_fallback_actions, should_block_model_actions
 from .continuous_voice import ContinuousCommandQueue, ContinuousVoiceSession
 from .continuous_voice import CommandExecutionTracker, QueueSnapshot
+from .command_normalizer import CommandNormalizer
 from .metrics import LatencyTracker
 from .protocol import SentenceChunker, TaggedStreamParser
 from .recognition_retry import RecognitionRetryTracker
@@ -59,6 +60,9 @@ class OnlineAgentNode(Node):
         )
         self.retry_tracker = RecognitionRetryTracker(
             self._param("recognition_max_retries")
+        )
+        self.command_normalizer = CommandNormalizer(
+            fuzzy_threshold=float(self._param("command_normalization_fuzzy_threshold"))
         )
         self.action_sequencer = SequentialActionPublisher(
             self._param("action_sequence_wait_timeout_s")
@@ -156,6 +160,9 @@ class OnlineAgentNode(Node):
             "wake_word_aliases": ["小志", "小治", "晓智", "晓志"],
             "wake_active_timeout_s": 10.0,
             "recognition_max_retries": 3,
+            "command_normalization_enabled": True,
+            "command_normalization_feedback_enabled": True,
+            "command_normalization_fuzzy_threshold": 0.82,
             "memory_path": "~/.ros/embodied_agent/memory.json",
             "memory_max_turns": 10,
             "system_prompt_path": "",
@@ -279,6 +286,7 @@ class OnlineAgentNode(Node):
         self.action_sequencer.notify_result(message.data)
 
     def _accept_transcript(self, transcript: str):
+        transcript = self._normalize_transcript(transcript)
         decision = self.voice_session.accept(transcript)
         self._publish_session_event(decision.event)
         if not decision.accepted or decision.command is None:
@@ -340,6 +348,20 @@ class OnlineAgentNode(Node):
         self.metrics.reset()
         self.metrics.mark_asr_final()
         threading.Thread(target=self._run_turn, args=(command,), daemon=True).start()
+
+    def _normalize_transcript(self, transcript: str) -> str:
+        if not self._param("command_normalization_enabled"):
+            return transcript
+        result = self.command_normalizer.normalize(transcript)
+        if result.changed:
+            self.get_logger().info(
+                f"normalized ASR command: '{result.original}' -> '{result.text}'"
+            )
+            if self._param("command_normalization_feedback_enabled"):
+                self.recognition_feedback_pub.publish(
+                    String(data=result.to_feedback_json())
+                )
+        return result.text
 
     def _run_command_worker(self):
         while not self._stopping:

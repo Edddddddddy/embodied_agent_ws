@@ -26,8 +26,9 @@ bash scripts/acceptance_test.sh continuous-online
 ```
 
 `mock` 是每次提交前的最低门槛；`demo` 使用 mock executor 验证组合动作、accessory ACK
-和弧线速度；`continuous-mock` 验证一次唤醒、多命令队列、退出控制和 online/offline
-状态机复用。当前记录为 158 项 colcon 测试、2 项仓库约束测试、0 failure。`online` 使用少量
+和弧线速度；`continuous-mock` 验证一次唤醒、多命令队列、退出控制、常见 ASR 错词
+归一化和 online/offline 状态机复用。当前记录为 166 项 colcon 测试、2 项仓库约束测试、
+0 failure。`online` 使用少量
 DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里程计位移验真。
 `all` 是完整自动 release gate，包含 mock、在线、离线、Gazebo 和在线/离线语音到 Gazebo，
 但明确排除必须由真人说话的麦克风验收。运行 `--help` 可查看模式语义。
@@ -112,6 +113,24 @@ WAKE_WORD_ENABLED=true SPEAKER_ENABLED=false \
 若门控未通过，`/agent/recognition_feedback` 会给出原因和次数，节点保持监听。热词表位于
 `src/embodied_offline_agent/config/hotwords_zh.txt`。合成短词仍可能把“小智”识别成
 “早日”，因此正式产品需要独立 KWS 并统计 false accept / false reject。
+
+命令错词归一化：
+
+```bash
+pytest -q src/embodied_online_agent/test/test_command_normalizer.py
+bash scripts/acceptance_test.sh continuous-mock
+ros2 topic echo /agent/recognition_feedback
+```
+
+`CommandNormalizer` 在 wake/session/priority_stop 判定前运行，能把“钱进一秒”“作转九十度”
+“让圈”“亭下”等常见 ASR 错词转成规范命令。`continuous-mock` 会故意发送这些错词，
+并要求 online/offline 都发布 `command_normalized` 反馈和正确动作序列。
+默认不强制安装外部依赖；如需启用成熟 RapidFuzz scorer，可执行：
+
+```bash
+source .venv/bin/activate
+pip install -e "src/embodied_online_agent[fuzzy]"
+```
 
 连续语音控制：
 

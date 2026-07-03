@@ -83,6 +83,19 @@ def format_action_result(serialized: str) -> str:
     return f"[result] {payload.get('message', 'unknown')}"
 
 
+def format_recognition_feedback(serialized: str) -> str:
+    payload = _json_dict(serialized)
+    if payload.get("status") == "normalized":
+        original = payload.get("original", "")
+        normalized = payload.get("normalized", "")
+        return f"[normalize] {original} -> {normalized}"
+    if payload.get("status") == "retry":
+        attempt = payload.get("attempt", "?")
+        prompt = payload.get("prompt", "请再说一次")
+        return f"[retry] attempt={attempt} {prompt}"
+    return "[feedback] " + (payload.get("reason") or "unknown")
+
+
 class ContinuousVoiceMonitor(Node):
     def __init__(self):
         super().__init__("continuous_voice_monitor")
@@ -97,6 +110,9 @@ class ContinuousVoiceMonitor(Node):
             String, "/agent/command_execution", self._on_execution, 10
         )
         self.create_subscription(String, "/agent/action_candidate", self._on_action, 10)
+        self.create_subscription(
+            String, "/agent/recognition_feedback", self._on_feedback, 10
+        )
         self.create_subscription(String, "/robot/action_result", self._on_result, 10)
         self.create_subscription(String, "/robot/action_ack", self._on_result, 10)
 
@@ -128,6 +144,9 @@ class ContinuousVoiceMonitor(Node):
 
     def _on_action(self, message: String) -> None:
         self._emit(format_action_candidate(message.data))
+
+    def _on_feedback(self, message: String) -> None:
+        self._emit(format_recognition_feedback(message.data))
 
     def _on_result(self, message: String) -> None:
         self._emit(format_action_result(message.data))

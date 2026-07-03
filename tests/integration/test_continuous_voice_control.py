@@ -20,6 +20,7 @@ class ContinuousVoiceProbe(Node):
         self.wake_events = []
         self.queue_events = []
         self.execution_events = []
+        self.recognition_feedback = []
         self.candidates = []
         self.results = []
         self.velocities = []
@@ -29,6 +30,9 @@ class ContinuousVoiceProbe(Node):
         self.create_subscription(String, "/agent/command_queue", self._on_queue_event, 10)
         self.create_subscription(
             String, "/agent/command_execution", self._on_execution_event, 10
+        )
+        self.create_subscription(
+            String, "/agent/recognition_feedback", self._on_feedback, 10
         )
         self.create_subscription(
             String, "/agent/action_candidate", self._on_candidate, 10
@@ -50,6 +54,9 @@ class ContinuousVoiceProbe(Node):
 
     def _on_execution_event(self, message):
         self.execution_events.append(json.loads(message.data))
+
+    def _on_feedback(self, message):
+        self.recognition_feedback.append(json.loads(message.data))
 
     def _on_candidate(self, message):
         self.candidates.append(json.loads(message.data))
@@ -85,7 +92,9 @@ def main():
             "continuous voice pipeline was not discovered",
         )
         time.sleep(0.5)
-        for phrase in ["小智", "向前走一秒", "左转九十度", "绕圈"]:
+        # 这里故意使用常见 ASR 错词，验证命令归一化接在 Agent 主链路里，
+        # 而不是只在单元测试里“看起来可用”。
+        for phrase in ["小智", "钱进一秒", "作转九十度", "让圈"]:
             node.text_pub.publish(String(data=phrase))
             time.sleep(0.2)
 
@@ -116,7 +125,7 @@ def main():
         stop_candidate_start = len(node.candidates)
         node.text_pub.publish(String(data="走正方形"))
         time.sleep(0.15)
-        node.text_pub.publish(String(data="急停"))
+        node.text_pub.publish(String(data="亭下"))
         wait_until(
             lambda: any(
                 candidate.get("name") == "stop"
@@ -155,6 +164,14 @@ def main():
             raise RuntimeError(
                 f"execution events were not published: {node.execution_events}"
             )
+        normalized = [
+            event for event in node.recognition_feedback
+            if event.get("reason") == "command_normalized"
+        ]
+        if not normalized:
+            raise RuntimeError(
+                f"normalization feedback was not published: {node.recognition_feedback}"
+            )
 
         print(json.dumps({
             "candidate_sequence": names,
@@ -164,6 +181,7 @@ def main():
             "wake_event_kinds": wake_kinds,
             "queue_sizes": queue_sizes,
             "execution_event_kinds": execution_kinds,
+            "normalization_count": len(normalized),
             "final_cmd_vel": node.velocities[-1] if node.velocities else None,
             "status": "PASS",
         }, ensure_ascii=False, indent=2))

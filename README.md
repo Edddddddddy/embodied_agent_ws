@@ -16,7 +16,7 @@
 - VAD seam：AudioFrontend 发布 `/audio/speech_started` 与 `/audio/speech_ended`，
   仍兼容旧 `/audio/silence_timeout`；默认 provider 为 energy，可选 Silero sidecar。
 - 音频增强 seam：`audio_enhancer:=nlms` 默认使用 NLMS AEC，预留 WebRTC AEC/NS/AGC adapter。
-- 识别恢复：热词偏置、唤醒别名、失败反馈和持续重试。
+- 识别恢复：热词偏置、唤醒别名、命令错词归一化、失败反馈和持续重试。
 - 唤醒 seam：默认 `TextWakeProvider` 发布 `/agent/wake_event` 与
   `/agent/session_state`；后续可替换为 sherpa-onnx KWS/openWakeWord。
 - 连续控制：一次“小智”唤醒后进入 60 秒会话，后续命令排队顺序执行，停下/急停抢占。
@@ -159,9 +159,10 @@ Q8 CPU decode 34.10 token/s、语音全链 2.313 s；typed Action/BT 驱动 Gaze
 
 2026-07-03 新增连续语音控制第一阶段：online/offline Agent 复用
 `ContinuousVoiceSession` 与 `ContinuousCommandQueue`，支持一次唤醒后的多命令排队、
-退出控制休眠、stop 优先级抢占。当前自动证据：158 项 colcon 测试通过，
+退出控制休眠、stop 优先级抢占。当前自动证据：166 项 colcon 测试通过，
 `acceptance_test.sh continuous-mock` 分别验证 online/offline mock 的
-`小智 -> move -> turn -> arc -> 退出控制` 链路。
+`小智 -> move -> turn -> arc -> 退出控制` 链路，并刻意使用“钱进/作转/让圈/亭下”
+等 ASR 错词验证命令归一化。
 
 2026-07-03 新增 VAD endpoint seam：C++ AudioFrontend 将“是否有人声”和“何时结束一句话”
 拆开，新增 `vad_provider`、`speech_end_silence_s`、`min_utterance_ms`、
@@ -175,6 +176,12 @@ sidecar，AudioFrontend 只发布 `/audio/clean_pcm`，由 sidecar 接管端点�
 `TextWakeProvider`，并发布 `/agent/wake_event` 与 `/agent/session_state`。连续控制测试
 已验证 `wake -> continue -> sleep -> rejected` 事件链；sherpa-onnx KWS、openWakeWord
 和 LiveKit WakeWord 仍是后续可选 adapter。
+
+2026-07-03 新增 CommandNormalizer：ASR final 在进入 wake/session/priority_stop 判定前会
+先做命令归一化，当前覆盖“钱进→前进”“作转→左转”“亭下→停下”“让圈→绕圈”等常见
+短控制词错识别；若安装 RapidFuzz 会自动用其相似度 scorer，否则使用内置错词表和
+轻量匹配。归一化事件通过 `/agent/recognition_feedback` 发布，monitor 显示为
+`[normalize] 原文 -> 规范文本`。
 
 2026-07-03 新增 CommandExecutionTracker：online/offline 连续模式发布
 `/agent/command_queue` 与 `/agent/command_execution`，用于观测真实队列长度、清队列、

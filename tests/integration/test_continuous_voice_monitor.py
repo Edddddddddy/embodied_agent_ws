@@ -41,3 +41,17 @@ def test_monitor_formats_asr_queue_action_and_result_events():
     assert monitor.format_execution_event(execution_event) == "[exec] started 向前走一秒"
     assert monitor.format_action_candidate(candidate) == "[action] executing move"
     assert monitor.format_action_result(result) == "[result] succeeded"
+
+
+def test_monitor_formats_normalization_feedback():
+    feedback = json.dumps(
+        {
+            "status": "normalized",
+            "reason": "command_normalized",
+            "original": "钱进一秒",
+            "normalized": "前进一秒",
+        },
+        ensure_ascii=False,
+    )
+
+    assert monitor.format_recognition_feedback(feedback) == "[normalize] 钱进一秒 -> 前进一秒"

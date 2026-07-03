@@ -15,6 +15,9 @@ setup(
         ("share/" + package_name + "/prompts", glob("prompts/*.txt")),
     ],
     install_requires=["setuptools"],
+    extras_require={
+        "fuzzy": ["rapidfuzz>=3.0.0"],
+    },
     tests_require=["pytest"],
     zip_safe=True,
     maintainer="Edddddddddy",
