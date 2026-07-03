@@ -15,6 +15,7 @@ bash scripts/acceptance_test.sh offline
 bash scripts/acceptance_test.sh demo
 bash scripts/acceptance_test.sh continuous-mock
 bash scripts/acceptance_test.sh continuous-ttl
+bash scripts/acceptance_test.sh continuous-timeout
 bash scripts/acceptance_test.sh continuous-kws-mock
 bash scripts/acceptance_test.sh gazebo
 bash scripts/acceptance_test.sh gazebo-voice
@@ -30,7 +31,8 @@ bash scripts/acceptance_test.sh continuous-online
 `mock` 是每次提交前的最低门槛；`demo` 使用 mock executor 验证组合动作、accessory ACK
 和弧线速度；`continuous-mock` 验证一次唤醒、多命令队列、退出控制、常见 ASR 错词
 归一化和 online/offline 状态机复用；`continuous-ttl` 验证 Agent 忙于组合动作时，
-队列里的陈旧普通命令会发布 `expired` 并跳过执行；`continuous-kws-mock` 验证 `keyword_wake` sidecar
+队列里的陈旧普通命令会发布 `expired` 并跳过执行；`continuous-timeout` 验证会话窗口
+超时后普通命令被拒绝，重新带唤醒词后才执行；`continuous-kws-mock` 验证 `keyword_wake` sidecar
 真实打开 Agent 会话并执行动作。当前记录以 `colcon test-result --verbose` 输出为准。
 `online` 使用少量
 DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里程计位移验真。
@@ -57,6 +59,7 @@ DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里
 | 组合演示 | `smoke_test_demo_sequence.sh` | `set_led → wave → move → turn → arc → stop` 顺序执行 |
 | 连续语音 | `smoke_test_continuous_voice.sh` | 一次唤醒后多条命令排队，急停抢占，最终 `/cmd_vel` 归零 |
 | 连续队列 TTL | `smoke_test_continuous_command_ttl.sh` | 长组合动作占用 worker 时，陈旧普通命令发布 `expired` 且不执行 |
+| 连续会话超时 | `smoke_test_continuous_session_timeout.sh` | `voice_session_timeout_s` 后普通命令拒绝，重新唤醒后执行 |
 | 组件化等价 | `smoke_test_composed_executor.sh` | 同一控制实现可在多线程 component container 中完成 Action/BT 链 |
 | 命名空间 | `smoke_test_namespaced_executor.sh` | 相对名称、Action、BT、速度和 diagnostics 均隔离到 `/robot1` |
 | Action 全链 | `smoke_test_typed_action_pipeline.sh` | JSON -> typed -> Action -> 仿真控制 |
@@ -166,6 +169,8 @@ CONTINUOUS_PRINT_CONFIG=true \
 避免执行已经失去上下文的旧命令，并在 `/agent/command_queue` 发布 `expired` 事件；说
 “停下/急停”会清空等待队列并立即发布 stop；说
 “退出控制/休眠/结束控制”会关闭会话，后续命令必须重新唤醒。
+如果 `voice_session_timeout_s` 到期，下一条不带唤醒词的普通命令也会被拒绝并进入
+`retry_listening`；`continuous-timeout` 用 0.8 秒窗口覆盖这个行为。
 验收探针还会检查 `/agent/wake_event` 中出现 `wake/continue/sleep/rejected`，以及
 `/agent/session_state` 中出现 `awake/sleeping`；同时检查 `/agent/command_queue` 里有
 真实 `size`，`/agent/command_execution` 里有 `started/finished`。随后会重新唤醒，发送

@@ -113,6 +113,8 @@ CONTINUOUS_PRINT_CONFIG=true \
 `/agent/command_queue`，monitor 显示为 `[queue] expired ...`。
 自动验收可用 `bash scripts/acceptance_test.sh continuous-ttl` 复现实例：先执行长组合动作，
 再排入一条普通命令，确认它过期且没有发布动作候选。
+`bash scripts/acceptance_test.sh continuous-timeout` 会验证会话窗口到期后，普通命令必须
+重新带“小智”才能执行。
 脚本会启动 `continuous_voice_monitor.py`，持续打印 `[session]`、`[asr]`、`[queue]`、
 `[exec]`、`[action]`、`[feedback]`、`[result]`，便于现场演示链路；长动作执行期间
 `[feedback]` 会显示 ROS Action 进度，避免误以为系统卡住。如需关闭可设置
@@ -144,6 +146,7 @@ bash scripts/acceptance_test.sh online   # 少量云 API 调用
 bash scripts/acceptance_test.sh offline  # 本地模型、语音和性能
 bash scripts/acceptance_test.sh demo     # mock 仿真组合动作演示
 bash scripts/acceptance_test.sh continuous-mock  # 连续会话与命令队列
+bash scripts/acceptance_test.sh continuous-timeout  # 会话超时后要求重新唤醒
 bash scripts/acceptance_test.sh continuous-kws-mock  # KWS sidecar 唤醒后执行动作
 bash scripts/acceptance_test.sh gazebo   # Gazebo 可信动作与里程计
 bash scripts/acceptance_test.sh gazebo-voice  # 离线语音模型直达 Gazebo
