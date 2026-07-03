@@ -6,6 +6,7 @@ import importlib.util
 import json
 import signal
 import sys
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -213,7 +214,13 @@ class MonitorStats:
     finished: int = 0
     succeeded: int = 0
     failed: int = 0
-    audio_samples: list[Any] = field(default_factory=list)
+    audio_sample_limit: int = 600
+    audio_samples: deque[Any] = field(init=False)
+
+    def __post_init__(self) -> None:
+        # /audio/frontend_metrics 默认约 0.5s 一条；600 条约覆盖最近 5 分钟。
+        # 长时间演示只需要近期音频健康趋势，避免 monitor 常驻时无限增长。
+        self.audio_samples = deque(maxlen=max(1, int(self.audio_sample_limit)))
 
     def record_wake(self, serialized: str) -> None:
         kind = _json_dict(serialized).get("kind")

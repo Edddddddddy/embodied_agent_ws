@@ -147,6 +147,7 @@ ASR 错词时，推荐复制默认错词表后用 `COMMAND_NORMALIZATION_PATH=/p
 `[summary] wake=... sleep=... retry=... asr=... ignored=... enqueued=... succeeded=...`，
 如果收到过 `/audio/frontend_metrics`，还会输出
 `[summary-audio] samples=... profile=... reason=... mean_rms=... speech_ratio=...`，
+音频 summary 只保留最近 600 条 metrics（默认约 5 分钟窗口），
 用于复盘长时间语音演示中
 到底是识别少、过滤多、队列阻塞、动作执行失败，还是麦克风/VAD 环境不稳。如需关闭可设置
 `CONTINUOUS_MONITOR_ENABLED=false`。

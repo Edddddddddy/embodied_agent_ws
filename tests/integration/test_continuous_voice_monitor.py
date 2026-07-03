@@ -214,6 +214,29 @@ def test_monitor_stats_summarizes_audio_health_and_recommended_profile():
     assert "warnings=vad_threshold_may_be_too_low_or_environment_noisy" in summary
 
 
+def test_monitor_stats_keeps_bounded_recent_audio_samples():
+    stats = monitor.MonitorStats(audio_sample_limit=2)
+    for rms in (0.005, 0.02, 0.03):
+        stats.record_audio(
+            json.dumps(
+                {
+                    "rms": rms,
+                    "peak": 900,
+                    "speech": True,
+                    "dropped_input_frames": 0,
+                    "dropped_playback_chunks": 0,
+                },
+                ensure_ascii=False,
+            )
+        )
+
+    summary = stats.format_summary()
+
+    assert "[summary-audio] samples=2" in summary
+    assert "mean_rms=0.0250" in summary
+    assert "max_rms=0.0300" in summary
+
+
 def test_monitor_signal_handler_uses_keyboard_interrupt_for_summary_path():
     try:
         monitor._interrupt_monitor(None, None)
