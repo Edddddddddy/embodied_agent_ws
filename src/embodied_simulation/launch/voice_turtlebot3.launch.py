@@ -71,6 +71,7 @@ def generate_launch_description():
     wake_word = LaunchConfiguration("wake_word_enabled")
     continuous_control = LaunchConfiguration("continuous_control_enabled")
     voice_session_timeout = LaunchConfiguration("voice_session_timeout_s")
+    continuous_command_queue_size = LaunchConfiguration("continuous_command_queue_size")
     continuous_command_max_age = LaunchConfiguration("continuous_command_max_age_s")
     use_typed_actions = LaunchConfiguration("use_typed_actions")
     use_behavior_tree = LaunchConfiguration("use_behavior_tree")
@@ -123,6 +124,7 @@ def generate_launch_description():
         DeclareLaunchArgument("wake_word_enabled", default_value="true"),
         DeclareLaunchArgument("continuous_control_enabled", default_value="false"),
         DeclareLaunchArgument("voice_session_timeout_s", default_value="60.0"),
+        DeclareLaunchArgument("continuous_command_queue_size", default_value="8"),
         DeclareLaunchArgument("continuous_command_max_age_s", default_value="30.0"),
         DeclareLaunchArgument("use_typed_actions", default_value="true"),
         DeclareLaunchArgument("use_behavior_tree", default_value="true"),
@@ -216,6 +218,7 @@ def generate_launch_description():
                 "wake_word_enabled": wake_word,
                 "continuous_control_enabled": continuous_control,
                 "voice_session_timeout_s": voice_session_timeout,
+                "continuous_command_queue_size": continuous_command_queue_size,
                 "continuous_command_max_age_s": continuous_command_max_age,
                 "hardware_enabled": "false",
                 "lifecycle_autostart": lifecycle_autostart,
@@ -255,6 +258,7 @@ def generate_launch_description():
                 "wake_word_enabled": wake_word,
                 "continuous_control_enabled": continuous_control,
                 "voice_session_timeout_s": voice_session_timeout,
+                "continuous_command_queue_size": continuous_command_queue_size,
                 "continuous_command_max_age_s": continuous_command_max_age,
                 "hardware_enabled": "false",
                 "lifecycle_autostart": lifecycle_autostart,

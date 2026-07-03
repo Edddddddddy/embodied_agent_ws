@@ -114,6 +114,8 @@ CONTINUOUS_PRINT_CONFIG=true \
 普通命令若在队列中等待超过 `continuous_command_max_age_s`（默认 30 秒）会自动过期跳过，
 避免长时间演示时执行已经失去上下文的旧命令；`停下/急停` 不会过期。过期事件会发布到
 `/agent/command_queue`，monitor 显示为 `[queue] expired ...`。
+队列容量默认是 8，可用 `CONTINUOUS_COMMAND_QUEUE_SIZE` 调整；现场演示建议保持较小，
+这样误触发不会堆积太多旧命令，配合 `CONTINUOUS_COMMAND_MAX_AGE` 更容易复盘。
 自动验收可用 `bash scripts/acceptance_test.sh continuous-ttl` 复现实例：先执行长组合动作，
 再排入一条普通命令，确认它过期且没有发布动作候选。
 `bash scripts/acceptance_test.sh continuous-timeout` 会验证会话窗口到期后，普通命令必须

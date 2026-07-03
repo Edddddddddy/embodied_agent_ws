@@ -164,7 +164,8 @@ CONTINUOUS_PRINT_CONFIG=true \
 ```
 
 默认参数为 `wake_word_enabled:=true`、`continuous_control_enabled:=true`、
-`voice_session_timeout_s:=60.0`、`continuous_command_max_age_s:=30.0`、
+`voice_session_timeout_s:=60.0`、`continuous_command_queue_size:=8`、
+`continuous_command_max_age_s:=30.0`、
 `speaker_enabled:=false`、`audio_enhancer:=nlms`、`aec_enabled:=true`、
 `noise_suppression_enabled:=false`、`auto_gain_enabled:=false`。这些值都可通过
 同名大写环境变量覆盖。说一次“小智”后，60 秒内可以
@@ -178,6 +179,8 @@ CONTINUOUS_PRINT_CONFIG=true \
 避免执行已经失去上下文的旧命令，并在 `/agent/command_queue` 发布 `expired` 事件；说
 “停下/急停”会清空等待队列并立即发布 stop；说
 “退出控制/休眠/结束控制”会关闭会话，后续命令必须重新唤醒。
+`CONTINUOUS_COMMAND_QUEUE_SIZE` 可调队列容量；队列满时会发布 `rejected/queue_full`，
+monitor 和 summary 可用于判断是否应该减慢说话节奏或调大容量。
 如果 `voice_session_timeout_s` 到期，下一条不带唤醒词的普通命令也会被拒绝并进入
 `retry_listening`；`continuous-timeout` 用 0.8 秒窗口覆盖这个行为。
 验收探针还会检查 `/agent/wake_event` 中出现 `wake/continue/sleep/rejected`，以及

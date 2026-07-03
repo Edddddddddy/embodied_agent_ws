@@ -40,6 +40,7 @@ def generate_launch_description():
     auto_gain_enabled = LaunchConfiguration("auto_gain_enabled")
     continuous_control_enabled = LaunchConfiguration("continuous_control_enabled")
     voice_session_timeout_s = LaunchConfiguration("voice_session_timeout_s")
+    continuous_command_queue_size = LaunchConfiguration("continuous_command_queue_size")
     continuous_command_max_age_s = LaunchConfiguration("continuous_command_max_age_s")
     hardware_backend = LaunchConfiguration("hardware_backend")
     hardware_enabled = LaunchConfiguration("hardware_enabled")
@@ -78,6 +79,7 @@ def generate_launch_description():
         DeclareLaunchArgument("auto_gain_enabled", default_value="false"),
         DeclareLaunchArgument("continuous_control_enabled", default_value="false"),
         DeclareLaunchArgument("voice_session_timeout_s", default_value="60.0"),
+        DeclareLaunchArgument("continuous_command_queue_size", default_value="8"),
         DeclareLaunchArgument("continuous_command_max_age_s", default_value="30.0"),
         DeclareLaunchArgument("hardware_backend", default_value="mock"),
         DeclareLaunchArgument("hardware_enabled", default_value="true"),
@@ -99,6 +101,9 @@ def generate_launch_description():
                 ),
                 "voice_session_timeout_s": ParameterValue(
                     voice_session_timeout_s, value_type=float
+                ),
+                "continuous_command_queue_size": ParameterValue(
+                    continuous_command_queue_size, value_type=int
                 ),
                 "continuous_command_max_age_s": ParameterValue(
                     continuous_command_max_age_s, value_type=float

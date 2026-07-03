@@ -41,6 +41,7 @@
 | 连续演示 summary | 当前 | monitor 退出时汇总 wake/sleep/retry、ASR、ignored、normalized、queue、execution 和 result 数量，辅助长时间麦克风复盘 |
 | 连续脚本配置预览 | 当前 | `continuous_voice_control.sh` 支持 `CONTINUOUS_PRINT_CONFIG=true` 无麦克风 dry-run，并透传 WAKE/AEC/NS/AGC 环境变量 |
 | CommandExecutionTracker | 当前 | command_queue/command_execution topic 暴露队列长度和执行生命周期 |
+| 连续队列容量透传 | 当前 | `CONTINUOUS_COMMAND_QUEUE_SIZE` 经脚本和 launch 覆盖 online/offline Agent 队列容量 |
 | 连续急停验收 | 当前 | continuous-mock 验证 priority stop 清队列、发布 stop、最终 cmd_vel 归零 |
 | 连续命令 TTL | 当前 | `continuous_command_max_age_s` 默认 30 秒，普通旧命令过期跳过并发布 `expired` 事件，急停/停下永不过期；`continuous-ttl` 覆盖真实 ROS 链路 |
 | 连续会话超时 | 当前 | `continuous-timeout` 验证 `voice_session_timeout_s` 到期后普通命令拒绝，重新唤醒后恢复执行 |

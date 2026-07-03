@@ -41,6 +41,7 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
             "AUTO_GAIN_ENABLED": "true",
             "CONTINUOUS_MONITOR_ENABLED": "false",
             "CONTINUOUS_PREFLIGHT_ENABLED": "true",
+            "CONTINUOUS_COMMAND_QUEUE_SIZE": "12",
         }
     )
 
@@ -74,6 +75,7 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
     assert "NOISE_SUPPRESSION_ENABLED=true" in result.stdout
     assert "AUTO_GAIN_ENABLED=true" in result.stdout
     assert "CONTINUOUS_PREFLIGHT_ENABLED=true" in result.stdout
+    assert "CONTINUOUS_COMMAND_QUEUE_SIZE=12" in result.stdout
     assert "wake_word_enabled:=false" in result.stdout
     assert "speech_start_threshold:=0.021" in result.stdout
     assert "speech_end_silence_s:=0.38" in result.stdout
@@ -82,6 +84,7 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
     assert "silero_model_path:=\"/models/vad/silero_vad.onnx\"" in result.stdout
     assert "silero_use_onnx:=true" in result.stdout
     assert "silero_threshold:=0.61" in result.stdout
+    assert "continuous_command_queue_size:=12" in result.stdout
     assert "sherpa_tokens:=\"/models/kws/tokens.txt\"" in result.stdout
     assert "openwakeword_models:=\"/models/kws/xiaozhi.onnx,/models/kws/nihaoxiaozhi.onnx\"" in result.stdout
     assert "openwakeword_threshold:=0.42" in result.stdout
@@ -111,6 +114,7 @@ def test_voice_launches_expose_audio_enhancer_arguments():
         assert "silero_model_path" in content, path
         assert "silero_use_onnx" in content, path
         assert "silero_threshold" in content, path
+        assert "continuous_command_queue_size" in content, path
         assert "openwakeword_models" in content, path
         assert "livekit_wakeword_models" in content, path
         assert "sherpa_tokens" in content, path
