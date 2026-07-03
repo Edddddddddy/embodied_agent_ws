@@ -37,6 +37,19 @@ def format_kws_event(serialized: str) -> str:
     return f"[kws] {provider} detected {transcript} score={score}"
 
 
+def format_kws_score(serialized: str) -> str:
+    payload = _json_dict(serialized)
+    provider = payload.get("provider", "unknown")
+    keyword = payload.get("top_keyword", "unknown")
+    score = float(payload.get("top_score", 0.0))
+    threshold = float(payload.get("threshold", 0.0))
+    above = payload.get("above_threshold", False)
+    return (
+        f"[kws-score] {provider} {keyword}={score:.3f} "
+        f"threshold={threshold:.3f} above={above}"
+    )
+
+
 def format_audio_metrics(serialized: str) -> str:
     payload = _json_dict(serialized)
     rms = payload.get("rms", 0.0)
@@ -121,6 +134,7 @@ class ContinuousVoiceMonitor(Node):
         self.create_subscription(String, "/agent/session_state", self._on_session, 10)
         self.create_subscription(String, "/agent/wake_event", self._on_wake, 10)
         self.create_subscription(String, "/agent/kws_event", self._on_kws, 10)
+        self.create_subscription(String, "/agent/kws_score", self._on_kws_score, 10)
         self.create_subscription(String, "/audio/frontend_metrics", self._on_audio, 10)
         self.create_subscription(String, "/agent/asr_final", self._on_asr, 10)
         self.create_subscription(String, "/agent/state", self._on_state, 10)
@@ -146,6 +160,9 @@ class ContinuousVoiceMonitor(Node):
 
     def _on_kws(self, message: String) -> None:
         self._emit(format_kws_event(message.data))
+
+    def _on_kws_score(self, message: String) -> None:
+        self._emit(format_kws_score(message.data))
 
     def _on_audio(self, message: String) -> None:
         self._emit(format_audio_metrics(message.data))

@@ -199,6 +199,7 @@ sidecar，AudioFrontend 只发布 `/audio/clean_pcm`，由 sidecar 接管端点�
 分数阈值触发 wake event，作为英文/通用唤醒词或自训练模型的可选 provider。
 `livekit` 模式订阅同一音频 topic，按 LiveKit WakeWord `WakeWordModel.predict()`
 触发 wake event，适合后续训练中文“小智”ONNX 唤醒词。
+openWakeWord/LiveKit 会额外发布 `/agent/kws_score`，便于观察低于阈值的候选分数并调参。
 验收入口：
 
 ```bash

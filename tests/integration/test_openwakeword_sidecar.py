@@ -16,8 +16,10 @@ class OpenWakeWordProbe(Node):
         self.audio_pub = self.create_publisher(UInt8MultiArray, "/audio/clean_pcm", 10)
         self.wake_events = []
         self.kws_events = []
+        self.score_events = []
         self.create_subscription(String, "/agent/wake_event_input", self._on_wake, 10)
         self.create_subscription(String, "/agent/kws_event", self._on_kws, 10)
+        self.create_subscription(String, "/agent/kws_score", self._on_score, 10)
 
     def _on_wake(self, message):
         self.wake_events.append(json.loads(message.data))
@@ -25,10 +27,23 @@ class OpenWakeWordProbe(Node):
     def _on_kws(self, message):
         self.kws_events.append(json.loads(message.data))
 
+    def _on_score(self, message):
+        self.score_events.append(json.loads(message.data))
+
 
 def wait_until(predicate, timeout, description):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
+        if predicate():
+            return
+        time.sleep(0.05)
+    raise TimeoutError(description)
+
+
+def publish_until(node, predicate, timeout, description):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        node.audio_pub.publish(UInt8MultiArray(data=[1, 0, 2, 0]))
         if predicate():
             return
         time.sleep(0.05)
@@ -48,20 +63,29 @@ def main():
             10.0,
             "keyword_wake did not subscribe to /audio/clean_pcm",
         )
-        node.audio_pub.publish(UInt8MultiArray(data=[1, 0, 2, 0]))
-        wait_until(
-            lambda: node.wake_events and node.kws_events,
+        publish_until(
+            node,
+            lambda: node.wake_events and node.kws_events and node.score_events,
             5.0,
             "keyword_wake openwakeword mode did not publish wake events",
         )
         wake = node.wake_events[0]
+        score = node.score_events[0]
         if wake.get("kind") != "wake" or wake.get("provider") != "openwakeword_test":
             raise RuntimeError(f"unexpected wake payload: {wake}")
         if wake.get("transcript") != "fake_wake":
             raise RuntimeError(f"unexpected detected keyword: {wake}")
         if wake.get("score", 0.0) < 0.5:
             raise RuntimeError(f"unexpected low score: {wake}")
-        print(json.dumps({"wake": wake, "status": "PASS"}, ensure_ascii=False, indent=2))
+        if score.get("top_keyword") != "fake_wake" or not score.get("above_threshold"):
+            raise RuntimeError(f"unexpected score payload: {score}")
+        print(
+            json.dumps(
+                {"wake": wake, "score": score, "status": "PASS"},
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
     finally:
         executor.shutdown()
         node.destroy_node()

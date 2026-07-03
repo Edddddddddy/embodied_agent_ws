@@ -93,6 +93,7 @@ keyword_wake:
     aliases: ["小志", "小治", "晓智", "晓志"]
     sample_rate: 16000
     cooldown_s: 1.0
+    score_publish_period_s: 0.2
     input_queue_depth: 20
     sherpa_tokens: ""
     sherpa_encoder: ""

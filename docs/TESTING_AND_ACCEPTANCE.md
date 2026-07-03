@@ -270,7 +270,8 @@ bash scripts/acceptance_test.sh openwakeword-sidecar
 ```
 
 该脚本会临时注入 fake `openwakeword.model.Model`，验证 ROS 节点参数、`/audio/clean_pcm`
-订阅、`Model.predict()` 调用和 `/agent/wake_event_input` 发布，不代表真实唤醒词模型效果。
+订阅、`Model.predict()` 调用、`/agent/kws_score` 分数诊断和 `/agent/wake_event_input`
+发布，不代表真实唤醒词模型效果。
 
 LiveKit WakeWord 可选依赖与无模型 smoke：
 
@@ -281,6 +282,19 @@ KWS_PROVIDER=livekit bash scripts/continuous_voice_control.sh offline
 
 # 无真实模型依赖，只验证 ROS adapter runtime
 bash scripts/acceptance_test.sh livekit-sidecar
+```
+
+openWakeWord/LiveKit 模式会发布 `/agent/kws_score`，用于调唤醒阈值：
+
+```bash
+ros2 topic echo /agent/kws_score
+```
+
+字段包括 `top_keyword`、`top_score`、`threshold`、`above_threshold` 和完整 `scores`。
+连续演示 monitor 会显示为：
+
+```text
+[kws-score] livekit_test fake_livekit_wake=0.930 threshold=0.500 above=True
 ```
 
 ## 4. 当前实测基线

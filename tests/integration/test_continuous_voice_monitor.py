@@ -43,6 +43,24 @@ def test_monitor_formats_session_and_wake_events():
     assert monitor.format_audio_metrics(audio) == "[audio] rms=0.0305 peak=1000 speech=True dropped=0"
 
 
+def test_monitor_formats_kws_score_events():
+    score = json.dumps(
+        {
+            "provider": "openwakeword_test",
+            "top_keyword": "fake_wake",
+            "top_score": 0.91,
+            "threshold": 0.5,
+            "above_threshold": True,
+        },
+        ensure_ascii=False,
+    )
+
+    assert (
+        monitor.format_kws_score(score)
+        == "[kws-score] openwakeword_test fake_wake=0.910 threshold=0.500 above=True"
+    )
+
+
 def test_monitor_formats_asr_queue_action_and_result_events():
     queue_event = json.dumps(
         {"event": "enqueue", "text": "向前走一秒", "size": 2},

@@ -125,6 +125,7 @@ def test_openwakeword_detector_reports_highest_score_above_threshold(monkeypatch
     assert match.keyword == "hey_jarvis"
     assert match.provider == "openwakeword"
     assert match.score == 0.81
+    assert detector.last_scores() == {"小智": 0.42, "hey_jarvis": 0.81}
 
 
 def test_openwakeword_detector_ignores_scores_below_threshold(monkeypatch):
@@ -146,6 +147,7 @@ def test_openwakeword_detector_ignores_scores_below_threshold(monkeypatch):
     )
 
     assert detector.detect_audio(b"\x01\x00\x02\x00") is None
+    assert detector.last_scores() == {"小智": 0.49}
 
 
 def test_livekit_wakeword_detector_uses_wakeword_model_api(monkeypatch):
@@ -176,6 +178,7 @@ def test_livekit_wakeword_detector_uses_wakeword_model_api(monkeypatch):
     assert match.keyword == "xiaozhi"
     assert match.provider == "livekit_wakeword"
     assert match.score == 0.88
+    assert detector.last_scores() == {"xiaozhi": 0.88, "background": 0.02}
 
 
 def test_livekit_wakeword_detector_ignores_low_scores(monkeypatch):
@@ -199,3 +202,4 @@ def test_livekit_wakeword_detector_ignores_low_scores(monkeypatch):
     )
 
     assert detector.detect_audio(b"\x01\x00\x02\x00") is None
+    assert detector.last_scores() == {"xiaozhi": 0.49}

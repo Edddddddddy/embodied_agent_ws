@@ -20,6 +20,40 @@ class KeywordWakeMatch:
     score: float = 1.0
 
 
+def normalize_score_dict(scores: dict) -> dict[str, float]:
+    normalized: dict[str, float] = {}
+    for keyword, score in scores.items():
+        try:
+            normalized[str(keyword)] = round(float(score), 6)
+        except (TypeError, ValueError):
+            continue
+    return normalized
+
+
+def kws_score_payload(
+    *,
+    provider: str,
+    scores: dict[str, float],
+    threshold: float,
+) -> str | None:
+    if not scores:
+        return None
+    top_keyword, top_score = max(scores.items(), key=lambda item: float(item[1]))
+    top_score = float(top_score)
+    threshold = float(threshold)
+    return json.dumps(
+        {
+            "provider": provider,
+            "top_keyword": top_keyword,
+            "top_score": round(top_score, 6),
+            "threshold": round(threshold, 6),
+            "above_threshold": top_score >= threshold,
+            "scores": scores,
+        },
+        ensure_ascii=False,
+    )
+
+
 class KeywordWakeDetector(Protocol):
     provider_name: str
 
@@ -144,6 +178,7 @@ class OpenWakeWordDetector:
         self.provider_name = provider_name
         self._np = np
         self._threshold = float(threshold)
+        self._last_scores: dict[str, float] = {}
         kwargs = {
             "inference_framework": inference_framework,
             "enable_speex_noise_suppression": bool(enable_speex_noise_suppression),
@@ -164,12 +199,21 @@ class OpenWakeWordDetector:
         samples = self._np.frombuffer(pcm16, dtype="<i2").astype(self._np.int16)
         predictions = self._model.predict(samples)
         if not isinstance(predictions, dict) or not predictions:
+            self._last_scores = {}
             return None
-        keyword, score = max(predictions.items(), key=lambda item: float(item[1]))
+        self._last_scores = normalize_score_dict(predictions)
+        keyword, score = max(self._last_scores.items(), key=lambda item: float(item[1]))
         score = float(score)
         if score < self._threshold:
             return None
         return KeywordWakeMatch(str(keyword), self.provider_name, score)
+
+    def last_scores(self) -> dict[str, float]:
+        return dict(self._last_scores)
+
+    @property
+    def threshold(self) -> float:
+        return self._threshold
 
 
 class LiveKitWakeWordDetector:
@@ -195,6 +239,7 @@ class LiveKitWakeWordDetector:
         self.provider_name = provider_name
         self._np = np
         self._threshold = float(threshold)
+        self._last_scores: dict[str, float] = {}
         models = [path for path in model_paths if str(path).strip()]
         self._model = WakeWordModel(models=models)
 
@@ -207,12 +252,21 @@ class LiveKitWakeWordDetector:
         samples = self._np.frombuffer(pcm16, dtype="<i2").astype(self._np.int16)
         predictions = self._model.predict(samples)
         if not isinstance(predictions, dict) or not predictions:
+            self._last_scores = {}
             return None
-        keyword, score = max(predictions.items(), key=lambda item: float(item[1]))
+        self._last_scores = normalize_score_dict(predictions)
+        keyword, score = max(self._last_scores.items(), key=lambda item: float(item[1]))
         score = float(score)
         if score < self._threshold:
             return None
         return KeywordWakeMatch(str(keyword), self.provider_name, score)
+
+    def last_scores(self) -> dict[str, float]:
+        return dict(self._last_scores)
+
+    @property
+    def threshold(self) -> float:
+        return self._threshold
 
 
 class KeywordWakeBridge:

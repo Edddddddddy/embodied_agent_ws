@@ -15,6 +15,7 @@ from .keyword_wake import (
     OpenWakeWordDetector,
     SherpaKeywordWakeDetector,
     TextKeywordWakeDetector,
+    kws_score_payload,
 )
 
 
@@ -34,8 +35,13 @@ class KeywordWakeNode(Node):
         self._bridge = KeywordWakeBridge(
             cooldown_s=float(self.get_parameter("cooldown_s").value)
         )
+        self._score_period_s = max(
+            0.0, float(self.get_parameter("score_publish_period_s").value)
+        )
+        self._next_score_publish_at = 0.0
         self._wake_pub = self.create_publisher(String, "/agent/wake_event_input", 10)
         self._event_pub = self.create_publisher(String, "/agent/kws_event", 10)
+        self._score_pub = self.create_publisher(String, "/agent/kws_score", 10)
 
         if self._mode == "disabled":
             self.get_logger().info("keyword wake sidecar disabled")
@@ -120,6 +126,7 @@ class KeywordWakeNode(Node):
             "aliases": ["小志", "小治", "晓智", "晓志"],
             "sample_rate": 16000,
             "cooldown_s": 1.0,
+            "score_publish_period_s": 0.2,
             "input_queue_depth": 20,
             "sherpa_tokens": "",
             "sherpa_encoder": "",
@@ -144,6 +151,7 @@ class KeywordWakeNode(Node):
 
     def _on_audio(self, message: UInt8MultiArray):
         self._handle_match(self._detector.detect_audio(bytes(message.data)))
+        self._publish_scores_if_available()
 
     def _handle_match(self, match):
         payload = self._bridge.wake_payload(match)
@@ -153,6 +161,24 @@ class KeywordWakeNode(Node):
         event = json.loads(payload)
         event["status"] = "detected"
         self._event_pub.publish(String(data=json.dumps(event, ensure_ascii=False)))
+
+    def _publish_scores_if_available(self):
+        if not hasattr(self._detector, "last_scores"):
+            return
+        scores = self._detector.last_scores()
+        threshold = getattr(self._detector, "threshold", 0.0)
+        payload = kws_score_payload(
+            provider=str(self.get_parameter("provider_name").value),
+            scores=scores,
+            threshold=float(threshold),
+        )
+        if payload is None:
+            return
+        now = self.get_clock().now().nanoseconds / 1_000_000_000.0
+        if now < self._next_score_publish_at:
+            return
+        self._next_score_publish_at = now + self._score_period_s
+        self._score_pub.publish(String(data=payload))
 
 
 def main(args=None):
