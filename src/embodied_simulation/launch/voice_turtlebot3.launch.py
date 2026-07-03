@@ -48,6 +48,10 @@ def generate_launch_description():
     speaker = LaunchConfiguration("speaker_enabled")
     vad_provider = LaunchConfiguration("vad_provider")
     kws_provider = LaunchConfiguration("kws_provider")
+    audio_enhancer = LaunchConfiguration("audio_enhancer")
+    aec_enabled = LaunchConfiguration("aec_enabled")
+    noise_suppression_enabled = LaunchConfiguration("noise_suppression_enabled")
+    auto_gain_enabled = LaunchConfiguration("auto_gain_enabled")
     wake_word = LaunchConfiguration("wake_word_enabled")
     continuous_control = LaunchConfiguration("continuous_control_enabled")
     voice_session_timeout = LaunchConfiguration("voice_session_timeout_s")
@@ -80,6 +84,10 @@ def generate_launch_description():
         DeclareLaunchArgument("speaker_enabled", default_value="false"),
         DeclareLaunchArgument("vad_provider", default_value="energy"),
         DeclareLaunchArgument("kws_provider", default_value="none"),
+        DeclareLaunchArgument("audio_enhancer", default_value="nlms"),
+        DeclareLaunchArgument("aec_enabled", default_value="true"),
+        DeclareLaunchArgument("noise_suppression_enabled", default_value="false"),
+        DeclareLaunchArgument("auto_gain_enabled", default_value="false"),
         DeclareLaunchArgument("wake_word_enabled", default_value="true"),
         DeclareLaunchArgument("continuous_control_enabled", default_value="false"),
         DeclareLaunchArgument("voice_session_timeout_s", default_value="60.0"),
@@ -153,6 +161,10 @@ def generate_launch_description():
                 "speaker_enabled": speaker,
                 "vad_provider": vad_provider,
                 "kws_provider": kws_provider,
+                "audio_enhancer": audio_enhancer,
+                "aec_enabled": aec_enabled,
+                "noise_suppression_enabled": noise_suppression_enabled,
+                "auto_gain_enabled": auto_gain_enabled,
                 "wake_word_enabled": wake_word,
                 "continuous_control_enabled": continuous_control,
                 "voice_session_timeout_s": voice_session_timeout,
@@ -172,6 +184,10 @@ def generate_launch_description():
                 "speaker_enabled": speaker,
                 "vad_provider": vad_provider,
                 "kws_provider": kws_provider,
+                "audio_enhancer": audio_enhancer,
+                "aec_enabled": aec_enabled,
+                "noise_suppression_enabled": noise_suppression_enabled,
+                "auto_gain_enabled": auto_gain_enabled,
                 "wake_word_enabled": wake_word,
                 "continuous_control_enabled": continuous_control,
                 "voice_session_timeout_s": voice_session_timeout,

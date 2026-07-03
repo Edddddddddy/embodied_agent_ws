@@ -146,11 +146,21 @@ pip install -e "src/embodied_online_agent[fuzzy]"
 ```bash
 bash scripts/continuous_voice_control.sh offline
 bash scripts/continuous_voice_control.sh online
+
+# 无需麦克风，打印实际 launch 参数，适合演示前检查环境变量覆盖是否正确
+CONTINUOUS_PRINT_CONFIG=true \
+  WAKE_WORD_ENABLED=false \
+  AUDIO_ENHANCER=webrtc \
+  NOISE_SUPPRESSION_ENABLED=true \
+  AUTO_GAIN_ENABLED=true \
+  bash scripts/continuous_voice_control.sh online
 ```
 
 默认参数为 `wake_word_enabled:=true`、`continuous_control_enabled:=true`、
 `voice_session_timeout_s:=60.0`、`continuous_command_max_age_s:=30.0`、
-`speaker_enabled:=false`。说一次“小智”后，60 秒内可以
+`speaker_enabled:=false`、`audio_enhancer:=nlms`、`aec_enabled:=true`、
+`noise_suppression_enabled:=false`、`auto_gain_enabled:=false`。这些值都可通过
+同名大写环境变量覆盖。说一次“小智”后，60 秒内可以
 连续说“向前走一秒 / 左转九十度 / 绕圈 / 走正方形”等命令；Agent 忙于执行上一条时不会
 丢弃新的 ASR final，而是排入队列。普通命令在队列里等待超过 30 秒会自动过期跳过，
 避免执行已经失去上下文的旧命令，并在 `/agent/command_queue` 发布 `expired` 事件；说
@@ -239,7 +249,9 @@ VAD_PROVIDER=silero bash scripts/continuous_voice_control.sh offline
 
 当前 `audio_enhancer:=nlms`，`aec_enabled:=true` 默认启用现有 NLMS AEC；
 `noise_suppression_enabled` 与 `auto_gain_enabled` 只是 WebRTC adapter 的预留参数，
-现在开启会回退并告警。
+现在开启会回退并告警。人工连续控制脚本会把 `AUDIO_ENHANCER`、`AEC_ENABLED`、
+`NOISE_SUPPRESSION_ENABLED`、`AUTO_GAIN_ENABLED` 透传到 `voice_turtlebot3.launch.py`
+和底层 `audio_frontend`，可用 `CONTINUOUS_PRINT_CONFIG=true` 先检查实际参数。
 
 WakeProvider seam：
 

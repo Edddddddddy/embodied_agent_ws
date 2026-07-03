@@ -4,11 +4,17 @@ WORKSPACE="${WORKSPACE:-/home/ubuntu/embodied_agent_ws}"
 MODE="${1:-offline}"
 SESSION_TIMEOUT="${VOICE_SESSION_TIMEOUT:-60}"
 COMMAND_MAX_AGE="${CONTINUOUS_COMMAND_MAX_AGE:-30}"
+WAKE_WORD_ENABLED="${WAKE_WORD_ENABLED:-true}"
 SPEAKER_ENABLED="${SPEAKER_ENABLED:-false}"
 VAD_PROVIDER="${VAD_PROVIDER:-energy}"
 KWS_PROVIDER="${KWS_PROVIDER:-none}"
+AUDIO_ENHANCER="${AUDIO_ENHANCER:-nlms}"
+AEC_ENABLED="${AEC_ENABLED:-true}"
+NOISE_SUPPRESSION_ENABLED="${NOISE_SUPPRESSION_ENABLED:-false}"
+AUTO_GAIN_ENABLED="${AUTO_GAIN_ENABLED:-false}"
 GUI_ENABLED="${GUI_ENABLED:-true}"
 MONITOR_ENABLED="${CONTINUOUS_MONITOR_ENABLED:-true}"
+PRINT_CONFIG="${CONTINUOUS_PRINT_CONFIG:-false}"
 source "$WORKSPACE/scripts/activate.sh"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((140 + $$ % 80))}"
 
@@ -16,6 +22,50 @@ if [[ "$MODE" != "offline" && "$MODE" != "online" ]]; then
   echo "Usage: $0 {offline|online}" >&2
   exit 2
 fi
+
+print_configuration() {
+  cat <<EOF
+ROS_DOMAIN_ID=$ROS_DOMAIN_ID，连续语音控制模式=$MODE
+
+建议演示话术：
+  小智
+  向前走一秒
+  左转九十度
+  后退一秒
+  绕圈
+  走正方形
+  停下
+  退出控制
+
+说明：一次“小智”唤醒后，${SESSION_TIMEOUT}s 内可连续说多条命令；等待超过 ${COMMAND_MAX_AGE}s 的普通命令会过期跳过；Ctrl-C 退出脚本。
+终端会持续打印 [session] / [asr] / [queue] / [action] / [feedback] / [result] 链路事件。
+WAKE_WORD_ENABLED=$WAKE_WORD_ENABLED
+SPEAKER_ENABLED=$SPEAKER_ENABLED
+VAD_PROVIDER=$VAD_PROVIDER（默认 energy；安装 silero-vad 后可设为 silero）
+KWS_PROVIDER=$KWS_PROVIDER（默认 none；mock_text 用于 sidecar 验收，sherpa/openwakeword/livekit 用于真实 KWS）
+AUDIO_ENHANCER=$AUDIO_ENHANCER（当前可用 nlms；webrtc 为后续增强预留，会 fallback 并在 metrics 中显示）
+AEC_ENABLED=$AEC_ENABLED
+NOISE_SUPPRESSION_ENABLED=$NOISE_SUPPRESSION_ENABLED
+AUTO_GAIN_ENABLED=$AUTO_GAIN_ENABLED
+CONTINUOUS_MONITOR_ENABLED=$MONITOR_ENABLED
+GUI_ENABLED=$GUI_ENABLED
+
+ros2 launch embodied_simulation voice_turtlebot3.launch.py \\
+  gui:=$GUI_ENABLED rviz:=false launch_agent:=true agent_type:=$MODE \\
+  provider_mode:=$MODE microphone_enabled:=true capture_enabled:=true \\
+  speaker_enabled:=$SPEAKER_ENABLED vad_provider:=$VAD_PROVIDER kws_provider:=$KWS_PROVIDER \\
+  wake_word_enabled:=$WAKE_WORD_ENABLED continuous_control_enabled:=true \\
+  voice_session_timeout_s:=$SESSION_TIMEOUT continuous_command_max_age_s:=$COMMAND_MAX_AGE \\
+  audio_enhancer:=$AUDIO_ENHANCER aec_enabled:=$AEC_ENABLED \\
+  noise_suppression_enabled:=$NOISE_SUPPRESSION_ENABLED auto_gain_enabled:=$AUTO_GAIN_ENABLED
+EOF
+}
+
+if [[ "$PRINT_CONFIG" == "true" ]]; then
+  print_configuration
+  exit 0
+fi
+
 if ! pactl list short sources 2>/dev/null | grep -q .; then
   echo "FAIL: WSL 中没有可用麦克风 source；请先检查 WSLg 音频权限。" >&2
   exit 1
@@ -47,31 +97,18 @@ then
   }
 fi
 
-cat <<EOF
-ROS_DOMAIN_ID=$ROS_DOMAIN_ID，连续语音控制模式=$MODE
-
-建议演示话术：
-  小智
-  向前走一秒
-  左转九十度
-  后退一秒
-  绕圈
-  走正方形
-  停下
-  退出控制
-
-说明：一次“小智”唤醒后，${SESSION_TIMEOUT}s 内可连续说多条命令；等待超过 ${COMMAND_MAX_AGE}s 的普通命令会过期跳过；Ctrl-C 退出脚本。
-终端会持续打印 [session] / [asr] / [queue] / [action] / [result] 链路事件。
-VAD_PROVIDER=$VAD_PROVIDER（默认 energy；安装 silero-vad 后可设为 silero）
-KWS_PROVIDER=$KWS_PROVIDER（默认 none；mock_text 用于 sidecar 验收，sherpa/openwakeword/livekit 用于真实 KWS）
-EOF
+print_configuration
 
 setsid ros2 launch embodied_simulation voice_turtlebot3.launch.py \
   gui:="$GUI_ENABLED" rviz:=false launch_agent:=true agent_type:="$MODE" \
   provider_mode:="$MODE" microphone_enabled:=true capture_enabled:=true \
-  speaker_enabled:="$SPEAKER_ENABLED" vad_provider:="$VAD_PROVIDER" kws_provider:="$KWS_PROVIDER" wake_word_enabled:=true \
+  speaker_enabled:="$SPEAKER_ENABLED" vad_provider:="$VAD_PROVIDER" kws_provider:="$KWS_PROVIDER" \
+  wake_word_enabled:="$WAKE_WORD_ENABLED" \
   continuous_control_enabled:=true voice_session_timeout_s:="$SESSION_TIMEOUT" \
-  continuous_command_max_age_s:="$COMMAND_MAX_AGE" &
+  continuous_command_max_age_s:="$COMMAND_MAX_AGE" \
+  audio_enhancer:="$AUDIO_ENHANCER" aec_enabled:="$AEC_ENABLED" \
+  noise_suppression_enabled:="$NOISE_SUPPRESSION_ENABLED" \
+  auto_gain_enabled:="$AUTO_GAIN_ENABLED" &
 LAUNCH_PID=$!
 if [[ "$MONITOR_ENABLED" == "true" ]]; then
   python3 "$WORKSPACE/scripts/continuous_voice_monitor.py" &

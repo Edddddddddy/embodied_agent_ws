@@ -18,6 +18,10 @@ def generate_launch_description():
     speaker = LaunchConfiguration("speaker_enabled")
     vad_provider = LaunchConfiguration("vad_provider")
     kws_provider = LaunchConfiguration("kws_provider")
+    audio_enhancer = LaunchConfiguration("audio_enhancer")
+    aec_enabled = LaunchConfiguration("aec_enabled")
+    noise_suppression_enabled = LaunchConfiguration("noise_suppression_enabled")
+    auto_gain_enabled = LaunchConfiguration("auto_gain_enabled")
     continuous_control_enabled = LaunchConfiguration("continuous_control_enabled")
     voice_session_timeout_s = LaunchConfiguration("voice_session_timeout_s")
     continuous_command_max_age_s = LaunchConfiguration("continuous_command_max_age_s")
@@ -36,6 +40,10 @@ def generate_launch_description():
         DeclareLaunchArgument("speaker_enabled", default_value="false"),
         DeclareLaunchArgument("vad_provider", default_value="energy"),
         DeclareLaunchArgument("kws_provider", default_value="none"),
+        DeclareLaunchArgument("audio_enhancer", default_value="nlms"),
+        DeclareLaunchArgument("aec_enabled", default_value="true"),
+        DeclareLaunchArgument("noise_suppression_enabled", default_value="false"),
+        DeclareLaunchArgument("auto_gain_enabled", default_value="false"),
         DeclareLaunchArgument("continuous_control_enabled", default_value="false"),
         DeclareLaunchArgument("voice_session_timeout_s", default_value="60.0"),
         DeclareLaunchArgument("continuous_command_max_age_s", default_value="30.0"),
@@ -72,6 +80,12 @@ def generate_launch_description():
                 "capture_enabled": capture,
                 "speaker_enabled": speaker,
                 "vad_provider": vad_provider,
+                "audio_enhancer": audio_enhancer,
+                "aec_enabled": ParameterValue(aec_enabled, value_type=bool),
+                "noise_suppression_enabled": ParameterValue(
+                    noise_suppression_enabled, value_type=bool
+                ),
+                "auto_gain_enabled": ParameterValue(auto_gain_enabled, value_type=bool),
                 "endpoint_events_enabled": ParameterValue(
                     PythonExpression(["'", vad_provider, "' != 'silero'"]),
                     value_type=bool,

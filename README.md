@@ -93,6 +93,18 @@ bash scripts/continuous_voice_control.sh offline
 bash scripts/continuous_voice_control.sh online
 ```
 
+演示前可先做无麦克风 dry-run，确认参数会怎样透传到 launch：
+
+```bash
+CONTINUOUS_PRINT_CONFIG=true \
+  WAKE_WORD_ENABLED=true \
+  AUDIO_ENHANCER=nlms \
+  AEC_ENABLED=true \
+  NOISE_SUPPRESSION_ENABLED=false \
+  AUTO_GAIN_ENABLED=false \
+  bash scripts/continuous_voice_control.sh offline
+```
+
 推荐话术：`小智`、`向前走一秒`、`左转九十度`、`后退一秒`、`绕圈`、`走正方形`、
 `停下`、`退出控制`。连续模式不会在 Agent busy 时丢弃 ASR final，而是进入 FIFO 队列；
 `停下/急停` 会清空等待队列、取消正在等待结果的组合动作，并立即发布 `stop`。
@@ -120,6 +132,9 @@ python3 scripts/voice_control_readiness_check.py --duration 8 --require-kws
 VAD 阈值、噪声和丢帧建议，并输出推荐的 energy VAD 阈值起点。指标中还会显示
 `audio_enhancer_requested/audio_enhancer_active` 和 `aec/ns/agc` 状态；如果请求
 WebRTC、NS 或 AGC 但当前仍回退到 NLMS，校准脚本会明确给出 fallback warning。
+人工脚本可通过 `AUDIO_ENHANCER`、`AEC_ENABLED`、`NOISE_SUPPRESSION_ENABLED`、
+`AUTO_GAIN_ENABLED` 覆盖这些参数；当前真实可用的是 NLMS AEC，WebRTC enhancer
+仍是后续扩展。
 
 ## 验收入口
 
