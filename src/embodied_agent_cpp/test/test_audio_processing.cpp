@@ -37,6 +37,54 @@ TEST(SilenceDetectorTest, EmitsOnceAfterFourHundredMilliseconds)
   EXPECT_FALSE(detector.update(false, 0.02));
 }
 
+TEST(SpeechEndpointDetectorTest, EmitsStartAndEndForCompleteUtterance)
+{
+  embodied_agent_cpp::SpeechEndpointDetector detector(0.4, 0.1, 10.0);
+
+  auto event = detector.update(true, 0.02);
+  EXPECT_TRUE(event.speech_started);
+  EXPECT_FALSE(event.speech_ended);
+
+  event = detector.update(true, 0.08);
+  EXPECT_FALSE(event.speech_started);
+  EXPECT_FALSE(event.speech_ended);
+
+  for (int frame = 0; frame < 19; ++frame) {
+    event = detector.update(false, 0.02);
+    EXPECT_FALSE(event.speech_ended);
+  }
+  event = detector.update(false, 0.02);
+  EXPECT_TRUE(event.speech_ended);
+  EXPECT_EQ(event.end_reason, embodied_agent_cpp::SpeechEndpointReason::kSilence);
+
+  event = detector.update(false, 0.02);
+  EXPECT_FALSE(event.speech_started);
+  EXPECT_FALSE(event.speech_ended);
+}
+
+TEST(SpeechEndpointDetectorTest, DropsShortNoiseBursts)
+{
+  embodied_agent_cpp::SpeechEndpointDetector detector(0.4, 0.1, 10.0);
+
+  EXPECT_TRUE(detector.update(true, 0.02).speech_started);
+  for (int frame = 0; frame < 20; ++frame) {
+    const auto event = detector.update(false, 0.02);
+    EXPECT_FALSE(event.speech_ended);
+  }
+}
+
+TEST(SpeechEndpointDetectorTest, ForcesEndAtMaximumUtterance)
+{
+  embodied_agent_cpp::SpeechEndpointDetector detector(0.4, 0.0, 0.06);
+
+  EXPECT_TRUE(detector.update(true, 0.02).speech_started);
+  EXPECT_FALSE(detector.update(true, 0.02).speech_ended);
+  const auto event = detector.update(true, 0.02);
+
+  EXPECT_TRUE(event.speech_ended);
+  EXPECT_EQ(event.end_reason, embodied_agent_cpp::SpeechEndpointReason::kMaxDuration);
+}
+
 TEST(NlmsEchoCancellerTest, PreservesMicrophoneWithoutReference)
 {
   embodied_agent_cpp::NlmsEchoCanceller canceller(16000, 16000, 32, 0.2, 0);

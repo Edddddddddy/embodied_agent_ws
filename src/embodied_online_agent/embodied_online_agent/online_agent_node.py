@@ -2,6 +2,7 @@ import json
 import os
 import queue
 import threading
+import time
 from pathlib import Path
 from typing import Iterable
 
@@ -34,6 +35,7 @@ class OnlineAgentNode(Node):
         self._state_lock = threading.Lock()
         self._busy = False
         self._stopping = False
+        self._last_asr_commit_monotonic = 0.0
         self._continuous_enabled = bool(self._param("continuous_control_enabled"))
         self._command_queue = ContinuousCommandQueue(
             int(self._param("continuous_command_queue_size"))
@@ -117,6 +119,18 @@ class OnlineAgentNode(Node):
                 self._on_silence_timeout,
                 10,
             )
+            self.create_subscription(
+                Empty,
+                "/audio/speech_started",
+                self._on_speech_started,
+                10,
+            )
+            self.create_subscription(
+                Empty,
+                "/audio/speech_ended",
+                self._on_speech_ended,
+                10,
+            )
 
         self._publish_state("listening")
         self.get_logger().info(
@@ -156,6 +170,7 @@ class OnlineAgentNode(Node):
             "continuous_control_enabled": False,
             "voice_session_timeout_s": 60.0,
             "continuous_command_queue_size": 8,
+            "speech_endpoint_events_enabled": True,
         }
         for name, value in defaults.items():
             self.declare_parameter(name, value)
@@ -211,8 +226,26 @@ class OnlineAgentNode(Node):
         self.asr.push_audio(bytes(message.data))
 
     def _on_silence_timeout(self, _message: Empty):
+        self._commit_asr_endpoint("silence_timeout")
+
+    def _on_speech_started(self, _message: Empty):
         if self._is_busy() and not self._continuous_enabled:
             return
+        self._publish_state("speech_detected")
+
+    def _on_speech_ended(self, _message: Empty):
+        if not self._param("speech_endpoint_events_enabled"):
+            return
+        self._commit_asr_endpoint("speech_ended")
+
+    def _commit_asr_endpoint(self, source: str):
+        if self._is_busy() and not self._continuous_enabled:
+            return
+        now = time.monotonic()
+        if now - self._last_asr_commit_monotonic < 0.05:
+            self.get_logger().debug(f"ignored duplicate ASR commit from {source}")
+            return
+        self._last_asr_commit_monotonic = now
         self.asr.commit()
 
     def _is_busy(self):

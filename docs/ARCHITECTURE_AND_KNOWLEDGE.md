@@ -164,7 +164,11 @@ active action、sensor stale、safety stopped 与原因。
 ## 4. 流式语音与延迟
 
 - AEC：NLMS 用播放 PCM 作为参考估计回声；真实设备需校准 delay、step、taps，并测双讲。
-- VAD：能量阈值负责区分语音/静音，静音检测器累计 400 ms 后只提交一次 utterance。
+- VAD：当前 `vad_provider:=energy` 只负责判断单帧是否有人声；`SpeechEndpointDetector`
+  负责发布 `/audio/speech_started`、`/audio/speech_ended`，并用
+  `speech_end_silence_s`、`min_utterance_ms`、`max_utterance_s` 控制端点。旧的
+  `/audio/silence_timeout` 仍同步发布，Agent 对两种 commit 信号做短时间去重。
+  后续接 Silero/sherpa VAD 时应只替换 provider，不改端点事件契约。
 - ASR：在线采用实时 WebSocket；离线 ZipFormer 采用流式 transducer 和 modified beam search。
 - 唤醒：当前文本门控前有热词偏置，失败会回到 `retry_listening`。生产级应增加声学 KWS。
 - LLM：token 到达即进入标签解析器；动作必须等完整 JSON，speech 可按标点提前送 TTS。
@@ -239,10 +243,12 @@ adapter，而不是把串口重试、CRC 和 ROS Action 全塞进一个类。
   →Confirm，支持取消、抢占、障碍、超时和急停；同一实现支持独立进程、component
   container 和 namespace 隔离。
 - 部署 Qwen3-0.6B Q8/llama.cpp、ZipFormer 与 Sherpa-TTS；当前环境 CPU decode
-  34.10 token/s、离线整轮 2.313 s、在线热启动首 token 350–384 ms；建立 146 项 colcon
+  34.10 token/s、离线整轮 2.313 s、在线热启动首 token 350–384 ms；建立 149 项 colcon
   测试、2 项仓库约束测试及 mock/online/offline/Gazebo/continuous mock 分层 release gates。
 - 新增连续语音控制状态机：一次唤醒后多命令 FIFO 排队，退出控制休眠，停下/急停可清空
   等待队列并抢占当前组合动作，适合长时间麦克风控制 Gazebo 演示。
+- 补齐 VAD endpoint seam：C++ AudioFrontend 增加 speech started/ended topic 和端点参数，
+  online/offline Agent 可由 `speech_ended` commit ASR；Silero/ONNX adapter 尚未接入。
 
 面试时必须主动说明：LoRA 尚未训练；2/8 是原始模型成绩，7/8 是 fallback 后系统成绩；
 冷启动在线 LLM 不达 1 秒；所有性能数字均是当前机器少量样本，不是生产 SLA。

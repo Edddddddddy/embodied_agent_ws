@@ -13,6 +13,8 @@
 - 在线链路：Qwen 实时 ASR、流式 LLM、实时 TTS，支持预热、记忆和延迟指标。
 - 离线链路：sherpa-onnx ZipFormer、Qwen3-0.6B Q8/llama.cpp、Sherpa-TTS。
 - 声学前端：C++ PortAudio、NLMS AEC、VAD、0.4 秒静音断句。
+- VAD seam：AudioFrontend 发布 `/audio/speech_started` 与 `/audio/speech_ended`，
+  仍兼容旧 `/audio/silence_timeout`；当前 provider 为 energy，Silero adapter 待接入。
 - 识别恢复：热词偏置、唤醒别名、失败反馈和持续重试。
 - 连续控制：一次“小智”唤醒后进入 60 秒会话，后续命令排队顺序执行，停下/急停抢占。
 - 动作安全：结构化动作、C++ schema 校验、限幅、急停和 watchdog。
@@ -151,9 +153,15 @@ Q8 CPU decode 34.10 token/s、语音全链 2.313 s；typed Action/BT 驱动 Gaze
 
 2026-07-03 新增连续语音控制第一阶段：online/offline Agent 复用
 `ContinuousVoiceSession` 与 `ContinuousCommandQueue`，支持一次唤醒后的多命令排队、
-退出控制休眠、stop 优先级抢占。当前自动证据：146 项 colcon 测试通过，
+退出控制休眠、stop 优先级抢占。当前自动证据：149 项 colcon 测试通过，
 `acceptance_test.sh continuous-mock` 分别验证 online/offline mock 的
 `小智 -> move -> turn -> arc -> 退出控制` 链路。
+
+2026-07-03 新增 VAD endpoint seam：C++ AudioFrontend 将“是否有人声”和“何时结束一句话”
+拆开，新增 `vad_provider`、`speech_end_silence_s`、`min_utterance_ms`、
+`max_utterance_s` 参数和 `/audio/speech_started`、`/audio/speech_ended` topic。
+online/offline Agent 已订阅 `speech_ended` 触发 ASR commit，并对旧
+`silence_timeout` 做 50 ms 去重兼容。当前尚未引入 Silero/ONNX 依赖。
 
 ## 项目结构
 

@@ -66,6 +66,75 @@ void SilenceDetector::reset()
   emitted_ = false;
 }
 
+SpeechEndpointDetector::SpeechEndpointDetector(
+  double end_silence_seconds,
+  double min_utterance_seconds,
+  double max_utterance_seconds)
+: end_silence_seconds_(end_silence_seconds),
+  min_utterance_seconds_(min_utterance_seconds),
+  max_utterance_seconds_(max_utterance_seconds)
+{
+  if (end_silence_seconds_ <= 0.0) {
+    throw std::invalid_argument("speech end silence must be positive");
+  }
+  if (min_utterance_seconds_ < 0.0) {
+    throw std::invalid_argument("minimum utterance duration must be non-negative");
+  }
+  if (max_utterance_seconds_ <= 0.0) {
+    throw std::invalid_argument("maximum utterance duration must be positive");
+  }
+}
+
+SpeechEndpointEvent SpeechEndpointDetector::update(bool speech, double frame_seconds)
+{
+  if (frame_seconds <= 0.0) {
+    return {};
+  }
+
+  SpeechEndpointEvent event;
+  if (speech) {
+    if (!in_utterance_) {
+      in_utterance_ = true;
+      event.speech_started = true;
+    }
+    speech_seconds_ += frame_seconds;
+    silence_seconds_ = 0.0;
+    if (speech_seconds_ + 1e-9 >= max_utterance_seconds_) {
+      const auto finished = finish(SpeechEndpointReason::kMaxDuration);
+      event.speech_ended = finished.speech_ended;
+      event.end_reason = finished.end_reason;
+    }
+    return event;
+  }
+
+  if (!in_utterance_) {
+    return event;
+  }
+
+  silence_seconds_ += frame_seconds;
+  if (silence_seconds_ + 1e-9 < end_silence_seconds_) {
+    return event;
+  }
+  return finish(SpeechEndpointReason::kSilence);
+}
+
+void SpeechEndpointDetector::reset()
+{
+  speech_seconds_ = 0.0;
+  silence_seconds_ = 0.0;
+  in_utterance_ = false;
+}
+
+SpeechEndpointEvent SpeechEndpointDetector::finish(SpeechEndpointReason reason)
+{
+  const bool long_enough = speech_seconds_ + 1e-9 >= min_utterance_seconds_;
+  reset();
+  if (!long_enough) {
+    return {};
+  }
+  return SpeechEndpointEvent{false, true, reason};
+}
+
 NlmsEchoCanceller::NlmsEchoCanceller(
   int microphone_rate,
   int reference_rate,
@@ -173,4 +242,3 @@ std::vector<int16_t> NlmsEchoCanceller::resample_reference(
 }
 
 }  // namespace embodied_agent_cpp
-

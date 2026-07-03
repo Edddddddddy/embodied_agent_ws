@@ -32,8 +32,13 @@ public:
     reference_rate_(declare_parameter("reference_sample_rate", 24000)),
     frame_ms_(declare_parameter("frame_ms", 20)),
     frames_per_buffer_(static_cast<unsigned long>(microphone_rate_ * frame_ms_ / 1000)),
+    vad_provider_(declare_parameter("vad_provider", "energy")),
+    silence_timeout_s_(declare_parameter("silence_timeout_s", 0.4)),
+    speech_end_silence_s_(declare_parameter("speech_end_silence_s", silence_timeout_s_)),
+    min_utterance_s_(declare_parameter("min_utterance_ms", 100.0) / 1000.0),
+    max_utterance_s_(declare_parameter("max_utterance_s", 12.0)),
     vad_(declare_parameter("vad_rms_threshold", 0.018)),
-    silence_(declare_parameter("silence_timeout_s", 0.4)),
+    endpoint_(speech_end_silence_s_, min_utterance_s_, max_utterance_s_),
     echo_canceller_(
       microphone_rate_,
       reference_rate_,
@@ -44,12 +49,23 @@ public:
     cleaned_audio_publisher_ = create_publisher<std_msgs::msg::UInt8MultiArray>(
       "/audio/clean_pcm", rclcpp::SensorDataQoS());
     silence_publisher_ = create_publisher<std_msgs::msg::Empty>("/audio/silence_timeout", 10);
+    speech_started_publisher_ = create_publisher<std_msgs::msg::Empty>(
+      "/audio/speech_started", 10);
+    speech_ended_publisher_ = create_publisher<std_msgs::msg::Empty>(
+      "/audio/speech_ended", 10);
     tts_reference_subscription_ = create_subscription<std_msgs::msg::UInt8MultiArray>(
       "/audio/tts_pcm",
       rclcpp::SensorDataQoS(),
       [this](const std_msgs::msg::UInt8MultiArray::SharedPtr message) {
         enqueue_playback(message->data);
       });
+
+    if (vad_provider_ != "energy") {
+      RCLCPP_WARN(
+        get_logger(),
+        "vad_provider='%s' is not available yet; falling back to energy VAD",
+        vad_provider_.c_str());
+    }
 
     if (!capture_enabled_ && !speaker_enabled_) {
       RCLCPP_INFO(get_logger(), "audio frontend ready with capture and speaker disabled");
@@ -187,7 +203,12 @@ private:
 
       const bool speech = vad_.is_speech(cleaned);
       const double frame_seconds = static_cast<double>(cleaned.size()) / microphone_rate_;
-      if (silence_.update(speech, frame_seconds)) {
+      const auto endpoint_event = endpoint_.update(speech, frame_seconds);
+      if (endpoint_event.speech_started) {
+        speech_started_publisher_->publish(std_msgs::msg::Empty());
+      }
+      if (endpoint_event.speech_ended) {
+        speech_ended_publisher_->publish(std_msgs::msg::Empty());
         silence_publisher_->publish(std_msgs::msg::Empty());
       }
     }
@@ -252,8 +273,13 @@ private:
   int reference_rate_;
   int frame_ms_;
   unsigned long frames_per_buffer_;
+  std::string vad_provider_;
+  double silence_timeout_s_;
+  double speech_end_silence_s_;
+  double min_utterance_s_;
+  double max_utterance_s_;
   EnergyVad vad_;
-  SilenceDetector silence_;
+  SpeechEndpointDetector endpoint_;
   NlmsEchoCanceller echo_canceller_;
   std::atomic<bool> running_{false};
   bool portaudio_initialized_{false};
@@ -274,6 +300,8 @@ private:
 
   rclcpp::Publisher<std_msgs::msg::UInt8MultiArray>::SharedPtr cleaned_audio_publisher_;
   rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr silence_publisher_;
+  rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr speech_started_publisher_;
+  rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr speech_ended_publisher_;
   rclcpp::Subscription<std_msgs::msg::UInt8MultiArray>::SharedPtr tts_reference_subscription_;
 };
 

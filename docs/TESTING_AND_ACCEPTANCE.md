@@ -27,7 +27,7 @@ bash scripts/acceptance_test.sh continuous-online
 
 `mock` 是每次提交前的最低门槛；`demo` 使用 mock executor 验证组合动作、accessory ACK
 和弧线速度；`continuous-mock` 验证一次唤醒、多命令队列、退出控制和 online/offline
-状态机复用。当前记录为 146 项 colcon 测试、2 项仓库约束测试、0 failure。`online` 使用少量
+状态机复用。当前记录为 149 项 colcon 测试、2 项仓库约束测试、0 failure。`online` 使用少量
 DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里程计位移验真。
 `all` 是完整自动 release gate，包含 mock、在线、离线、Gazebo 和在线/离线语音到 Gazebo，
 但明确排除必须由真人说话的麦克风验收。运行 `--help` 可查看模式语义。
@@ -41,6 +41,7 @@ DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里
 | 离线单元 | `embodied_offline_agent/test/` | 双缓冲、指标、ZipFormer 热词参数 |
 | 仿真单元 | `embodied_simulation/test/` | 速度限制、雷达停车、避障、沿墙 PID |
 | ROS mock | `smoke_test*.sh` | 话题发现、动作发布、ACK、watchdog |
+| 音频端点 | `smoke_test_audio_endpoint.sh` | `/audio/speech_started`、`/audio/speech_ended` 与 VAD 参数 seam |
 | Lifecycle | `smoke_test_lifecycle.sh` | 未激活门控、激活执行、停用零速和 cleanup |
 | 类型兼容 | `smoke_test_typed_action.sh` | 旧 JSON 与 typed command 同时发布且字段等价 |
 | Action 状态 | `smoke_test_typed_action_server.sh` | 成功、反馈、取消、阻塞、超时和抢占 |
@@ -70,6 +71,7 @@ colcon test-result --verbose
 pytest -q src/embodied_online_agent/test src/embodied_offline_agent/test
 pytest -q tests/repository
 bash scripts/smoke_test_recognition_retry.sh
+bash scripts/smoke_test_audio_endpoint.sh
 ```
 
 ## 3. 真实麦克风验收
@@ -123,6 +125,19 @@ bash scripts/continuous_voice_control.sh online
 连续说“向前走一秒 / 左转九十度 / 绕圈 / 走正方形”等命令；Agent 忙于执行上一条时不会
 丢弃新的 ASR final，而是排入队列。说“停下/急停”会清空等待队列并立即发布 stop；说
 “退出控制/休眠/结束控制”会关闭会话，后续命令必须重新唤醒。
+
+VAD endpoint seam：
+
+```bash
+bash scripts/smoke_test_audio_endpoint.sh
+ros2 topic echo /audio/speech_started
+ros2 topic echo /audio/speech_ended
+```
+
+当前 `vad_provider:=energy`，端点参数包括 `speech_end_silence_s`、`min_utterance_ms`、
+`max_utterance_s`。AudioFrontend 会同步发布旧 `/audio/silence_timeout` 以兼容已有测试；
+Agent 对 `speech_ended` 与 `silence_timeout` 的同次事件做 50 ms 去重，避免双 commit。
+Silero VAD 尚未接入，下一步应作为 `vad_provider:=silero` 的可选 adapter。
 
 ## 4. 当前实测基线
 

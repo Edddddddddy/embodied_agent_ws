@@ -2,6 +2,7 @@ import json
 import os
 import queue
 import threading
+import time
 from pathlib import Path
 
 import rclpy
@@ -32,6 +33,7 @@ class OfflineAgentNode(Node):
         self._stopping = False
         self._busy = False
         self._state_lock = threading.Lock()
+        self._last_asr_commit_monotonic = 0.0
         self._continuous_enabled = bool(self._param("continuous_control_enabled"))
         self._command_queue = ContinuousCommandQueue(
             int(self._param("continuous_command_queue_size"))
@@ -98,6 +100,8 @@ class OfflineAgentNode(Node):
             self._asr.start(self._on_asr_partial, self._on_asr_final)
             self.create_subscription(UInt8MultiArray, "/audio/clean_pcm", self._on_audio, audio_qos)
             self.create_subscription(Empty, "/audio/silence_timeout", self._on_silence, 10)
+            self.create_subscription(Empty, "/audio/speech_started", self._on_speech_started, 10)
+            self.create_subscription(Empty, "/audio/speech_ended", self._on_speech_ended, 10)
             self._asr_thread = threading.Thread(target=self._run_asr, daemon=True)
             self._asr_thread.start()
         else:
@@ -144,6 +148,7 @@ class OfflineAgentNode(Node):
             "continuous_control_enabled": False,
             "voice_session_timeout_s": 60.0,
             "continuous_command_queue_size": 8,
+            "speech_endpoint_events_enabled": True,
         }
         for name, value in defaults.items():
             self.declare_parameter(name, value)
@@ -196,8 +201,26 @@ class OfflineAgentNode(Node):
         self._enqueue_asr(("audio", bytes(message.data)))
 
     def _on_silence(self, _message):
+        self._commit_asr_endpoint("silence_timeout")
+
+    def _on_speech_started(self, _message):
         if self._is_busy() and not self._continuous_enabled:
             return
+        self._publish_state("speech_detected")
+
+    def _on_speech_ended(self, _message):
+        if not self._param("speech_endpoint_events_enabled"):
+            return
+        self._commit_asr_endpoint("speech_ended")
+
+    def _commit_asr_endpoint(self, source):
+        if self._is_busy() and not self._continuous_enabled:
+            return
+        now = time.monotonic()
+        if now - self._last_asr_commit_monotonic < 0.05:
+            self.get_logger().debug(f"ignored duplicate ASR commit from {source}")
+            return
+        self._last_asr_commit_monotonic = now
         self._latency = OfflineLatency()
         self._latency.mark_silence()
         self._enqueue_asr(("commit", None), preserve=True)
