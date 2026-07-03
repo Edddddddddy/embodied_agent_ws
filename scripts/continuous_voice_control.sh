@@ -62,7 +62,7 @@ ROS_DOMAIN_ID=$ROS_DOMAIN_ID，连续语音控制模式=$MODE
 说明：一次“小智”唤醒后，${SESSION_TIMEOUT}s 内可连续说多条命令；Ctrl-C 退出脚本。
 终端会持续打印 [session] / [asr] / [queue] / [action] / [result] 链路事件。
 VAD_PROVIDER=$VAD_PROVIDER（默认 energy；安装 silero-vad 后可设为 silero）
-KWS_PROVIDER=$KWS_PROVIDER（默认 none；mock_text 用于 sidecar 验收，sherpa/openwakeword 用于真实 KWS）
+KWS_PROVIDER=$KWS_PROVIDER（默认 none；mock_text 用于 sidecar 验收，sherpa/openwakeword/livekit 用于真实 KWS）
 EOF
 
 setsid ros2 launch embodied_simulation voice_turtlebot3.launch.py \

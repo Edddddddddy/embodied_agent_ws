@@ -4,6 +4,7 @@ import types
 
 from embodied_online_agent.keyword_wake import (
     KeywordWakeBridge,
+    LiveKitWakeWordDetector,
     OpenWakeWordDetector,
     SherpaKeywordWakeDetector,
     TextKeywordWakeDetector,
@@ -142,6 +143,59 @@ def test_openwakeword_detector_ignores_scores_below_threshold(monkeypatch):
         model_paths=["xiaozhi.onnx"],
         threshold=0.5,
         provider_name="openwakeword",
+    )
+
+    assert detector.detect_audio(b"\x01\x00\x02\x00") is None
+
+
+def test_livekit_wakeword_detector_uses_wakeword_model_api(monkeypatch):
+    class FakeWakeWordModel:
+        def __init__(self, **kwargs):
+            assert kwargs == {"models": ["xiaozhi.onnx"]}
+
+        def predict(self, audio):
+            assert audio.dtype.name == "int16"
+            assert audio.tolist() == [1, 2]
+            return {"xiaozhi": 0.88, "background": 0.02}
+
+    monkeypatch.setitem(
+        sys.modules,
+        "livekit.wakeword",
+        types.SimpleNamespace(WakeWordModel=FakeWakeWordModel),
+    )
+
+    detector = LiveKitWakeWordDetector(
+        model_paths=["xiaozhi.onnx"],
+        threshold=0.5,
+        provider_name="livekit_wakeword",
+    )
+
+    match = detector.detect_audio(b"\x01\x00\x02\x00")
+
+    assert match is not None
+    assert match.keyword == "xiaozhi"
+    assert match.provider == "livekit_wakeword"
+    assert match.score == 0.88
+
+
+def test_livekit_wakeword_detector_ignores_low_scores(monkeypatch):
+    class FakeWakeWordModel:
+        def __init__(self, **_kwargs):
+            pass
+
+        def predict(self, _audio):
+            return {"xiaozhi": 0.49}
+
+    monkeypatch.setitem(
+        sys.modules,
+        "livekit.wakeword",
+        types.SimpleNamespace(WakeWordModel=FakeWakeWordModel),
+    )
+
+    detector = LiveKitWakeWordDetector(
+        model_paths=["xiaozhi.onnx"],
+        threshold=0.5,
+        provider_name="livekit_wakeword",
     )
 
     assert detector.detect_audio(b"\x01\x00\x02\x00") is None

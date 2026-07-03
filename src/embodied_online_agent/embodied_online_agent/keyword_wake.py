@@ -172,6 +172,49 @@ class OpenWakeWordDetector:
         return KeywordWakeMatch(str(keyword), self.provider_name, score)
 
 
+class LiveKitWakeWordDetector:
+    """LiveKit WakeWord adapter for optional custom ONNX wake-word models.
+
+    LiveKit WakeWord 适合后续训练中文“小智”等自定义唤醒词；推理接口与
+    openWakeWord 类似：把 16 kHz / int16 PCM 帧交给 `WakeWordModel.predict()`，
+    返回每个模型的 0~1 分数。
+    """
+
+    provider_name = "livekit_wakeword"
+
+    def __init__(
+        self,
+        *,
+        model_paths: Iterable[str],
+        threshold: float = 0.5,
+        provider_name: str = "livekit_wakeword",
+    ):
+        import numpy as np
+        from livekit.wakeword import WakeWordModel
+
+        self.provider_name = provider_name
+        self._np = np
+        self._threshold = float(threshold)
+        models = [path for path in model_paths if str(path).strip()]
+        self._model = WakeWordModel(models=models)
+
+    def detect_text(self, _text: str) -> KeywordWakeMatch | None:
+        return None
+
+    def detect_audio(self, pcm16: bytes) -> KeywordWakeMatch | None:
+        if not pcm16:
+            return None
+        samples = self._np.frombuffer(pcm16, dtype="<i2").astype(self._np.int16)
+        predictions = self._model.predict(samples)
+        if not isinstance(predictions, dict) or not predictions:
+            return None
+        keyword, score = max(predictions.items(), key=lambda item: float(item[1]))
+        score = float(score)
+        if score < self._threshold:
+            return None
+        return KeywordWakeMatch(str(keyword), self.provider_name, score)
+
+
 class KeywordWakeBridge:
     """把 detector match 转成 `/agent/wake_event_input` JSON，并处理冷却时间。"""
 

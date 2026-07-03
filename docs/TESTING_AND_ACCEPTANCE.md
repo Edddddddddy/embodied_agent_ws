@@ -251,6 +251,9 @@ sherpa-onnx/openWakeWord adapter 只需要按这个 topic 契约发布 wake/slee
   `openwakeword_threshold` 与 `openwakeword_inference_framework`。openWakeWord 官方
   预训练模型主要面向英文，中文“小智”建议使用 sherpa KWS 或后续 LiveKit/openWakeWord
   自训练模型。
+- `kws_provider:=livekit`：订阅 `/audio/clean_pcm`，使用 LiveKit WakeWord
+  `WakeWordModel.predict()`；需要安装可选依赖并配置 `livekit_wakeword_models` 和
+  `livekit_wakeword_threshold`。该方案适合后续用 LiveKit 训练并导出中文“小智”ONNX。
 
 openWakeWord 可选依赖安装：
 
@@ -268,6 +271,17 @@ bash scripts/acceptance_test.sh openwakeword-sidecar
 
 该脚本会临时注入 fake `openwakeword.model.Model`，验证 ROS 节点参数、`/audio/clean_pcm`
 订阅、`Model.predict()` 调用和 `/agent/wake_event_input` 发布，不代表真实唤醒词模型效果。
+
+LiveKit WakeWord 可选依赖与无模型 smoke：
+
+```bash
+source .venv/bin/activate
+pip install -e "src/embodied_online_agent[livekit-kws]"
+KWS_PROVIDER=livekit bash scripts/continuous_voice_control.sh offline
+
+# 无真实模型依赖，只验证 ROS adapter runtime
+bash scripts/acceptance_test.sh livekit-sidecar
+```
 
 ## 4. 当前实测基线
 

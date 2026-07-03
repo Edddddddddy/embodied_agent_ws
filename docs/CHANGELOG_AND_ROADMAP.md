@@ -29,6 +29,7 @@
 | KeywordWake sidecar | 当前 | mock_text 无模型验收、sherpa-onnx KeywordSpotter adapter 和 kws_event 诊断 topic |
 | openWakeWord provider | 当前 | `keyword_wake` 新增 openwakeword optional adapter，复用 `/audio/clean_pcm -> /agent/wake_event_input` seam |
 | openWakeWord runtime smoke | 当前 | `openwakeword-sidecar` 用 fake Model 验证 ROS 进程内音频输入、predict 调用和 wake event 输出 |
+| LiveKit WakeWord provider | 当前 | `keyword_wake` 新增 livekit optional adapter 与 fake runtime smoke，为后续中文“小智”ONNX 训练模型预留入口 |
 | KWS 连续控制验收 | 当前 | continuous-kws-mock 验证 KWS sidecar 唤醒后直接进入 Agent 队列并执行动作 |
 | AudioEnhancer seam | 当前 | NLMS AEC adapter、audio_enhancer/aec/ns/agc 参数与 WebRTC adapter 预留 |
 | 连续演示 monitor | 当前 | 终端持续打印 session/asr/queue/action/result，便于真人麦克风演示 |
