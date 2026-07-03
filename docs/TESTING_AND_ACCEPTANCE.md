@@ -159,6 +159,7 @@ bash scripts/continuous_voice_control.sh online
 
 # 无需麦克风，打印实际 launch 参数，适合演示前检查环境变量覆盖是否正确
 CONTINUOUS_PRINT_CONFIG=true \
+  VOICE_CONTROL_PROFILE=noisy_room \
   WAKE_WORD_ENABLED=false \
   AUDIO_ENHANCER=webrtc \
   NOISE_SUPPRESSION_ENABLED=true \
@@ -174,7 +175,10 @@ CONTINUOUS_PRINT_CONFIG=true \
 `command_normalization_enabled:=true`、
 `command_normalization_feedback_enabled:=true`、
 `command_normalization_fuzzy_threshold:=0.82`。这些值都可通过
-同名大写环境变量覆盖。说一次“小智”后，60 秒内可以
+同名大写环境变量覆盖。`VOICE_CONTROL_PROFILE=normal|quiet|noisy_room` 可批量调整
+VAD 端点、队列容量、旧命令 TTL 和纠错阈值；其中 `quiet` 适合安静近讲，
+`noisy_room` 适合嘈杂环境减少误触发。显式环境变量优先级高于 profile 默认值。
+说一次“小智”后，60 秒内可以
 连续说“向前走一秒 / 左转九十度 / 绕圈 / 走正方形”等命令；Agent 忙于执行上一条时不会
 丢弃新的 ASR final，而是排入队列。会话层会忽略“嗯/啊/哦/呃”等短 filler，并对短时间
 重复出现的同一句 ASR final 去重；这两个规则只处理明显噪声，避免把正常的二次命令误删。

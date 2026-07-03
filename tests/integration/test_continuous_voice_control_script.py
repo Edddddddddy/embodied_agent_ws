@@ -106,6 +106,87 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
     assert "noise_suppression_enabled:=true" in result.stdout
 
 
+def test_continuous_voice_control_profile_tunes_microphone_defaults():
+    env = os.environ.copy()
+    env.update(
+        {
+            "WORKSPACE": str(ROOT),
+            "CONTINUOUS_PRINT_CONFIG": "true",
+            "VOICE_CONTROL_PROFILE": "noisy_room",
+        }
+    )
+
+    result = subprocess.run(
+        ["bash", str(ROOT / "scripts" / "continuous_voice_control.sh"), "offline"],
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+
+    assert "VOICE_CONTROL_PROFILE=noisy_room" in result.stdout
+    assert "SPEECH_START_THRESHOLD=0.026" in result.stdout
+    assert "SPEECH_END_SILENCE_S=0.55" in result.stdout
+    assert "MIN_UTTERANCE_MS=180" in result.stdout
+    assert "MAX_UTTERANCE_S=10.0" in result.stdout
+    assert "COMMAND_NORMALIZATION_FUZZY_THRESHOLD=0.78" in result.stdout
+    assert "CONTINUOUS_COMMAND_QUEUE_SIZE=5" in result.stdout
+    assert "speech_start_threshold:=0.026" in result.stdout
+    assert "continuous_command_queue_size:=5" in result.stdout
+
+
+def test_continuous_voice_control_manual_env_overrides_profile():
+    env = os.environ.copy()
+    env.update(
+        {
+            "WORKSPACE": str(ROOT),
+            "CONTINUOUS_PRINT_CONFIG": "true",
+            "VOICE_CONTROL_PROFILE": "noisy_room",
+            "SPEECH_START_THRESHOLD": "0.031",
+            "CONTINUOUS_COMMAND_QUEUE_SIZE": "9",
+        }
+    )
+
+    result = subprocess.run(
+        ["bash", str(ROOT / "scripts" / "continuous_voice_control.sh"), "offline"],
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+
+    assert "VOICE_CONTROL_PROFILE=noisy_room" in result.stdout
+    assert "SPEECH_START_THRESHOLD=0.031" in result.stdout
+    assert "CONTINUOUS_COMMAND_QUEUE_SIZE=9" in result.stdout
+    assert "speech_start_threshold:=0.031" in result.stdout
+    assert "continuous_command_queue_size:=9" in result.stdout
+
+
+def test_continuous_voice_control_rejects_unknown_profile():
+    env = os.environ.copy()
+    env.update(
+        {
+            "WORKSPACE": str(ROOT),
+            "CONTINUOUS_PRINT_CONFIG": "true",
+            "VOICE_CONTROL_PROFILE": "storm",
+        }
+    )
+
+    result = subprocess.run(
+        ["bash", str(ROOT / "scripts" / "continuous_voice_control.sh"), "offline"],
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "unknown VOICE_CONTROL_PROFILE" in result.stderr
+
+
 def test_voice_launches_expose_audio_enhancer_arguments():
     files = [
         ROOT / "src" / "embodied_simulation" / "launch" / "voice_turtlebot3.launch.py",

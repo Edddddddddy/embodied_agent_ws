@@ -91,6 +91,9 @@ WAKE_WORD_ENABLED=true \
 # 一次“小智”唤醒后，可连续说多条命令；默认关闭扬声器以降低回声干扰
 bash scripts/continuous_voice_control.sh offline
 bash scripts/continuous_voice_control.sh online
+
+# 嘈杂环境推荐先用 noisy_room，安静近讲可用 quiet；显式环境变量仍可覆盖 preset
+VOICE_CONTROL_PROFILE=noisy_room bash scripts/continuous_voice_control.sh offline
 ```
 
 演示前可先做无麦克风 dry-run，确认参数会怎样透传到 launch：
@@ -116,6 +119,11 @@ CONTINUOUS_PRINT_CONFIG=true \
 `/agent/command_queue`，monitor 显示为 `[queue] expired ...`。
 队列容量默认是 8，可用 `CONTINUOUS_COMMAND_QUEUE_SIZE` 调整；现场演示建议保持较小，
 这样误触发不会堆积太多旧命令，配合 `CONTINUOUS_COMMAND_MAX_AGE` 更容易复盘。
+`VOICE_CONTROL_PROFILE` 提供 `normal`、`quiet`、`noisy_room` 三档现场预设：
+`quiet` 更灵敏、会话窗口更长，适合安静近讲；`noisy_room` 会提高 VAD 起始阈值、
+延长静音断句、缩短旧命令寿命并降低队列容量，适合嘈杂房间里避免误触发堆积。
+显式设置的 `SPEECH_START_THRESHOLD`、`CONTINUOUS_COMMAND_QUEUE_SIZE` 等环境变量
+优先级高于 preset。
 命令纠错默认开启，可通过 `COMMAND_NORMALIZATION_ENABLED=false` 临时关闭；现场发现新的
 ASR 错词时，推荐复制默认错词表后用 `COMMAND_NORMALIZATION_PATH=/path/to/custom.yaml`
 覆盖，并用 `COMMAND_NORMALIZATION_FUZZY_THRESHOLD=0.77` 微调模糊匹配阈值；
