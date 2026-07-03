@@ -295,11 +295,11 @@ class MonitorStats:
 
 
 class ContinuousVoiceMonitor(Node):
-    def __init__(self):
+    def __init__(self, *, audio_sample_limit: int = 600):
         super().__init__("continuous_voice_monitor")
         self._queued_seen = 0
         self._structured_queue_seen = False
-        self._stats = MonitorStats()
+        self._stats = MonitorStats(audio_sample_limit=audio_sample_limit)
         self.create_subscription(String, "/agent/session_state", self._on_session, 10)
         self.create_subscription(String, "/agent/wake_event", self._on_wake, 10)
         self.create_subscription(String, "/agent/kws_event", self._on_kws, 10)
@@ -381,10 +381,16 @@ class ContinuousVoiceMonitor(Node):
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.parse_args()
+    parser.add_argument(
+        "--audio-sample-limit",
+        type=int,
+        default=600,
+        help="保留最近 N 条 /audio/frontend_metrics 用于退出 summary，避免长时间演示无限增长。",
+    )
+    args = parser.parse_args()
     install_signal_handlers()
     rclpy.init()
-    node = ContinuousVoiceMonitor()
+    node = ContinuousVoiceMonitor(audio_sample_limit=args.audio_sample_limit)
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

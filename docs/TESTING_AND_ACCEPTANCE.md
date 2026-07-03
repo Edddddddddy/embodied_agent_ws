@@ -244,7 +244,8 @@ monitor 和 summary 可用于判断是否应该减慢说话节奏或调大容量
 `/audio/frontend_metrics`，还会打印 `[summary-audio]`，其中 `profile/reason` 直接给出
 下一轮真实麦克风演示应尝试的 `VOICE_CONTROL_PROFILE`。音频样本采用最近 600 条
 metrics 的滑动窗口，避免长时间开麦时 monitor 内存无界增长。如果只想看 launch 原始日志，
-可设置 `CONTINUOUS_MONITOR_ENABLED=false`。
+可设置 `CONTINUOUS_MONITOR_ENABLED=false`；如果需要更长或更短的音频复盘窗口，可设置
+`CONTINUOUS_MONITOR_AUDIO_SAMPLE_LIMIT=1200` 等值。
 
 真实 KWS provider 可直接从连续控制脚本配置，不必手改 YAML。脚本会把这些值同时传给
 `voice_provider_preflight.py` 与 `voice_turtlebot3.launch.py`：

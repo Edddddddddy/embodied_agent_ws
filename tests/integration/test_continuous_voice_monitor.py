@@ -237,6 +237,13 @@ def test_monitor_stats_keeps_bounded_recent_audio_samples():
     assert "max_rms=0.0300" in summary
 
 
+def test_monitor_exposes_audio_sample_limit_cli_option():
+    content = MONITOR.read_text(encoding="utf-8")
+
+    assert "--audio-sample-limit" in content
+    assert "ContinuousVoiceMonitor(audio_sample_limit=args.audio_sample_limit)" in content
+
+
 def test_monitor_signal_handler_uses_keyboard_interrupt_for_summary_path():
     try:
         monitor._interrupt_monitor(None, None)

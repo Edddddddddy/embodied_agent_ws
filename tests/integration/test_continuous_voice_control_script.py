@@ -40,6 +40,7 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
             "NOISE_SUPPRESSION_ENABLED": "true",
             "AUTO_GAIN_ENABLED": "true",
             "CONTINUOUS_MONITOR_ENABLED": "false",
+            "CONTINUOUS_MONITOR_AUDIO_SAMPLE_LIMIT": "42",
             "CONTINUOUS_PREFLIGHT_ENABLED": "true",
             "CONTINUOUS_READINESS_ENABLED": "true",
             "CONTINUOUS_READINESS_DURATION": "3.5",
@@ -80,6 +81,7 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
     assert "AEC_ENABLED=false" in result.stdout
     assert "NOISE_SUPPRESSION_ENABLED=true" in result.stdout
     assert "AUTO_GAIN_ENABLED=true" in result.stdout
+    assert "CONTINUOUS_MONITOR_AUDIO_SAMPLE_LIMIT=42" in result.stdout
     assert "CONTINUOUS_PREFLIGHT_ENABLED=true" in result.stdout
     assert "CONTINUOUS_READINESS_ENABLED=true" in result.stdout
     assert "CONTINUOUS_READINESS_DURATION=3.5" in result.stdout
@@ -227,6 +229,7 @@ def test_continuous_voice_control_stops_monitor_gracefully_for_summary():
     )
 
     assert 'kill -INT "$MONITOR_PID"' in content
+    assert '--audio-sample-limit "$MONITOR_AUDIO_SAMPLE_LIMIT"' in content
 
 
 def test_continuous_voice_control_waits_for_readiness_after_launch():
