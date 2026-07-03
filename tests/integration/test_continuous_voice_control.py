@@ -24,6 +24,7 @@ class ContinuousVoiceProbe(Node):
         self.recognition_feedback = []
         self.candidates = []
         self.results = []
+        self.feedback = []
         self.velocities = []
         self.create_subscription(String, "/agent/state", self._on_state, 10)
         self.create_subscription(String, "/agent/session_state", self._on_session_state, 10)
@@ -39,6 +40,7 @@ class ContinuousVoiceProbe(Node):
             String, "/agent/action_candidate", self._on_candidate, 10
         )
         self.create_subscription(String, "/robot/action_result", self._on_result, 10)
+        self.create_subscription(String, "/robot/action_feedback", self._on_feedback_event, 10)
         self.create_subscription(Twist, "/cmd_vel", self._on_velocity, 10)
 
     def _on_state(self, message):
@@ -64,6 +66,9 @@ class ContinuousVoiceProbe(Node):
 
     def _on_result(self, message):
         self.results.append(json.loads(message.data))
+
+    def _on_feedback_event(self, message):
+        self.feedback.append(json.loads(message.data))
 
     def _on_velocity(self, message):
         self.velocities.append((message.linear.x, message.angular.z))
@@ -170,6 +175,8 @@ def main():
             raise RuntimeError(
                 f"execution events were not published: {node.execution_events}"
             )
+        if not node.feedback:
+            raise RuntimeError("typed Action feedback was not published")
         normalized = [
             event for event in node.recognition_feedback
             if event.get("reason") == "command_normalized"
@@ -187,6 +194,7 @@ def main():
             "wake_event_kinds": wake_kinds,
             "queue_sizes": queue_sizes,
             "execution_event_kinds": execution_kinds,
+            "feedback_count": len(node.feedback),
             "normalization_count": len(normalized),
             "final_cmd_vel": node.velocities[-1] if node.velocities else None,
             "status": "PASS",

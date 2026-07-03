@@ -106,6 +106,19 @@ def format_action_candidate(serialized: str) -> str:
     return f"[action] executing {name}"
 
 
+def format_action_feedback(serialized: str) -> str:
+    payload = _json_dict(serialized)
+    phase_names = {
+        1: "accepted",
+        2: "executing",
+        3: "stopping",
+    }
+    phase = phase_names.get(payload.get("phase"), str(payload.get("phase", "unknown")))
+    progress = max(0.0, min(1.0, float(payload.get("progress", 0.0))))
+    detail = payload.get("detail") or ""
+    return f"[feedback] {phase} {progress * 100:.0f}% {detail}".rstrip()
+
+
 def format_action_result(serialized: str) -> str:
     payload = _json_dict(serialized)
     if payload.get("success") is True:
@@ -145,6 +158,9 @@ class ContinuousVoiceMonitor(Node):
             String, "/agent/command_execution", self._on_execution, 10
         )
         self.create_subscription(String, "/agent/action_candidate", self._on_action, 10)
+        self.create_subscription(
+            String, "/robot/action_feedback", self._on_action_feedback, 10
+        )
         self.create_subscription(
             String, "/agent/recognition_feedback", self._on_feedback, 10
         )
@@ -188,6 +204,9 @@ class ContinuousVoiceMonitor(Node):
 
     def _on_action(self, message: String) -> None:
         self._emit(format_action_candidate(message.data))
+
+    def _on_action_feedback(self, message: String) -> None:
+        self._emit(format_action_feedback(message.data))
 
     def _on_feedback(self, message: String) -> None:
         self._emit(format_recognition_feedback(message.data))

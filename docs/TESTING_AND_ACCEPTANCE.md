@@ -171,6 +171,7 @@ bash scripts/continuous_voice_control.sh online
 [queue] expired 向前走一秒 reason=stale_command size=1
 [exec] started 向前走一秒
 [action] executing move
+[feedback] executing 45% mock_execution
 [result] succeeded
 ```
 

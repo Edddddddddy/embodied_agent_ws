@@ -102,7 +102,8 @@ bash scripts/continuous_voice_control.sh online
 自动验收可用 `bash scripts/acceptance_test.sh continuous-ttl` 复现实例：先执行长组合动作，
 再排入一条普通命令，确认它过期且没有发布动作候选。
 脚本会启动 `continuous_voice_monitor.py`，持续打印 `[session]`、`[asr]`、`[queue]`、
-`[exec]`、`[action]`、`[result]`，便于现场演示链路；如需关闭可设置
+`[exec]`、`[action]`、`[feedback]`、`[result]`，便于现场演示链路；长动作执行期间
+`[feedback]` 会显示 ROS Action 进度，避免误以为系统卡住。如需关闭可设置
 `CONTINUOUS_MONITOR_ENABLED=false`。
 
 真实麦克风体验不稳定时，先运行音频前端校准脚本，而不是直接调 ASR 或 LLM：

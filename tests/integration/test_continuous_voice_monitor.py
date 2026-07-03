@@ -84,6 +84,10 @@ def test_monitor_formats_asr_queue_action_and_result_events():
         ensure_ascii=False,
     )
     result = json.dumps({"success": True, "message": "succeeded"}, ensure_ascii=False)
+    feedback = json.dumps(
+        {"phase": 2, "progress": 0.42, "detail": "mock_execution"},
+        ensure_ascii=False,
+    )
 
     assert monitor.format_asr_final("向前走一秒") == "[asr] 向前走一秒"
     assert monitor.format_queue_event(queue_event) == "[queue] enqueue 向前走一秒 size=2"
@@ -93,6 +97,7 @@ def test_monitor_formats_asr_queue_action_and_result_events():
     )
     assert monitor.format_execution_event(execution_event) == "[exec] started 向前走一秒"
     assert monitor.format_action_candidate(candidate) == "[action] executing move"
+    assert monitor.format_action_feedback(feedback) == "[feedback] executing 42% mock_execution"
     assert monitor.format_action_result(result) == "[result] succeeded"
 
 

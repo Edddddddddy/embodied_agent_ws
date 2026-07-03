@@ -35,7 +35,7 @@
 | Voice readiness check | 当前 | `voice_control_readiness_check.py` 汇总音频前端和 KWS 分数，给出连续语音演示 go/no-go 报告 |
 | KWS 连续控制验收 | 当前 | continuous-kws-mock 验证 KWS sidecar 唤醒后直接进入 Agent 队列并执行动作 |
 | AudioEnhancer seam | 当前 | NLMS AEC adapter、audio_enhancer/aec/ns/agc 参数与 WebRTC adapter 预留 |
-| 连续演示 monitor | 当前 | 终端持续打印 session/asr/queue/action/result，便于真人麦克风演示 |
+| 连续演示 monitor | 当前 | 终端持续打印 session/asr/queue/action/feedback/result，长动作期间展示 ROS Action 进度 |
 | CommandExecutionTracker | 当前 | command_queue/command_execution topic 暴露队列长度和执行生命周期 |
 | 连续急停验收 | 当前 | continuous-mock 验证 priority stop 清队列、发布 stop、最终 cmd_vel 归零 |
 | 连续命令 TTL | 当前 | `continuous_command_max_age_s` 默认 30 秒，普通旧命令过期跳过并发布 `expired` 事件，急停/停下永不过期；`continuous-ttl` 覆盖真实 ROS 链路 |
