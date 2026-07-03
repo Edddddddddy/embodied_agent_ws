@@ -47,6 +47,8 @@ def generate_launch_description():
     capture = LaunchConfiguration("capture_enabled")
     speaker = LaunchConfiguration("speaker_enabled")
     wake_word = LaunchConfiguration("wake_word_enabled")
+    continuous_control = LaunchConfiguration("continuous_control_enabled")
+    voice_session_timeout = LaunchConfiguration("voice_session_timeout_s")
     use_typed_actions = LaunchConfiguration("use_typed_actions")
     use_behavior_tree = LaunchConfiguration("use_behavior_tree")
     executor_plugin = LaunchConfiguration("executor_plugin")
@@ -74,6 +76,8 @@ def generate_launch_description():
         DeclareLaunchArgument("capture_enabled", default_value=microphone),
         DeclareLaunchArgument("speaker_enabled", default_value="false"),
         DeclareLaunchArgument("wake_word_enabled", default_value="true"),
+        DeclareLaunchArgument("continuous_control_enabled", default_value="false"),
+        DeclareLaunchArgument("voice_session_timeout_s", default_value="60.0"),
         DeclareLaunchArgument("use_typed_actions", default_value="true"),
         DeclareLaunchArgument("use_behavior_tree", default_value="true"),
         DeclareLaunchArgument(
@@ -142,6 +146,8 @@ def generate_launch_description():
                 "capture_enabled": capture,
                 "speaker_enabled": speaker,
                 "wake_word_enabled": wake_word,
+                "continuous_control_enabled": continuous_control,
+                "voice_session_timeout_s": voice_session_timeout,
                 "hardware_enabled": "false",
                 "lifecycle_autostart": lifecycle_autostart,
             },
@@ -156,6 +162,8 @@ def generate_launch_description():
                 "capture_enabled": capture,
                 "speaker_enabled": speaker,
                 "wake_word_enabled": wake_word,
+                "continuous_control_enabled": continuous_control,
+                "voice_session_timeout_s": voice_session_timeout,
                 "hardware_enabled": "false",
                 "lifecycle_autostart": lifecycle_autostart,
             },

@@ -13,6 +13,7 @@ Automated modes:
   online              Minimal-token live ASR/LLM/TTS verification
   offline             Real ZipFormer/llama.cpp/Sherpa-TTS verification
   demo                Rich mock demo: ordered actions, accessories, and arc motion
+  continuous-mock     One wake word, several queued commands, and sleep gate
   gazebo              Legacy and typed Action physical motion verification
   gazebo-voice        Offline synthesized speech through typed Action to Gazebo
   gazebo-voice-online Online voice provider through typed Action to Gazebo
@@ -21,6 +22,8 @@ Automated modes:
 Interactive modes:
   microphone-offline  Speak into the microphone using the offline Agent
   microphone-online   Speak into the microphone using the online Agent
+  continuous-offline  Long-running microphone control using the offline Agent
+  continuous-online   Long-running microphone control using the online Agent
 EOF
 }
 
@@ -60,6 +63,7 @@ run_base() {
   bash scripts/smoke_test_typed_action_pipeline.sh
   bash scripts/smoke_test_mock_executor.sh
   bash scripts/smoke_test_demo_sequence.sh
+  bash scripts/smoke_test_continuous_voice.sh online
   bash scripts/smoke_test_composed_executor.sh
   bash scripts/smoke_test_namespaced_executor.sh
   bash scripts/smoke_test_offline.sh
@@ -100,11 +104,14 @@ case "$LEVEL" in
   online) run_online ;;
   offline) run_offline ;;
   demo) bash scripts/smoke_test_demo_sequence.sh ;;
+  continuous-mock) bash scripts/smoke_test_continuous_voice.sh online; bash scripts/smoke_test_continuous_voice.sh offline ;;
   gazebo) run_gazebo ;;
   gazebo-voice) check_offline_runtime; USE_TYPED_ACTIONS=true bash scripts/smoke_test_gazebo_voice.sh ;;
   gazebo-voice-online) bash scripts/smoke_test_gazebo_voice_online.sh ;;
   microphone-offline) bash scripts/accept_voice_simulation_microphone.sh offline ;;
   microphone-online) bash scripts/accept_voice_simulation_microphone.sh online ;;
+  continuous-offline) bash scripts/continuous_voice_control.sh offline ;;
+  continuous-online) bash scripts/continuous_voice_control.sh online ;;
   all) run_base; run_online; run_offline; bash scripts/smoke_test_demo_sequence.sh; run_gazebo; USE_TYPED_ACTIONS=true bash scripts/smoke_test_gazebo_voice.sh; bash scripts/smoke_test_gazebo_voice_online.sh ;;
   *) usage >&2; exit 2 ;;
 esac

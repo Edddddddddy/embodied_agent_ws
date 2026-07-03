@@ -47,3 +47,7 @@ class WakeWordGate:
     @property
     def active(self) -> bool:
         return self._clock() <= self._active_until
+
+    def sleep(self) -> None:
+        """立即退出当前唤醒会话。"""
+        self._active_until = 0.0

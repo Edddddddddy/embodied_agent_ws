@@ -13,6 +13,7 @@ bash scripts/acceptance_test.sh mock
 bash scripts/acceptance_test.sh online
 bash scripts/acceptance_test.sh offline
 bash scripts/acceptance_test.sh demo
+bash scripts/acceptance_test.sh continuous-mock
 bash scripts/acceptance_test.sh gazebo
 bash scripts/acceptance_test.sh gazebo-voice
 bash scripts/acceptance_test.sh all
@@ -20,11 +21,13 @@ bash scripts/acceptance_test.sh all
 # 交互式，不包含在 all 中
 bash scripts/acceptance_test.sh microphone-offline
 bash scripts/acceptance_test.sh microphone-online
+bash scripts/acceptance_test.sh continuous-offline
+bash scripts/acceptance_test.sh continuous-online
 ```
 
 `mock` 是每次提交前的最低门槛；`demo` 使用 mock executor 验证组合动作、accessory ACK
-和弧线速度。当前记录为 130 项 colcon 测试、2 项仓库约束测试、
-0 failure。`online` 使用少量
+和弧线速度；`continuous-mock` 验证一次唤醒、多命令队列、退出控制和 online/offline
+状态机复用。当前记录为 146 项 colcon 测试、2 项仓库约束测试、0 failure。`online` 使用少量
 DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里程计位移验真。
 `all` 是完整自动 release gate，包含 mock、在线、离线、Gazebo 和在线/离线语音到 Gazebo，
 但明确排除必须由真人说话的麦克风验收。运行 `--help` 可查看模式语义。
@@ -46,6 +49,7 @@ DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里
 | 参数与 lint | `test_node_configuration.cpp`、ament lint | 无效控制参数在 configure 前失败，产品 C++/CMake/XML 可静态检查 |
 | mock 插件全链 | `smoke_test_mock_executor.sh` | 不改 Guard/BT 即可切换 backend |
 | 组合演示 | `smoke_test_demo_sequence.sh` | `set_led → wave → move → turn → arc → stop` 顺序执行 |
+| 连续语音 | `smoke_test_continuous_voice.sh` | 一次唤醒后多条命令排队，退出控制后重新门控 |
 | 组件化等价 | `smoke_test_composed_executor.sh` | 同一控制实现可在多线程 component container 中完成 Action/BT 链 |
 | 命名空间 | `smoke_test_namespaced_executor.sh` | 相对名称、Action、BT、速度和 diagnostics 均隔离到 `/robot1` |
 | Action 全链 | `smoke_test_typed_action_pipeline.sh` | JSON -> typed -> Action -> 仿真控制 |
@@ -106,6 +110,19 @@ WAKE_WORD_ENABLED=true SPEAKER_ENABLED=false \
 若门控未通过，`/agent/recognition_feedback` 会给出原因和次数，节点保持监听。热词表位于
 `src/embodied_offline_agent/config/hotwords_zh.txt`。合成短词仍可能把“小智”识别成
 “早日”，因此正式产品需要独立 KWS 并统计 false accept / false reject。
+
+连续语音控制：
+
+```bash
+bash scripts/continuous_voice_control.sh offline
+bash scripts/continuous_voice_control.sh online
+```
+
+默认参数为 `wake_word_enabled:=true`、`continuous_control_enabled:=true`、
+`voice_session_timeout_s:=60.0`、`speaker_enabled:=false`。说一次“小智”后，60 秒内可以
+连续说“向前走一秒 / 左转九十度 / 绕圈 / 走正方形”等命令；Agent 忙于执行上一条时不会
+丢弃新的 ASR final，而是排入队列。说“停下/急停”会清空等待队列并立即发布 stop；说
+“退出控制/休眠/结束控制”会关闭会话，后续命令必须重新唤醒。
 
 ## 4. 当前实测基线
 
@@ -177,8 +194,9 @@ ros2 topic echo /robot/action_ack
 
 ### 一轮结束后持续识别
 
-Agent 忙碌期间会丢弃音频、commit、partial 和重叠 final。若仍出现，确认没有旧 launch
-残留，并使用验收脚本生成独立 `ROS_DOMAIN_ID`。
+旧的一句话验收脚本会在六阶段成功后退出；连续控制脚本会一直监听，这是预期行为。若
+你只想验证一条命令，请使用 `accept_voice_simulation_microphone.sh`。若想长时间控制，
+请使用 `continuous_voice_control.sh`，并用“退出控制”关闭当前会话。
 
 ### 单测通过但真实链失败
 

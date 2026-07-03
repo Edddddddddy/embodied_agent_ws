@@ -14,6 +14,7 @@
 - 离线链路：sherpa-onnx ZipFormer、Qwen3-0.6B Q8/llama.cpp、Sherpa-TTS。
 - 声学前端：C++ PortAudio、NLMS AEC、VAD、0.4 秒静音断句。
 - 识别恢复：热词偏置、唤醒别名、失败反馈和持续重试。
+- 连续控制：一次“小智”唤醒后进入 60 秒会话，后续命令排队顺序执行，停下/急停抢占。
 - 动作安全：结构化动作、C++ schema 校验、限幅、急停和 watchdog。
 - 丰富演示：支持原地转一圈、绕圈/画圆、走正方形和“演示一下”组合动作。
 - 生命周期：Guard 与仿真执行器采用 C++ LifecycleNode，由 Nav2 manager 有序激活。
@@ -77,6 +78,18 @@ WAKE_WORD_ENABLED=true \
   bash scripts/accept_voice_simulation_microphone.sh offline
 ```
 
+长时间连续语音控制仿真：
+
+```bash
+# 一次“小智”唤醒后，可连续说多条命令；默认关闭扬声器以降低回声干扰
+bash scripts/continuous_voice_control.sh offline
+bash scripts/continuous_voice_control.sh online
+```
+
+推荐话术：`小智`、`向前走一秒`、`左转九十度`、`后退一秒`、`绕圈`、`走正方形`、
+`停下`、`退出控制`。连续模式不会在 Agent busy 时丢弃 ASR final，而是进入 FIFO 队列；
+`停下/急停` 会清空等待队列、取消正在等待结果的组合动作，并立即发布 `stop`。
+
 ## 验收入口
 
 ```bash
@@ -84,6 +97,7 @@ bash scripts/acceptance_test.sh mock     # 单元/结构测试及无模型全链
 bash scripts/acceptance_test.sh online   # 少量云 API 调用
 bash scripts/acceptance_test.sh offline  # 本地模型、语音和性能
 bash scripts/acceptance_test.sh demo     # mock 仿真组合动作演示
+bash scripts/acceptance_test.sh continuous-mock  # 连续会话与命令队列
 bash scripts/acceptance_test.sh gazebo   # Gazebo 可信动作与里程计
 bash scripts/acceptance_test.sh gazebo-voice  # 离线语音模型直达 Gazebo
 bash scripts/acceptance_test.sh all      # 全部自动 release gates（不含真人麦克风）
@@ -134,6 +148,12 @@ Q8 CPU decode 34.10 token/s、语音全链 2.313 s；typed Action/BT 驱动 Gaze
 `MOVE(linear_x, angular_z, duration_s)`，Gazebo/mock executor 可执行弧线速度；
 “走正方形”和“演示一下”会在 Agent 层拆成有序 primitive action，并按
 `/robot/action_result` 逐步推进，任一步失败会自动补发 `stop`。
+
+2026-07-03 新增连续语音控制第一阶段：online/offline Agent 复用
+`ContinuousVoiceSession` 与 `ContinuousCommandQueue`，支持一次唤醒后的多命令排队、
+退出控制休眠、stop 优先级抢占。当前自动证据：146 项 colcon 测试通过，
+`acceptance_test.sh continuous-mock` 分别验证 online/offline mock 的
+`小智 -> move -> turn -> arc -> 退出控制` 链路。
 
 ## 项目结构
 

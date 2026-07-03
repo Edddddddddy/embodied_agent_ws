@@ -72,6 +72,7 @@ PortAudio 回调只搬运数据，不执行网络、日志或模型推理；这�
 | `providers/` | mock、Qwen 实时 ASR/TTS、OpenAI-compatible LLM adapter |
 | `protocol.py` | `<speech>/<action>` 增量解析与按句 TTS 分块 |
 | `command_fallback.py` | 有限机器人命令的确定性语义兜底 |
+| `continuous_voice.py` | 连续会话状态机、命令队列和 stop 优先级语义 |
 | `wakeword.py` | 文本唤醒窗口与兼容别名 |
 | `recognition_retry.py` | 可观测重试计数，不锁死监听 |
 | `memory.py` | 有界、原子写入的对话记忆 |
@@ -80,6 +81,13 @@ PortAudio 回调只搬运数据，不执行网络、日志或模型推理；这�
 `providers/base.py` 是真实 seam：同一 interface 至少有 mock 与云端两个 adapter，测试可以
 不访问外网。`types.py` 中的 `ActionCommand` 和 `LatencySnapshot` 分别作为动作解析与
 延迟观测的值对象；二者都有实际调用方，并通过回归测试保护。
+
+连续语音控制不直接修改 ASR 模型，而是在 Agent 编排层增加两个深模块：
+`ContinuousVoiceSession` 负责“一次唤醒、60 秒会话、退出控制休眠”的文本状态机；
+`ContinuousCommandQueue` 负责 FIFO 排队和停下/急停优先级。online/offline 节点在
+`continuous_control_enabled:=true` 时不再因 `_busy` 丢弃 ASR final，而是让 worker 串行
+消费队列。stop 会同时清空等待队列、调用 `SequentialActionPublisher.cancel()` 取消正在
+等待 result 的组合动作，并立即发布 `stop` candidate。
 
 ### `embodied_offline_agent`
 
@@ -140,6 +148,7 @@ active action、sensor stale、safety stopped 与原因。
 | `/audio/silence_timeout` | AudioFrontend -> Agent | 连续静音 0.4 秒 |
 | `/agent/asr_final` | ASR -> 观测者 | 最终识别文本 |
 | `/agent/recognition_feedback` | Agent -> UI/验收器 | 失败原因、次数和重试提示 |
+| `/agent/state` | Agent -> UI/验收器 | listening、queued、thinking、speaking、session_awake、sleeping |
 | `/agent/action_candidate` | parser -> ActionGuard | 未可信动作 JSON |
 | `/robot/action_command` | ActionGuard -> executor | 已校验、已限幅动作 |
 | `/robot/action_command_typed` | ActionGuard -> 新 executor | 等价的强类型可信动作 |
@@ -230,9 +239,10 @@ adapter，而不是把串口重试、CRC 和 ROS Action 全塞进一个类。
   →Confirm，支持取消、抢占、障碍、超时和急停；同一实现支持独立进程、component
   container 和 namespace 隔离。
 - 部署 Qwen3-0.6B Q8/llama.cpp、ZipFormer 与 Sherpa-TTS；当前环境 CPU decode
-  34.10 token/s、离线整轮 2.313 s、在线热启动首 token 350–384 ms；建立 130 项 colcon
-  测试、2 项仓库约束测试及
-  mock/online/offline/Gazebo 分层 release gates。
+  34.10 token/s、离线整轮 2.313 s、在线热启动首 token 350–384 ms；建立 146 项 colcon
+  测试、2 项仓库约束测试及 mock/online/offline/Gazebo/continuous mock 分层 release gates。
+- 新增连续语音控制状态机：一次唤醒后多命令 FIFO 排队，退出控制休眠，停下/急停可清空
+  等待队列并抢占当前组合动作，适合长时间麦克风控制 Gazebo 演示。
 
 面试时必须主动说明：LoRA 尚未训练；2/8 是原始模型成绩，7/8 是 fallback 后系统成绩；
 冷启动在线 LLM 不达 1 秒；所有性能数字均是当前机器少量样本，不是生产 SLA。

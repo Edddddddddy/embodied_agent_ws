@@ -14,9 +14,11 @@ from std_msgs.msg import Empty, String, UInt8MultiArray
 from .memory import ConversationMemory
 from .action_sequence import SequentialActionPublisher
 from .command_fallback import parse_fallback_actions, should_block_model_actions
+from .continuous_voice import ContinuousCommandQueue, ContinuousVoiceSession
 from .metrics import LatencyTracker
 from .protocol import SentenceChunker, TaggedStreamParser
 from .recognition_retry import RecognitionRetryTracker
+from .types import ActionCommand
 from .providers.mock import MockAsr, MockLlm, MockTts
 from .providers.openai_compatible_llm import OpenAiCompatibleLlm
 from .providers.qwen_asr import QwenRealtimeAsr
@@ -32,12 +34,24 @@ class OnlineAgentNode(Node):
         self._state_lock = threading.Lock()
         self._busy = False
         self._stopping = False
+        self._continuous_enabled = bool(self._param("continuous_control_enabled"))
+        self._command_queue = ContinuousCommandQueue(
+            int(self._param("continuous_command_queue_size"))
+        )
+        self._command_worker_thread = None
         self.metrics = LatencyTracker()
         self.wake_gate = WakeWordGate(
             self._param("wake_words"),
             aliases=self._param("wake_word_aliases"),
             enabled=self._param("wake_word_enabled"),
-            active_timeout_s=self._param("wake_active_timeout_s"),
+            active_timeout_s=(
+                self._param("voice_session_timeout_s")
+                if self._continuous_enabled
+                else self._param("wake_active_timeout_s")
+            ),
+        )
+        self.voice_session = ContinuousVoiceSession(
+            self.wake_gate, enabled=self._continuous_enabled
         )
         self.retry_tracker = RecognitionRetryTracker(
             self._param("recognition_max_retries")
@@ -66,6 +80,11 @@ class OnlineAgentNode(Node):
         self.create_subscription(String, "/agent/text_input", self._on_text_input, 10)
         self.create_subscription(Empty, "/agent/clear_memory", self._on_clear_memory, 10)
         self.create_subscription(String, "/robot/action_result", self._on_action_result, 10)
+        if self._continuous_enabled:
+            self._command_worker_thread = threading.Thread(
+                target=self._run_command_worker, daemon=True
+            )
+            self._command_worker_thread.start()
 
         audio_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
@@ -134,6 +153,9 @@ class OnlineAgentNode(Node):
             "mock_token_delay_s": 0.0,
             "online_warmup_enabled": True,
             "action_sequence_wait_timeout_s": 12.0,
+            "continuous_control_enabled": False,
+            "voice_session_timeout_s": 60.0,
+            "continuous_command_queue_size": 8,
         }
         for name, value in defaults.items():
             self.declare_parameter(name, value)
@@ -179,17 +201,17 @@ class OnlineAgentNode(Node):
         )
 
     def _on_asr_partial(self, text: str):
-        if self._is_busy():
+        if self._is_busy() and not self._continuous_enabled:
             return
         self.asr_partial_pub.publish(String(data=text))
 
     def _on_clean_audio(self, message: UInt8MultiArray):
-        if self._is_busy():
+        if self._is_busy() and not self._continuous_enabled:
             return
         self.asr.push_audio(bytes(message.data))
 
     def _on_silence_timeout(self, _message: Empty):
-        if self._is_busy():
+        if self._is_busy() and not self._continuous_enabled:
             return
         self.asr.commit()
 
@@ -198,7 +220,7 @@ class OnlineAgentNode(Node):
             return self._busy
 
     def _on_asr_final(self, text: str):
-        if self._is_busy():
+        if self._is_busy() and not self._continuous_enabled:
             self.get_logger().warning("agent is busy; suppressing overlapping ASR final")
             return
         self.asr_final_pub.publish(String(data=text))
@@ -216,9 +238,17 @@ class OnlineAgentNode(Node):
         self.action_sequencer.notify_result(message.data)
 
     def _accept_transcript(self, transcript: str):
-        command = self.wake_gate.process(transcript)
-        if command is None:
-            if self._param("wake_word_enabled") and not self.wake_gate.active:
+        decision = self.voice_session.accept(transcript)
+        if not decision.accepted or decision.command is None:
+            if decision.reason == "session_sleep":
+                self._command_queue.clear()
+                self.action_sequencer.cancel("session_sleep")
+                self._publish_state("sleeping")
+                self.get_logger().info("continuous voice session sleeping")
+            elif decision.reason == "session_awake":
+                self._publish_state("session_awake")
+                self.get_logger().info("continuous voice session awake")
+            elif self._param("wake_word_enabled") and not self.wake_gate.active:
                 feedback = self.retry_tracker.failed(transcript)
                 self.recognition_feedback_pub.publish(String(data=feedback.to_json()))
                 self.get_logger().warning(
@@ -227,6 +257,29 @@ class OnlineAgentNode(Node):
                 self._publish_state("retry_listening")
             return
         self.retry_tracker.succeeded()
+        command = decision.command
+        if self._continuous_enabled:
+            if decision.priority_stop:
+                dropped = self._command_queue.clear()
+                self.action_sequencer.cancel("priority_stop")
+                self.get_logger().info("priority stop received; cancelling current sequence")
+                if dropped:
+                    self.get_logger().info(f"cleared {dropped} queued command(s)")
+                self._publish_actions([ActionCommand("stop", {})])
+                self._publish_state("listening")
+                return
+            snapshot = self._command_queue.put(command)
+            if snapshot.accepted:
+                self.get_logger().info(
+                    f"continuous command queued: size={snapshot.size}, text={command}"
+                )
+                self._publish_state("queued")
+            else:
+                self.get_logger().warning(
+                    f"continuous command queue rejected input: {snapshot.reason}"
+                )
+                self._publish_state("queue_full")
+            return
         with self._state_lock:
             if self._busy:
                 self.get_logger().warning("agent is busy; dropping overlapping utterance")
@@ -235,6 +288,21 @@ class OnlineAgentNode(Node):
         self.metrics.reset()
         self.metrics.mark_asr_final()
         threading.Thread(target=self._run_turn, args=(command,), daemon=True).start()
+
+    def _run_command_worker(self):
+        while not self._stopping:
+            try:
+                item = self._command_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            try:
+                with self._state_lock:
+                    self._busy = True
+                self.metrics.reset()
+                self.metrics.mark_asr_final()
+                self._run_turn(item.text)
+            finally:
+                self._command_queue.task_done()
 
     def _run_turn(self, user_text: str):
         self._publish_state("thinking")
@@ -377,6 +445,8 @@ class OnlineAgentNode(Node):
         self._stopping = True
         self.asr.stop()
         self.tts.close()
+        if self._command_worker_thread:
+            self._command_worker_thread.join(timeout=1.0)
 
 
 def main(args=None):

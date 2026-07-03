@@ -11,6 +11,9 @@ online_agent:
     wake_words: ["小智", "你好小智"]
     wake_word_aliases: ["小志", "小治", "晓智", "晓志"]
     wake_active_timeout_s: 10.0
+    continuous_control_enabled: false
+    voice_session_timeout_s: 60.0
+    continuous_command_queue_size: 8
 
     memory_path: "~/.ros/embodied_agent/memory.json"
     memory_max_turns: 10

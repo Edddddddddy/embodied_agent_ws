@@ -13,6 +13,8 @@ def generate_launch_description():
     capture_enabled = LaunchConfiguration("capture_enabled")
     wake_word_enabled = LaunchConfiguration("wake_word_enabled")
     speaker_enabled = LaunchConfiguration("speaker_enabled")
+    continuous_control_enabled = LaunchConfiguration("continuous_control_enabled")
+    voice_session_timeout_s = LaunchConfiguration("voice_session_timeout_s")
     hardware_backend = LaunchConfiguration("hardware_backend")
     hardware_enabled = LaunchConfiguration("hardware_enabled")
     lifecycle_autostart = LaunchConfiguration("lifecycle_autostart")
@@ -31,6 +33,8 @@ def generate_launch_description():
             DeclareLaunchArgument("capture_enabled", default_value=microphone_enabled),
             DeclareLaunchArgument("wake_word_enabled", default_value="true"),
             DeclareLaunchArgument("speaker_enabled", default_value="false"),
+            DeclareLaunchArgument("continuous_control_enabled", default_value="false"),
+            DeclareLaunchArgument("voice_session_timeout_s", default_value="60.0"),
             DeclareLaunchArgument("hardware_backend", default_value="mock"),
             DeclareLaunchArgument("hardware_enabled", default_value="true"),
             DeclareLaunchArgument("lifecycle_autostart", default_value="true"),
@@ -52,6 +56,12 @@ def generate_launch_description():
                         ),
                         "wake_word_enabled": ParameterValue(
                             wake_word_enabled, value_type=bool
+                        ),
+                        "continuous_control_enabled": ParameterValue(
+                            continuous_control_enabled, value_type=bool
+                        ),
+                        "voice_session_timeout_s": ParameterValue(
+                            voice_session_timeout_s, value_type=float
                         ),
                     },
                 ],
