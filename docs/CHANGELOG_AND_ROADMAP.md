@@ -50,6 +50,7 @@
 | 音频前端校准 | 当前 | `audio_frontend_calibration.py` 基于 `/audio/frontend_metrics` 输出麦克风、VAD、AEC/NS/AGC、丢帧诊断和推荐阈值 |
 | VAD 端点参数透传 | 当前 | `continuous_voice_control.sh` 支持 SPEECH_START_THRESHOLD/SPEECH_END_SILENCE_S/MIN_UTTERANCE_MS/MAX_UTTERANCE_S，并经 launch 覆盖 AudioFrontend |
 | Silero VAD 配置透传 | 当前 | `continuous_voice_control.sh` 支持 SILERO_VAD_MODEL_PATH/SILERO_VAD_USE_ONNX/SILERO_VAD_THRESHOLD，并同步覆盖 preflight 与 sidecar launch |
+| 命令纠错配置透传 | 当前 | `continuous_voice_control.sh` 支持 COMMAND_NORMALIZATION_PATH/COMMAND_NORMALIZATION_FUZZY_THRESHOLD/开关，并经 launch 覆盖 online/offline Agent |
 
 ## 2. 当前结论
 

@@ -5,6 +5,10 @@ MODE="${1:-offline}"
 SESSION_TIMEOUT="${VOICE_SESSION_TIMEOUT:-60}"
 COMMAND_QUEUE_SIZE="${CONTINUOUS_COMMAND_QUEUE_SIZE:-8}"
 COMMAND_MAX_AGE="${CONTINUOUS_COMMAND_MAX_AGE:-30}"
+COMMAND_NORMALIZATION_ENABLED="${COMMAND_NORMALIZATION_ENABLED:-true}"
+COMMAND_NORMALIZATION_FEEDBACK_ENABLED="${COMMAND_NORMALIZATION_FEEDBACK_ENABLED:-true}"
+COMMAND_NORMALIZATION_FUZZY_THRESHOLD="${COMMAND_NORMALIZATION_FUZZY_THRESHOLD:-0.82}"
+COMMAND_NORMALIZATION_PATH="${COMMAND_NORMALIZATION_PATH:-}"
 WAKE_WORD_ENABLED="${WAKE_WORD_ENABLED:-true}"
 SPEAKER_ENABLED="${SPEAKER_ENABLED:-false}"
 VAD_PROVIDER="${VAD_PROVIDER:-energy}"
@@ -58,6 +62,10 @@ ROS_DOMAIN_ID=$ROS_DOMAIN_ID，连续语音控制模式=$MODE
 说明：一次“小智”唤醒后，${SESSION_TIMEOUT}s 内可连续说多条命令；等待超过 ${COMMAND_MAX_AGE}s 的普通命令会过期跳过；Ctrl-C 退出脚本。
 终端会持续打印 [session] / [asr] / [queue] / [action] / [feedback] / [result] 链路事件。
 CONTINUOUS_COMMAND_QUEUE_SIZE=$COMMAND_QUEUE_SIZE
+COMMAND_NORMALIZATION_ENABLED=$COMMAND_NORMALIZATION_ENABLED
+COMMAND_NORMALIZATION_FEEDBACK_ENABLED=$COMMAND_NORMALIZATION_FEEDBACK_ENABLED
+COMMAND_NORMALIZATION_FUZZY_THRESHOLD=$COMMAND_NORMALIZATION_FUZZY_THRESHOLD
+COMMAND_NORMALIZATION_PATH=$COMMAND_NORMALIZATION_PATH
 WAKE_WORD_ENABLED=$WAKE_WORD_ENABLED
 SPEAKER_ENABLED=$SPEAKER_ENABLED
 VAD_PROVIDER=$VAD_PROVIDER（默认 energy；安装 silero-vad 后可设为 silero）
@@ -102,6 +110,10 @@ ros2 launch embodied_simulation voice_turtlebot3.launch.py \\
   wake_word_enabled:=$WAKE_WORD_ENABLED continuous_control_enabled:=true \\
   voice_session_timeout_s:=$SESSION_TIMEOUT continuous_command_queue_size:=$COMMAND_QUEUE_SIZE \\
   continuous_command_max_age_s:=$COMMAND_MAX_AGE \\
+  command_normalization_enabled:=$COMMAND_NORMALIZATION_ENABLED \\
+  command_normalization_feedback_enabled:=$COMMAND_NORMALIZATION_FEEDBACK_ENABLED \\
+  command_normalization_fuzzy_threshold:=$COMMAND_NORMALIZATION_FUZZY_THRESHOLD \\
+  command_normalization_path:="$COMMAND_NORMALIZATION_PATH" \\
   audio_enhancer:=$AUDIO_ENHANCER aec_enabled:=$AEC_ENABLED \\
   noise_suppression_enabled:=$NOISE_SUPPRESSION_ENABLED auto_gain_enabled:=$AUTO_GAIN_ENABLED
 EOF
@@ -178,6 +190,10 @@ setsid ros2 launch embodied_simulation voice_turtlebot3.launch.py \
   continuous_control_enabled:=true voice_session_timeout_s:="$SESSION_TIMEOUT" \
   continuous_command_queue_size:="$COMMAND_QUEUE_SIZE" \
   continuous_command_max_age_s:="$COMMAND_MAX_AGE" \
+  command_normalization_enabled:="$COMMAND_NORMALIZATION_ENABLED" \
+  command_normalization_feedback_enabled:="$COMMAND_NORMALIZATION_FEEDBACK_ENABLED" \
+  command_normalization_fuzzy_threshold:="$COMMAND_NORMALIZATION_FUZZY_THRESHOLD" \
+  command_normalization_path:="$COMMAND_NORMALIZATION_PATH" \
   audio_enhancer:="$AUDIO_ENHANCER" aec_enabled:="$AEC_ENABLED" \
   noise_suppression_enabled:="$NOISE_SUPPRESSION_ENABLED" \
   auto_gain_enabled:="$AUTO_GAIN_ENABLED" &

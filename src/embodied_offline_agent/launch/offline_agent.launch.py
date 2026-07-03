@@ -42,6 +42,14 @@ def generate_launch_description():
     voice_session_timeout_s = LaunchConfiguration("voice_session_timeout_s")
     continuous_command_queue_size = LaunchConfiguration("continuous_command_queue_size")
     continuous_command_max_age_s = LaunchConfiguration("continuous_command_max_age_s")
+    command_normalization_enabled = LaunchConfiguration("command_normalization_enabled")
+    command_normalization_feedback_enabled = LaunchConfiguration(
+        "command_normalization_feedback_enabled"
+    )
+    command_normalization_fuzzy_threshold = LaunchConfiguration(
+        "command_normalization_fuzzy_threshold"
+    )
+    command_normalization_path = LaunchConfiguration("command_normalization_path")
     hardware_backend = LaunchConfiguration("hardware_backend")
     hardware_enabled = LaunchConfiguration("hardware_enabled")
     wake_word_enabled = LaunchConfiguration("wake_word_enabled")
@@ -81,6 +89,14 @@ def generate_launch_description():
         DeclareLaunchArgument("voice_session_timeout_s", default_value="60.0"),
         DeclareLaunchArgument("continuous_command_queue_size", default_value="8"),
         DeclareLaunchArgument("continuous_command_max_age_s", default_value="30.0"),
+        DeclareLaunchArgument("command_normalization_enabled", default_value="true"),
+        DeclareLaunchArgument(
+            "command_normalization_feedback_enabled", default_value="true"
+        ),
+        DeclareLaunchArgument(
+            "command_normalization_fuzzy_threshold", default_value="0.82"
+        ),
+        DeclareLaunchArgument("command_normalization_path", default_value=""),
         DeclareLaunchArgument("hardware_backend", default_value="mock"),
         DeclareLaunchArgument("hardware_enabled", default_value="true"),
         DeclareLaunchArgument("wake_word_enabled", default_value="true"),
@@ -108,6 +124,16 @@ def generate_launch_description():
                 "continuous_command_max_age_s": ParameterValue(
                     continuous_command_max_age_s, value_type=float
                 ),
+                "command_normalization_enabled": ParameterValue(
+                    command_normalization_enabled, value_type=bool
+                ),
+                "command_normalization_feedback_enabled": ParameterValue(
+                    command_normalization_feedback_enabled, value_type=bool
+                ),
+                "command_normalization_fuzzy_threshold": ParameterValue(
+                    command_normalization_fuzzy_threshold, value_type=float
+                ),
+                "command_normalization_path": command_normalization_path,
             }],
         ),
         Node(

@@ -116,6 +116,11 @@ CONTINUOUS_PRINT_CONFIG=true \
 `/agent/command_queue`，monitor 显示为 `[queue] expired ...`。
 队列容量默认是 8，可用 `CONTINUOUS_COMMAND_QUEUE_SIZE` 调整；现场演示建议保持较小，
 这样误触发不会堆积太多旧命令，配合 `CONTINUOUS_COMMAND_MAX_AGE` 更容易复盘。
+命令纠错默认开启，可通过 `COMMAND_NORMALIZATION_ENABLED=false` 临时关闭；现场发现新的
+ASR 错词时，推荐复制默认错词表后用 `COMMAND_NORMALIZATION_PATH=/path/to/custom.yaml`
+覆盖，并用 `COMMAND_NORMALIZATION_FUZZY_THRESHOLD=0.77` 微调模糊匹配阈值；
+如果不希望演示终端打印“原文 -> 规范文本”，可设置
+`COMMAND_NORMALIZATION_FEEDBACK_ENABLED=false`。
 自动验收可用 `bash scripts/acceptance_test.sh continuous-ttl` 复现实例：先执行长组合动作，
 再排入一条普通命令，确认它过期且没有发布动作候选。
 `bash scripts/acceptance_test.sh continuous-timeout` 会验证会话窗口到期后，普通命令必须
@@ -324,6 +329,15 @@ LIVEKIT_WAKEWORD_MODELS=/models/kws/livekit-xiaozhi.onnx \
 `src/embodied_online_agent/config/command_normalization_zh.yaml`，也可通过
 `command_normalization_path` 指向自己的错词表；离线 ASR 热词表位于
 `src/embodied_offline_agent/config/hotwords_zh.txt`。
+
+连续语音脚本也提供等价环境变量入口，方便演示现场不改 launch：
+
+```bash
+COMMAND_NORMALIZATION_PATH=/path/to/custom_normalization.yaml \
+COMMAND_NORMALIZATION_FUZZY_THRESHOLD=0.77 \
+COMMAND_NORMALIZATION_FEEDBACK_ENABLED=true \
+  bash scripts/continuous_voice_control.sh offline
+```
 
 2026-07-03 新增 CommandExecutionTracker：online/offline 连续模式发布
 `/agent/command_queue` 与 `/agent/command_execution`，用于观测真实队列长度、清队列、

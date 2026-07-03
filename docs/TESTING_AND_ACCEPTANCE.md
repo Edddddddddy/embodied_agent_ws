@@ -141,6 +141,9 @@ ros2 topic echo /agent/recognition_feedback
 `embodied_online_agent` 包一起进入 share 目录。真实麦克风测试中发现新错词时，优先复制
 该 YAML 并用 `command_normalization_path:=/path/to/your.yaml` 覆盖；如果离线 ASR 总是把
 某个控制短语听歪，再同步补充 `src/embodied_offline_agent/config/hotwords_zh.txt`。
+连续语音脚本等价支持 `COMMAND_NORMALIZATION_PATH`、
+`COMMAND_NORMALIZATION_FUZZY_THRESHOLD`、`COMMAND_NORMALIZATION_ENABLED` 和
+`COMMAND_NORMALIZATION_FEEDBACK_ENABLED`，用于真实麦克风现场快速试错。
 默认不强制安装外部依赖；如需启用成熟 RapidFuzz scorer，可执行：
 
 ```bash
@@ -167,7 +170,10 @@ CONTINUOUS_PRINT_CONFIG=true \
 `voice_session_timeout_s:=60.0`、`continuous_command_queue_size:=8`、
 `continuous_command_max_age_s:=30.0`、
 `speaker_enabled:=false`、`audio_enhancer:=nlms`、`aec_enabled:=true`、
-`noise_suppression_enabled:=false`、`auto_gain_enabled:=false`。这些值都可通过
+`noise_suppression_enabled:=false`、`auto_gain_enabled:=false`、
+`command_normalization_enabled:=true`、
+`command_normalization_feedback_enabled:=true`、
+`command_normalization_fuzzy_threshold:=0.82`。这些值都可通过
 同名大写环境变量覆盖。说一次“小智”后，60 秒内可以
 连续说“向前走一秒 / 左转九十度 / 绕圈 / 走正方形”等命令；Agent 忙于执行上一条时不会
 丢弃新的 ASR final，而是排入队列。会话层会忽略“嗯/啊/哦/呃”等短 filler，并对短时间
