@@ -195,7 +195,9 @@ VAD 端点、队列容量、旧命令 TTL 和纠错阈值；其中 `quiet` 适�
 `noisy_room` 适合嘈杂环境减少误触发。显式环境变量优先级高于 profile 默认值。
 人工连续脚本默认在 launch 后运行 `voice_control_readiness_check.py` 采样 3 秒：
 通过后会提示 `系统已就绪，可以开始说：小智`；若有 blockers/warnings 会打印诊断但继续
-运行，避免现场被一次短采样完全阻断。可通过 `CONTINUOUS_READINESS_ENABLED=false`
+运行，避免现场被一次短采样完全阻断。输出中的 `recommended_voice_profile` 与
+`quick_apply` 可直接用于下一轮 `VOICE_CONTROL_PROFILE` 调整。可通过
+`CONTINUOUS_READINESS_ENABLED=false`
 关闭，或用 `CONTINUOUS_READINESS_DURATION=5` 调整采样时长。
 说一次“小智”后，60 秒内可以
 连续说“向前走一秒 / 左转九十度 / 绕圈 / 走正方形”等命令；Agent 忙于执行上一条时不会

@@ -81,3 +81,20 @@ def test_format_readiness_report_summarizes_next_actions():
     assert "BLOCKED: voice control readiness" in rendered
     assert "audio:no_audio_metrics" in rendered
     assert "kws:no_kws_scores" in rendered
+    assert "recommended_voice_profile: normal" in rendered
+    assert "quick_apply: export VOICE_CONTROL_PROFILE=normal" in rendered
+
+
+def test_readiness_report_preserves_audio_profile_advice_for_json_output():
+    audio = readiness.analyze_audio_health(
+        [
+            readiness.AudioMetricSample(rms=0.02, peak=900, speech=True),
+            readiness.AudioMetricSample(rms=0.021, peak=950, speech=True),
+        ]
+    )
+    kws = readiness.analyze_kws_scores([])
+
+    report = readiness.build_readiness_report(audio, kws, require_kws=False)
+
+    assert report.audio.recommended_voice_profile == "noisy_room"
+    assert report.audio.profile_reason == "persistent_speech_or_noise"

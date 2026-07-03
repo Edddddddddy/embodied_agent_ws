@@ -25,6 +25,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from audio_frontend_calibration import (  # noqa: E402
     AudioHealthReport,
+    AudioMetricSample,
     analyze_audio_health,
     parse_audio_metrics,
 )
@@ -91,6 +92,9 @@ def format_readiness_report(report: VoiceReadinessReport) -> str:
         f"  audio_samples: {report.audio.sample_count}",
         f"  audio_rms: max={report.audio.max_rms:.4f}, mean={report.audio.mean_rms:.4f}",
         f"  suggested_vad_threshold: {report.audio.suggested_vad_threshold:.4f}",
+        f"  recommended_voice_profile: {report.audio.recommended_voice_profile}",
+        f"  profile_reason: {report.audio.profile_reason}",
+        f"  quick_apply: export VOICE_CONTROL_PROFILE={report.audio.recommended_voice_profile}",
         f"  vad_provider: {report.audio.vad_provider or 'unknown'}",
         (
             "  audio_enhancer: "
