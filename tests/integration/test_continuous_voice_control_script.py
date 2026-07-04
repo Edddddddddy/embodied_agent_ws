@@ -252,3 +252,23 @@ def test_continuous_voice_control_waits_for_readiness_after_launch():
     assert '--duration "$READINESS_DURATION"' in content
     assert "--require-kws" in content
     assert "系统已就绪，可以开始说：小智" in content
+
+
+def test_online_and_offline_publish_queue_rejected_feedback():
+    files = [
+        ROOT
+        / "src"
+        / "embodied_online_agent"
+        / "embodied_online_agent"
+        / "online_agent_node.py",
+        ROOT
+        / "src"
+        / "embodied_offline_agent"
+        / "embodied_offline_agent"
+        / "offline_agent_node.py",
+    ]
+
+    for path in files:
+        content = path.read_text(encoding="utf-8")
+        assert '"status": "queue_rejected"' in content, path
+        assert "_publish_queue_rejected_recognition" in content, path

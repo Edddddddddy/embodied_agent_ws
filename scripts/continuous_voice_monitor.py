@@ -182,6 +182,11 @@ def format_recognition_feedback(serialized: str) -> str:
         attempt = payload.get("attempt", "?")
         prompt = payload.get("prompt", "请再说一次")
         return f"[retry] attempt={attempt} {prompt}"
+    if payload.get("status") == "queue_rejected":
+        reason = payload.get("reason", "unknown")
+        transcript = payload.get("transcript", "")
+        size = payload.get("queue_size", "?")
+        return f"[queue-feedback] {reason} {transcript} size={size}".rstrip()
     return "[feedback] " + (payload.get("reason") or "unknown")
 
 

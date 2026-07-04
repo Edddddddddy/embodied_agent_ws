@@ -419,6 +419,7 @@ class OfflineAgentNode(Node):
                 self.get_logger().warning(
                     f"continuous command queue rejected input: {snapshot.reason}"
                 )
+                self._publish_queue_rejected_recognition(command, snapshot)
                 self._publish_state("queue_full")
             return
         with self._state_lock:
@@ -646,6 +647,17 @@ class OfflineAgentNode(Node):
             String(data=json.dumps(payload, ensure_ascii=False))
         )
         self.get_logger().info(f"ignored ASR final: reason={reason}, text={transcript}")
+
+    def _publish_queue_rejected_recognition(self, transcript, snapshot):
+        payload = {
+            "status": "queue_rejected",
+            "reason": snapshot.reason,
+            "transcript": transcript,
+            "queue_size": snapshot.size,
+        }
+        self._recognition_feedback_pub.publish(
+            String(data=json.dumps(payload, ensure_ascii=False))
+        )
 
     def shutdown(self):
         self._stopping = True

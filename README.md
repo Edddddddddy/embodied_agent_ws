@@ -122,7 +122,8 @@ CONTINUOUS_PRINT_CONFIG=true \
 避免长时间演示时执行已经失去上下文的旧命令；`停下/急停` 不会过期。过期事件会发布到
 `/agent/command_queue`，monitor 显示为 `[queue] expired ...`。
 队列容量默认是 8，可用 `CONTINUOUS_COMMAND_QUEUE_SIZE` 调整；现场演示建议保持较小，
-这样误触发不会堆积太多旧命令，配合 `CONTINUOUS_COMMAND_MAX_AGE` 更容易复盘。
+这样误触发不会堆积太多旧命令；队列满时 monitor 会同时显示 `[queue] rejected ...`
+和 `[queue-feedback] queue_full ...`，配合 `CONTINUOUS_COMMAND_MAX_AGE` 更容易复盘。
 `VOICE_CONTROL_PROFILE` 提供 `normal`、`quiet`、`noisy_room` 三档现场预设：
 `quiet` 更灵敏、会话窗口更长，适合安静近讲；`noisy_room` 会提高 VAD 起始阈值、
 延长静音断句、缩短旧命令寿命并降低队列容量，适合嘈杂房间里避免误触发堆积。

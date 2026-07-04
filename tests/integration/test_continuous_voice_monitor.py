@@ -141,6 +141,23 @@ def test_monitor_formats_ignored_recognition_feedback():
     assert monitor.format_recognition_feedback(feedback) == "[ignore] filler 嗯。"
 
 
+def test_monitor_formats_queue_rejected_feedback():
+    feedback = json.dumps(
+        {
+            "status": "queue_rejected",
+            "reason": "queue_full",
+            "transcript": "绕圈",
+            "queue_size": 8,
+        },
+        ensure_ascii=False,
+    )
+
+    assert (
+        monitor.format_recognition_feedback(feedback)
+        == "[queue-feedback] queue_full 绕圈 size=8"
+    )
+
+
 def test_monitor_stats_summarizes_long_running_session():
     stats = monitor.MonitorStats()
     stats.record_wake(json.dumps({"kind": "wake", "provider": "text"}, ensure_ascii=False))
