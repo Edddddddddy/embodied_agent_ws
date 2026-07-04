@@ -286,6 +286,7 @@ class MonitorStats:
             self.audio_samples.append(sample)
 
     def format_summary(self) -> str:
+        audio_report = None
         base = (
             f"[summary] wake={self.wake} sleep={self.sleep} retry={self.retry} "
             f"timeout={self.timeout} "
@@ -294,20 +295,63 @@ class MonitorStats:
             f"rejected={self.rejected} expired={self.expired} started={self.started} "
             f"finished={self.finished} succeeded={self.succeeded} failed={self.failed}"
         )
+        parts = [base]
         if not self.audio_samples:
-            return base
-        report = audio_calibration.analyze_audio_health(self.audio_samples)
-        warnings = ",".join(report.warnings) if report.warnings else "none"
-        audio = (
-            f"[summary-audio] samples={report.sample_count} "
-            f"profile={report.recommended_voice_profile} "
-            f"reason={report.profile_reason} "
-            f"mean_rms={report.mean_rms:.4f} max_rms={report.max_rms:.4f} "
-            f"speech_ratio={report.speech_ratio:.2f} "
-            f"dropped_input_delta={report.dropped_input_delta} "
+            parts.extend(self.format_advice())
+            return "\n".join(parts)
+        audio_report = audio_calibration.analyze_audio_health(self.audio_samples)
+        warnings = ",".join(audio_report.warnings) if audio_report.warnings else "none"
+        parts.append(
+            f"[summary-audio] samples={audio_report.sample_count} "
+            f"profile={audio_report.recommended_voice_profile} "
+            f"reason={audio_report.profile_reason} "
+            f"mean_rms={audio_report.mean_rms:.4f} max_rms={audio_report.max_rms:.4f} "
+            f"speech_ratio={audio_report.speech_ratio:.2f} "
+            f"dropped_input_delta={audio_report.dropped_input_delta} "
             f"warnings={warnings}"
         )
-        return base + "\n" + audio
+        parts.extend(self.format_advice(audio_report))
+        return "\n".join(parts)
+
+    def format_advice(self, audio_report=None) -> list[str]:
+        """根据长时间演示统计给出下一步排障建议。"""
+
+        advice: list[str] = []
+        if self.asr == 0:
+            advice.append(
+                "[advice] 没有收到 ASR final：检查麦克风 source、VAD 阈值，或先运行 audio_frontend_calibration.py。"
+            )
+        if self.ignored >= 3 and self.ignored >= max(3, self.asr // 2):
+            advice.append(
+                "[advice] ignored 偏高：可能是 ASR 抖动或语气词过多，可调整 CONTINUOUS_DUPLICATE_WINDOW_S 或检查识别文本。"
+            )
+        if self.rejected > 0:
+            advice.append(
+                "[advice] 出现 queue_full：请放慢连续说话节奏，或适当增大 CONTINUOUS_COMMAND_QUEUE_SIZE。"
+            )
+        if self.expired > 0:
+            advice.append(
+                "[advice] 有命令过期：机器人执行较慢或说话过快，可缩短演示话术或增大 CONTINUOUS_COMMAND_MAX_AGE。"
+            )
+        if self.failed > 0:
+            advice.append(
+                "[advice] 有动作失败：查看 [result]/[feedback] 与仿真安全状态，必要时先说“停下”。"
+            )
+        if audio_report is not None:
+            warning_set = set(audio_report.warnings)
+            if "vad_threshold_may_be_too_low_or_environment_noisy" in warning_set:
+                advice.append(
+                    "[advice] 环境可能持续触发 speech：建议 VOICE_CONTROL_PROFILE=noisy_room，或提高 SPEECH_START_THRESHOLD。"
+                )
+            if "vad_threshold_may_be_too_high" in warning_set:
+                advice.append(
+                    "[advice] VAD 可能太保守：建议 VOICE_CONTROL_PROFILE=quiet，或降低 SPEECH_START_THRESHOLD。"
+                )
+            if "audio_capture_overrun" in warning_set:
+                advice.append(
+                    "[advice] 麦克风输入有丢帧：关闭重负载程序，或降低 Gazebo/GUI 负载后重试。"
+                )
+        return advice
 
 
 class ContinuousVoiceMonitor(Node):

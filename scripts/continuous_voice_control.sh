@@ -106,6 +106,8 @@ ROS_DOMAIN_ID=$ROS_DOMAIN_ID，连续语音控制模式=$MODE
 
 说明：一次“小智”唤醒后，${SESSION_TIMEOUT}s 内可连续说多条命令；等待超过 ${COMMAND_MAX_AGE}s 的普通命令会过期跳过；Ctrl-C 退出脚本。
 终端会持续打印 [session] / [asr] / [queue] / [action] / [feedback] / [result] 链路事件。
+通过标准：至少识别 6 条 ASR final、产生 4 个以上动作、看到 [session] awake 与 sleeping，最后 /cmd_vel 归零。
+如需量化验收，请在第二终端运行：CONTINUOUS_LIVE_CHECK_DURATION=180 bash scripts/acceptance_test.sh continuous-live-check $MODE
 VOICE_CONTROL_PROFILE=$VOICE_CONTROL_PROFILE（normal/quiet/noisy_room；显式环境变量会覆盖 profile 默认值）
 VOICE_SESSION_TIMEOUT=$SESSION_TIMEOUT
 CONTINUOUS_COMMAND_QUEUE_SIZE=$COMMAND_QUEUE_SIZE
@@ -268,7 +270,7 @@ if [[ "$READINESS_ENABLED" == "true" ]]; then
   if python3 "$WORKSPACE/scripts/voice_control_readiness_check.py" "${readiness_args[@]}"; then
     echo "系统已就绪，可以开始说：小智"
   else
-    echo "WARN: readiness check 未完全通过；仍继续运行，请根据上方 blockers/warnings 调整麦克风、VAD 或 KWS。" >&2
+    echo "WARN: readiness check 未完全通过；仍继续运行。建议按顺序检查：麦克风 source、SPEECH_START_THRESHOLD、VOICE_CONTROL_PROFILE=noisy_room/quiet，以及可选 KWS 模型路径。" >&2
   fi
 fi
 

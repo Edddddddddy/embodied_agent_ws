@@ -43,6 +43,8 @@
 | 连续启动 readiness | 当前 | 连续脚本 launch 后默认运行 voice_control_readiness_check.py，提示可以开始说“小智”，失败时 warning 但不中断，并输出 profile quick_apply |
 | CommandExecutionTracker | 当前 | command_queue/command_execution topic 暴露队列长度和执行生命周期 |
 | 连续队列容量透传 | 当前 | `CONTINUOUS_COMMAND_QUEUE_SIZE` 经脚本和 launch 覆盖 online/offline Agent 队列容量 |
+| 真实麦克风 live-check | 当前 | `continuous-live-check` 订阅真实连续控制 topic，统计 ASR/action/result/session/cmd_vel 并给出 PASS/FAIL |
+| Monitor 下一步建议 | 当前 | 退出 summary 增加 `[advice]`，针对无 ASR、ignored 高、queue_full、expired、动作失败和 VAD profile 给出现场操作建议 |
 | 连续端点 ASR 验收 | 当前 | `continuous-endpoint` 用 `/audio/speech_ended` 驱动 mock ASR final，验证真实麦克风端点路径 busy 时仍入队 |
 | 连续长会话 soak | 当前 | `continuous-soak` 模拟一次唤醒后持续输入多条动作命令，验证 busy 时不丢 ASR final、入队并按序完成 |
 | 连续单动作串行等待 | 当前 | online/offline worker 发布单个普通动作时也等待 `/robot/action_result`，避免快速连续命令被后续 Action goal 抢占 |

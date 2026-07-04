@@ -65,6 +65,8 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
     )
 
     assert "连续语音控制模式=online" in result.stdout
+    assert "通过标准：至少识别 6 条 ASR final" in result.stdout
+    assert "continuous-live-check online" in result.stdout
     assert "VOICE_SESSION_TIMEOUT=44" in result.stdout
     assert "WAKE_WORD_ENABLED=false" in result.stdout
     assert "SPEAKER_ENABLED=true" in result.stdout
@@ -255,6 +257,8 @@ def test_continuous_voice_control_waits_for_readiness_after_launch():
     assert '--duration "$READINESS_DURATION"' in content
     assert "--require-kws" in content
     assert "系统已就绪，可以开始说：小智" in content
+    assert "麦克风 source" in content
+    assert "VOICE_CONTROL_PROFILE=noisy_room/quiet" in content
 
 
 def test_online_and_offline_publish_queue_rejected_feedback():

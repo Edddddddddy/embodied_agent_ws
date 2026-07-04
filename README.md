@@ -96,6 +96,17 @@ bash scripts/continuous_voice_control.sh online
 VOICE_CONTROL_PROFILE=noisy_room bash scripts/continuous_voice_control.sh offline
 ```
 
+量化人工验收可开第二个终端：
+
+```bash
+# Terminal 1
+bash scripts/acceptance_test.sh continuous-offline
+
+# Terminal 2，人工说完固定话术后自动统计 PASS/FAIL
+CONTINUOUS_LIVE_CHECK_DURATION=180 \
+  bash scripts/acceptance_test.sh continuous-live-check offline
+```
+
 演示前可先做无麦克风 dry-run，确认参数会怎样透传到 launch：
 
 ```bash
@@ -112,6 +123,8 @@ CONTINUOUS_PRINT_CONFIG=true \
 `CONTINUOUS_COMMAND_MAX_AGE` 和 `CONTINUOUS_DUPLICATE_WINDOW_S` 等现场调参值。
 推荐话术：`小智`、`向前走一秒`、`左转九十度`、`后退一秒`、`绕圈`、`走正方形`、
 `停下`、`退出控制`。连续模式不会在 Agent busy 时丢弃 ASR final，而是进入 FIFO 队列；
+人工 live-check 的通过标准是：至少 6 条 ASR final、4 个动作候选、4 个成功 action result、
+出现 `awake/sleeping`，并且最终 `/cmd_vel` 归零。
 长时间开麦时常见的“嗯/啊/哦/呃”等短语气词会在会话层忽略，同一句 ASR final 在短窗口内
 重复出现也会去重，并通过 monitor 输出 `[ignore] filler ...` 或
 `[ignore] duplicate_command ...`，减少真实麦克风抖动造成的误排队；
@@ -169,6 +182,8 @@ ASR 错词时，推荐复制默认错词表后用 `COMMAND_NORMALIZATION_PATH=/p
 用于复盘长时间语音演示中
 到底是识别少、过滤多、队列阻塞、动作执行失败，还是麦克风/VAD 环境不稳。如需关闭可设置
 `CONTINUOUS_MONITOR_ENABLED=false`。
+summary 还会输出 `[advice]`，例如没有 ASR final 时检查麦克风 source/VAD 阈值，
+queue_full 时放慢说话或调大队列，speech_ratio 持续过高时切到 `VOICE_CONTROL_PROFILE=noisy_room`。
 
 真实麦克风体验不稳定时，先运行音频前端校准脚本，而不是直接调 ASR 或 LLM：
 

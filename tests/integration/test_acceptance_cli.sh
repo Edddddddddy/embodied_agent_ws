@@ -14,6 +14,7 @@ fi
 grep -q "all" <<<"$OUTPUT"
 grep -q "microphone-offline" <<<"$OUTPUT"
 grep -q "microphone-online" <<<"$OUTPUT"
+grep -q "continuous-live-check" <<<"$OUTPUT"
 grep -q "openwakeword-sidecar" <<<"$OUTPUT"
 grep -q "livekit-sidecar" <<<"$OUTPUT"
 grep -q "kws-calibration" <<<"$OUTPUT"

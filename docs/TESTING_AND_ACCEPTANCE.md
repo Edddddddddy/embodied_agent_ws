@@ -30,6 +30,7 @@ bash scripts/acceptance_test.sh microphone-offline
 bash scripts/acceptance_test.sh microphone-online
 bash scripts/acceptance_test.sh continuous-offline
 bash scripts/acceptance_test.sh continuous-online
+bash scripts/acceptance_test.sh continuous-live-check offline
 ```
 
 `mock` 是每次提交前的最低门槛；`demo` 使用 mock executor 验证组合动作、accessory ACK
@@ -126,6 +127,30 @@ typed Action 验收同时要求 `/robot/bt_status` 到达 `confirm/succeeded`，
 `lifecycle_autostart:=false` 可用于手工检查未激活状态不会执行动作。
 命名空间验收会等待 diagnostics 确认 Lifecycle 已进入 active 后再发目标，避免把“节点已
 发现”误当成“控制器已就绪”的启动竞态。
+
+### 3.1 真实麦克风连续验收
+
+推荐先验离线链路，在线链路用于补充验证云 ASR/LLM/TTS 波动：
+
+```bash
+# Terminal 1：启动真实麦克风连续控制
+bash scripts/acceptance_test.sh continuous-offline
+
+# Terminal 2：统计人工话术的证据
+CONTINUOUS_LIVE_CHECK_DURATION=180 \
+  bash scripts/acceptance_test.sh continuous-live-check offline
+```
+
+固定话术：`小智 / 向前走一秒 / 左转九十度 / 后退一秒 / 绕圈 / 走正方形 / 停下 / 退出控制`。
+live-check 不替代人工说话，只订阅 `/agent/asr_final`、`/agent/session_state`、
+`/agent/command_queue`、`/agent/command_execution`、`/agent/action_candidate`、
+`/robot/action_result` 和 `/cmd_vel`。通过标准是至少 6 条 ASR final、4 个动作候选、
+4 个成功 action result、出现 `awake/sleeping`，并且最终 `/cmd_vel` 为 0。
+
+若失败，先看 `continuous_voice_monitor.py` 退出时的 `[summary]` 与 `[advice]`：
+`asr=0` 查麦克风 source/VAD，`ignored` 高查 ASR 抖动或 duplicate window，
+`rejected` 高说明说太快或队列太小，`speech_ratio` 持续过高则优先尝试
+`VOICE_CONTROL_PROFILE=noisy_room`。
 
 单独验收唤醒词：
 

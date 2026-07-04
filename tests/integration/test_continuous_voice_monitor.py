@@ -227,7 +227,9 @@ def test_monitor_stats_summarizes_long_running_session():
 
     assert stats.format_summary() == (
         "[summary] wake=1 sleep=1 retry=1 timeout=1 asr=1 ignored=1 normalized=1 enqueued=1 rejected=1 expired=1 "
-        "started=1 finished=1 succeeded=1 failed=0"
+        "started=1 finished=1 succeeded=1 failed=0\n"
+        "[advice] 出现 queue_full：请放慢连续说话节奏，或适当增大 CONTINUOUS_COMMAND_QUEUE_SIZE。\n"
+        "[advice] 有命令过期：机器人执行较慢或说话过快，可缩短演示话术或增大 CONTINUOUS_COMMAND_MAX_AGE。"
     )
 
 
@@ -260,6 +262,32 @@ def test_monitor_stats_summarizes_audio_health_and_recommended_profile():
     assert "speech_ratio=1.00" in summary
     assert "mean_rms=0.0200" in summary
     assert "warnings=vad_threshold_may_be_too_low_or_environment_noisy" in summary
+    assert "VOICE_CONTROL_PROFILE=noisy_room" in summary
+
+
+def test_monitor_stats_advises_when_no_asr_arrives():
+    stats = monitor.MonitorStats()
+
+    summary = stats.format_summary()
+
+    assert "[summary] wake=0 sleep=0" in summary
+    assert "没有收到 ASR final" in summary
+
+
+def test_monitor_stats_advises_when_ignored_is_high():
+    stats = monitor.MonitorStats()
+    for _ in range(6):
+        stats.record_asr("嗯。")
+        stats.record_recognition_feedback(
+            json.dumps(
+                {"status": "ignored", "reason": "duplicate_command"},
+                ensure_ascii=False,
+            )
+        )
+
+    summary = stats.format_summary()
+
+    assert "ignored 偏高" in summary
 
 
 def test_monitor_stats_keeps_bounded_recent_audio_samples():

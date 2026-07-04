@@ -37,6 +37,7 @@ Interactive modes:
   microphone-online   Speak into the microphone using the online Agent
   continuous-offline  Long-running microphone control using the offline Agent
   continuous-online   Long-running microphone control using the online Agent
+  continuous-live-check {offline|online}  Observe a running live microphone demo and score evidence
 EOF
 }
 
@@ -152,6 +153,15 @@ case "$LEVEL" in
   microphone-online) bash scripts/accept_voice_simulation_microphone.sh online ;;
   continuous-offline) bash scripts/continuous_voice_control.sh offline ;;
   continuous-online) bash scripts/continuous_voice_control.sh online ;;
+  continuous-live-check)
+    CHECK_MODE="${2:-offline}"
+    if [[ "$CHECK_MODE" != "offline" && "$CHECK_MODE" != "online" ]]; then
+      echo "Usage: $0 continuous-live-check {offline|online}" >&2
+      exit 2
+    fi
+    echo "continuous-live-check=$CHECK_MODE：请先在另一个终端启动 acceptance_test.sh continuous-$CHECK_MODE"
+    python3 scripts/continuous_live_check.py --duration "${CONTINUOUS_LIVE_CHECK_DURATION:-180}"
+    ;;
   all) run_base; run_online; run_offline; bash scripts/smoke_test_demo_sequence.sh; run_gazebo; USE_TYPED_ACTIONS=true bash scripts/smoke_test_gazebo_voice.sh; bash scripts/smoke_test_gazebo_voice_online.sh ;;
   *) usage >&2; exit 2 ;;
 esac
