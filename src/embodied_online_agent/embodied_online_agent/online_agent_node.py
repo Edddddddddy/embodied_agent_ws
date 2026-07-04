@@ -577,13 +577,27 @@ class OnlineAgentNode(Node):
         report = self.action_sequencer.publish(
             action_list,
             publish_payload,
-            wait_for_results=len(action_list) > 1,
+            wait_for_results=self._should_wait_for_action_results(action_list),
         )
         if report.failed:
             self.get_logger().warning(
                 f"action sequence stopped after {report.completed} completed step(s): {report.reason}"
             )
         return report.published
+
+    def _should_wait_for_action_results(self, action_list):
+        if len(action_list) > 1:
+            return True
+        # 连续控制的 worker 必须等单动作 result 后再消费下一条命令。
+        # 否则真人连续说“前进、左转、后退”时，后一个 ROS Action goal 会抢占前一个，
+        # 表面看像“识别到了但机器人没完整执行”。急停/退出控制通常在 ROS 回调线程里发布，
+        # 不能在这里同步等待，否则单线程 executor 无法处理 /robot/action_result 回调。
+        return (
+            bool(action_list)
+            and self._continuous_enabled
+            and self._command_worker_thread is not None
+            and threading.current_thread() is self._command_worker_thread
+        )
 
     def _on_tts_audio(self, pcm16: bytes):
         self.metrics.mark_tts_first_audio()

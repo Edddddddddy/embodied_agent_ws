@@ -607,13 +607,26 @@ class OfflineAgentNode(Node):
         report = self._action_sequencer.publish(
             action_list,
             publish_payload,
-            wait_for_results=len(action_list) > 1,
+            wait_for_results=self._should_wait_for_action_results(action_list),
         )
         if report.failed:
             self.get_logger().warning(
                 f"action sequence stopped after {report.completed} completed step(s): {report.reason}"
             )
         return report.published
+
+    def _should_wait_for_action_results(self, action_list):
+        if len(action_list) > 1:
+            return True
+        # 连续控制的 worker 必须等单动作 result 后再消费下一条命令。
+        # 这样长时间语音输入时，普通动作会串行完成，而不是被后续 Action goal 抢占。
+        # 优先级 stop 可能在 ROS 回调线程中发布，仍保持 fire-and-forget 以避免阻塞 result 回调。
+        return (
+            bool(action_list)
+            and self._continuous_enabled
+            and self._command_worker_thread is not None
+            and threading.current_thread() is self._command_worker_thread
+        )
 
     def _publish_state(self, state):
         self._state_pub.publish(String(data=state))

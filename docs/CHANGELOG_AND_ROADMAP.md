@@ -43,6 +43,8 @@
 | 连续启动 readiness | 当前 | 连续脚本 launch 后默认运行 voice_control_readiness_check.py，提示可以开始说“小智”，失败时 warning 但不中断，并输出 profile quick_apply |
 | CommandExecutionTracker | 当前 | command_queue/command_execution topic 暴露队列长度和执行生命周期 |
 | 连续队列容量透传 | 当前 | `CONTINUOUS_COMMAND_QUEUE_SIZE` 经脚本和 launch 覆盖 online/offline Agent 队列容量 |
+| 连续长会话 soak | 当前 | `continuous-soak` 模拟一次唤醒后持续输入多条动作命令，验证 busy 时不丢 ASR final、入队并按序完成 |
+| 连续单动作串行等待 | 当前 | online/offline worker 发布单个普通动作时也等待 `/robot/action_result`，避免快速连续命令被后续 Action goal 抢占 |
 | 连续队列满验收 | 当前 | `continuous-queue-full` 将队列容量设为 1，验证 queue_full rejected、queue_rejected feedback，以及满队列下急停清队列并发布 stop |
 | 连续急停验收 | 当前 | continuous-mock 验证 priority stop 清队列、发布 stop、最终 cmd_vel 归零 |
 | 连续命令 TTL | 当前 | `continuous_command_max_age_s` 默认 30 秒，普通旧命令过期跳过并发布 `expired` 事件，急停/停下永不过期；`continuous-ttl` 覆盖真实 ROS 链路 |

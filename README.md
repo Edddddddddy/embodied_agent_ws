@@ -147,6 +147,9 @@ ASR 错词时，推荐复制默认错词表后用 `COMMAND_NORMALIZATION_PATH=/p
 `COMMAND_NORMALIZATION_FEEDBACK_ENABLED=false`。
 自动验收可用 `bash scripts/acceptance_test.sh continuous-ttl` 复现实例：先执行长组合动作，
 再排入一条普通命令，确认它过期且没有发布动作候选。
+`bash scripts/acceptance_test.sh continuous-soak` 会模拟一次唤醒后的长会话，连续输入
+直行、后退、转向、绕圈、挥手和灯光命令，验证 busy 时后续 ASR final 持续进入队列并按
+顺序执行完成。
 `bash scripts/acceptance_test.sh continuous-queue-full` 会把队列容量压到 1，
 验证说太快时第二条普通命令发布 `queue_full` 和 `[queue-feedback]`，
 同时确认队列已满时“急停”仍会清空队列并发布 `stop`。

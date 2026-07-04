@@ -32,7 +32,9 @@ bash scripts/acceptance_test.sh continuous-online
 
 `mock` 是每次提交前的最低门槛；`demo` 使用 mock executor 验证组合动作、accessory ACK
 和弧线速度；`continuous-mock` 验证一次唤醒、多命令队列、退出控制、常见 ASR 错词
-归一化和 online/offline 状态机复用；`continuous-queue-full` 将队列容量设为 1，
+归一化和 online/offline 状态机复用；`continuous-soak` 模拟一次唤醒后的长会话，
+连续输入直行、后退、转向、绕圈、挥手和灯光命令，验证 busy 时后续命令持续入队并按序
+执行；`continuous-queue-full` 将队列容量设为 1，
 验证说太快时第二条普通命令发布 `rejected/queue_full` 和 `queue_rejected` feedback；
 同时验证队列满时“急停”仍能清空等待队列并发布 `stop`；
 `continuous-ttl` 验证 Agent 忙于组合动作时，
