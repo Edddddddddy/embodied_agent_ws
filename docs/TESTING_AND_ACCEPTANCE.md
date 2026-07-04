@@ -203,7 +203,8 @@ VAD 端点、队列容量、旧命令 TTL 和纠错阈值；其中 `quiet` 适�
 连续说“向前走一秒 / 左转九十度 / 绕圈 / 走正方形”等命令；Agent 忙于执行上一条时不会
 丢弃新的 ASR final，而是排入队列。会话层会忽略“嗯/啊/哦/呃”等短 filler，并对短时间
 重复出现的同一句 ASR final 去重；这两个规则只处理明显噪声，避免把正常的二次命令误删。
-去重窗口默认 1.2 秒，可通过 `CONTINUOUS_DUPLICATE_WINDOW_S` 在连续控制脚本中调整。
+去重窗口默认 1.2 秒，可通过 `CONTINUOUS_DUPLICATE_WINDOW_S` 在连续控制脚本中调整；
+休眠或重新唤醒会清空去重记忆，新会话里可以立即再次执行同一句命令。
 过滤结果会发布到 `/agent/recognition_feedback`，monitor 显示为 `[ignore] filler ...`
 或 `[ignore] duplicate_command ...`，因此真实麦克风验收时可以区分“系统卡住”和“系统正在
 主动过滤噪声”。

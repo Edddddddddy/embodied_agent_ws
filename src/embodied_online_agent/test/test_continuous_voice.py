@@ -74,6 +74,35 @@ def test_continuous_session_deduplicates_repeated_asr_finals_briefly():
     assert repeated_later.accepted
 
 
+def test_continuous_session_allows_same_command_after_sleep_and_rewake():
+    now = [100.0]
+    gate = WakeWordGate(
+        ["小智"],
+        enabled=True,
+        active_timeout_s=60.0,
+        clock=lambda: now[0],
+    )
+    session = ContinuousVoiceSession(
+        gate,
+        enabled=True,
+        duplicate_window_s=5.0,
+        clock=lambda: now[0],
+    )
+
+    assert session.accept("小智").event.kind == SessionEventKind.WAKE
+    first = session.accept("向前走一秒")
+    sleeping = session.accept("退出控制")
+    now[0] += 0.2
+    rewake = session.accept("小智")
+    repeated_in_new_session = session.accept("向前走一秒")
+
+    assert first.accepted
+    assert sleeping.event.kind == SessionEventKind.SLEEP
+    assert rewake.event.kind == SessionEventKind.WAKE
+    assert repeated_in_new_session.accepted
+    assert repeated_in_new_session.command == "向前走一秒"
+
+
 def test_sleep_phrase_closes_the_continuous_control_session():
     gate = WakeWordGate(["小智"], enabled=True, active_timeout_s=60.0)
     session = ContinuousVoiceSession(gate, enabled=True)
@@ -105,6 +134,34 @@ def test_external_wake_event_opens_same_continuous_session():
     assert command.command == "向前走一秒"
     assert sleep_event.kind == SessionEventKind.SLEEP
     assert rejected.reason == "wake_word_not_detected"
+
+
+def test_external_sleep_and_rewake_allow_same_command_again():
+    now = [100.0]
+    gate = WakeWordGate(
+        ["小智"],
+        enabled=True,
+        active_timeout_s=60.0,
+        clock=lambda: now[0],
+    )
+    session = ContinuousVoiceSession(
+        gate,
+        enabled=True,
+        duplicate_window_s=5.0,
+        clock=lambda: now[0],
+    )
+
+    session.external_wake("sherpa_kws", transcript="小智")
+    first = session.accept("向前走一秒")
+    sleep_event = session.external_sleep("sherpa_kws")
+    now[0] += 0.2
+    session.external_wake("sherpa_kws", transcript="小智")
+    repeated_in_new_session = session.accept("向前走一秒")
+
+    assert first.accepted
+    assert sleep_event.kind == SessionEventKind.SLEEP
+    assert repeated_in_new_session.accepted
+    assert repeated_in_new_session.command == "向前走一秒"
 
 
 def test_stop_intent_is_marked_as_priority_command():

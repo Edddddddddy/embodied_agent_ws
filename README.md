@@ -114,7 +114,8 @@ CONTINUOUS_PRINT_CONFIG=true \
 重复出现也会去重，并通过 monitor 输出 `[ignore] filler ...` 或
 `[ignore] duplicate_command ...`，减少真实麦克风抖动造成的误排队；
 去重窗口默认 1.2 秒，可用 `CONTINUOUS_DUPLICATE_WINDOW_S=0.6` 缩短，
-也可在 ASR 连续重复更明显时适当调大；
+也可在 ASR 连续重复更明显时适当调大；休眠或重新唤醒会清空去重记忆，
+因此新会话里可以立刻再次执行同一句命令；
 `停下/急停` 会清空等待队列、取消正在等待结果的组合动作，并立即发布 `stop`；
 `退出控制/休眠/结束控制` 会关闭会话，同时发布安全 `stop`，后续命令必须重新唤醒。
 普通命令若在队列中等待超过 `continuous_command_max_age_s`（默认 30 秒）会自动过期跳过，

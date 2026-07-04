@@ -231,6 +231,7 @@ class ContinuousVoiceSession:
 
         if self.enabled and self._contains_any(text, self._sleep_words):
             wake_event = self._wake_provider.sleep()
+            self._forget_command()
             return SessionDecision(
                 None,
                 False,
@@ -248,6 +249,8 @@ class ContinuousVoiceSession:
 
         wake_decision = self._wake_provider.accept(text)
         command = wake_decision.command
+        if wake_decision.event.kind == WakeEventKind.WAKE:
+            self._forget_command()
         if command is None:
             reason = "session_awake" if wake_decision.active else "wake_word_not_detected"
             return self._decision_from_wake(
@@ -279,6 +282,7 @@ class ContinuousVoiceSession:
 
     def external_wake(self, provider: str, transcript: str = "") -> SessionEvent:
         wake_event = self._wake_provider.external_wake(provider, transcript)
+        self._forget_command()
         return SessionEvent(
             SessionEventKind.WAKE,
             "awake",
@@ -289,6 +293,7 @@ class ContinuousVoiceSession:
 
     def external_sleep(self, provider: str) -> SessionEvent:
         wake_event = self._wake_provider.external_sleep(provider)
+        self._forget_command()
         return SessionEvent(
             SessionEventKind.SLEEP,
             "sleeping",
@@ -320,6 +325,10 @@ class ContinuousVoiceSession:
     def _remember_command(self, command: str) -> None:
         self._last_command_text = self._normalize_short_text(command)
         self._last_command_at = self._clock()
+
+    def _forget_command(self) -> None:
+        self._last_command_text = ""
+        self._last_command_at = 0.0
 
     @staticmethod
     def _session_kind(wake_event: WakeEvent, accepted: bool) -> SessionEventKind:
