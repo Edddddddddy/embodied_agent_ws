@@ -65,6 +65,38 @@ def test_single_action_can_be_published_without_waiting_for_executor():
     assert not report.failed
 
 
+def test_sequence_publisher_waits_for_matching_command_id():
+    sequencer = SequentialActionPublisher(result_timeout_s=0.01)
+    sent = []
+
+    def publish(payload):
+        data = json.loads(payload)
+        sent.append(data)
+        sequencer.notify_result(
+            json.dumps(
+                {
+                    "command_id": data["request_id"],
+                    "success": True,
+                    "message": "succeeded",
+                }
+            )
+        )
+
+    report = sequencer.publish(
+        [
+            ActionCommand("move", {"linear_x": 0.18, "duration_s": 1.2}),
+            ActionCommand("turn", {"angular_z": 0.6, "duration_s": 2.6}),
+        ],
+        publish,
+        wait_for_results=True,
+    )
+
+    assert [payload["name"] for payload in sent] == ["move", "turn"]
+    assert sent[0]["request_id"] != sent[1]["request_id"]
+    assert report.completed == 2
+    assert not report.failed
+
+
 def test_sequence_publisher_can_be_cancelled_while_waiting_for_result():
     sequencer = SequentialActionPublisher(result_timeout_s=1.0)
     sent = []

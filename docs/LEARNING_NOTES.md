@@ -215,7 +215,36 @@
 - LLM 直接发控制 topic：快但安全边界差。
 - Agent 只产动作候选，C++ guard 再执行：更符合机器人系统分层。
 
-## 8. 离线 Agent：Sherpa、llama.cpp、Sherpa-TTS 与双缓冲
+## 8. 轻量 NLU：一句话多个命令识别
+
+关键代码：
+
+- `src/embodied_online_agent/embodied_online_agent/command_nlu.py`
+- `src/embodied_online_agent/config/command_nlu_zh.json`
+- `scripts/train_command_nlu.py`
+- `tests/integration/test_continuous_multi_command.py`
+
+设计方式：
+
+- 使用字符 n-gram 原型模型识别控制意图，不依赖 torch/transformers。
+- 输入一条 ASR final，输出多个动作片段和置信度。
+- 例如“向右转，向前走一秒”会输出 `turn -> move`。
+- 每个队列项带 `batch_id / batch_index / batch_size`，便于 monitor 解释顺序。
+- 每个动作候选带 `request_id`，ActionGuard 映射成 `RobotCommand.command_id`，用于 result 关联。
+
+为什么这样设计：
+
+- 纯字符串 split 对无标点语音不稳，例如“向右转向前走一秒”。
+- 大模型理解更强，但慢、不可预测、在线成本高。
+- 轻量 NLU 覆盖固定机器人动作域，速度快、可测试、可解释。
+
+方案对比：
+
+- 规则拆分：部署最简单，但表达能力弱。
+- 大模型 function calling：泛化强，但响应和稳定性受模型影响。
+- 本地轻量 NLU + ActionGuard：在固定动作域内更适合端侧演示。
+
+## 9. 离线 Agent：Sherpa、llama.cpp、Sherpa-TTS 与双缓冲
 
 关键代码：
 
@@ -246,7 +275,7 @@
 - Python 大模型框架直接推理：开发方便，但部署和性能压力更大。
 - llama.cpp + Sherpa：工程味更强，适合展示端侧推理思路。
 
-## 9. BehaviorTree.CPP 与 pluginlib 仿真执行
+## 10. BehaviorTree.CPP 与 pluginlib 仿真执行
 
 关键代码：
 
@@ -275,7 +304,7 @@
 - 直接引入完整 Nav2：功能强，但本项目目标不是复杂导航，成本过高。
 - 轻量 BT + pluginlib：足够展示工程规范，同时保持项目可跑通。
 
-## 10. 测试体系
+## 11. 测试体系
 
 关键代码：
 
@@ -308,7 +337,7 @@
 - 只做人工演示：不可复现，回归成本高。
 - 单测 + smoke + 人工验收：更适合当前工程规模。
 
-## 11. 面试讲法建议
+## 12. 面试讲法建议
 
 可以用这条主线介绍项目：
 

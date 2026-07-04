@@ -29,6 +29,10 @@ ValidationResult ActionValidator::validate(const std::string & serialized_comman
     result.error = "action arguments must be an object";
     return result;
   }
+  if (command.contains("request_id") && !command["request_id"].is_string()) {
+    result.error = "request_id must be a string";
+    return result;
+  }
 
   const std::string name = command["name"];
   auto & arguments = command["arguments"];

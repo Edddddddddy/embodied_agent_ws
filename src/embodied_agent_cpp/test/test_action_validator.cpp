@@ -44,6 +44,15 @@ TEST(ActionValidatorTest, RejectsMissingAndExtraArguments)
       R"({"name":"stop","arguments":{"duration_s":1.0}})").valid);
 }
 
+TEST(ActionValidatorTest, ValidatesOptionalRequestId)
+{
+  embodied_agent_cpp::ActionValidator validator;
+  EXPECT_TRUE(validator.validate(
+      R"({"name":"stop","request_id":"agent-action-1","arguments":{}})").valid);
+  EXPECT_FALSE(validator.validate(
+      R"({"name":"stop","request_id":42,"arguments":{}})").valid);
+}
+
 TEST(ActionValidatorTest, ValidatesLedColorType)
 {
   embodied_agent_cpp::ActionValidator validator;

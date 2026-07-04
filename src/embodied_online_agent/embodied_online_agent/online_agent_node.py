@@ -16,6 +16,7 @@ from .memory import ConversationMemory
 from .action_sequence import SequentialActionPublisher
 from .command_completion import CommandCompleter
 from .command_fallback import parse_fallback_actions, should_block_model_actions
+from .command_nlu import CommandNLU
 from .continuous_voice import ContinuousCommandQueue, ContinuousVoiceSession
 from .continuous_voice import CommandExecutionTracker, QueueSnapshot
 from .command_normalizer import CommandNormalizer
@@ -41,6 +42,7 @@ class OnlineAgentNode(Node):
         self._stopping = False
         self._last_asr_commit_monotonic = 0.0
         self._continuous_enabled = bool(self._param("continuous_control_enabled"))
+        self._nlu_batch_sequence = 0
         self._command_queue = ContinuousCommandQueue(
             int(self._param("continuous_command_queue_size")),
             max_age_s=float(self._param("continuous_command_max_age_s")),
@@ -72,6 +74,10 @@ class OnlineAgentNode(Node):
         )
         self.command_completer = CommandCompleter(
             enabled=bool(self._param("command_completion_enabled"))
+        )
+        self.command_nlu = CommandNLU(
+            enabled=bool(self._param("command_nlu_enabled")),
+            min_confidence=float(self._param("command_nlu_min_confidence")),
         )
         self.action_sequencer = SequentialActionPublisher(
             self._param("action_sequence_wait_timeout_s")
@@ -178,6 +184,8 @@ class OnlineAgentNode(Node):
             "command_normalization_fuzzy_threshold": 0.82,
             "command_normalization_path": "",
             "command_completion_enabled": True,
+            "command_nlu_enabled": True,
+            "command_nlu_min_confidence": 0.18,
             "memory_path": "~/.ros/embodied_agent/memory.json",
             "memory_max_turns": 10,
             "system_prompt_path": "",
@@ -426,21 +434,7 @@ class OnlineAgentNode(Node):
                 self._publish_actions([ActionCommand("stop", {})])
                 self._publish_state("listening")
                 return
-            # 连续控制模式下不直接执行，而是先入队；这样用户可以连续说多条命令，
-            # worker 线程按顺序等待上一个动作 result 后再处理下一条。
-            snapshot = self._command_queue.put(command)
-            self._publish_queue_event("enqueue", command, snapshot)
-            if snapshot.accepted:
-                self.get_logger().info(
-                    f"continuous command queued: size={snapshot.size}, text={command}"
-                )
-                self._publish_state("queued")
-            else:
-                self.get_logger().warning(
-                    f"continuous command queue rejected input: {snapshot.reason}"
-                )
-                self._publish_queue_rejected_recognition(command, snapshot)
-                self._publish_state("queue_full")
+            self._enqueue_continuous_command(command)
             return
         with self._state_lock:
             if self._busy:
@@ -494,7 +488,7 @@ class OnlineAgentNode(Node):
                 )
                 self.metrics.reset()
                 self.metrics.mark_asr_final()
-                self._run_turn(item.text)
+                self._run_queued_turn(item)
                 self._publish_execution_event(
                     self._command_tracker.execution_finished(
                         item, success=True, reason="completed"
@@ -613,6 +607,97 @@ class OnlineAgentNode(Node):
                 self._busy = False
             if not self._stopping:
                 self._publish_state("listening")
+
+    def _run_queued_turn(self, item):
+        context = item.context if isinstance(item.context, dict) else {}
+        actions = self._actions_from_context(context)
+        if actions:
+            self._run_preparsed_turn(item.text, actions, context)
+            return
+        self._run_turn(item.text)
+
+    def _run_preparsed_turn(self, user_text: str, actions, context: dict):
+        self._publish_state("thinking")
+        summary = "，".join(action.name for action in actions)
+        response = f"好的，按顺序执行：{summary}。"
+        self.response_delta_pub.publish(String(data=response))
+        self.response_pub.publish(String(data=response))
+        self._publish_actions(actions)
+
+    @staticmethod
+    def _actions_from_context(context: dict):
+        raw_actions = context.get("preparsed_actions") or []
+        actions = []
+        for raw in raw_actions:
+            if isinstance(raw, dict) and isinstance(raw.get("name"), str):
+                actions.append(
+                    ActionCommand(raw["name"], dict(raw.get("arguments") or {}))
+                )
+        return actions
+
+    def _enqueue_continuous_command(self, command: str):
+        nlu_result = self.command_nlu.parse(command)
+        if nlu_result.accepted:
+            self._nlu_batch_sequence += 1
+            batch_id = f"online-nlu-{self._nlu_batch_sequence}"
+            self._publish_nlu_feedback(command, nlu_result, batch_id)
+            for index, parsed in enumerate(nlu_result.commands, start=1):
+                metadata = {
+                    "batch_id": batch_id,
+                    "batch_index": index,
+                    "batch_size": len(nlu_result.commands),
+                    "source_text": command,
+                    "nlu_intent": parsed.intent,
+                    "nlu_confidence": round(parsed.confidence, 3),
+                }
+                context = {
+                    **metadata,
+                    "preparsed_actions": [action.as_dict() for action in parsed.actions],
+                }
+                snapshot = self._command_queue.put(
+                    parsed.span_text, context=context, metadata=metadata
+                )
+                self._publish_queue_event("enqueue", parsed.span_text, snapshot)
+                if not snapshot.accepted:
+                    self._publish_queue_rejected_recognition(parsed.span_text, snapshot)
+                    self._publish_state("queue_full")
+                    return
+            self._publish_state("queued")
+            return
+
+        snapshot = self._command_queue.put(command)
+        self._publish_queue_event("enqueue", command, snapshot)
+        if snapshot.accepted:
+            self.get_logger().info(
+                f"continuous command queued: size={snapshot.size}, text={command}"
+            )
+            self._publish_state("queued")
+        else:
+            self.get_logger().warning(
+                f"continuous command queue rejected input: {snapshot.reason}"
+            )
+            self._publish_queue_rejected_recognition(command, snapshot)
+            self._publish_state("queue_full")
+
+    def _publish_nlu_feedback(self, command: str, nlu_result, batch_id: str):
+        payload = {
+            "status": "nlu_parsed",
+            "reason": "command_nlu",
+            "transcript": command,
+            "batch_id": batch_id,
+            "commands": [
+                {
+                    "intent": parsed.intent,
+                    "span_text": parsed.span_text,
+                    "confidence": round(parsed.confidence, 3),
+                    "actions": [action.as_dict() for action in parsed.actions],
+                }
+                for parsed in nlu_result.commands
+            ],
+        }
+        self.recognition_feedback_pub.publish(
+            String(data=json.dumps(payload, ensure_ascii=False))
+        )
 
     def _publish_actions(self, actions):
         action_list = list(actions)

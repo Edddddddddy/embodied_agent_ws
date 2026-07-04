@@ -15,6 +15,7 @@ from embodied_online_agent.memory import ConversationMemory
 from embodied_online_agent.action_sequence import SequentialActionPublisher
 from embodied_online_agent.command_completion import CommandCompleter
 from embodied_online_agent.command_fallback import parse_fallback_actions, should_block_model_actions
+from embodied_online_agent.command_nlu import CommandNLU
 from embodied_online_agent.command_normalizer import CommandNormalizer
 from embodied_online_agent.continuous_voice import ContinuousCommandQueue, ContinuousVoiceSession
 from embodied_online_agent.continuous_voice import CommandExecutionTracker, QueueSnapshot
@@ -39,6 +40,7 @@ class OfflineAgentNode(Node):
         self._state_lock = threading.Lock()
         self._last_asr_commit_monotonic = 0.0
         self._continuous_enabled = bool(self._param("continuous_control_enabled"))
+        self._nlu_batch_sequence = 0
         self._command_queue = ContinuousCommandQueue(
             int(self._param("continuous_command_queue_size")),
             max_age_s=float(self._param("continuous_command_max_age_s")),
@@ -75,6 +77,10 @@ class OfflineAgentNode(Node):
         )
         self._command_completer = CommandCompleter(
             enabled=bool(self._param("command_completion_enabled"))
+        )
+        self._command_nlu = CommandNLU(
+            enabled=bool(self._param("command_nlu_enabled")),
+            min_confidence=float(self._param("command_nlu_min_confidence")),
         )
         self._action_sequencer = SequentialActionPublisher(
             self._param("action_sequence_wait_timeout_s")
@@ -161,6 +167,8 @@ class OfflineAgentNode(Node):
             "command_normalization_fuzzy_threshold": 0.82,
             "command_normalization_path": "",
             "command_completion_enabled": True,
+            "command_nlu_enabled": True,
+            "command_nlu_min_confidence": 0.18,
             "llm_base_url": "http://127.0.0.1:8080/v1",
             "llm_model": "Qwen3-0.6B-Q8_0.gguf",
             "llm_temperature": 0.7,
@@ -451,20 +459,7 @@ class OfflineAgentNode(Node):
                 self._publish_actions([ActionCommand("stop", {})])
                 self._publish_state("listening")
                 return
-            # 离线链路把延迟统计对象一起放入队列，保证排队执行后仍能统计本轮耗时。
-            snapshot = self._command_queue.put(command, context=self._latency)
-            self._publish_queue_event("enqueue", command, snapshot)
-            if snapshot.accepted:
-                self.get_logger().info(
-                    f"continuous command queued: size={snapshot.size}, text={command}"
-                )
-                self._publish_state("queued")
-            else:
-                self.get_logger().warning(
-                    f"continuous command queue rejected input: {snapshot.reason}"
-                )
-                self._publish_queue_rejected_recognition(command, snapshot)
-                self._publish_state("queue_full")
+            self._enqueue_continuous_command(command)
             return
         with self._state_lock:
             if self._busy:
@@ -517,8 +512,7 @@ class OfflineAgentNode(Node):
                 self._publish_execution_event(
                     self._command_tracker.execution_started(item)
                 )
-                latency = item.context if isinstance(item.context, OfflineLatency) else OfflineLatency()
-                self._run_turn(item.text, latency)
+                self._run_queued_turn(item)
                 self._publish_execution_event(
                     self._command_tracker.execution_finished(
                         item, success=True, reason="completed"
@@ -643,6 +637,106 @@ class OfflineAgentNode(Node):
                 self._busy = False
             if not self._stopping:
                 self._publish_state("listening")
+
+    def _run_queued_turn(self, item):
+        context = item.context if isinstance(item.context, dict) else {}
+        actions = self._actions_from_context(context)
+        if actions:
+            latency = context.get("latency")
+            self._run_preparsed_turn(
+                item.text,
+                actions,
+                latency if isinstance(latency, OfflineLatency) else OfflineLatency(),
+            )
+            return
+        latency = item.context if isinstance(item.context, OfflineLatency) else OfflineLatency()
+        self._run_turn(item.text, latency)
+
+    def _run_preparsed_turn(self, user_text, actions, latency):
+        self._publish_state("thinking")
+        response = "好的，按顺序执行：" + "，".join(action.name for action in actions) + "。"
+        self._response_delta_pub.publish(String(data=response))
+        self._response_pub.publish(String(data=response))
+        self._publish_actions(actions)
+        latency.finish()
+        report = latency.report(0, 0)
+        self._metrics_pub.publish(String(data=json.dumps(report, ensure_ascii=False)))
+
+    @staticmethod
+    def _actions_from_context(context):
+        raw_actions = context.get("preparsed_actions") or []
+        actions = []
+        for raw in raw_actions:
+            if isinstance(raw, dict) and isinstance(raw.get("name"), str):
+                actions.append(
+                    ActionCommand(raw["name"], dict(raw.get("arguments") or {}))
+                )
+        return actions
+
+    def _enqueue_continuous_command(self, command):
+        nlu_result = self._command_nlu.parse(command)
+        if nlu_result.accepted:
+            self._nlu_batch_sequence += 1
+            batch_id = f"offline-nlu-{self._nlu_batch_sequence}"
+            self._publish_nlu_feedback(command, nlu_result, batch_id)
+            for index, parsed in enumerate(nlu_result.commands, start=1):
+                metadata = {
+                    "batch_id": batch_id,
+                    "batch_index": index,
+                    "batch_size": len(nlu_result.commands),
+                    "source_text": command,
+                    "nlu_intent": parsed.intent,
+                    "nlu_confidence": round(parsed.confidence, 3),
+                }
+                context = {
+                    **metadata,
+                    "latency": self._latency,
+                    "preparsed_actions": [action.as_dict() for action in parsed.actions],
+                }
+                snapshot = self._command_queue.put(
+                    parsed.span_text, context=context, metadata=metadata
+                )
+                self._publish_queue_event("enqueue", parsed.span_text, snapshot)
+                if not snapshot.accepted:
+                    self._publish_queue_rejected_recognition(parsed.span_text, snapshot)
+                    self._publish_state("queue_full")
+                    return
+            self._publish_state("queued")
+            return
+
+        snapshot = self._command_queue.put(command, context=self._latency)
+        self._publish_queue_event("enqueue", command, snapshot)
+        if snapshot.accepted:
+            self.get_logger().info(
+                f"continuous command queued: size={snapshot.size}, text={command}"
+            )
+            self._publish_state("queued")
+        else:
+            self.get_logger().warning(
+                f"continuous command queue rejected input: {snapshot.reason}"
+            )
+            self._publish_queue_rejected_recognition(command, snapshot)
+            self._publish_state("queue_full")
+
+    def _publish_nlu_feedback(self, command, nlu_result, batch_id):
+        payload = {
+            "status": "nlu_parsed",
+            "reason": "command_nlu",
+            "transcript": command,
+            "batch_id": batch_id,
+            "commands": [
+                {
+                    "intent": parsed.intent,
+                    "span_text": parsed.span_text,
+                    "confidence": round(parsed.confidence, 3),
+                    "actions": [action.as_dict() for action in parsed.actions],
+                }
+                for parsed in nlu_result.commands
+            ],
+        }
+        self._recognition_feedback_pub.publish(
+            String(data=json.dumps(payload, ensure_ascii=False))
+        )
 
     def _publish_actions(self, actions):
         action_list = list(actions)

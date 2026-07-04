@@ -16,6 +16,7 @@
 | 连续语音控制 | 一次唤醒后连续说多条命令，支持队列和急停 | 完成 continuous offline/online 验收入口 |
 | 真实语音稳定性 | 修复尾部漏识别、重复识别、filler、queue_full 可观测性 | 完成 VAD profile、commit delay、短命令补全、monitor |
 | 阶段性文档收尾 | 整理 README、验收文档、学习笔记、关键中文注释 | 当前阶段 |
+| 轻量 NLU 多命令 | 识别一句 ASR final 内的多个动作，并保证队列顺序 | 新增 CommandNLU、batch 可观测性、request_id/result 关联 |
 
 ## 2. 当前完成度结论
 
@@ -27,6 +28,7 @@
 - Python Agent：在线/离线 provider、连续语音会话、命令队列、LLM/TTS 编排。
 - 工程化接口：自定义 msg/action、Lifecycle、BehaviorTree.CPP、pluginlib。
 - 演示能力：真实麦克风连续语音、多动作序列、急停抢占、Gazebo 运动验证。
+- 多命令能力：一条 ASR final 可被轻量 NLU 解析为多个队列项，并按 ROS 2 Action result 顺序执行。
 - 测试体系：单元测试、集成 smoke、Gazebo 验收、真实麦克风辅助统计。
 
 需要谨慎表述的边界：
@@ -48,6 +50,7 @@ bash scripts/acceptance_test.sh mock
 ```bash
 bash scripts/acceptance_test.sh continuous-endpoint
 bash scripts/acceptance_test.sh continuous-mock
+bash scripts/acceptance_test.sh continuous-multi-command
 bash scripts/acceptance_test.sh continuous-queue-full
 bash scripts/acceptance_test.sh voice-readiness
 ```

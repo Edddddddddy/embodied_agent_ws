@@ -15,7 +15,7 @@
 - 在线 Agent：接入 DashScope/Qwen 兼容链路，支持在线 ASR、LLM、TTS 和流式响应。
 - 离线 Agent：预留 Sherpa-onnx ZipFormer ASR、llama.cpp、Sherpa-TTS 链路，支持 mock 和真实模型验收入口。
 - 连续语音控制：一次“小智”唤醒后，可连续说多条命令；命令排队执行，`停下/急停` 可抢占。
-- 识别鲁棒性：支持唤醒词别名、模糊命令归一化、短命令补全、重复 ASR final 过滤、语气词过滤、会话超时。
+- 识别鲁棒性：支持唤醒词别名、轻量 NLU 多命令识别、模糊命令归一化、短命令补全、重复 ASR final 过滤、语气词过滤、会话超时。
 - ROS 2 工程化：自定义 msg/action、C++ ActionGuard、typed action bridge、Lifecycle、BehaviorTree.CPP、pluginlib executor。
 - 仿真动作：前进、后退、左转、右转、停止、原地转圈、绕圈、走正方形、演示动作序列。
 - 验收脚本：提供 mock、在线、离线、Gazebo、真实麦克风连续控制等多层验收入口。
@@ -28,7 +28,7 @@ flowchart LR
   Audio --> ASR["在线 Qwen ASR\n或离线 Sherpa ASR"]
   ASR --> Gate["Wake / Session Gate\n去重、语气词过滤、超时"]
   Gate --> Queue["连续命令队列\n普通命令 FIFO\n急停抢占"]
-  Queue --> Agent["在线/离线 Agent\nLLM + fallback parser\n短命令补全"]
+  Queue --> Agent["在线/离线 Agent\n轻量 NLU + LLM fallback\n短命令补全"]
   Agent --> Guard["C++ ActionGuard\nJSON 校验、限幅、强类型转换"]
   Guard --> Bridge["Typed Action Bridge\nRobotCommand → ROS 2 Action"]
   Bridge --> Sim["Simulation Executor\nBT + pluginlib + /cmd_vel"]
@@ -194,6 +194,7 @@ bash tests/integration/test_acceptance_cli.sh
 # 连续语音 mock / endpoint / queue
 bash scripts/acceptance_test.sh continuous-endpoint
 bash scripts/acceptance_test.sh continuous-mock
+bash scripts/acceptance_test.sh continuous-multi-command
 bash scripts/acceptance_test.sh continuous-queue-full
 bash scripts/acceptance_test.sh voice-readiness
 
@@ -267,6 +268,7 @@ bash scripts/acceptance_test.sh online
 - [测试与验收手册](docs/TESTING_AND_ACCEPTANCE.md)
 - [学习笔记：关键技术点与设计取舍](docs/LEARNING_NOTES.md)
 - [版本记录与路线图](docs/CHANGELOG_AND_ROADMAP.md)
+- [Codex WSL + PowerShell 开发 Skill](docs/CODEX_WSL_POWERSHELL_SKILL.md)
 
 ## 当前边界
 

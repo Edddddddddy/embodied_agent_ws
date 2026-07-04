@@ -21,6 +21,7 @@ def test_critical_full_chain_probes_remain_discoverable():
         "test_recognition_retry.py",
         "test_continuous_command_ttl.py",
         "test_continuous_endpoint_asr.py",
+        "test_continuous_multi_command.py",
         "test_continuous_live_check.py",
         "test_continuous_session_timeout.py",
         "test_continuous_voice_soak.py",

@@ -35,6 +35,7 @@ bash scripts/acceptance_test.sh --help
 | `continuous-mock` | 自动 | 一次唤醒、多条命令、队列和休眠 |
 | `continuous-soak` | 自动 | 长会话连续命令稳定性 |
 | `continuous-queue-full` | 自动 | busy 时队列满反馈 |
+| `continuous-multi-command` | 自动 | 一条 ASR final 被轻量 NLU 解析成多条队列命令 |
 | `continuous-ttl` | 自动 | 过期命令丢弃 |
 | `continuous-timeout` | 自动 | 会话超时后重新要求唤醒 |
 | `voice-readiness` | 自动 | 麦克风/音频前端 readiness 检查 |
@@ -52,6 +53,7 @@ pytest -q tests/repository
 bash tests/integration/test_acceptance_cli.sh
 bash scripts/acceptance_test.sh continuous-endpoint
 bash scripts/acceptance_test.sh continuous-mock
+bash scripts/acceptance_test.sh continuous-multi-command
 bash scripts/acceptance_test.sh continuous-queue-full
 bash scripts/acceptance_test.sh voice-readiness
 ```
@@ -176,7 +178,32 @@ SPEECH_END_SILENCE_S=0.85 ASR_COMMIT_DELAY_MS=500 bash scripts/acceptance_test.s
 
 如果 monitor 输出 `completed_missing_slot`，说明短命令补全已经生效。
 
-### 4.3 ASR 有输出但动作没执行
+### 4.3 一句话里多个命令没有顺序执行
+
+当前连续控制链路增加了轻量 NLU 层。它会把一条 ASR final 解析为多个队列项：
+
+```text
+向右转，向前走一秒 -> turn -> move
+向前走一秒再左转九十度 -> move -> turn
+```
+
+自动验收：
+
+```bash
+bash scripts/acceptance_test.sh continuous-multi-command
+```
+
+现场观察：
+
+```bash
+ros2 topic echo /agent/recognition_feedback
+ros2 topic echo /agent/command_queue
+ros2 topic echo /robot/action_result
+```
+
+通过时应看到 `nlu_parsed`、同一个 `batch_id` 下的多个 `enqueue`，以及与 `request_id` 对应的 `command_id` result。
+
+### 4.4 ASR 有输出但动作没执行
 
 依次观察：
 
@@ -197,7 +224,7 @@ ros2 topic echo /cmd_vel
 - 卡在 typed command：检查 ActionGuard 是否 active。
 - 卡在 result/cmd_vel：检查 typed action bridge 和 simulation executor。
 
-### 4.4 在线模式失败
+### 4.5 在线模式失败
 
 检查 API Key：
 

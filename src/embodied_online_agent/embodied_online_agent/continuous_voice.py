@@ -1,7 +1,7 @@
 import queue
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable, Iterable, Optional
 
@@ -70,6 +70,7 @@ class QueueSnapshot:
     size: int
     dropped: int = 0
     reason: str = ""
+    metadata: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -81,9 +82,10 @@ class CommandQueueEvent:
     dropped: int = 0
     reason: str = ""
     priority_stop: bool = False
+    metadata: dict = field(default_factory=dict)
 
     def as_dict(self) -> dict:
-        return {
+        payload = {
             "event": self.event,
             "source": self.source,
             "text": self.text,
@@ -92,6 +94,8 @@ class CommandQueueEvent:
             "reason": self.reason,
             "priority_stop": self.priority_stop,
         }
+        payload.update(self.metadata)
+        return payload
 
 
 @dataclass(frozen=True)
@@ -141,6 +145,7 @@ class CommandExecutionTracker:
             snapshot.dropped,
             snapshot.reason,
             priority_stop,
+            snapshot.metadata,
         )
 
     def execution_started(self, item: "QueuedCommand") -> CommandExecutionEvent:
@@ -155,6 +160,7 @@ class CommandExecutionTracker:
             dropped=1,
             reason="stale_command",
             priority_stop=item.priority_stop,
+            metadata=self._public_metadata(item.context),
         )
 
     def execution_finished(
@@ -165,6 +171,24 @@ class CommandExecutionTracker:
         reason: str,
     ) -> CommandExecutionEvent:
         return CommandExecutionEvent("finished", self.source, item.text, success, reason)
+
+    @staticmethod
+    def _public_metadata(context: object | None) -> dict:
+        if not isinstance(context, dict):
+            return {}
+        return {
+            key: value
+            for key, value in context.items()
+            if key
+            in {
+                "batch_id",
+                "batch_index",
+                "batch_size",
+                "source_text",
+                "nlu_intent",
+                "nlu_confidence",
+            }
+        }
 
 
 class ContinuousVoiceSession:
@@ -391,12 +415,14 @@ class ContinuousCommandQueue:
         *,
         priority_stop: bool = False,
         context: object | None = None,
+        metadata: dict | None = None,
     ) -> QueueSnapshot:
+        queue_metadata = metadata or {}
         item = QueuedCommand(
             text=text,
             priority_stop=priority_stop,
             created_at=self._clock(),
-            context=context,
+            context=context or queue_metadata,
         )
         with self._lock:
             # 急停是安全指令，优先级高于“演示动作队列”；先清队列再入队，保证它尽快执行。
@@ -404,8 +430,10 @@ class ContinuousCommandQueue:
             try:
                 self._queue.put_nowait(item)
             except queue.Full:
-                return QueueSnapshot(False, self._queue.qsize(), dropped, "queue_full")
-            return QueueSnapshot(True, self._queue.qsize(), dropped)
+                return QueueSnapshot(
+                    False, self._queue.qsize(), dropped, "queue_full", queue_metadata
+                )
+            return QueueSnapshot(True, self._queue.qsize(), dropped, "", queue_metadata)
 
     def get(
         self,

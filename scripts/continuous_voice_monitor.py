@@ -120,6 +120,16 @@ def format_queue_event(serialized: str) -> str:
     dropped = payload.get("dropped", 0)
     reason = payload.get("reason") or ""
     if event == "enqueue":
+        batch_id = payload.get("batch_id")
+        if batch_id:
+            index = payload.get("batch_index", "?")
+            total = payload.get("batch_size", "?")
+            intent = payload.get("nlu_intent", "unknown")
+            confidence = payload.get("nlu_confidence", "?")
+            return (
+                f"[queue] enqueue batch={batch_id} {index}/{total} "
+                f"{intent} {text} conf={confidence} size={size}"
+            )
         return f"[queue] enqueue {text} size={size}"
     if event == "rejected":
         return f"[queue] rejected {text} reason={reason}"
@@ -178,6 +188,15 @@ def format_recognition_feedback(serialized: str) -> str:
         original = payload.get("original", "")
         completed = payload.get("completed", "")
         return f"[complete] {original} -> {completed}"
+    if payload.get("status") == "nlu_parsed":
+        batch_id = payload.get("batch_id", "?")
+        commands = payload.get("commands") or []
+        summary = ", ".join(
+            f"{item.get('intent', 'unknown')}:{item.get('span_text', '')}"
+            for item in commands
+            if isinstance(item, dict)
+        )
+        return f"[nlu] batch={batch_id} {summary}".rstrip()
     if payload.get("status") == "asr_endpoint":
         source = payload.get("source", "unknown")
         delay_ms = int(payload.get("delay_ms", 0))

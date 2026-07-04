@@ -22,6 +22,17 @@ TEST(RobotCommandAdapterTest, ConvertsAndClampsMoveIntoTypedCommand)
   EXPECT_DOUBLE_EQ(result.legacy_command["arguments"]["linear_x"], 0.5);
 }
 
+TEST(RobotCommandAdapterTest, UsesRequestIdWhenProvidedByAgent)
+{
+  embodied_agent_cpp::RobotCommandAdapter adapter;
+  const auto result = adapter.convert(
+    R"({"name":"move","request_id":"agent-action-7","arguments":{"linear_x":0.2,"duration_s":1.0}})",
+    "guard-1", "online_agent");
+
+  ASSERT_TRUE(result.valid) << result.error;
+  EXPECT_EQ(result.typed_command.command_id, "agent-action-7");
+}
+
 TEST(RobotCommandAdapterTest, ConvertsArcIntoTypedCurvedMove)
 {
   embodied_agent_cpp::RobotCommandAdapter adapter;

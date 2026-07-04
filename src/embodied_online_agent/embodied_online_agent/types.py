@@ -6,9 +6,13 @@ from typing import Any, Dict
 class ActionCommand:
     name: str
     arguments: Dict[str, Any] = field(default_factory=dict)
+    request_id: str = ""
 
     def as_dict(self) -> Dict[str, Any]:
-        return {"name": self.name, "arguments": self.arguments}
+        payload = {"name": self.name, "arguments": self.arguments}
+        if self.request_id:
+            payload["request_id"] = self.request_id
+        return payload
 
 
 @dataclass(frozen=True)
@@ -23,4 +27,3 @@ class LatencySnapshot:
             "asr_to_first_token_ms": self.asr_to_first_token_ms,
             "tts_first_audio_ms": self.tts_first_audio_ms,
         }
-

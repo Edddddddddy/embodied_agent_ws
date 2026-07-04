@@ -21,6 +21,10 @@ RobotCommandConversion RobotCommandAdapter::convert(
 
   conversion.legacy_command = validation.command;
   conversion.typed_command.command_id = command_id;
+  if (validation.command.contains("request_id")) {
+    conversion.typed_command.command_id =
+      validation.command.at("request_id").get<std::string>();
+  }
   conversion.typed_command.source = source;
 
   const auto & name = validation.command.at("name").get_ref<const std::string &>();
