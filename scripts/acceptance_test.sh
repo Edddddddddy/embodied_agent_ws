@@ -84,6 +84,7 @@ run_base() {
   bash scripts/smoke_test_mock_executor.sh
   bash scripts/smoke_test_demo_sequence.sh
   bash scripts/smoke_test_continuous_voice.sh online
+  bash scripts/smoke_test_continuous_voice_soak.sh online
   bash scripts/smoke_test_continuous_queue_full.sh online
   bash scripts/smoke_test_continuous_command_ttl.sh online
   bash scripts/smoke_test_continuous_session_timeout.sh online

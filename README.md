@@ -253,6 +253,7 @@ bash scripts/acceptance_test.sh online   # 少量云 API 调用
 bash scripts/acceptance_test.sh offline  # 本地模型、语音和性能
 bash scripts/acceptance_test.sh demo     # mock 仿真组合动作演示
 bash scripts/acceptance_test.sh continuous-mock  # 连续会话与命令队列
+bash scripts/acceptance_test.sh continuous-soak  # 长会话持续输入多动作不丢失
 bash scripts/acceptance_test.sh continuous-timeout  # 会话超时后要求重新唤醒
 bash scripts/acceptance_test.sh continuous-kws-mock  # KWS sidecar 唤醒后执行动作
 bash scripts/acceptance_test.sh provider-preflight  # 可选 VAD/KWS 依赖和模型配置预检
@@ -314,6 +315,9 @@ Q8 CPU decode 34.10 token/s、语音全链 2.313 s；typed Action/BT 驱动 Gaze
 `小智 -> move -> turn -> arc -> 退出控制` 链路，并刻意使用“钱进/作转/让圈/亭下”
 等 ASR 错词验证命令归一化；同一验收还覆盖外部 KWS wake/sleep 输入，
 确认 `/agent/wake_event_input` 的 sleep 会关闭会话并发布安全 `stop`。
+`acceptance_test.sh continuous-soak` 进一步验证一次唤醒后的长会话可持续接收直行、
+转向、后退、绕圈、挥手和灯光等多条命令，busy 时后续 ASR final 会入队，并等待前一条
+`/robot/action_result` 后按序执行，避免快速连续语音触发 ROS Action 抢占。
 
 2026-07-03 新增 VAD endpoint seam：C++ AudioFrontend 将“是否有人声”和“何时结束一句话”
 拆开，新增 `vad_provider`、`speech_end_silence_s`、`min_utterance_ms`、

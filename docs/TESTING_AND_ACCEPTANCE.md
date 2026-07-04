@@ -14,6 +14,7 @@ bash scripts/acceptance_test.sh online
 bash scripts/acceptance_test.sh offline
 bash scripts/acceptance_test.sh demo
 bash scripts/acceptance_test.sh continuous-mock
+bash scripts/acceptance_test.sh continuous-soak
 bash scripts/acceptance_test.sh continuous-queue-full
 bash scripts/acceptance_test.sh continuous-ttl
 bash scripts/acceptance_test.sh continuous-timeout
@@ -67,6 +68,7 @@ DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里
 | mock 插件全链 | `smoke_test_mock_executor.sh` | 不改 Guard/BT 即可切换 backend |
 | 组合演示 | `smoke_test_demo_sequence.sh` | `set_led → wave → move → turn → arc → stop` 顺序执行 |
 | 连续语音 | `smoke_test_continuous_voice.sh` | 一次唤醒后多条命令排队，急停抢占，最终 `/cmd_vel` 归零 |
+| 连续长会话 | `smoke_test_continuous_voice_soak.sh` | 一次唤醒后持续输入多动作命令，busy 时排队并等待 Action result 后串行执行 |
 | 连续队列 TTL | `smoke_test_continuous_command_ttl.sh` | 长组合动作占用 worker 时，陈旧普通命令发布 `expired` 且不执行 |
 | 连续会话超时 | `smoke_test_continuous_session_timeout.sh` | `voice_session_timeout_s` 后普通命令拒绝，重新唤醒后执行 |
 | provider 预检 | `voice_provider_preflight.py` | 可选 VAD/KWS provider 缺依赖、缺模型路径时提前失败 |
