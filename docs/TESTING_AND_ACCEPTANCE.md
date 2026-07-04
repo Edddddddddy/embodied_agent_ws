@@ -226,7 +226,8 @@ CONTINUOUS_PRINT_CONFIG=true \
 `noise_suppression_enabled:=false`、`auto_gain_enabled:=false`、
 `command_normalization_enabled:=true`、
 `command_normalization_feedback_enabled:=true`、
-`command_normalization_fuzzy_threshold:=0.82`。这些值都可通过
+`command_normalization_fuzzy_threshold:=0.82`、
+`command_completion_enabled:=true`、`asr_commit_delay_ms:=300`。这些值都可通过
 同名大写环境变量覆盖。`VOICE_CONTROL_PROFILE=normal|quiet|noisy_room` 可批量调整
 VAD 端点、队列容量、旧命令 TTL 和纠错阈值；其中 `quiet` 适合安静近讲，
 `noisy_room` 适合嘈杂环境减少误触发。显式环境变量优先级高于 profile 默认值。
@@ -240,6 +241,9 @@ VAD 端点、队列容量、旧命令 TTL 和纠错阈值；其中 `quiet` 适�
 连续说“向前走一秒 / 左转九十度 / 绕圈 / 走正方形”等命令；Agent 忙于执行上一条时不会
 丢弃新的 ASR final，而是排入队列。会话层会忽略“嗯/啊/哦/呃”等短 filler，并对短时间
 重复出现的同一句 ASR final 去重；这两个规则只处理明显噪声，避免把正常的二次命令误删。
+若真实 ASR 把“左转90度/前进一秒”截成“左转/前进”，连续控制层会补全为
+“左转九十度/前进一秒”，并在 `/agent/recognition_feedback` 发布
+`completed_missing_slot`；monitor 显示 `[complete] 原文 -> 补全文`。
 去重窗口默认 1.2 秒，可通过 `CONTINUOUS_DUPLICATE_WINDOW_S` 在连续控制脚本中调整；
 休眠或重新唤醒会清空去重记忆，新会话里可以立即再次执行同一句命令。
 过滤结果会发布到 `/agent/recognition_feedback`，monitor 显示为 `[ignore] filler ...`
@@ -266,6 +270,9 @@ summary 可用于判断是否应该减慢说话节奏或调大容量。
 [session] awake
 [wake] text:wake
 [asr] 向前走一秒
+[asr-endpoint] speech_ended commit_delay=300ms
+[asr-commit] speech_ended
+[complete] 左转 -> 左转九十度
 [ignore] filler 嗯。
 [queue] enqueue 向前走一秒 size=1
 [queue-feedback] queue_full 绕圈 size=8
@@ -274,14 +281,16 @@ summary 可用于判断是否应该减慢说话节奏或调大容量。
 [action] executing move
 [feedback] executing 45% mock_execution
 [result] succeeded
-[summary] wake=1 sleep=1 retry=0 timeout=0 asr=3 ignored=1 normalized=1 enqueued=2 rejected=0 expired=0 started=2 finished=2 succeeded=2 failed=0
+[summary] wake=1 sleep=1 retry=0 timeout=0 asr=3 ignored=1 normalized=1 completed=1 enqueued=2 rejected=0 expired=0 started=2 finished=2 succeeded=2 failed=0
 [summary-audio] samples=12 profile=noisy_room reason=persistent_speech_or_noise mean_rms=0.0200 max_rms=0.0210 speech_ratio=1.00 dropped_input_delta=0 warnings=vad_threshold_may_be_too_low_or_environment_noisy
 ```
 
 `[summary]` 在 Ctrl-C 退出 monitor 时打印；`continuous_voice_control.sh` 的清理逻辑也会
 优先用 SIGINT 结束 monitor，确保这行复盘信息尽量落盘。`wake/sleep/retry/timeout` 反映会话门控和
 重试体验，`asr` 是收到的 final 数，`ignored` 是 filler/duplicate 过滤数，
-`normalized` 是错词归一化数，`enqueued/rejected/expired` 反映队列健康，
+`normalized` 是错词归一化数，`completed` 是短命令补全数；若 `completed` 经常出现，
+优先提高 `SPEECH_END_SILENCE_S` 或 `ASR_COMMIT_DELAY_MS`，减少 ASR final 漏掉尾部数字/量词。
+`enqueued/rejected/expired` 反映队列健康，
 `started/finished/succeeded/failed` 反映动作执行闭环。若 monitor 收到过
 `/audio/frontend_metrics`，还会打印 `[summary-audio]`，其中 `profile/reason` 直接给出
 下一轮真实麦克风演示应尝试的 `VOICE_CONTROL_PROFILE`。音频样本采用最近 600 条

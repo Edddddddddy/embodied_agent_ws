@@ -14,8 +14,8 @@ from rclpy.node import Node
 from std_msgs.msg import Empty, String
 
 
-EXPECTED_ASR = ["小智", "向前走一秒", "左转九十度", "后退一秒", "退出控制"]
-EXPECTED_CANDIDATES = ["move", "turn", "move"]
+EXPECTED_ASR = ["小智", "向前走一秒", "左转", "前进", "后退一秒", "退出控制"]
+EXPECTED_CANDIDATES = ["move", "turn", "move", "move"]
 
 
 class EndpointAsrProbe(Node):
@@ -26,6 +26,7 @@ class EndpointAsrProbe(Node):
         self.session_states = []
         self.queue_events = []
         self.execution_events = []
+        self.recognition_feedback = []
         self.candidates = []
         self.results = []
         self.create_subscription(String, "/agent/asr_final", self._on_asr, 10)
@@ -35,6 +36,9 @@ class EndpointAsrProbe(Node):
             String, "/agent/command_execution", self._on_execution, 10
         )
         self.create_subscription(String, "/agent/action_candidate", self._on_candidate, 10)
+        self.create_subscription(
+            String, "/agent/recognition_feedback", self._on_recognition_feedback, 10
+        )
         self.create_subscription(String, "/robot/action_result", self._on_result, 10)
 
     def _on_asr(self, message):
@@ -51,6 +55,9 @@ class EndpointAsrProbe(Node):
 
     def _on_candidate(self, message):
         self.candidates.append(json.loads(message.data))
+
+    def _on_recognition_feedback(self, message):
+        self.recognition_feedback.append(json.loads(message.data))
 
     def _on_result(self, message):
         self.results.append(json.loads(message.data))
@@ -93,7 +100,7 @@ def main():
         publish_endpoint(node, 1)
         wait_until(lambda: "awake" in node.session_states, 5.0, "wake ASR final missing")
 
-        publish_endpoint(node, 3)
+        publish_endpoint(node, 4)
         wait_until(
             lambda: len(node.candidates) >= len(EXPECTED_CANDIDATES),
             25.0,
@@ -112,15 +119,47 @@ def main():
             "endpoint ASR exit command did not close the session",
         )
 
-        names = [candidate.get("name") for candidate in node.candidates[:3]]
+        names = [
+            candidate.get("name")
+            for candidate in node.candidates[: len(EXPECTED_CANDIDATES)]
+        ]
         if names != EXPECTED_CANDIDATES:
             raise RuntimeError(f"unexpected endpoint command order: {names}")
         if node.asr_finals[: len(EXPECTED_ASR)] != EXPECTED_ASR:
             raise RuntimeError(f"unexpected ASR finals: {node.asr_finals}")
         if len([event for event in node.queue_events if event.get("event") == "enqueue"]) < 3:
             raise RuntimeError(f"endpoint commands were not queued: {node.queue_events}")
-        if any(result.get("success") is not True for result in node.results[:3]):
+        if any(
+            result.get("success") is not True
+            for result in node.results[: len(EXPECTED_CANDIDATES)]
+        ):
             raise RuntimeError(f"endpoint command failed: {node.results}")
+        completed = [
+            item for item in node.recognition_feedback
+            if item.get("reason") == "completed_missing_slot"
+        ]
+        completed_pairs = {
+            (item.get("original"), item.get("completed")) for item in completed
+        }
+        expected_completed = {("左转", "左转九十度"), ("前进", "前进一秒")}
+        if not expected_completed.issubset(completed_pairs):
+            raise RuntimeError(
+                f"short ASR finals were not completed: {node.recognition_feedback}"
+            )
+        endpoint_feedback = [
+            item for item in node.recognition_feedback
+            if item.get("status") == "asr_endpoint"
+        ]
+        commit_feedback = [
+            item for item in node.recognition_feedback
+            if item.get("status") == "asr_commit"
+        ]
+        if len(endpoint_feedback) < len(EXPECTED_ASR) or len(commit_feedback) < len(EXPECTED_ASR):
+            raise RuntimeError(
+                f"ASR endpoint/commit feedback missing: {node.recognition_feedback}"
+            )
+        if any(item.get("delay_ms") != 100 for item in endpoint_feedback):
+            raise RuntimeError(f"unexpected ASR commit delay feedback: {endpoint_feedback}")
 
         print(
             json.dumps(
@@ -134,6 +173,9 @@ def main():
                     "execution_events": [
                         event.get("event") for event in node.execution_events
                     ],
+                    "completed_commands": sorted(completed_pairs),
+                    "asr_endpoint_count": len(endpoint_feedback),
+                    "asr_commit_count": len(commit_feedback),
                     "session_states_tail": node.session_states[-6:],
                     "status": "PASS",
                 },

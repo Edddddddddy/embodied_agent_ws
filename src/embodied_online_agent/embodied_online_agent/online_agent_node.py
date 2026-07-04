@@ -14,6 +14,7 @@ from std_msgs.msg import Empty, String, UInt8MultiArray
 
 from .memory import ConversationMemory
 from .action_sequence import SequentialActionPublisher
+from .command_completion import CommandCompleter
 from .command_fallback import parse_fallback_actions, should_block_model_actions
 from .continuous_voice import ContinuousCommandQueue, ContinuousVoiceSession
 from .continuous_voice import CommandExecutionTracker, QueueSnapshot
@@ -68,6 +69,9 @@ class OnlineAgentNode(Node):
         self.command_normalizer = CommandNormalizer(
             fuzzy_threshold=float(self._param("command_normalization_fuzzy_threshold")),
             rules_path=self._command_normalization_path(),
+        )
+        self.command_completer = CommandCompleter(
+            enabled=bool(self._param("command_completion_enabled"))
         )
         self.action_sequencer = SequentialActionPublisher(
             self._param("action_sequence_wait_timeout_s")
@@ -173,6 +177,7 @@ class OnlineAgentNode(Node):
             "command_normalization_feedback_enabled": True,
             "command_normalization_fuzzy_threshold": 0.82,
             "command_normalization_path": "",
+            "command_completion_enabled": True,
             "memory_path": "~/.ros/embodied_agent/memory.json",
             "memory_max_turns": 10,
             "system_prompt_path": "",
@@ -199,6 +204,7 @@ class OnlineAgentNode(Node):
             "continuous_command_max_age_s": 30.0,
             "continuous_duplicate_window_s": 1.2,
             "speech_endpoint_events_enabled": True,
+            "asr_commit_delay_ms": 0,
             "external_wake_event_enabled": True,
         }
         for name, value in defaults.items():
@@ -289,6 +295,23 @@ class OnlineAgentNode(Node):
             self.get_logger().debug(f"ignored duplicate ASR commit from {source}")
             return
         self._last_asr_commit_monotonic = now
+        delay_ms = max(0, int(self._param("asr_commit_delay_ms")))
+        self._publish_asr_endpoint_feedback(source, delay_ms)
+        if delay_ms <= 0:
+            self._perform_asr_commit(source)
+            return
+        timer = threading.Timer(
+            delay_ms / 1000.0, self._perform_asr_commit, args=(source,)
+        )
+        timer.daemon = True
+        timer.start()
+
+    def _perform_asr_commit(self, source: str):
+        if self._stopping:
+            return
+        if self._is_busy() and not self._continuous_enabled:
+            return
+        self._publish_asr_commit_feedback(source)
         self.asr.commit()
 
     def _is_busy(self):
@@ -382,6 +405,8 @@ class OnlineAgentNode(Node):
             return
         self.retry_tracker.succeeded()
         command = decision.command
+        if not decision.priority_stop:
+            command = self._complete_command(command)
         if self._continuous_enabled:
             if decision.priority_stop:
                 dropped = self._command_queue.clear()
@@ -433,6 +458,17 @@ class OnlineAgentNode(Node):
                 self.recognition_feedback_pub.publish(
                     String(data=result.to_feedback_json())
                 )
+        return result.text
+
+    def _complete_command(self, command: str) -> str:
+        result = self.command_completer.complete(command)
+        if result.changed:
+            self.get_logger().info(
+                f"completed short ASR command: '{result.original}' -> '{result.text}'"
+            )
+            self.recognition_feedback_pub.publish(
+                String(data=result.to_feedback_json())
+            )
         return result.text
 
     def _run_command_worker(self):
@@ -672,6 +708,25 @@ class OnlineAgentNode(Node):
             "reason": snapshot.reason,
             "transcript": transcript,
             "queue_size": snapshot.size,
+        }
+        self.recognition_feedback_pub.publish(
+            String(data=json.dumps(payload, ensure_ascii=False))
+        )
+
+    def _publish_asr_endpoint_feedback(self, source: str, delay_ms: int):
+        payload = {
+            "status": "asr_endpoint",
+            "source": source,
+            "delay_ms": delay_ms,
+        }
+        self.recognition_feedback_pub.publish(
+            String(data=json.dumps(payload, ensure_ascii=False))
+        )
+
+    def _publish_asr_commit_feedback(self, source: str):
+        payload = {
+            "status": "asr_commit",
+            "source": source,
         }
         self.recognition_feedback_pub.publish(
             String(data=json.dumps(payload, ensure_ascii=False))

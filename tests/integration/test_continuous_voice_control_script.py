@@ -52,6 +52,8 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
             "COMMAND_NORMALIZATION_FEEDBACK_ENABLED": "false",
             "COMMAND_NORMALIZATION_FUZZY_THRESHOLD": "0.77",
             "COMMAND_NORMALIZATION_PATH": "/tmp/custom_normalization.yaml",
+            "COMMAND_COMPLETION_ENABLED": "false",
+            "ASR_COMMIT_DELAY_MS": "450",
         }
     )
 
@@ -98,6 +100,8 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
     assert "COMMAND_NORMALIZATION_FEEDBACK_ENABLED=false" in result.stdout
     assert "COMMAND_NORMALIZATION_FUZZY_THRESHOLD=0.77" in result.stdout
     assert "COMMAND_NORMALIZATION_PATH=/tmp/custom_normalization.yaml" in result.stdout
+    assert "COMMAND_COMPLETION_ENABLED=false" in result.stdout
+    assert "ASR_COMMIT_DELAY_MS=450" in result.stdout
     assert "wake_word_enabled:=false" in result.stdout
     assert "speech_start_threshold:=0.021" in result.stdout
     assert "speech_end_silence_s:=0.38" in result.stdout
@@ -114,6 +118,8 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
     assert "command_normalization_feedback_enabled:=false" in result.stdout
     assert "command_normalization_fuzzy_threshold:=0.77" in result.stdout
     assert "command_normalization_path:=/tmp/custom_normalization.yaml" in result.stdout
+    assert "command_completion_enabled:=false" in result.stdout
+    assert "asr_commit_delay_ms:=450" in result.stdout
     assert "sherpa_tokens:=/models/kws/tokens.txt" in result.stdout
     assert "openwakeword_models:=/models/kws/xiaozhi.onnx,/models/kws/nihaoxiaozhi.onnx" in result.stdout
     assert "openwakeword_threshold:=0.42" in result.stdout
@@ -144,12 +150,15 @@ def test_continuous_voice_control_profile_tunes_microphone_defaults():
 
     assert "VOICE_CONTROL_PROFILE=noisy_room" in result.stdout
     assert "SPEECH_START_THRESHOLD=0.026" in result.stdout
-    assert "SPEECH_END_SILENCE_S=0.55" in result.stdout
+    assert "SPEECH_END_SILENCE_S=0.85" in result.stdout
+    assert "ASR_COMMIT_DELAY_MS=300" in result.stdout
     assert "MIN_UTTERANCE_MS=180" in result.stdout
     assert "MAX_UTTERANCE_S=10.0" in result.stdout
     assert "COMMAND_NORMALIZATION_FUZZY_THRESHOLD=0.78" in result.stdout
     assert "CONTINUOUS_COMMAND_QUEUE_SIZE=5" in result.stdout
     assert "speech_start_threshold:=0.026" in result.stdout
+    assert "speech_end_silence_s:=0.85" in result.stdout
+    assert "asr_commit_delay_ms:=300" in result.stdout
     assert "continuous_command_queue_size:=5" in result.stdout
 
 
@@ -181,6 +190,8 @@ def test_continuous_voice_control_omits_empty_optional_launch_arguments():
     assert "openwakeword_models:=" not in result.stdout
     assert "livekit_wakeword_models:=" not in result.stdout
     assert "command_normalization_path:=" not in result.stdout
+    assert "command_completion_enabled:=true" in result.stdout
+    assert "asr_commit_delay_ms:=300" in result.stdout
 
 
 def test_continuous_voice_control_manual_env_overrides_profile():
@@ -191,6 +202,8 @@ def test_continuous_voice_control_manual_env_overrides_profile():
             "CONTINUOUS_PRINT_CONFIG": "true",
             "VOICE_CONTROL_PROFILE": "noisy_room",
             "SPEECH_START_THRESHOLD": "0.031",
+            "SPEECH_END_SILENCE_S": "0.62",
+            "ASR_COMMIT_DELAY_MS": "150",
             "CONTINUOUS_COMMAND_QUEUE_SIZE": "9",
             "CONTINUOUS_DUPLICATE_WINDOW_S": "0.6",
         }
@@ -207,9 +220,13 @@ def test_continuous_voice_control_manual_env_overrides_profile():
 
     assert "VOICE_CONTROL_PROFILE=noisy_room" in result.stdout
     assert "SPEECH_START_THRESHOLD=0.031" in result.stdout
+    assert "SPEECH_END_SILENCE_S=0.62" in result.stdout
+    assert "ASR_COMMIT_DELAY_MS=150" in result.stdout
     assert "CONTINUOUS_COMMAND_QUEUE_SIZE=9" in result.stdout
     assert "CONTINUOUS_DUPLICATE_WINDOW_S=0.6" in result.stdout
     assert "speech_start_threshold:=0.031" in result.stdout
+    assert "speech_end_silence_s:=0.62" in result.stdout
+    assert "asr_commit_delay_ms:=150" in result.stdout
     assert "continuous_command_queue_size:=9" in result.stdout
     assert "continuous_duplicate_window_s:=0.6" in result.stdout
 
@@ -263,6 +280,8 @@ def test_voice_launches_expose_audio_enhancer_arguments():
         assert "command_normalization_feedback_enabled" in content, path
         assert "command_normalization_fuzzy_threshold" in content, path
         assert "command_normalization_path" in content, path
+        assert "command_completion_enabled" in content, path
+        assert "asr_commit_delay_ms" in content, path
         assert "openwakeword_models" in content, path
         assert "livekit_wakeword_models" in content, path
         assert "sherpa_tokens" in content, path

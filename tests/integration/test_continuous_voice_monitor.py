@@ -128,6 +128,37 @@ def test_monitor_formats_normalization_feedback():
     assert monitor.format_recognition_feedback(feedback) == "[normalize] 钱进一秒 -> 前进一秒"
 
 
+def test_monitor_formats_command_completion_feedback():
+    feedback = json.dumps(
+        {
+            "status": "completed",
+            "reason": "completed_missing_slot",
+            "original": "左转",
+            "completed": "左转九十度",
+        },
+        ensure_ascii=False,
+    )
+
+    assert monitor.format_recognition_feedback(feedback) == "[complete] 左转 -> 左转九十度"
+
+
+def test_monitor_formats_asr_endpoint_and_commit_feedback():
+    endpoint = json.dumps(
+        {"status": "asr_endpoint", "source": "speech_ended", "delay_ms": 300},
+        ensure_ascii=False,
+    )
+    committed = json.dumps(
+        {"status": "asr_commit", "source": "speech_ended"},
+        ensure_ascii=False,
+    )
+
+    assert (
+        monitor.format_recognition_feedback(endpoint)
+        == "[asr-endpoint] speech_ended commit_delay=300ms"
+    )
+    assert monitor.format_recognition_feedback(committed) == "[asr-commit] speech_ended"
+
+
 def test_monitor_formats_ignored_recognition_feedback():
     feedback = json.dumps(
         {
@@ -226,11 +257,24 @@ def test_monitor_stats_summarizes_long_running_session():
     stats.record_result(json.dumps({"success": True, "message": "succeeded"}))
 
     assert stats.format_summary() == (
-        "[summary] wake=1 sleep=1 retry=1 timeout=1 asr=1 ignored=1 normalized=1 enqueued=1 rejected=1 expired=1 "
+        "[summary] wake=1 sleep=1 retry=1 timeout=1 asr=1 ignored=1 normalized=1 completed=0 enqueued=1 rejected=1 expired=1 "
         "started=1 finished=1 succeeded=1 failed=0\n"
         "[advice] 出现 queue_full：请放慢连续说话节奏，或适当增大 CONTINUOUS_COMMAND_QUEUE_SIZE。\n"
         "[advice] 有命令过期：机器人执行较慢或说话过快，可缩短演示话术或增大 CONTINUOUS_COMMAND_MAX_AGE。"
     )
+
+
+def test_monitor_stats_advises_when_short_commands_are_completed():
+    stats = monitor.MonitorStats()
+    stats.record_asr("左转")
+    stats.record_recognition_feedback(
+        json.dumps({"status": "completed", "original": "左转", "completed": "左转九十度"}, ensure_ascii=False)
+    )
+
+    summary = stats.format_summary()
+
+    assert "completed=1" in summary
+    assert "ASR_COMMIT_DELAY_MS" in summary
 
 
 def test_monitor_stats_summarizes_audio_health_and_recommended_profile():

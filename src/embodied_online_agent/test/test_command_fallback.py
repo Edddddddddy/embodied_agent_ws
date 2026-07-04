@@ -29,6 +29,25 @@ def test_parses_stop_wave_and_led():
     assert arc.arguments == {"linear_x": 0.12, "angular_z": 0.45, "duration_s": 6.0}
 
 
+def test_bare_direction_commands_use_safe_demo_defaults():
+    assert parse_fallback_action("前进").as_dict() == {
+        "name": "move",
+        "arguments": {"linear_x": 0.2, "duration_s": 1.0},
+    }
+    assert parse_fallback_action("后退").as_dict() == {
+        "name": "move",
+        "arguments": {"linear_x": -0.2, "duration_s": 1.0},
+    }
+    assert parse_fallback_action("左转").as_dict() == {
+        "name": "turn",
+        "arguments": {"angular_z": 0.6, "duration_s": 2.6},
+    }
+    assert parse_fallback_action("右转").as_dict() == {
+        "name": "turn",
+        "arguments": {"angular_z": -0.6, "duration_s": 2.6},
+    }
+
+
 def test_parses_simulation_mode_commands():
     assert parse_fallback_action("开启自动避障").as_dict() == {
         "name": "set_mode",

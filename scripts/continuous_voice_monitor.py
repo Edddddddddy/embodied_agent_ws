@@ -174,6 +174,17 @@ def format_recognition_feedback(serialized: str) -> str:
         original = payload.get("original", "")
         normalized = payload.get("normalized", "")
         return f"[normalize] {original} -> {normalized}"
+    if payload.get("status") == "completed":
+        original = payload.get("original", "")
+        completed = payload.get("completed", "")
+        return f"[complete] {original} -> {completed}"
+    if payload.get("status") == "asr_endpoint":
+        source = payload.get("source", "unknown")
+        delay_ms = int(payload.get("delay_ms", 0))
+        return f"[asr-endpoint] {source} commit_delay={delay_ms}ms"
+    if payload.get("status") == "asr_commit":
+        source = payload.get("source", "unknown")
+        return f"[asr-commit] {source}"
     if payload.get("status") == "ignored":
         reason = payload.get("reason", "unknown")
         transcript = payload.get("transcript", "")
@@ -218,6 +229,7 @@ class MonitorStats:
     timeout: int = 0
     ignored: int = 0
     normalized: int = 0
+    completed: int = 0
     enqueued: int = 0
     rejected: int = 0
     expired: int = 0
@@ -250,6 +262,8 @@ class MonitorStats:
             self.ignored += 1
         elif status == "normalized":
             self.normalized += 1
+        elif status == "completed":
+            self.completed += 1
         elif status == "retry":
             self.retry += 1
         elif status == "session_timeout":
@@ -291,7 +305,8 @@ class MonitorStats:
             f"[summary] wake={self.wake} sleep={self.sleep} retry={self.retry} "
             f"timeout={self.timeout} "
             f"asr={self.asr} ignored={self.ignored} "
-            f"normalized={self.normalized} enqueued={self.enqueued} "
+            f"normalized={self.normalized} completed={self.completed} "
+            f"enqueued={self.enqueued} "
             f"rejected={self.rejected} expired={self.expired} started={self.started} "
             f"finished={self.finished} succeeded={self.succeeded} failed={self.failed}"
         )
@@ -332,6 +347,10 @@ class MonitorStats:
         if self.expired > 0:
             advice.append(
                 "[advice] 有命令过期：机器人执行较慢或说话过快，可缩短演示话术或增大 CONTINUOUS_COMMAND_MAX_AGE。"
+            )
+        if self.completed > 0:
+            advice.append(
+                "[advice] 出现短命令补全：若经常漏掉“90度/一秒”，优先提高 SPEECH_END_SILENCE_S 或 ASR_COMMIT_DELAY_MS。"
             )
         if self.failed > 0:
             advice.append(

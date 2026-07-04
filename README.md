@@ -120,7 +120,8 @@ CONTINUOUS_PRINT_CONFIG=true \
 ```
 
 配置预览会明确打印 `VOICE_SESSION_TIMEOUT`、`CONTINUOUS_COMMAND_QUEUE_SIZE`、
-`CONTINUOUS_COMMAND_MAX_AGE` 和 `CONTINUOUS_DUPLICATE_WINDOW_S` 等现场调参值。
+`CONTINUOUS_COMMAND_MAX_AGE`、`CONTINUOUS_DUPLICATE_WINDOW_S`、
+`SPEECH_END_SILENCE_S` 和 `ASR_COMMIT_DELAY_MS` 等现场调参值。
 推荐话术：`小智`、`向前走一秒`、`左转九十度`、`后退一秒`、`绕圈`、`走正方形`、
 `停下`、`退出控制`。连续模式不会在 Agent busy 时丢弃 ASR final，而是进入 FIFO 队列；
 人工 live-check 的通过标准是：至少 6 条 ASR final、4 个动作候选、4 个成功 action result、
@@ -128,6 +129,9 @@ CONTINUOUS_PRINT_CONFIG=true \
 长时间开麦时常见的“嗯/啊/哦/呃”等短语气词会在会话层忽略，同一句 ASR final 在短窗口内
 重复出现也会去重，并通过 monitor 输出 `[ignore] filler ...` 或
 `[ignore] duplicate_command ...`，减少真实麦克风抖动造成的误排队；
+如果 ASR 偶尔把“左转90度/前进一秒”截成“左转/前进”，Agent 会在连续控制层补成
+安全演示默认值“左转九十度/前进一秒”，monitor 显示 `[complete] 左转 -> 左转九十度`；
+`停下/急停/退出控制/绕圈/走正方形` 不会被补全规则改写。
 去重窗口默认 1.2 秒，可用 `CONTINUOUS_DUPLICATE_WINDOW_S=0.6` 缩短，
 也可在 ASR 连续重复更明显时适当调大；休眠或重新唤醒会清空去重记忆，
 因此新会话里可以立刻再次执行同一句命令；
@@ -142,6 +146,8 @@ CONTINUOUS_PRINT_CONFIG=true \
 `VOICE_CONTROL_PROFILE` 提供 `normal`、`quiet`、`noisy_room` 三档现场预设：
 `quiet` 更灵敏、会话窗口更长，适合安静近讲；`noisy_room` 会提高 VAD 起始阈值、
 延长静音断句、缩短旧命令寿命并降低队列容量，适合嘈杂房间里避免误触发堆积。
+默认按“完整优先”设置，normal 的静音断句约 0.7 秒，并在端点后延迟约 300ms 再提交 ASR；
+若仍常漏掉尾部“90度/一秒”，优先增大 `SPEECH_END_SILENCE_S` 或 `ASR_COMMIT_DELAY_MS`。
 显式设置的 `SPEECH_START_THRESHOLD`、`CONTINUOUS_COMMAND_QUEUE_SIZE`、
 `CONTINUOUS_DUPLICATE_WINDOW_S` 等环境变量
 优先级高于 preset。
@@ -183,7 +189,8 @@ ASR 错词时，推荐复制默认错词表后用 `COMMAND_NORMALIZATION_PATH=/p
 到底是识别少、过滤多、队列阻塞、动作执行失败，还是麦克风/VAD 环境不稳。如需关闭可设置
 `CONTINUOUS_MONITOR_ENABLED=false`。
 summary 还会输出 `[advice]`，例如没有 ASR final 时检查麦克风 source/VAD 阈值，
-queue_full 时放慢说话或调大队列，speech_ratio 持续过高时切到 `VOICE_CONTROL_PROFILE=noisy_room`。
+queue_full 时放慢说话或调大队列，speech_ratio 持续过高时切到 `VOICE_CONTROL_PROFILE=noisy_room`；
+若出现短命令补全，则提示优先调整 `SPEECH_END_SILENCE_S` 或 `ASR_COMMIT_DELAY_MS`。
 
 真实麦克风体验不稳定时，先运行音频前端校准脚本，而不是直接调 ASR 或 LLM：
 

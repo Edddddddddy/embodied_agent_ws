@@ -21,10 +21,10 @@ class _FakeNode:
         return None
 
 
-sys.modules.setdefault("rclpy", types.SimpleNamespace())
-sys.modules.setdefault("rclpy.node", types.SimpleNamespace(Node=_FakeNode))
-sys.modules.setdefault("geometry_msgs.msg", types.SimpleNamespace(Twist=object))
-sys.modules.setdefault("std_msgs.msg", types.SimpleNamespace(String=object))
+sys.modules["rclpy"] = types.SimpleNamespace()
+sys.modules["rclpy.node"] = types.SimpleNamespace(Node=_FakeNode)
+sys.modules["geometry_msgs.msg"] = types.SimpleNamespace(Twist=object)
+sys.modules["std_msgs.msg"] = types.SimpleNamespace(String=object)
 
 spec = importlib.util.spec_from_file_location("continuous_live_check", SCRIPT)
 live_check = importlib.util.module_from_spec(spec)

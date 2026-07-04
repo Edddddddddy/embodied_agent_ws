@@ -51,6 +51,8 @@ def generate_launch_description():
         "command_normalization_fuzzy_threshold"
     )
     command_normalization_path = LaunchConfiguration("command_normalization_path")
+    command_completion_enabled = LaunchConfiguration("command_completion_enabled")
+    asr_commit_delay_ms = LaunchConfiguration("asr_commit_delay_ms")
     hardware_backend = LaunchConfiguration("hardware_backend")
     hardware_enabled = LaunchConfiguration("hardware_enabled")
     wake_word_enabled = LaunchConfiguration("wake_word_enabled")
@@ -99,6 +101,8 @@ def generate_launch_description():
             "command_normalization_fuzzy_threshold", default_value="0.82"
         ),
         DeclareLaunchArgument("command_normalization_path", default_value=""),
+        DeclareLaunchArgument("command_completion_enabled", default_value="true"),
+        DeclareLaunchArgument("asr_commit_delay_ms", default_value="0"),
         DeclareLaunchArgument("hardware_backend", default_value="mock"),
         DeclareLaunchArgument("hardware_enabled", default_value="true"),
         DeclareLaunchArgument("wake_word_enabled", default_value="true"),
@@ -139,6 +143,12 @@ def generate_launch_description():
                     command_normalization_fuzzy_threshold, value_type=float
                 ),
                 "command_normalization_path": command_normalization_path,
+                "command_completion_enabled": ParameterValue(
+                    command_completion_enabled, value_type=bool
+                ),
+                "asr_commit_delay_ms": ParameterValue(
+                    asr_commit_delay_ms, value_type=int
+                ),
             }],
         ),
         Node(

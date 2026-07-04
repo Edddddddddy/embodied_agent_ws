@@ -93,14 +93,14 @@ def parse_fallback_actions(text: str) -> List[ActionCommand]:
     if "左转" in normalized or "向左转" in normalized:
         duration = (
             2.6
-            if "九十度" in normalized or "90度" in normalized
+            if "九十度" in normalized or "90度" in normalized or "秒" not in normalized
             else _duration(normalized)
         )
         return [ActionCommand("turn", {"angular_z": 0.6, "duration_s": duration})]
     if "右转" in normalized or "向右转" in normalized:
         duration = (
             2.6
-            if "九十度" in normalized or "90度" in normalized
+            if "九十度" in normalized or "90度" in normalized or "秒" not in normalized
             else _duration(normalized)
         )
         return [ActionCommand("turn", {"angular_z": -0.6, "duration_s": duration})]
