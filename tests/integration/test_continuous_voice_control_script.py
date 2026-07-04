@@ -103,7 +103,7 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
     assert "speech_end_silence_s:=0.38" in result.stdout
     assert "min_utterance_ms:=240" in result.stdout
     assert "max_utterance_s:=7.5" in result.stdout
-    assert "silero_model_path:=\"/models/vad/silero_vad.onnx\"" in result.stdout
+    assert "silero_model_path:=/models/vad/silero_vad.onnx" in result.stdout
     assert "silero_use_onnx:=true" in result.stdout
     assert "silero_threshold:=0.61" in result.stdout
     assert "continuous_command_queue_size:=12" in result.stdout
@@ -113,11 +113,11 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
     assert "command_normalization_enabled:=true" in result.stdout
     assert "command_normalization_feedback_enabled:=false" in result.stdout
     assert "command_normalization_fuzzy_threshold:=0.77" in result.stdout
-    assert "command_normalization_path:=\"/tmp/custom_normalization.yaml\"" in result.stdout
-    assert "sherpa_tokens:=\"/models/kws/tokens.txt\"" in result.stdout
-    assert "openwakeword_models:=\"/models/kws/xiaozhi.onnx,/models/kws/nihaoxiaozhi.onnx\"" in result.stdout
+    assert "command_normalization_path:=/tmp/custom_normalization.yaml" in result.stdout
+    assert "sherpa_tokens:=/models/kws/tokens.txt" in result.stdout
+    assert "openwakeword_models:=/models/kws/xiaozhi.onnx,/models/kws/nihaoxiaozhi.onnx" in result.stdout
     assert "openwakeword_threshold:=0.42" in result.stdout
-    assert "livekit_wakeword_models:=\"/models/kws/livekit-xiaozhi.onnx\"" in result.stdout
+    assert "livekit_wakeword_models:=/models/kws/livekit-xiaozhi.onnx" in result.stdout
     assert "livekit_wakeword_threshold:=0.63" in result.stdout
     assert "audio_enhancer:=webrtc" in result.stdout
     assert "noise_suppression_enabled:=true" in result.stdout
@@ -151,6 +151,36 @@ def test_continuous_voice_control_profile_tunes_microphone_defaults():
     assert "CONTINUOUS_COMMAND_QUEUE_SIZE=5" in result.stdout
     assert "speech_start_threshold:=0.026" in result.stdout
     assert "continuous_command_queue_size:=5" in result.stdout
+
+
+def test_continuous_voice_control_omits_empty_optional_launch_arguments():
+    env = os.environ.copy()
+    env.update(
+        {
+            "WORKSPACE": str(ROOT),
+            "CONTINUOUS_PRINT_CONFIG": "true",
+        }
+    )
+
+    result = subprocess.run(
+        ["bash", str(ROOT / "scripts" / "continuous_voice_control.sh"), "offline"],
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+
+    assert "空的可选模型/配置路径参数会省略" in result.stdout
+    assert "silero_model_path:=" not in result.stdout
+    assert "sherpa_tokens:=" not in result.stdout
+    assert "sherpa_encoder:=" not in result.stdout
+    assert "sherpa_decoder:=" not in result.stdout
+    assert "sherpa_joiner:=" not in result.stdout
+    assert "sherpa_keywords_file:=" not in result.stdout
+    assert "openwakeword_models:=" not in result.stdout
+    assert "livekit_wakeword_models:=" not in result.stdout
+    assert "command_normalization_path:=" not in result.stdout
 
 
 def test_continuous_voice_control_manual_env_overrides_profile():

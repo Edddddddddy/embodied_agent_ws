@@ -148,30 +148,72 @@ CONTINUOUS_COMMAND_MAX_AGE=$COMMAND_MAX_AGE
 CONTINUOUS_DUPLICATE_WINDOW_S=$COMMAND_DUPLICATE_WINDOW
 GUI_ENABLED=$GUI_ENABLED
 
-ros2 launch embodied_simulation voice_turtlebot3.launch.py \\
-  gui:=$GUI_ENABLED rviz:=false launch_agent:=true agent_type:=$MODE \\
-  provider_mode:=$MODE microphone_enabled:=true capture_enabled:=true \\
-  speaker_enabled:=$SPEAKER_ENABLED vad_provider:=$VAD_PROVIDER kws_provider:=$KWS_PROVIDER \\
-  speech_start_threshold:=$SPEECH_START_THRESHOLD speech_end_silence_s:=$SPEECH_END_SILENCE_S \\
-  min_utterance_ms:=$MIN_UTTERANCE_MS max_utterance_s:=$MAX_UTTERANCE_S \\
-  silero_model_path:="$SILERO_VAD_MODEL_PATH" silero_use_onnx:=$SILERO_VAD_USE_ONNX \\
-  silero_threshold:=$SILERO_VAD_THRESHOLD \\
-  sherpa_tokens:="$SHERPA_KWS_TOKENS" sherpa_encoder:="$SHERPA_KWS_ENCODER" \\
-  sherpa_decoder:="$SHERPA_KWS_DECODER" sherpa_joiner:="$SHERPA_KWS_JOINER" \\
-  sherpa_keywords_file:="$SHERPA_KWS_KEYWORDS_FILE" \\
-  openwakeword_models:="$OPENWAKEWORD_MODELS" openwakeword_threshold:=$OPENWAKEWORD_THRESHOLD \\
-  livekit_wakeword_models:="$LIVEKIT_WAKEWORD_MODELS" livekit_wakeword_threshold:=$LIVEKIT_WAKEWORD_THRESHOLD \\
-  wake_word_enabled:=$WAKE_WORD_ENABLED continuous_control_enabled:=true \\
-  voice_session_timeout_s:=$SESSION_TIMEOUT continuous_command_queue_size:=$COMMAND_QUEUE_SIZE \\
-  continuous_command_max_age_s:=$COMMAND_MAX_AGE \\
-  continuous_duplicate_window_s:=$COMMAND_DUPLICATE_WINDOW \\
-  command_normalization_enabled:=$COMMAND_NORMALIZATION_ENABLED \\
-  command_normalization_feedback_enabled:=$COMMAND_NORMALIZATION_FEEDBACK_ENABLED \\
-  command_normalization_fuzzy_threshold:=$COMMAND_NORMALIZATION_FUZZY_THRESHOLD \\
-  command_normalization_path:="$COMMAND_NORMALIZATION_PATH" \\
-  audio_enhancer:=$AUDIO_ENHANCER aec_enabled:=$AEC_ENABLED \\
-  noise_suppression_enabled:=$NOISE_SUPPRESSION_ENABLED auto_gain_enabled:=$AUTO_GAIN_ENABLED
 EOF
+  print_launch_command
+}
+
+add_launch_arg() {
+  LAUNCH_ARGS+=("$1:=$2")
+}
+
+add_optional_launch_arg() {
+  # ROS 2 launch 会把空值参数 `name:=` 判定为 malformed argument。
+  # 因此可选模型路径/配置路径为空时直接省略，交给 launch 文件里的默认值。
+  [[ -z "$2" ]] || add_launch_arg "$1" "$2"
+}
+
+build_launch_args() {
+  LAUNCH_ARGS=(embodied_simulation voice_turtlebot3.launch.py)
+  add_launch_arg gui "$GUI_ENABLED"
+  add_launch_arg rviz false
+  add_launch_arg launch_agent true
+  add_launch_arg agent_type "$MODE"
+  add_launch_arg provider_mode "$MODE"
+  add_launch_arg microphone_enabled true
+  add_launch_arg capture_enabled true
+  add_launch_arg speaker_enabled "$SPEAKER_ENABLED"
+  add_launch_arg vad_provider "$VAD_PROVIDER"
+  add_launch_arg kws_provider "$KWS_PROVIDER"
+  add_launch_arg speech_start_threshold "$SPEECH_START_THRESHOLD"
+  add_launch_arg speech_end_silence_s "$SPEECH_END_SILENCE_S"
+  add_launch_arg min_utterance_ms "$MIN_UTTERANCE_MS"
+  add_launch_arg max_utterance_s "$MAX_UTTERANCE_S"
+  add_optional_launch_arg silero_model_path "$SILERO_VAD_MODEL_PATH"
+  add_launch_arg silero_use_onnx "$SILERO_VAD_USE_ONNX"
+  add_launch_arg silero_threshold "$SILERO_VAD_THRESHOLD"
+  add_optional_launch_arg sherpa_tokens "$SHERPA_KWS_TOKENS"
+  add_optional_launch_arg sherpa_encoder "$SHERPA_KWS_ENCODER"
+  add_optional_launch_arg sherpa_decoder "$SHERPA_KWS_DECODER"
+  add_optional_launch_arg sherpa_joiner "$SHERPA_KWS_JOINER"
+  add_optional_launch_arg sherpa_keywords_file "$SHERPA_KWS_KEYWORDS_FILE"
+  add_optional_launch_arg openwakeword_models "$OPENWAKEWORD_MODELS"
+  add_launch_arg openwakeword_threshold "$OPENWAKEWORD_THRESHOLD"
+  add_optional_launch_arg livekit_wakeword_models "$LIVEKIT_WAKEWORD_MODELS"
+  add_launch_arg livekit_wakeword_threshold "$LIVEKIT_WAKEWORD_THRESHOLD"
+  add_launch_arg wake_word_enabled "$WAKE_WORD_ENABLED"
+  add_launch_arg continuous_control_enabled true
+  add_launch_arg voice_session_timeout_s "$SESSION_TIMEOUT"
+  add_launch_arg continuous_command_queue_size "$COMMAND_QUEUE_SIZE"
+  add_launch_arg continuous_command_max_age_s "$COMMAND_MAX_AGE"
+  add_launch_arg continuous_duplicate_window_s "$COMMAND_DUPLICATE_WINDOW"
+  add_launch_arg command_normalization_enabled "$COMMAND_NORMALIZATION_ENABLED"
+  add_launch_arg command_normalization_feedback_enabled "$COMMAND_NORMALIZATION_FEEDBACK_ENABLED"
+  add_launch_arg command_normalization_fuzzy_threshold "$COMMAND_NORMALIZATION_FUZZY_THRESHOLD"
+  add_optional_launch_arg command_normalization_path "$COMMAND_NORMALIZATION_PATH"
+  add_launch_arg audio_enhancer "$AUDIO_ENHANCER"
+  add_launch_arg aec_enabled "$AEC_ENABLED"
+  add_launch_arg noise_suppression_enabled "$NOISE_SUPPRESSION_ENABLED"
+  add_launch_arg auto_gain_enabled "$AUTO_GAIN_ENABLED"
+}
+
+print_launch_command() {
+  build_launch_args
+  echo "ros2 launch \\"
+  local arg
+  for arg in "${LAUNCH_ARGS[@]}"; do
+    echo "  $arg \\"
+  done
+  echo "  # 注：空的可选模型/配置路径参数会省略，避免 ROS 2 launch 收到非法的 name:=。"
 }
 
 if [[ "$PRINT_CONFIG" == "true" ]]; then
@@ -228,31 +270,8 @@ fi
 
 print_configuration
 
-setsid ros2 launch embodied_simulation voice_turtlebot3.launch.py \
-  gui:="$GUI_ENABLED" rviz:=false launch_agent:=true agent_type:="$MODE" \
-  provider_mode:="$MODE" microphone_enabled:=true capture_enabled:=true \
-  speaker_enabled:="$SPEAKER_ENABLED" vad_provider:="$VAD_PROVIDER" kws_provider:="$KWS_PROVIDER" \
-  speech_start_threshold:="$SPEECH_START_THRESHOLD" speech_end_silence_s:="$SPEECH_END_SILENCE_S" \
-  min_utterance_ms:="$MIN_UTTERANCE_MS" max_utterance_s:="$MAX_UTTERANCE_S" \
-  silero_model_path:="$SILERO_VAD_MODEL_PATH" silero_use_onnx:="$SILERO_VAD_USE_ONNX" \
-  silero_threshold:="$SILERO_VAD_THRESHOLD" \
-  sherpa_tokens:="$SHERPA_KWS_TOKENS" sherpa_encoder:="$SHERPA_KWS_ENCODER" \
-  sherpa_decoder:="$SHERPA_KWS_DECODER" sherpa_joiner:="$SHERPA_KWS_JOINER" \
-  sherpa_keywords_file:="$SHERPA_KWS_KEYWORDS_FILE" \
-  openwakeword_models:="$OPENWAKEWORD_MODELS" openwakeword_threshold:="$OPENWAKEWORD_THRESHOLD" \
-  livekit_wakeword_models:="$LIVEKIT_WAKEWORD_MODELS" livekit_wakeword_threshold:="$LIVEKIT_WAKEWORD_THRESHOLD" \
-  wake_word_enabled:="$WAKE_WORD_ENABLED" \
-  continuous_control_enabled:=true voice_session_timeout_s:="$SESSION_TIMEOUT" \
-  continuous_command_queue_size:="$COMMAND_QUEUE_SIZE" \
-  continuous_command_max_age_s:="$COMMAND_MAX_AGE" \
-  continuous_duplicate_window_s:="$COMMAND_DUPLICATE_WINDOW" \
-  command_normalization_enabled:="$COMMAND_NORMALIZATION_ENABLED" \
-  command_normalization_feedback_enabled:="$COMMAND_NORMALIZATION_FEEDBACK_ENABLED" \
-  command_normalization_fuzzy_threshold:="$COMMAND_NORMALIZATION_FUZZY_THRESHOLD" \
-  command_normalization_path:="$COMMAND_NORMALIZATION_PATH" \
-  audio_enhancer:="$AUDIO_ENHANCER" aec_enabled:="$AEC_ENABLED" \
-  noise_suppression_enabled:="$NOISE_SUPPRESSION_ENABLED" \
-  auto_gain_enabled:="$AUTO_GAIN_ENABLED" &
+build_launch_args
+setsid ros2 launch "${LAUNCH_ARGS[@]}" &
 LAUNCH_PID=$!
 if [[ "$MONITOR_ENABLED" == "true" ]]; then
   python3 "$WORKSPACE/scripts/continuous_voice_monitor.py" \
