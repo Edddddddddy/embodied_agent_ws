@@ -393,6 +393,8 @@ bash scripts/acceptance_test.sh continuous-kws-mock
 `/agent/wake_event_input` 是外部声学 KWS 的稳定入口；手工发布 `manual_kws` wake 后，
 下一句不带“小智”的 `/agent/text_input` 也应进入同一套连续命令队列。后续
 sherpa-onnx/openWakeWord adapter 只需要按这个 topic 契约发布 wake/sleep。
+`continuous-mock` 还会直接向 `/agent/wake_event_input` 注入外部 sleep，
+验证会话关闭和安全 `stop` 候选动作。
 `keyword_wake` sidecar 当前提供三种主要模式：
 
 - `kws_provider:=mock_text`：订阅 `/agent/kws_text_input`，无模型验收 KWS 链路。

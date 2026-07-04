@@ -308,7 +308,8 @@ Q8 CPU decode 34.10 token/s、语音全链 2.313 s；typed Action/BT 驱动 Gaze
 退出控制休眠、stop 优先级抢占。当前自动证据：166 项 colcon 测试通过，
 `acceptance_test.sh continuous-mock` 分别验证 online/offline mock 的
 `小智 -> move -> turn -> arc -> 退出控制` 链路，并刻意使用“钱进/作转/让圈/亭下”
-等 ASR 错词验证命令归一化。
+等 ASR 错词验证命令归一化；同一验收还覆盖外部 KWS wake/sleep 输入，
+确认 `/agent/wake_event_input` 的 sleep 会关闭会话并发布安全 `stop`。
 
 2026-07-03 新增 VAD endpoint seam：C++ AudioFrontend 将“是否有人声”和“何时结束一句话”
 拆开，新增 `vad_provider`、`speech_end_silence_s`、`min_utterance_ms`、

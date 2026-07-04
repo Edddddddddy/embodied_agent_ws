@@ -25,7 +25,7 @@
 | 连续语音控制 | 当前 | 一次唤醒多命令队列、退出控制安全 stop、stop 抢占与 online/offline mock 验收 |
 | VAD endpoint seam | 当前 | speech_started/speech_ended topic、端点参数和 legacy silence 兼容 |
 | Audio frontend metrics | 当前 | `/audio/frontend_metrics` 暴露 rms/peak/speech/丢帧，辅助真实麦克风调参 |
-| WakeProvider seam | 当前 | TextWakeProvider、wake_event/session_state topic、wake_event_input 外部 KWS 注入入口 |
+| WakeProvider seam | 当前 | TextWakeProvider、wake_event/session_state topic、wake_event_input 外部 KWS 注入入口，continuous-mock 覆盖外部 wake/sleep |
 | KeywordWake sidecar | 当前 | mock_text 无模型验收、sherpa-onnx KeywordSpotter adapter 和 kws_event 诊断 topic |
 | openWakeWord provider | 当前 | `keyword_wake` 新增 openwakeword optional adapter，复用 `/audio/clean_pcm -> /agent/wake_event_input` seam |
 | openWakeWord runtime smoke | 当前 | `openwakeword-sidecar` 用 fake Model 验证 ROS 进程内音频输入、predict 调用和 wake event 输出 |

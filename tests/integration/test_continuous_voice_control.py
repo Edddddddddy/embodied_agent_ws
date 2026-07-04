@@ -175,6 +175,39 @@ def main():
             raise RuntimeError(f"wake/session events were not published: {node.wake_events}")
         if "test_kws" not in [event.get("provider") for event in node.wake_events]:
             raise RuntimeError(f"external KWS wake event was not bridged: {node.wake_events}")
+
+        node.wake_input_pub.publish(
+            String(data=json.dumps({"kind": "wake", "provider": "test_kws_sleep"}))
+        )
+        time.sleep(0.1)
+        external_sleep_start = len(node.candidates)
+        node.text_pub.publish(String(data="走正方形"))
+        time.sleep(0.15)
+        node.wake_input_pub.publish(
+            String(data=json.dumps({"kind": "sleep", "provider": "test_kws_sleep"}))
+        )
+        wait_until(
+            lambda: any(
+                event.get("kind") == "sleep"
+                and event.get("provider") == "test_kws_sleep"
+                for event in node.wake_events
+            ),
+            5.0,
+            "external KWS sleep event was not bridged",
+        )
+        wait_until(
+            lambda: "sleeping" in node.session_states,
+            5.0,
+            "external KWS sleep did not close the session",
+        )
+        wait_until(
+            lambda: any(
+                candidate.get("name") == "stop"
+                for candidate in node.candidates[external_sleep_start:]
+            ),
+            5.0,
+            "external KWS sleep did not publish a safety stop",
+        )
         queue_sizes = [
             event.get("size")
             for event in node.queue_events
@@ -213,6 +246,7 @@ def main():
             "states_tail": node.states[-6:],
             "session_states_tail": node.session_states[-6:],
             "wake_event_kinds": wake_kinds,
+            "wake_event_providers": [event.get("provider") for event in node.wake_events],
             "queue_sizes": queue_sizes,
             "execution_event_kinds": execution_kinds,
             "feedback_count": len(node.feedback),
