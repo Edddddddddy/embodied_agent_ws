@@ -11,6 +11,18 @@ online_agent:
     wake_words: ["小智", "你好小智"]
     wake_word_aliases: ["小志", "小治", "晓智", "晓志"]
     wake_active_timeout_s: 10.0
+    continuous_control_enabled: false
+    voice_session_timeout_s: 60.0
+    continuous_command_queue_size: 8
+    continuous_command_max_age_s: 30.0
+    speech_endpoint_events_enabled: true
+    external_wake_event_enabled: true
+    command_normalization_enabled: true
+    command_normalization_feedback_enabled: true
+    command_normalization_fuzzy_threshold: 0.82
+    # 留空时加载 embodied_online_agent/config/command_normalization_zh.yaml。
+    # 真实麦克风遇到新的 ASR 错词时，优先复制该文件并通过此参数覆盖。
+    command_normalization_path: ""
 
     memory_path: "~/.ros/embodied_agent/memory.json"
     memory_max_turns: 10
@@ -44,8 +56,58 @@ audio_frontend:
     microphone_sample_rate: 16000
     reference_sample_rate: 24000
     frame_ms: 20
+    vad_provider: energy
+    endpoint_events_enabled: true
     vad_rms_threshold: 0.018
+    metrics_period_s: 0.5
     silence_timeout_s: 0.4
+    speech_end_silence_s: 0.4
+    min_utterance_ms: 100.0
+    max_utterance_s: 12.0
+    audio_enhancer: nlms
+    aec_enabled: true
+    noise_suppression_enabled: false
+    auto_gain_enabled: false
     aec_taps: 64
     aec_step: 0.35
     aec_delay_ms: 80
+
+silero_vad:
+  ros__parameters:
+    enabled: true
+    sample_rate: 16000
+    frame_ms: 32
+    threshold: 0.5
+    speech_end_silence_s: 0.4
+    min_utterance_ms: 100.0
+    max_utterance_s: 12.0
+    use_onnx: true
+    model_path: ""
+    input_queue_depth: 20
+    publish_legacy_silence_timeout: true
+
+keyword_wake:
+  ros__parameters:
+    mode: mock_text
+    provider_name: mock_kws
+    keywords: ["小智", "你好小智"]
+    aliases: ["小志", "小治", "晓智", "晓志"]
+    sample_rate: 16000
+    cooldown_s: 1.0
+    score_publish_period_s: 0.2
+    input_queue_depth: 20
+    sherpa_tokens: ""
+    sherpa_encoder: ""
+    sherpa_decoder: ""
+    sherpa_joiner: ""
+    sherpa_keywords_file: ""
+    sherpa_num_threads: 1
+    sherpa_provider: cpu
+    openwakeword_models: [""]
+    openwakeword_threshold: 0.5
+    openwakeword_inference_framework: onnx
+    # -1 表示不启用 openWakeWord 内置 Silero VAD gate；端点检测仍由项目 VAD seam 负责。
+    openwakeword_vad_threshold: -1.0
+    openwakeword_speex_noise_suppression: false
+    livekit_wakeword_models: [""]
+    livekit_wakeword_threshold: 0.5

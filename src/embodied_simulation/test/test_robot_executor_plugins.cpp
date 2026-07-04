@@ -62,5 +62,55 @@ TEST(RobotExecutorPluginsTest, SameCommandRunsThroughBothAdapters)
   EXPECT_DOUBLE_EQ(mock->step(0.10).velocity.linear_x, 0.0);
 }
 
+TEST(RobotExecutorPluginsTest, MoveCommandCanCarryArcVelocityForDemo)
+{
+  pluginlib::ClassLoader<RobotExecutor> loader(
+    "embodied_simulation", "embodied_simulation::RobotExecutor");
+  auto gazebo = loader.createSharedInstance(
+    "embodied_simulation/GazeboRobotExecutor");
+  auto mock = loader.createSharedInstance(
+    "embodied_simulation/MockRobotExecutor");
+  gazebo->configure(ControllerConfig{});
+  mock->configure(ControllerConfig{});
+
+  std::vector<float> clear_scan(360, 2.0F);
+  gazebo->update_scan(
+    clear_scan, -3.14159265, 2.0 * 3.14159265 / 360.0,
+    0.05, 10.0, 0.0);
+
+  embodied_agent_interfaces::msg::RobotCommand command;
+  command.action_type = command.MOVE;
+  command.linear_x = 0.12;
+  command.angular_z = 0.45;
+  command.duration_s = 6.0;
+
+  ASSERT_TRUE(gazebo->execute(command, 0.0));
+  ASSERT_TRUE(mock->execute(command, 0.0));
+  EXPECT_GT(gazebo->step(0.05).velocity.linear_x, 0.0);
+  EXPECT_GT(gazebo->step(0.05).velocity.angular_z, 0.0);
+  EXPECT_DOUBLE_EQ(mock->step(0.05).velocity.linear_x, 0.12);
+  EXPECT_DOUBLE_EQ(mock->step(0.05).velocity.angular_z, 0.45);
+}
+
+TEST(RobotExecutorPluginsTest, AccessoriesAreAcceptedAsSimulationAcks)
+{
+  pluginlib::ClassLoader<RobotExecutor> loader(
+    "embodied_simulation", "embodied_simulation::RobotExecutor");
+  auto mock = loader.createSharedInstance(
+    "embodied_simulation/MockRobotExecutor");
+  mock->configure(ControllerConfig{});
+
+  embodied_agent_interfaces::msg::RobotCommand wave;
+  wave.action_type = wave.WAVE;
+  wave.count = 2;
+  EXPECT_TRUE(mock->execute(wave, 0.0));
+
+  embodied_agent_interfaces::msg::RobotCommand led;
+  led.action_type = led.SET_LED;
+  led.color = "blue";
+  EXPECT_TRUE(mock->execute(led, 0.0));
+  EXPECT_DOUBLE_EQ(mock->step(0.05).velocity.linear_x, 0.0);
+}
+
 }  // namespace
 }  // namespace embodied_simulation

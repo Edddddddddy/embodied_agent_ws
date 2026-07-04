@@ -7,6 +7,7 @@
 #include <deque>
 #include <memory>
 #include <mutex>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -14,6 +15,7 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/empty.hpp"
+#include "std_msgs/msg/string.hpp"
 #include "std_msgs/msg/u_int8_multi_array.hpp"
 
 #include "embodied_agent_cpp/audio_processing.hpp"
@@ -32,24 +34,60 @@ public:
     reference_rate_(declare_parameter("reference_sample_rate", 24000)),
     frame_ms_(declare_parameter("frame_ms", 20)),
     frames_per_buffer_(static_cast<unsigned long>(microphone_rate_ * frame_ms_ / 1000)),
-    vad_(declare_parameter("vad_rms_threshold", 0.018)),
-    silence_(declare_parameter("silence_timeout_s", 0.4)),
-    echo_canceller_(
-      microphone_rate_,
-      reference_rate_,
-      static_cast<std::size_t>(declare_parameter("aec_taps", 64)),
-      declare_parameter("aec_step", 0.35),
-      declare_parameter("aec_delay_ms", 80))
+    vad_provider_(declare_parameter("vad_provider", "energy")),
+    endpoint_events_enabled_(declare_parameter("endpoint_events_enabled", true)),
+    silence_timeout_s_(declare_parameter("silence_timeout_s", 0.4)),
+    speech_end_silence_s_(declare_parameter("speech_end_silence_s", silence_timeout_s_)),
+    min_utterance_s_(declare_parameter("min_utterance_ms", 100.0) / 1000.0),
+    max_utterance_s_(declare_parameter("max_utterance_s", 12.0)),
+    vad_rms_threshold_(declare_parameter("vad_rms_threshold", 0.018)),
+    metrics_period_s_(declare_parameter("metrics_period_s", 0.5)),
+    vad_(vad_rms_threshold_),
+    endpoint_(speech_end_silence_s_, min_utterance_s_, max_utterance_s_),
+    audio_enhancer_name_(declare_parameter("audio_enhancer", "nlms")),
+    aec_enabled_(declare_parameter("aec_enabled", true)),
+    noise_suppression_enabled_(declare_parameter("noise_suppression_enabled", false)),
+    auto_gain_enabled_(declare_parameter("auto_gain_enabled", false))
   {
+    audio_enhancer_ = create_audio_enhancer();
     cleaned_audio_publisher_ = create_publisher<std_msgs::msg::UInt8MultiArray>(
       "/audio/clean_pcm", rclcpp::SensorDataQoS());
     silence_publisher_ = create_publisher<std_msgs::msg::Empty>("/audio/silence_timeout", 10);
+    speech_started_publisher_ = create_publisher<std_msgs::msg::Empty>(
+      "/audio/speech_started", 10);
+    speech_ended_publisher_ = create_publisher<std_msgs::msg::Empty>(
+      "/audio/speech_ended", 10);
+    frontend_metrics_publisher_ = create_publisher<std_msgs::msg::String>(
+      "/audio/frontend_metrics", 10);
     tts_reference_subscription_ = create_subscription<std_msgs::msg::UInt8MultiArray>(
       "/audio/tts_pcm",
       rclcpp::SensorDataQoS(),
       [this](const std_msgs::msg::UInt8MultiArray::SharedPtr message) {
         enqueue_playback(message->data);
       });
+
+    if (vad_provider_ == "silero" && !endpoint_events_enabled_) {
+      RCLCPP_INFO(
+        get_logger(),
+        "vad_provider='silero': audio frontend will publish clean PCM only; "
+        "external VAD sidecar owns endpoint events");
+    } else if (vad_provider_ != "energy") {
+      RCLCPP_WARN(
+        get_logger(),
+        "vad_provider='%s' is not available yet; falling back to energy VAD",
+        vad_provider_.c_str());
+    }
+    if (audio_enhancer_name_ != "nlms") {
+      RCLCPP_WARN(
+        get_logger(),
+        "audio_enhancer='%s' is not available yet; falling back to NLMS",
+        audio_enhancer_name_.c_str());
+    }
+    if (noise_suppression_enabled_ || auto_gain_enabled_) {
+      RCLCPP_WARN(
+        get_logger(),
+        "noise suppression and auto gain require the future WebRTC enhancer; using NLMS AEC only");
+    }
 
     if (!capture_enabled_ && !speaker_enabled_) {
       RCLCPP_INFO(get_logger(), "audio frontend ready with capture and speaker disabled");
@@ -179,16 +217,25 @@ private:
         input_queue_.pop_front();
       }
 
-      auto cleaned = echo_canceller_.process(frame);
+      auto cleaned = audio_enhancer_->process(frame);
+      const auto metrics = compute_audio_frame_metrics(cleaned, vad_rms_threshold_);
+      maybe_publish_metrics(metrics);
       std_msgs::msg::UInt8MultiArray message;
       message.data.resize(cleaned.size() * sizeof(int16_t));
       std::memcpy(message.data.data(), cleaned.data(), message.data.size());
       cleaned_audio_publisher_->publish(std::move(message));
 
-      const bool speech = vad_.is_speech(cleaned);
-      const double frame_seconds = static_cast<double>(cleaned.size()) / microphone_rate_;
-      if (silence_.update(speech, frame_seconds)) {
-        silence_publisher_->publish(std_msgs::msg::Empty());
+      if (endpoint_events_enabled_) {
+        const bool speech = metrics.speech;
+        const double frame_seconds = static_cast<double>(cleaned.size()) / microphone_rate_;
+        const auto endpoint_event = endpoint_.update(speech, frame_seconds);
+        if (endpoint_event.speech_started) {
+          speech_started_publisher_->publish(std_msgs::msg::Empty());
+        }
+        if (endpoint_event.speech_ended) {
+          speech_ended_publisher_->publish(std_msgs::msg::Empty());
+          silence_publisher_->publish(std_msgs::msg::Empty());
+        }
       }
     }
   }
@@ -226,7 +273,7 @@ private:
         samples = std::move(playback_queue_.front());
         playback_queue_.pop_front();
       }
-      echo_canceller_.add_reference(samples);
+      audio_enhancer_->add_reference(samples);
       const PaError error = Pa_WriteStream(output_stream_, samples.data(), samples.size());
       if (error != paNoError && error != paOutputUnderflowed) {
         RCLCPP_ERROR_THROTTLE(
@@ -243,6 +290,53 @@ private:
     }
   }
 
+  std::unique_ptr<AudioEnhancer> create_audio_enhancer()
+  {
+    AudioEnhancerConfig config;
+    config.microphone_rate = microphone_rate_;
+    config.reference_rate = reference_rate_;
+    config.aec_taps = static_cast<std::size_t>(declare_parameter("aec_taps", 64));
+    config.aec_step = declare_parameter("aec_step", 0.35);
+    config.aec_delay_ms = declare_parameter("aec_delay_ms", 80);
+    config.aec_enabled = aec_enabled_;
+    config.noise_suppression_enabled = noise_suppression_enabled_;
+    config.auto_gain_enabled = auto_gain_enabled_;
+    return std::make_unique<NlmsAudioEnhancer>(config);
+  }
+
+  void maybe_publish_metrics(const AudioFrameMetrics & metrics)
+  {
+    if (metrics_period_s_ <= 0.0 || frontend_metrics_publisher_ == nullptr) {
+      return;
+    }
+    const auto now = get_clock()->now();
+    if (last_metrics_publish_.nanoseconds() != 0 &&
+      (now - last_metrics_publish_).seconds() < metrics_period_s_)
+    {
+      return;
+    }
+    last_metrics_publish_ = now;
+    std::ostringstream json;
+    json << "{\"rms\":" << metrics.rms
+         << ",\"peak\":" << metrics.peak
+         << ",\"speech\":" << (metrics.speech ? "true" : "false")
+         << ",\"vad_provider\":\"" << vad_provider_ << "\""
+         << ",\"audio_enhancer_requested\":\"" << audio_enhancer_name_ << "\""
+         << ",\"audio_enhancer_active\":\"nlms\""
+         << ",\"aec_active\":" << (aec_enabled_ ? "true" : "false")
+         << ",\"noise_suppression_requested\":"
+         << (noise_suppression_enabled_ ? "true" : "false")
+         << ",\"noise_suppression_active\":false"
+         << ",\"auto_gain_requested\":" << (auto_gain_enabled_ ? "true" : "false")
+         << ",\"auto_gain_active\":false"
+         << ",\"dropped_input_frames\":" << dropped_input_frames_
+         << ",\"dropped_playback_chunks\":" << dropped_playback_chunks_
+         << "}";
+    std_msgs::msg::String message;
+    message.data = json.str();
+    frontend_metrics_publisher_->publish(message);
+  }
+
   static constexpr std::size_t kMaximumInputFrames = 50;
   static constexpr std::size_t kMaximumPlaybackChunks = 100;
 
@@ -252,9 +346,21 @@ private:
   int reference_rate_;
   int frame_ms_;
   unsigned long frames_per_buffer_;
+  std::string vad_provider_;
+  bool endpoint_events_enabled_;
+  double silence_timeout_s_;
+  double speech_end_silence_s_;
+  double min_utterance_s_;
+  double max_utterance_s_;
+  double vad_rms_threshold_;
+  double metrics_period_s_;
   EnergyVad vad_;
-  SilenceDetector silence_;
-  NlmsEchoCanceller echo_canceller_;
+  SpeechEndpointDetector endpoint_;
+  std::string audio_enhancer_name_;
+  bool aec_enabled_;
+  bool noise_suppression_enabled_;
+  bool auto_gain_enabled_;
+  std::unique_ptr<AudioEnhancer> audio_enhancer_;
   std::atomic<bool> running_{false};
   bool portaudio_initialized_{false};
   PaStream * input_stream_{nullptr};
@@ -274,7 +380,11 @@ private:
 
   rclcpp::Publisher<std_msgs::msg::UInt8MultiArray>::SharedPtr cleaned_audio_publisher_;
   rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr silence_publisher_;
+  rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr speech_started_publisher_;
+  rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr speech_ended_publisher_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr frontend_metrics_publisher_;
   rclcpp::Subscription<std_msgs::msg::UInt8MultiArray>::SharedPtr tts_reference_subscription_;
+  rclcpp::Time last_metrics_publish_{0, 0, RCL_ROS_TIME};
 };
 
 }  // namespace embodied_agent_cpp

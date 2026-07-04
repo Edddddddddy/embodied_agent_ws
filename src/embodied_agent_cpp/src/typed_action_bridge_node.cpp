@@ -69,6 +69,8 @@ private:
     goal.command = *command;
     const std::string command_id = command->command_id;
     rclcpp_action::Client<ExecuteRobotCommand>::SendGoalOptions options;
+    // Topic 适合传递瞬时命令，但“移动一秒/转九十度”是可取消、带反馈的长动作。
+    // bridge 把强类型 RobotCommand 转成 ROS 2 Action goal，同时把 feedback/result 转回可观察 topic。
     options.goal_response_callback =
       [this, command_id](const GoalHandle::SharedPtr & handle) {
         if (!handle) {

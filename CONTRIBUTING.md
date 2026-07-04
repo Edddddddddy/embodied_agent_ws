@@ -23,6 +23,13 @@ source scripts/activate.sh
 
 ## 提交前检查
 
+分支流程：
+
+- `main` 只保存稳定可验收版本。
+- `dev` 是日常集成分支。
+- 新功能从 `dev` 拉 `feature/<name>`，修复从 `dev` 拉 `fix/<name>`。
+- 功能分支测试通过后合并回 `dev`；里程碑验收通过后再从 `dev` 合并到 `main`。
+
 ```bash
 # 最低门槛：仓库结构、130+ ROS/单元测试和无外部模型 smoke
 bash scripts/acceptance_test.sh mock

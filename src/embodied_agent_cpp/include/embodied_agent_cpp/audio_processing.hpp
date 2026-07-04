@@ -9,6 +9,17 @@
 namespace embodied_agent_cpp
 {
 
+struct AudioFrameMetrics
+{
+  double rms{0.0};
+  int16_t peak{0};
+  bool speech{false};
+};
+
+AudioFrameMetrics compute_audio_frame_metrics(
+  const std::vector<int16_t> & samples,
+  double speech_threshold);
+
 class EnergyVad
 {
 public:
@@ -33,6 +44,44 @@ private:
   double silence_seconds_{0.0};
   bool heard_speech_{false};
   bool emitted_{false};
+};
+
+enum class SpeechEndpointReason
+{
+  kNone,
+  kSilence,
+  kMaxDuration
+};
+
+struct SpeechEndpointEvent
+{
+  bool speech_started{false};
+  bool speech_ended{false};
+  SpeechEndpointReason end_reason{SpeechEndpointReason::kNone};
+};
+
+class SpeechEndpointDetector
+{
+public:
+  // VAD provider 只回答“当前帧是否有人声”；端点检测负责会话边界。
+  // 这样后续把 EnergyVad 替换为 Silero/sherpa VAD 时，ROS 事件和 Agent 逻辑不用改。
+  SpeechEndpointDetector(
+    double end_silence_seconds = 0.4,
+    double min_utterance_seconds = 0.1,
+    double max_utterance_seconds = 12.0);
+
+  SpeechEndpointEvent update(bool speech, double frame_seconds);
+  void reset();
+
+private:
+  SpeechEndpointEvent finish(SpeechEndpointReason reason);
+
+  double end_silence_seconds_;
+  double min_utterance_seconds_;
+  double max_utterance_seconds_;
+  double speech_seconds_{0.0};
+  double silence_seconds_{0.0};
+  bool in_utterance_{false};
 };
 
 class NlmsEchoCanceller
@@ -64,6 +113,41 @@ private:
   std::deque<int16_t> reference_buffer_;
   bool delay_inserted_{false};
   std::mutex mutex_;
+};
+
+struct AudioEnhancerConfig
+{
+  int microphone_rate{16000};
+  int reference_rate{24000};
+  std::size_t aec_taps{64};
+  double aec_step{0.35};
+  int aec_delay_ms{80};
+  bool aec_enabled{true};
+  bool noise_suppression_enabled{false};
+  bool auto_gain_enabled{false};
+};
+
+class AudioEnhancer
+{
+public:
+  virtual ~AudioEnhancer() = default;
+  virtual void add_reference(const std::vector<int16_t> & samples) = 0;
+  virtual std::vector<int16_t> process(const std::vector<int16_t> & microphone_samples) = 0;
+  virtual void reset() = 0;
+};
+
+class NlmsAudioEnhancer : public AudioEnhancer
+{
+public:
+  explicit NlmsAudioEnhancer(const AudioEnhancerConfig & config);
+
+  void add_reference(const std::vector<int16_t> & samples) override;
+  std::vector<int16_t> process(const std::vector<int16_t> & microphone_samples) override;
+  void reset() override;
+
+private:
+  bool aec_enabled_;
+  NlmsEchoCanceller echo_canceller_;
 };
 
 }  // namespace embodied_agent_cpp

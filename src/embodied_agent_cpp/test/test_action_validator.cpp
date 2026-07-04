@@ -14,6 +14,19 @@ TEST(ActionValidatorTest, ClampsMoveCommand)
   EXPECT_DOUBLE_EQ(result.command["arguments"]["duration_s"], 10.0);
 }
 
+TEST(ActionValidatorTest, NormalizesArcAsCurvedMove)
+{
+  embodied_agent_cpp::ActionValidator validator;
+  const auto result = validator.validate(
+    R"({"name":"arc","arguments":{"linear_x":9.0,"angular_z":9.0,"duration_s":20.0}})");
+
+  ASSERT_TRUE(result.valid) << result.error;
+  EXPECT_EQ(result.command["name"], "move");
+  EXPECT_DOUBLE_EQ(result.command["arguments"]["linear_x"], 0.5);
+  EXPECT_DOUBLE_EQ(result.command["arguments"]["angular_z"], 1.5);
+  EXPECT_DOUBLE_EQ(result.command["arguments"]["duration_s"], 10.0);
+}
+
 TEST(ActionValidatorTest, RejectsUnknownAction)
 {
   embodied_agent_cpp::ActionValidator validator;
@@ -29,6 +42,15 @@ TEST(ActionValidatorTest, RejectsMissingAndExtraArguments)
       R"({"name":"move","arguments":{"linear_x":0.2}})").valid);
   EXPECT_FALSE(validator.validate(
       R"({"name":"stop","arguments":{"duration_s":1.0}})").valid);
+}
+
+TEST(ActionValidatorTest, ValidatesOptionalRequestId)
+{
+  embodied_agent_cpp::ActionValidator validator;
+  EXPECT_TRUE(validator.validate(
+      R"({"name":"stop","request_id":"agent-action-1","arguments":{}})").valid);
+  EXPECT_FALSE(validator.validate(
+      R"({"name":"stop","request_id":42,"arguments":{}})").valid);
 }
 
 TEST(ActionValidatorTest, ValidatesLedColorType)

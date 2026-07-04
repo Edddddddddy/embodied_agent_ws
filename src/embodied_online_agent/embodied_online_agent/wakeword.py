@@ -47,3 +47,11 @@ class WakeWordGate:
     @property
     def active(self) -> bool:
         return self._clock() <= self._active_until
+
+    def wake(self) -> None:
+        """由外部声学 KWS 直接打开当前唤醒窗口。"""
+        self._active_until = self._clock() + self.active_timeout_s
+
+    def sleep(self) -> None:
+        """立即退出当前唤醒会话。"""
+        self._active_until = 0.0

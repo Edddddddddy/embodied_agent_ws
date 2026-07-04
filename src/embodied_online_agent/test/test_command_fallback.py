@@ -1,4 +1,8 @@
-from embodied_online_agent.command_fallback import parse_fallback_action, should_block_model_actions
+from embodied_online_agent.command_fallback import (
+    parse_fallback_action,
+    parse_fallback_actions,
+    should_block_model_actions,
+)
 
 
 def test_parses_explicit_motion_and_duration():
@@ -17,6 +21,31 @@ def test_parses_stop_wave_and_led():
     assert parse_fallback_action("把灯设为蓝色").arguments["color"] == "blue"
     turn = parse_fallback_action("左转九十度")
     assert turn.arguments == {"angular_z": 0.6, "duration_s": 2.6}
+    spin = parse_fallback_action("原地转一圈")
+    assert spin.name == "turn"
+    assert spin.arguments == {"angular_z": 0.8, "duration_s": 7.85}
+    arc = parse_fallback_action("绕圈演示")
+    assert arc.name == "arc"
+    assert arc.arguments == {"linear_x": 0.12, "angular_z": 0.45, "duration_s": 6.0}
+
+
+def test_bare_direction_commands_use_safe_demo_defaults():
+    assert parse_fallback_action("前进").as_dict() == {
+        "name": "move",
+        "arguments": {"linear_x": 0.2, "duration_s": 1.0},
+    }
+    assert parse_fallback_action("后退").as_dict() == {
+        "name": "move",
+        "arguments": {"linear_x": -0.2, "duration_s": 1.0},
+    }
+    assert parse_fallback_action("左转").as_dict() == {
+        "name": "turn",
+        "arguments": {"angular_z": 0.6, "duration_s": 2.6},
+    }
+    assert parse_fallback_action("右转").as_dict() == {
+        "name": "turn",
+        "arguments": {"angular_z": -0.6, "duration_s": 2.6},
+    }
 
 
 def test_parses_simulation_mode_commands():
@@ -26,6 +55,20 @@ def test_parses_simulation_mode_commands():
     }
     assert parse_fallback_action("开始沿墙行走").arguments["mode"] == "wall_following"
     assert parse_fallback_action("退出自动模式").arguments["mode"] == "manual"
+
+
+def test_parses_composite_demo_sequences():
+    square = parse_fallback_actions("走正方形")
+    assert [action.name for action in square] == [
+        "move", "turn", "move", "turn", "move", "turn", "move", "turn"
+    ]
+    assert square[0].arguments == {"linear_x": 0.18, "duration_s": 1.2}
+    assert square[1].arguments == {"angular_z": 0.6, "duration_s": 2.6}
+
+    demo = parse_fallback_actions("演示一下")
+    assert [action.name for action in demo] == [
+        "set_led", "wave", "move", "turn", "arc", "stop"
+    ]
 
 
 def test_rejects_negated_or_ambiguous_text():

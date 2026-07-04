@@ -1,5 +1,5 @@
 import re
-from typing import Optional
+from typing import List, Optional
 
 from .types import ActionCommand
 
@@ -26,51 +26,86 @@ def _count(text: str) -> int:
     return _CHINESE_NUMBERS[match.group(1)] if match else 1
 
 
-def parse_fallback_action(text: str) -> Optional[ActionCommand]:
-    """Parse explicit commands for deterministic arbitration over model actions."""
+def _square_sequence() -> List[ActionCommand]:
+    actions: List[ActionCommand] = []
+    for _ in range(4):
+        actions.append(ActionCommand("move", {"linear_x": 0.18, "duration_s": 1.2}))
+        actions.append(ActionCommand("turn", {"angular_z": 0.6, "duration_s": 2.6}))
+    return actions
+
+
+def _demo_sequence() -> List[ActionCommand]:
+    return [
+        ActionCommand("set_led", {"color": "blue"}),
+        ActionCommand("wave", {"count": 2}),
+        ActionCommand("move", {"linear_x": 0.18, "duration_s": 1.0}),
+        ActionCommand("turn", {"angular_z": 0.8, "duration_s": 2.0}),
+        ActionCommand("arc", {"linear_x": 0.12, "angular_z": 0.45, "duration_s": 6.0}),
+        ActionCommand("stop", {}),
+    ]
+
+
+def parse_fallback_actions(text: str) -> List[ActionCommand]:
+    """Parse explicit commands into deterministic primitive actions.
+
+    组合动作在 Agent 层拆成 primitive command，后续发布器按 Action result 顺序推进。
+    这样不会把复杂演示逻辑下沉到安全校验或仿真执行器里。
+    """
     normalized = re.sub(r"[，。！？!?\s]", "", text.lower())
+    if any(word in normalized for word in ("走正方形", "正方形", "方形巡游")):
+        return _square_sequence()
+    if any(word in normalized for word in ("演示一下", "做个演示", "展示一下")):
+        return _demo_sequence()
     if any(word in normalized for word in ("退出自动", "关闭自动", "停止自动")):
-        return ActionCommand("set_mode", {"mode": "manual"})
+        return [ActionCommand("set_mode", {"mode": "manual"})]
     if "手动模式" in normalized or "手动控制" in normalized:
-        return ActionCommand("set_mode", {"mode": "manual"})
+        return [ActionCommand("set_mode", {"mode": "manual"})]
     if "自动避障" in normalized or "避障模式" in normalized:
-        return ActionCommand("set_mode", {"mode": "obstacle_avoidance"})
+        return [ActionCommand("set_mode", {"mode": "obstacle_avoidance"})]
     if "沿墙" in normalized or "贴墙" in normalized:
-        return ActionCommand("set_mode", {"mode": "wall_following"})
+        return [ActionCommand("set_mode", {"mode": "wall_following"})]
     if any(word in normalized for word in ("别动", "不要动")):
-        return ActionCommand("stop", {})
+        return [ActionCommand("stop", {})]
     if should_block_model_actions(normalized):
-        return None
+        return []
     if any(word in normalized for word in ("停止", "停下", "急停")):
-        return ActionCommand("stop", {})
+        return [ActionCommand("stop", {})]
+    if any(word in normalized for word in ("原地转一圈", "旋转一圈", "转一圈")):
+        return [ActionCommand("turn", {"angular_z": 0.8, "duration_s": 7.85})]
+    if any(word in normalized for word in ("绕圈", "画圆", "转圈")):
+        return [
+            ActionCommand(
+                "arc", {"linear_x": 0.12, "angular_z": 0.45, "duration_s": 6.0}
+            )
+        ]
     if "向前" in normalized or "前进" in normalized:
-        return ActionCommand(
-            "move", {"linear_x": 0.2, "duration_s": _duration(normalized)}
-        )
+        return [
+            ActionCommand(
+                "move", {"linear_x": 0.2, "duration_s": _duration(normalized)}
+            )
+        ]
     if "后退" in normalized or "向后" in normalized:
-        return ActionCommand(
-            "move", {"linear_x": -0.2, "duration_s": _duration(normalized)}
-        )
+        return [
+            ActionCommand(
+                "move", {"linear_x": -0.2, "duration_s": _duration(normalized)}
+            )
+        ]
     if "左转" in normalized or "向左转" in normalized:
         duration = (
             2.6
-            if "九十度" in normalized or "90度" in normalized
+            if "九十度" in normalized or "90度" in normalized or "秒" not in normalized
             else _duration(normalized)
         )
-        return ActionCommand(
-            "turn", {"angular_z": 0.6, "duration_s": duration}
-        )
+        return [ActionCommand("turn", {"angular_z": 0.6, "duration_s": duration})]
     if "右转" in normalized or "向右转" in normalized:
         duration = (
             2.6
-            if "九十度" in normalized or "90度" in normalized
+            if "九十度" in normalized or "90度" in normalized or "秒" not in normalized
             else _duration(normalized)
         )
-        return ActionCommand(
-            "turn", {"angular_z": -0.6, "duration_s": duration}
-        )
+        return [ActionCommand("turn", {"angular_z": -0.6, "duration_s": duration})]
     if re.search(r"挥.*手", normalized):
-        return ActionCommand("wave", {"count": _count(normalized)})
+        return [ActionCommand("wave", {"count": _count(normalized)})]
     if "灯" in normalized:
         colors = {
             "红": "red",
@@ -83,8 +118,14 @@ def parse_fallback_action(text: str) -> Optional[ActionCommand]:
         }
         for keyword, color in colors.items():
             if keyword in normalized:
-                return ActionCommand("set_led", {"color": color})
-    return None
+                return [ActionCommand("set_led", {"color": color})]
+    return []
+
+
+def parse_fallback_action(text: str) -> Optional[ActionCommand]:
+    """Backward-compatible single-action facade used by older tests/callers."""
+    actions = parse_fallback_actions(text)
+    return actions[0] if actions else None
 
 
 def should_block_model_actions(text: str) -> bool:

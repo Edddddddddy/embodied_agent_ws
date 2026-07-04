@@ -1,0 +1,303 @@
+#!/usr/bin/env bash
+set -euo pipefail
+WORKSPACE="${WORKSPACE:-/home/ubuntu/embodied_agent_ws}"
+MODE="${1:-offline}"
+VOICE_CONTROL_PROFILE="${VOICE_CONTROL_PROFILE:-normal}"
+# 真实麦克风现场通常没有时间逐项调 VAD/队列/纠错参数，因此提供三个预设档。
+# 下面的 PROFILE_* 只作为默认值；用户显式传入的环境变量会在 case 之后覆盖它们。
+PROFILE_SESSION_TIMEOUT=60
+PROFILE_COMMAND_QUEUE_SIZE=8
+PROFILE_COMMAND_MAX_AGE=30
+PROFILE_DUPLICATE_WINDOW_S=1.2
+PROFILE_COMMAND_NORMALIZATION_FUZZY_THRESHOLD=0.82
+PROFILE_SPEECH_START_THRESHOLD=0.018
+PROFILE_SPEECH_END_SILENCE_S=0.7
+PROFILE_MIN_UTTERANCE_MS=100
+PROFILE_MAX_UTTERANCE_S=12.0
+PROFILE_ASR_COMMIT_DELAY_MS=300
+
+case "$VOICE_CONTROL_PROFILE" in
+  normal)
+    ;;
+  quiet)
+    PROFILE_SESSION_TIMEOUT=75
+    PROFILE_COMMAND_QUEUE_SIZE=10
+    PROFILE_COMMAND_NORMALIZATION_FUZZY_THRESHOLD=0.82
+    PROFILE_SPEECH_START_THRESHOLD=0.014
+    PROFILE_SPEECH_END_SILENCE_S=0.6
+    PROFILE_MIN_UTTERANCE_MS=80
+    PROFILE_MAX_UTTERANCE_S=12.0
+    ;;
+  noisy_room)
+    PROFILE_SESSION_TIMEOUT=45
+    PROFILE_COMMAND_QUEUE_SIZE=5
+    PROFILE_COMMAND_MAX_AGE=20
+    PROFILE_COMMAND_NORMALIZATION_FUZZY_THRESHOLD=0.78
+    PROFILE_SPEECH_START_THRESHOLD=0.026
+    PROFILE_SPEECH_END_SILENCE_S=0.85
+    PROFILE_MIN_UTTERANCE_MS=180
+    PROFILE_MAX_UTTERANCE_S=10.0
+    ;;
+  *)
+    echo "unknown VOICE_CONTROL_PROFILE=$VOICE_CONTROL_PROFILE; expected normal, quiet, or noisy_room" >&2
+    exit 2
+    ;;
+esac
+
+SESSION_TIMEOUT="${VOICE_SESSION_TIMEOUT:-$PROFILE_SESSION_TIMEOUT}"
+COMMAND_QUEUE_SIZE="${CONTINUOUS_COMMAND_QUEUE_SIZE:-$PROFILE_COMMAND_QUEUE_SIZE}"
+COMMAND_MAX_AGE="${CONTINUOUS_COMMAND_MAX_AGE:-$PROFILE_COMMAND_MAX_AGE}"
+COMMAND_DUPLICATE_WINDOW="${CONTINUOUS_DUPLICATE_WINDOW_S:-$PROFILE_DUPLICATE_WINDOW_S}"
+COMMAND_NORMALIZATION_ENABLED="${COMMAND_NORMALIZATION_ENABLED:-true}"
+COMMAND_NORMALIZATION_FEEDBACK_ENABLED="${COMMAND_NORMALIZATION_FEEDBACK_ENABLED:-true}"
+COMMAND_NORMALIZATION_FUZZY_THRESHOLD="${COMMAND_NORMALIZATION_FUZZY_THRESHOLD:-$PROFILE_COMMAND_NORMALIZATION_FUZZY_THRESHOLD}"
+COMMAND_NORMALIZATION_PATH="${COMMAND_NORMALIZATION_PATH:-}"
+COMMAND_COMPLETION_ENABLED="${COMMAND_COMPLETION_ENABLED:-true}"
+ASR_COMMIT_DELAY_MS="${ASR_COMMIT_DELAY_MS:-$PROFILE_ASR_COMMIT_DELAY_MS}"
+WAKE_WORD_ENABLED="${WAKE_WORD_ENABLED:-true}"
+SPEAKER_ENABLED="${SPEAKER_ENABLED:-false}"
+VAD_PROVIDER="${VAD_PROVIDER:-energy}"
+SPEECH_START_THRESHOLD="${SPEECH_START_THRESHOLD:-$PROFILE_SPEECH_START_THRESHOLD}"
+SPEECH_END_SILENCE_S="${SPEECH_END_SILENCE_S:-$PROFILE_SPEECH_END_SILENCE_S}"
+MIN_UTTERANCE_MS="${MIN_UTTERANCE_MS:-$PROFILE_MIN_UTTERANCE_MS}"
+MAX_UTTERANCE_S="${MAX_UTTERANCE_S:-$PROFILE_MAX_UTTERANCE_S}"
+SILERO_VAD_MODEL_PATH="${SILERO_VAD_MODEL_PATH:-}"
+SILERO_VAD_USE_ONNX="${SILERO_VAD_USE_ONNX:-true}"
+SILERO_VAD_THRESHOLD="${SILERO_VAD_THRESHOLD:-0.5}"
+KWS_PROVIDER="${KWS_PROVIDER:-none}"
+SHERPA_KWS_TOKENS="${SHERPA_KWS_TOKENS:-}"
+SHERPA_KWS_ENCODER="${SHERPA_KWS_ENCODER:-}"
+SHERPA_KWS_DECODER="${SHERPA_KWS_DECODER:-}"
+SHERPA_KWS_JOINER="${SHERPA_KWS_JOINER:-}"
+SHERPA_KWS_KEYWORDS_FILE="${SHERPA_KWS_KEYWORDS_FILE:-}"
+OPENWAKEWORD_MODELS="${OPENWAKEWORD_MODELS:-}"
+OPENWAKEWORD_THRESHOLD="${OPENWAKEWORD_THRESHOLD:-0.5}"
+LIVEKIT_WAKEWORD_MODELS="${LIVEKIT_WAKEWORD_MODELS:-}"
+LIVEKIT_WAKEWORD_THRESHOLD="${LIVEKIT_WAKEWORD_THRESHOLD:-0.5}"
+AUDIO_ENHANCER="${AUDIO_ENHANCER:-nlms}"
+AEC_ENABLED="${AEC_ENABLED:-true}"
+NOISE_SUPPRESSION_ENABLED="${NOISE_SUPPRESSION_ENABLED:-false}"
+AUTO_GAIN_ENABLED="${AUTO_GAIN_ENABLED:-false}"
+GUI_ENABLED="${GUI_ENABLED:-true}"
+MONITOR_ENABLED="${CONTINUOUS_MONITOR_ENABLED:-true}"
+MONITOR_AUDIO_SAMPLE_LIMIT="${CONTINUOUS_MONITOR_AUDIO_SAMPLE_LIMIT:-600}"
+PRINT_CONFIG="${CONTINUOUS_PRINT_CONFIG:-false}"
+PREFLIGHT_ENABLED="${CONTINUOUS_PREFLIGHT_ENABLED:-true}"
+READINESS_ENABLED="${CONTINUOUS_READINESS_ENABLED:-true}"
+READINESS_DURATION="${CONTINUOUS_READINESS_DURATION:-3.0}"
+source "$WORKSPACE/scripts/activate.sh"
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((140 + $$ % 80))}"
+
+if [[ "$MODE" != "offline" && "$MODE" != "online" ]]; then
+  echo "Usage: $0 {offline|online}" >&2
+  exit 2
+fi
+
+print_configuration() {
+  cat <<EOF
+ROS_DOMAIN_ID=$ROS_DOMAIN_ID，连续语音控制模式=$MODE
+
+建议演示话术：
+  小智
+  向前走一秒
+  左转九十度
+  后退一秒
+  绕圈
+  走正方形
+  停下
+  退出控制
+
+说明：一次“小智”唤醒后，${SESSION_TIMEOUT}s 内可连续说多条命令；等待超过 ${COMMAND_MAX_AGE}s 的普通命令会过期跳过；Ctrl-C 退出脚本。
+终端会持续打印 [session] / [asr] / [queue] / [action] / [feedback] / [result] 链路事件。
+通过标准：至少识别 6 条 ASR final、产生 4 个以上动作、看到 [session] awake 与 sleeping，最后 /cmd_vel 归零。
+如需量化验收，请在第二终端运行：CONTINUOUS_LIVE_CHECK_DURATION=180 bash scripts/acceptance_test.sh continuous-live-check $MODE
+VOICE_CONTROL_PROFILE=$VOICE_CONTROL_PROFILE（normal/quiet/noisy_room；显式环境变量会覆盖 profile 默认值）
+VOICE_SESSION_TIMEOUT=$SESSION_TIMEOUT
+CONTINUOUS_COMMAND_QUEUE_SIZE=$COMMAND_QUEUE_SIZE
+COMMAND_NORMALIZATION_ENABLED=$COMMAND_NORMALIZATION_ENABLED
+COMMAND_NORMALIZATION_FEEDBACK_ENABLED=$COMMAND_NORMALIZATION_FEEDBACK_ENABLED
+COMMAND_NORMALIZATION_FUZZY_THRESHOLD=$COMMAND_NORMALIZATION_FUZZY_THRESHOLD
+COMMAND_NORMALIZATION_PATH=$COMMAND_NORMALIZATION_PATH
+COMMAND_COMPLETION_ENABLED=$COMMAND_COMPLETION_ENABLED
+ASR_COMMIT_DELAY_MS=$ASR_COMMIT_DELAY_MS
+WAKE_WORD_ENABLED=$WAKE_WORD_ENABLED
+SPEAKER_ENABLED=$SPEAKER_ENABLED
+VAD_PROVIDER=$VAD_PROVIDER（默认 energy；安装 silero-vad 后可设为 silero）
+SPEECH_START_THRESHOLD=$SPEECH_START_THRESHOLD（energy VAD RMS 起始阈值）
+SPEECH_END_SILENCE_S=$SPEECH_END_SILENCE_S
+MIN_UTTERANCE_MS=$MIN_UTTERANCE_MS
+MAX_UTTERANCE_S=$MAX_UTTERANCE_S
+SILERO_VAD_MODEL_PATH=$SILERO_VAD_MODEL_PATH
+SILERO_VAD_USE_ONNX=$SILERO_VAD_USE_ONNX
+SILERO_VAD_THRESHOLD=$SILERO_VAD_THRESHOLD
+KWS_PROVIDER=$KWS_PROVIDER（默认 none；mock_text 用于 sidecar 验收，sherpa/openwakeword/livekit 用于真实 KWS）
+SHERPA_KWS_TOKENS=$SHERPA_KWS_TOKENS
+SHERPA_KWS_ENCODER=$SHERPA_KWS_ENCODER
+SHERPA_KWS_DECODER=$SHERPA_KWS_DECODER
+SHERPA_KWS_JOINER=$SHERPA_KWS_JOINER
+SHERPA_KWS_KEYWORDS_FILE=$SHERPA_KWS_KEYWORDS_FILE
+OPENWAKEWORD_MODELS=$OPENWAKEWORD_MODELS（逗号分隔多个模型）
+OPENWAKEWORD_THRESHOLD=$OPENWAKEWORD_THRESHOLD
+LIVEKIT_WAKEWORD_MODELS=$LIVEKIT_WAKEWORD_MODELS（逗号分隔多个模型）
+LIVEKIT_WAKEWORD_THRESHOLD=$LIVEKIT_WAKEWORD_THRESHOLD
+AUDIO_ENHANCER=$AUDIO_ENHANCER（当前可用 nlms；webrtc 为后续增强预留，会 fallback 并在 metrics 中显示）
+AEC_ENABLED=$AEC_ENABLED
+NOISE_SUPPRESSION_ENABLED=$NOISE_SUPPRESSION_ENABLED
+AUTO_GAIN_ENABLED=$AUTO_GAIN_ENABLED
+CONTINUOUS_MONITOR_ENABLED=$MONITOR_ENABLED
+CONTINUOUS_MONITOR_AUDIO_SAMPLE_LIMIT=$MONITOR_AUDIO_SAMPLE_LIMIT
+CONTINUOUS_PREFLIGHT_ENABLED=$PREFLIGHT_ENABLED
+CONTINUOUS_READINESS_ENABLED=$READINESS_ENABLED
+CONTINUOUS_READINESS_DURATION=$READINESS_DURATION
+CONTINUOUS_COMMAND_MAX_AGE=$COMMAND_MAX_AGE
+CONTINUOUS_DUPLICATE_WINDOW_S=$COMMAND_DUPLICATE_WINDOW
+GUI_ENABLED=$GUI_ENABLED
+
+EOF
+  print_launch_command
+}
+
+add_launch_arg() {
+  LAUNCH_ARGS+=("$1:=$2")
+}
+
+add_optional_launch_arg() {
+  # ROS 2 launch 会把空值参数 `name:=` 判定为 malformed argument。
+  # 因此可选模型路径/配置路径为空时直接省略，交给 launch 文件里的默认值。
+  [[ -z "$2" ]] || add_launch_arg "$1" "$2"
+}
+
+build_launch_args() {
+  LAUNCH_ARGS=(embodied_simulation voice_turtlebot3.launch.py)
+  add_launch_arg gui "$GUI_ENABLED"
+  add_launch_arg rviz false
+  add_launch_arg launch_agent true
+  add_launch_arg agent_type "$MODE"
+  add_launch_arg provider_mode "$MODE"
+  add_launch_arg microphone_enabled true
+  add_launch_arg capture_enabled true
+  add_launch_arg speaker_enabled "$SPEAKER_ENABLED"
+  add_launch_arg vad_provider "$VAD_PROVIDER"
+  add_launch_arg kws_provider "$KWS_PROVIDER"
+  add_launch_arg speech_start_threshold "$SPEECH_START_THRESHOLD"
+  add_launch_arg speech_end_silence_s "$SPEECH_END_SILENCE_S"
+  add_launch_arg min_utterance_ms "$MIN_UTTERANCE_MS"
+  add_launch_arg max_utterance_s "$MAX_UTTERANCE_S"
+  add_optional_launch_arg silero_model_path "$SILERO_VAD_MODEL_PATH"
+  add_launch_arg silero_use_onnx "$SILERO_VAD_USE_ONNX"
+  add_launch_arg silero_threshold "$SILERO_VAD_THRESHOLD"
+  add_optional_launch_arg sherpa_tokens "$SHERPA_KWS_TOKENS"
+  add_optional_launch_arg sherpa_encoder "$SHERPA_KWS_ENCODER"
+  add_optional_launch_arg sherpa_decoder "$SHERPA_KWS_DECODER"
+  add_optional_launch_arg sherpa_joiner "$SHERPA_KWS_JOINER"
+  add_optional_launch_arg sherpa_keywords_file "$SHERPA_KWS_KEYWORDS_FILE"
+  add_optional_launch_arg openwakeword_models "$OPENWAKEWORD_MODELS"
+  add_launch_arg openwakeword_threshold "$OPENWAKEWORD_THRESHOLD"
+  add_optional_launch_arg livekit_wakeword_models "$LIVEKIT_WAKEWORD_MODELS"
+  add_launch_arg livekit_wakeword_threshold "$LIVEKIT_WAKEWORD_THRESHOLD"
+  add_launch_arg wake_word_enabled "$WAKE_WORD_ENABLED"
+  add_launch_arg continuous_control_enabled true
+  add_launch_arg voice_session_timeout_s "$SESSION_TIMEOUT"
+  add_launch_arg continuous_command_queue_size "$COMMAND_QUEUE_SIZE"
+  add_launch_arg continuous_command_max_age_s "$COMMAND_MAX_AGE"
+  add_launch_arg continuous_duplicate_window_s "$COMMAND_DUPLICATE_WINDOW"
+  add_launch_arg command_normalization_enabled "$COMMAND_NORMALIZATION_ENABLED"
+  add_launch_arg command_normalization_feedback_enabled "$COMMAND_NORMALIZATION_FEEDBACK_ENABLED"
+  add_launch_arg command_normalization_fuzzy_threshold "$COMMAND_NORMALIZATION_FUZZY_THRESHOLD"
+  add_optional_launch_arg command_normalization_path "$COMMAND_NORMALIZATION_PATH"
+  add_launch_arg command_completion_enabled "$COMMAND_COMPLETION_ENABLED"
+  add_launch_arg asr_commit_delay_ms "$ASR_COMMIT_DELAY_MS"
+  add_launch_arg audio_enhancer "$AUDIO_ENHANCER"
+  add_launch_arg aec_enabled "$AEC_ENABLED"
+  add_launch_arg noise_suppression_enabled "$NOISE_SUPPRESSION_ENABLED"
+  add_launch_arg auto_gain_enabled "$AUTO_GAIN_ENABLED"
+}
+
+print_launch_command() {
+  build_launch_args
+  echo "ros2 launch \\"
+  local arg
+  for arg in "${LAUNCH_ARGS[@]}"; do
+    echo "  $arg \\"
+  done
+  echo "  # 注：空的可选模型/配置路径参数会省略，避免 ROS 2 launch 收到非法的 name:=。"
+}
+
+if [[ "$PRINT_CONFIG" == "true" ]]; then
+  print_configuration
+  exit 0
+fi
+
+if [[ "$PREFLIGHT_ENABLED" == "true" ]]; then
+  python3 "$WORKSPACE/scripts/voice_provider_preflight.py" \
+    --mode "$MODE" \
+    --vad-provider "$VAD_PROVIDER" \
+    --kws-provider "$KWS_PROVIDER" \
+    --silero-model-path "$SILERO_VAD_MODEL_PATH" \
+    --silero-use-onnx "$SILERO_VAD_USE_ONNX" \
+    --sherpa-tokens "$SHERPA_KWS_TOKENS" \
+    --sherpa-encoder "$SHERPA_KWS_ENCODER" \
+    --sherpa-decoder "$SHERPA_KWS_DECODER" \
+    --sherpa-joiner "$SHERPA_KWS_JOINER" \
+    --sherpa-keywords-file "$SHERPA_KWS_KEYWORDS_FILE" \
+    --openwakeword-models "$OPENWAKEWORD_MODELS" \
+    --livekit-wakeword-models "$LIVEKIT_WAKEWORD_MODELS"
+fi
+
+if ! pactl list short sources 2>/dev/null | grep -q .; then
+  echo "FAIL: WSL 中没有可用麦克风 source；请先检查 WSLg 音频权限。" >&2
+  exit 1
+fi
+
+SERVER_PID=""
+LAUNCH_PID=""
+MONITOR_PID=""
+cleanup() {
+  [[ -z "$LAUNCH_PID" ]] || kill -TERM -- "-$LAUNCH_PID" 2>/dev/null || true
+  [[ -z "$MONITOR_PID" ]] || kill -INT "$MONITOR_PID" 2>/dev/null || true
+  [[ -z "$SERVER_PID" ]] || kill "$SERVER_PID" 2>/dev/null || true
+  wait "$LAUNCH_PID" "$MONITOR_PID" "$SERVER_PID" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
+if [[ "$MODE" == "offline" ]] && \
+  ! curl -fsS http://127.0.0.1:8080/health >/dev/null 2>&1
+then
+  bash "$WORKSPACE/scripts/start_llama_server.sh" &
+  SERVER_PID=$!
+  for _ in $(seq 1 30); do
+    if curl -fsS http://127.0.0.1:8080/health >/dev/null 2>&1; then break; fi
+    sleep 1
+  done
+  curl -fsS http://127.0.0.1:8080/health >/dev/null || {
+    echo "FAIL: llama.cpp server 未在 30 秒内启动。" >&2
+    exit 1
+  }
+fi
+
+print_configuration
+
+build_launch_args
+setsid ros2 launch "${LAUNCH_ARGS[@]}" &
+LAUNCH_PID=$!
+if [[ "$MONITOR_ENABLED" == "true" ]]; then
+  python3 "$WORKSPACE/scripts/continuous_voice_monitor.py" \
+    --audio-sample-limit "$MONITOR_AUDIO_SAMPLE_LIMIT" &
+  MONITOR_PID=$!
+fi
+
+if [[ "$READINESS_ENABLED" == "true" ]]; then
+  readiness_args=(--duration "$READINESS_DURATION")
+  if [[ "$KWS_PROVIDER" == "sherpa" || "$KWS_PROVIDER" == "openwakeword" || "$KWS_PROVIDER" == "livekit" ]]; then
+    readiness_args+=(--require-kws)
+  fi
+  echo
+  echo "正在进行连续语音 readiness check（${READINESS_DURATION}s），请保持麦克风环境接近演示现场..."
+  if python3 "$WORKSPACE/scripts/voice_control_readiness_check.py" "${readiness_args[@]}"; then
+    echo "系统已就绪，可以开始说：小智"
+  else
+    echo "WARN: readiness check 未完全通过；仍继续运行。建议按顺序检查：麦克风 source、SPEECH_START_THRESHOLD、VOICE_CONTROL_PROFILE=noisy_room/quiet，以及可选 KWS 模型路径。" >&2
+  fi
+fi
+
+wait "$LAUNCH_PID"

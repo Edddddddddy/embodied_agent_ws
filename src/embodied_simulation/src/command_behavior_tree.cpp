@@ -32,8 +32,20 @@ bool valid_command(const RobotCommand & command)
            command.mode == "obstacle_avoidance" ||
            command.mode == "wall_following";
   }
+  if (command.action_type == RobotCommand::WAVE) {
+    return command.count >= 1 && command.count <= 5;
+  }
+  if (command.action_type == RobotCommand::SET_LED) {
+    return command.color == "off" ||
+           command.color == "red" ||
+           command.color == "green" ||
+           command.color == "blue" ||
+           command.color == "yellow" ||
+           command.color == "white";
+  }
   if (command.action_type == RobotCommand::MOVE) {
     return std::isfinite(command.linear_x) &&
+           std::isfinite(command.angular_z) &&
            std::isfinite(command.duration_s) &&
            command.duration_s >= 0.0 && command.duration_s <= 10.0;
   }
@@ -183,6 +195,8 @@ public:
     blackboard_->set(kSafetyBlockedKey, safety_blocked);
     blackboard_->set(kExecutionStateKey, execution_state);
     blackboard_->set(kDetailKey, detail);
+    // 每个控制周期只 tick 一次，让“安全检查、执行状态、结果确认”保持可观测。
+    // 这样比在一个回调里写死 if/else 更容易替换成复杂 BT XML。
     const auto status = tree_->tickOnce();
     auto outcome = blackboard_->get<CommandTreeOutcome>(kOutcomeKey);
     if (status == BT::NodeStatus::FAILURE && outcome == CommandTreeOutcome::kRunning) {

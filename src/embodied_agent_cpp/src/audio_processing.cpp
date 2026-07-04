@@ -8,6 +8,28 @@
 namespace embodied_agent_cpp
 {
 
+AudioFrameMetrics compute_audio_frame_metrics(
+  const std::vector<int16_t> & samples,
+  double speech_threshold)
+{
+  AudioFrameMetrics metrics;
+  if (samples.empty()) {
+    return metrics;
+  }
+  double squared_sum = 0.0;
+  int peak = 0;
+  for (const int16_t sample : samples) {
+    const int magnitude = std::abs(static_cast<int>(sample));
+    peak = std::max(peak, magnitude);
+    const double normalized = static_cast<double>(sample) / 32768.0;
+    squared_sum += normalized * normalized;
+  }
+  metrics.rms = std::sqrt(squared_sum / static_cast<double>(samples.size()));
+  metrics.peak = static_cast<int16_t>(std::min(peak, 32767));
+  metrics.speech = metrics.rms >= speech_threshold;
+  return metrics;
+}
+
 EnergyVad::EnergyVad(double threshold)
 : threshold_(threshold)
 {
@@ -64,6 +86,75 @@ void SilenceDetector::reset()
   silence_seconds_ = 0.0;
   heard_speech_ = false;
   emitted_ = false;
+}
+
+SpeechEndpointDetector::SpeechEndpointDetector(
+  double end_silence_seconds,
+  double min_utterance_seconds,
+  double max_utterance_seconds)
+: end_silence_seconds_(end_silence_seconds),
+  min_utterance_seconds_(min_utterance_seconds),
+  max_utterance_seconds_(max_utterance_seconds)
+{
+  if (end_silence_seconds_ <= 0.0) {
+    throw std::invalid_argument("speech end silence must be positive");
+  }
+  if (min_utterance_seconds_ < 0.0) {
+    throw std::invalid_argument("minimum utterance duration must be non-negative");
+  }
+  if (max_utterance_seconds_ <= 0.0) {
+    throw std::invalid_argument("maximum utterance duration must be positive");
+  }
+}
+
+SpeechEndpointEvent SpeechEndpointDetector::update(bool speech, double frame_seconds)
+{
+  if (frame_seconds <= 0.0) {
+    return {};
+  }
+
+  SpeechEndpointEvent event;
+  if (speech) {
+    if (!in_utterance_) {
+      in_utterance_ = true;
+      event.speech_started = true;
+    }
+    speech_seconds_ += frame_seconds;
+    silence_seconds_ = 0.0;
+    if (speech_seconds_ + 1e-9 >= max_utterance_seconds_) {
+      const auto finished = finish(SpeechEndpointReason::kMaxDuration);
+      event.speech_ended = finished.speech_ended;
+      event.end_reason = finished.end_reason;
+    }
+    return event;
+  }
+
+  if (!in_utterance_) {
+    return event;
+  }
+
+  silence_seconds_ += frame_seconds;
+  if (silence_seconds_ + 1e-9 < end_silence_seconds_) {
+    return event;
+  }
+  return finish(SpeechEndpointReason::kSilence);
+}
+
+void SpeechEndpointDetector::reset()
+{
+  speech_seconds_ = 0.0;
+  silence_seconds_ = 0.0;
+  in_utterance_ = false;
+}
+
+SpeechEndpointEvent SpeechEndpointDetector::finish(SpeechEndpointReason reason)
+{
+  const bool long_enough = speech_seconds_ + 1e-9 >= min_utterance_seconds_;
+  reset();
+  if (!long_enough) {
+    return {};
+  }
+  return SpeechEndpointEvent{false, true, reason};
 }
 
 NlmsEchoCanceller::NlmsEchoCanceller(
@@ -172,5 +263,37 @@ std::vector<int16_t> NlmsEchoCanceller::resample_reference(
   return output;
 }
 
-}  // namespace embodied_agent_cpp
+NlmsAudioEnhancer::NlmsAudioEnhancer(const AudioEnhancerConfig & config)
+: aec_enabled_(config.aec_enabled),
+  echo_canceller_(
+    config.microphone_rate,
+    config.reference_rate,
+    config.aec_taps,
+    config.aec_step,
+    config.aec_delay_ms)
+{
+}
 
+void NlmsAudioEnhancer::add_reference(const std::vector<int16_t> & samples)
+{
+  if (!aec_enabled_) {
+    return;
+  }
+  echo_canceller_.add_reference(samples);
+}
+
+std::vector<int16_t> NlmsAudioEnhancer::process(
+  const std::vector<int16_t> & microphone_samples)
+{
+  if (!aec_enabled_) {
+    return microphone_samples;
+  }
+  return echo_canceller_.process(microphone_samples);
+}
+
+void NlmsAudioEnhancer::reset()
+{
+  echo_canceller_.reset();
+}
+
+}  // namespace embodied_agent_cpp

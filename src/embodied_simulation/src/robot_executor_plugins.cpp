@@ -26,8 +26,9 @@ public:
       return false;
     }
     if (command.action_type == RobotCommand::MOVE) {
+      // MOVE 同时支持 linear_x 与 angular_z，因此“绕圈/画圆”无需新增接口字段。
       controller_->set_manual_command(
-        command.linear_x, 0.0, command.duration_s, now_s);
+        command.linear_x, command.angular_z, command.duration_s, now_s);
       return true;
     }
     if (command.action_type == RobotCommand::TURN) {
@@ -41,6 +42,13 @@ public:
     }
     if (command.action_type == RobotCommand::SET_MODE) {
       return controller_->set_mode(command.mode);
+    }
+    if (command.action_type == RobotCommand::WAVE ||
+      command.action_type == RobotCommand::SET_LED)
+    {
+      // 仿真环境没有真实机械臂/灯带，这类附件动作只 ACK 并停车，保留接口可演示扩展点。
+      controller_->stop();
+      return true;
     }
     return false;
   }
@@ -97,7 +105,8 @@ public:
       mode_ = ControlMode::kManual;
       velocity_.linear_x = std::clamp(
         command.linear_x, -config_.max_linear_speed, config_.max_linear_speed);
-      velocity_.angular_z = 0.0;
+      velocity_.angular_z = std::clamp(
+        command.angular_z, -config_.max_angular_speed, config_.max_angular_speed);
       active_until_s_ = now_s + std::clamp(command.duration_s, 0.0, 10.0);
       return true;
     }
@@ -124,6 +133,13 @@ public:
         return false;
       }
       velocity_ = {};
+      return true;
+    }
+    if (command.action_type == RobotCommand::WAVE ||
+      command.action_type == RobotCommand::SET_LED)
+    {
+      velocity_ = {};
+      active_until_s_ = now_s;
       return true;
     }
     return false;

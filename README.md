@@ -2,161 +2,286 @@
 
 [![ROS 2 CI](https://github.com/Edddddddddy/embodied_agent_ws/actions/workflows/ros2-ci.yml/badge.svg)](https://github.com/Edddddddddy/embodied_agent_ws/actions/workflows/ros2-ci.yml)
 
-面向 TurtleBot3 与端侧机器人的在线/离线语音控制系统：从麦克风、流式 ASR、LLM
-动作解析，一直到 C++ 安全仲裁、Gazebo 仿真或 UART/SPI 硬件输出。
+这是一个面向 ROS 2 / C++ 求职展示的具身智能语音交互项目。项目目标是打通：
 
-> 当前定位是“可复现的工程原型”：优先保证 `move / turn / stop` 的完整链路，
-> 不追求复杂导航行为。目标环境为 Ubuntu 24.04、ROS 2 Jazzy、Python 3.12、C++17。
+```text
+真实/模拟语音输入 → ASR → 在线/离线 Agent → 动作解析 → ActionGuard → ROS 2 Action → Gazebo/TurtleBot3 仿真控制
+```
 
-## 能做什么
+当前项目以 Gazebo 仿真为主要验收平台，真实 UART/SPI 硬件控制保留为 mock/预留接口，不宣称已完成真实硬件闭环。
 
-- 在线链路：Qwen 实时 ASR、流式 LLM、实时 TTS，支持预热、记忆和延迟指标。
-- 离线链路：sherpa-onnx ZipFormer、Qwen3-0.6B Q8/llama.cpp、Sherpa-TTS。
-- 声学前端：C++ PortAudio、NLMS AEC、VAD、0.4 秒静音断句。
-- 识别恢复：热词偏置、唤醒别名、失败反馈和持续重试。
-- 动作安全：结构化动作、C++ schema 校验、限幅、急停和 watchdog。
-- 生命周期：Guard 与仿真执行器采用 C++ LifecycleNode，由 Nav2 manager 有序激活。
-- 行为编排：BehaviorTree.CPP XML 执行验证、安全检查、异步动作与结果确认。
-- 执行插件：pluginlib 按参数切换 Gazebo 与无仿真的 mock executor。
-- 组件化部署：同一 C++ 控制实现支持独立进程和 ROS 2 component container。
-- 可观测性：标准 diagnostics 报告生命周期、执行后端、动作与安全停车状态。
-- 多机器人隔离：执行链使用相对 ROS 名称，可整体放入 `namespace`。
-- 控制后端：TurtleBot3 Gazebo、UART、SPI 和无硬件 mock。
-- 自动验收：单元测试、ROS 冒烟、云模型、离线模型和 Gazebo 物理位移验证。
+## 当前能力
 
-## 数据流
+- 在线 Agent：接入 DashScope/Qwen 兼容链路，支持在线 ASR、LLM、TTS 和流式响应。
+- 离线 Agent：预留 Sherpa-onnx ZipFormer ASR、llama.cpp、Sherpa-TTS 链路，支持 mock 和真实模型验收入口。
+- 连续语音控制：一次“小智”唤醒后，可连续说多条命令；命令排队执行，`停下/急停` 可抢占。
+- 识别鲁棒性：支持唤醒词别名、轻量 NLU 多命令识别、模糊命令归一化、短命令补全、重复 ASR final 过滤、语气词过滤、会话超时。
+- ROS 2 工程化：自定义 msg/action、C++ ActionGuard、typed action bridge、Lifecycle、BehaviorTree.CPP、pluginlib executor。
+- 仿真动作：前进、后退、左转、右转、停止、原地转圈、绕圈、走正方形、演示动作序列。
+- 验收脚本：提供 mock、在线、离线、Gazebo、真实麦克风连续控制等多层验收入口。
+
+## 系统链路
 
 ```mermaid
 flowchart LR
-  Mic["麦克风 PCM16"] --> Audio["C++ AEC / VAD / 0.4s 断句"]
-  Audio --> ASR["在线 Qwen ASR<br/>或离线 ZipFormer"]
-  ASR --> Wake["唤醒、热词与重试"]
-  Wake --> LLM["流式 LLM"]
-  LLM --> Parser["speech/action 增量解析"]
-  Parser --> TTS["在线或离线 TTS"]
-  Parser --> Guard["C++ ActionGuard"]
-  Guard --> BT["BehaviorTree.CPP<br/>Validate / Safety / Execute / Confirm"]
-  BT --> Sim["Gazebo /cmd_vel"]
-  Guard --> HW["UART / SPI"]
-  TTS --> Speaker["C++ 播放队列"]
+  Mic["麦克风 / mock 文本"] --> Audio["C++ audio_frontend\nVAD / endpoint / clean_pcm"]
+  Audio --> ASR["在线 Qwen ASR\n或离线 Sherpa ASR"]
+  ASR --> Gate["Wake / Session Gate\n去重、语气词过滤、超时"]
+  Gate --> Queue["连续命令队列\n普通命令 FIFO\n急停抢占"]
+  Queue --> Agent["在线/离线 Agent\n轻量 NLU + LLM fallback\n短命令补全"]
+  Agent --> Guard["C++ ActionGuard\nJSON 校验、限幅、强类型转换"]
+  Guard --> Bridge["Typed Action Bridge\nRobotCommand → ROS 2 Action"]
+  Bridge --> Sim["Simulation Executor\nBT + pluginlib + /cmd_vel"]
+  Sim --> Gazebo["Gazebo / TurtleBot3"]
 ```
-
-Python 负责模型 SDK、文本协议和对话编排；C++ 负责实时音频、动作安全、仿真控制
-和硬件传输。两侧只通过 ROS 2 话题连接。
-
-## 五分钟运行
-
-```bash
-cd /home/ubuntu/embodied_agent_ws
-bash scripts/bootstrap.sh
-source scripts/activate.sh
-
-# 无密钥、无麦克风验证主链路
-bash scripts/smoke_test.sh
-
-# mock Agent 驱动 Gazebo（无需麦克风和模型）
-ros2 launch embodied_simulation voice_turtlebot3.launch.py \
-  provider_mode:=mock microphone_enabled:=false speaker_enabled:=false
-```
-
-真实麦克风控制仿真：
-
-```bash
-# 离线；首次需执行 scripts/setup_offline_runtime.sh
-bash scripts/accept_voice_simulation_microphone.sh offline
-
-# 在线；先按 .env.example 配置 DashScope
-bash scripts/accept_voice_simulation_microphone.sh online
-```
-
-识别失败时终端会显示重试次数并继续监听，不需要重新启动节点。启用唤醒词验收：
-
-```bash
-WAKE_WORD_ENABLED=true \
-  bash scripts/accept_voice_simulation_microphone.sh offline
-```
-
-## 验收入口
-
-```bash
-bash scripts/acceptance_test.sh mock     # 单元/结构测试及无模型全链
-bash scripts/acceptance_test.sh online   # 少量云 API 调用
-bash scripts/acceptance_test.sh offline  # 本地模型、语音和性能
-bash scripts/acceptance_test.sh gazebo   # Gazebo 可信动作与里程计
-bash scripts/acceptance_test.sh gazebo-voice  # 离线语音模型直达 Gazebo
-bash scripts/acceptance_test.sh all      # 全部自动 release gates（不含真人麦克风）
-```
-
-查看所有自动与交互式模式：`bash scripts/acceptance_test.sh --help`。真人麦克风验收也可
-统一使用 `microphone-offline` 或 `microphone-online` 模式。
-
-性能数字是验收目标而不是硬编码承诺。当前实测、限制和复现方法见
-[测试与验收](docs/TESTING_AND_ACCEPTANCE.md)。
-
-仿真 launch 默认使用新的强类型 ROS 2 Action 链：
-
-```bash
-ros2 launch embodied_simulation voice_turtlebot3.launch.py \
-  provider_mode:=mock use_typed_actions:=true
-```
-
-排查兼容问题时可临时传入 `use_typed_actions:=false` 回到旧 JSON topic 执行路径。
-launch 默认 `lifecycle_autostart:=true`；调试启动顺序时可设为 `false`，再使用
-`ros2 lifecycle set /<node> configure|activate` 手工转换状态。
-
-不启动 Gazebo 验证同一 Action/BT 链的 executor 插件切换：
-
-```bash
-bash scripts/smoke_test_mock_executor.sh
-bash scripts/smoke_test_composed_executor.sh
-bash scripts/smoke_test_namespaced_executor.sh
-```
-
-launch 参数 `executor_plugin` 默认为
-`embodied_simulation/GazeboRobotExecutor`，也可选择
-`embodied_simulation/MockRobotExecutor`。
-`simulation_control.launch.py` 可通过 `use_composition:=true` 改为组件容器，通过
-`namespace:=robot1` 隔离整条执行链；两者可同时使用。
-
-## 当前自动验收结论
-
-2026-07-02 在当前 WSL 环境完成了 mock、在线、离线、Gazebo，以及在线/离线语音→Gazebo 验收：
-130 项 colcon 测试与 2 项仓库约束测试零失败；在线热启动 LLM 首 token 350–384 ms、
-TTS 首音频 222–242 ms；离线
-Q8 CPU decode 34.10 token/s、语音全链 2.313 s；typed Action/BT 驱动 Gazebo 位移
-0.330 m，在线语音 typed 闭环位移 0.163 m。原始 0.6B 模型动作准确率仅 2/8，fallback 后为 7/8，因此 LoRA 仍明确标记为
-未完成，不能用 fallback 成绩冒充模型成绩。完整证据见[测试与验收](docs/TESTING_AND_ACCEPTANCE.md)。
 
 ## 项目结构
 
 ```text
-src/
-  embodied_agent_interfaces/ ROS 2 强类型 RobotCommand 与 ExecuteRobotCommand Action
-  embodied_agent_cpp/       C++ 音频、ActionGuard、UART/SPI
-  embodied_online_agent/    在线 ASR/LLM/TTS 与公共对话模块
-  embodied_offline_agent/   ZipFormer、llama.cpp、Sherpa-TTS、双缓冲
-  embodied_simulation/      TurtleBot3 控制、雷达安全和 Gazebo launch
-scripts/                    安装、启动、基准和分层验收入口
-tests/integration/          ROS graph 黑盒探针，由 smoke runner 启动
-tests/repository/           仓库结构与交付约束
-training/                   LoRA 种子数据与 LLaMA-Factory 配置（尚未训练）
-docs/                       三份维护文档
+embodied_agent_ws/
+├── src/
+│   ├── embodied_agent_interfaces/   # RobotCommand.msg 与 ExecuteRobotCommand.action
+│   ├── embodied_agent_cpp/          # C++ 音频前端、ActionGuard、Action bridge、硬件 mock
+│   ├── embodied_online_agent/       # 在线 Agent、Qwen ASR/LLM/TTS、连续语音控制
+│   ├── embodied_offline_agent/      # 离线 Agent、Sherpa/llama.cpp/Sherpa-TTS 适配
+│   └── embodied_simulation/         # Gazebo/TurtleBot3 执行器、BehaviorTree、pluginlib
+├── scripts/                         # 一键验收、连续语音、校准、smoke test
+├── tests/                           # repository / integration 测试
+├── docs/
+│   ├── ARCHITECTURE_AND_KNOWLEDGE.md
+│   ├── TESTING_AND_ACCEPTANCE.md
+│   ├── LEARNING_NOTES.md
+│   └── CHANGELOG_AND_ROADMAP.md
+└── README.md
 ```
 
-## 文档
+## 环境准备
 
-- [架构与知识笔记](docs/ARCHITECTURE_AND_KNOWLEDGE.md)：模块、关键代码、话题和设计原理。
-- [测试与验收](docs/TESTING_AND_ACCEPTANCE.md)：命令、测试矩阵、指标和故障定位。
-- [版本记录与路线图](docs/CHANGELOG_AND_ROADMAP.md)：迭代历史、完成度、竞品对比和下一步。
-- [测试目录说明](tests/README.md)：单元、集成和仓库约束如何分层。
-- [贡献指南](CONTRIBUTING.md)：修改原则、提交前检查和 executor 扩展要求。
+项目默认运行在 WSL Ubuntu 24.04 + ROS 2 环境中。
+
+```bash
+cd /home/ubuntu/embodied_agent_ws
+source scripts/activate.sh
+colcon build --symlink-install
+source install/setup.bash
+```
+
+如果是第一次部署，建议先运行 bootstrap：
+
+```bash
+bash scripts/bootstrap.sh
+```
+
+在线模式需要配置 DashScope API Key：
+
+```bash
+cp .env.example .env
+# 编辑 .env，填入 DASHSCOPE_API_KEY
+```
+
+离线真实模型模式需要额外准备 Sherpa-onnx、llama.cpp server、Sherpa-TTS 模型。无模型时仍可使用 mock/offline smoke 验证工程链路。
+
+```bash
+bash scripts/setup_offline_runtime.sh
+```
+
+## 五分钟跑通主链路
+
+无密钥、无麦克风、无真实模型的主链路验收：
+
+```bash
+bash scripts/acceptance_test.sh mock
+```
+
+Gazebo 仿真链路：
+
+```bash
+bash scripts/acceptance_test.sh gazebo
+```
+
+在线接口最小 token 验证：
+
+```bash
+bash scripts/acceptance_test.sh online
+```
+
+离线真实模型链路：
+
+```bash
+bash scripts/acceptance_test.sh offline
+```
+
+查看所有验收模式：
+
+```bash
+bash scripts/acceptance_test.sh --help
+```
+
+日常开发最小回归：
+
+```bash
+bash scripts/acceptance_test.sh core
+```
+
+`core` 只跑仓库结构检查、Python Agent 单元测试和 C++/仿真 GTest；`mock`
+会进一步启动依赖 mock 的 ROS smoke 链路，更适合提交前验收。
+
+## 真实麦克风连续语音控制
+
+离线优先，适合现场演示：
+
+```bash
+bash scripts/acceptance_test.sh continuous-offline
+```
+
+在线模式：
+
+```bash
+bash scripts/acceptance_test.sh continuous-online
+```
+
+推荐话术：
+
+```text
+小智
+向前走一秒
+左转九十度
+后退一秒
+绕圈
+走正方形
+停下
+退出控制
+```
+
+另开一个终端做人工验收统计：
+
+```bash
+bash scripts/acceptance_test.sh continuous-live-check offline
+# 或
+bash scripts/acceptance_test.sh continuous-live-check online
+```
+
+通过标准：
+
+- 终端持续打印 `[session] / [asr] / [queue] / [exec] / [action] / [result]`。
+- 一次唤醒后能连续识别多条命令。
+- 机器人在 Gazebo 中连续执行动作。
+- busy 时后续命令进入队列，而不是静默丢失。
+- `停下/急停` 能抢占并清队列。
+- `退出控制` 后 session 进入 sleeping。
+- 最终 `/cmd_vel` 归零。
+
+## 语音识别调参
+
+连续语音默认偏向“完整优先”，减少“左转90度”只识别成“左转”的尾部漏识别：
+
+- `SPEECH_END_SILENCE_S`：VAD 判定一句话结束前等待的静音时长。
+- `ASR_COMMIT_DELAY_MS`：收到 `/audio/speech_ended` 后，Agent 再延迟提交 ASR final 的时间。
+- `VOICE_CONTROL_PROFILE`：`quiet`、`normal`、`noisy_room` 三种预设。
+
+示例：
+
+```bash
+VOICE_CONTROL_PROFILE=noisy_room bash scripts/acceptance_test.sh continuous-offline
+ASR_COMMIT_DELAY_MS=500 bash scripts/acceptance_test.sh continuous-offline
+```
+
+如果 ASR 仍然只输出“左转/前进”，命令补全层会按演示默认语义执行：
+
+- `前进 / 向前 / 往前` → `前进一秒`
+- `后退 / 向后 / 往后` → `后退一秒`
+- `左转 / 向左转` → `左转九十度`
+- `右转 / 向右转` → `右转九十度`
+
+## 常用验收命令
+
+```bash
+# 仓库结构与 CLI 入口
+pytest -q tests/repository
+bash tests/integration/test_acceptance_cli.sh
+
+# 连续语音 mock / endpoint / queue
+bash scripts/acceptance_test.sh continuous-endpoint
+bash scripts/acceptance_test.sh continuous-mock
+bash scripts/acceptance_test.sh continuous-multi-command
+bash scripts/acceptance_test.sh continuous-queue-full
+bash scripts/acceptance_test.sh voice-readiness
+
+# Gazebo 语音到仿真运动
+bash scripts/acceptance_test.sh gazebo-voice
+bash scripts/acceptance_test.sh gazebo-voice-online
+```
+
+完整 release gate：
+
+```bash
+bash scripts/acceptance_test.sh all
+```
+
+`all` 不包含需要人工说话的 microphone/continuous interactive 模式。
+
+## 常见问题
+
+### ASR 没输出
+
+先检查麦克风和 VAD：
+
+```bash
+bash scripts/acceptance_test.sh voice-readiness
+python scripts/audio_frontend_calibration.py --duration 6
+```
+
+如果环境噪声大，尝试：
+
+```bash
+VOICE_CONTROL_PROFILE=noisy_room bash scripts/acceptance_test.sh continuous-offline
+```
+
+### 识别到“左转/前进”但漏掉数字
+
+优先调大：
+
+```bash
+SPEECH_END_SILENCE_S=0.85 ASR_COMMIT_DELAY_MS=500 bash scripts/acceptance_test.sh continuous-offline
+```
+
+同时观察 monitor 是否出现 `completed_missing_slot`，出现则说明短命令补全已生效。
+
+### 正确 ASR 后没有动作
+
+观察这些 topic：
+
+```bash
+ros2 topic echo /agent/action_candidate
+ros2 topic echo /robot/action_command_typed
+ros2 topic echo /robot/action_result
+ros2 topic echo /cmd_vel
+```
+
+如果 `/agent/action_candidate` 有输出但 `/robot/action_result` 没有，重点检查 ActionGuard、typed action bridge 和 simulation executor 是否已启动。
+
+### 在线模式失败
+
+检查 `.env`：
+
+```bash
+grep DASHSCOPE_API_KEY .env
+bash scripts/acceptance_test.sh online
+```
+
+在线真实麦克风受网络、云端 ASR 波动影响更大；现场演示优先使用 `continuous-offline`。
+
+## 文档索引
+
+- [架构与模块说明](docs/ARCHITECTURE_AND_KNOWLEDGE.md)
+- [测试与验收手册](docs/TESTING_AND_ACCEPTANCE.md)
+- [学习笔记：关键技术点与设计取舍](docs/LEARNING_NOTES.md)
+- [版本记录与路线图](docs/CHANGELOG_AND_ROADMAP.md)
+- [Codex WSL + PowerShell 开发 Skill](docs/CODEX_WSL_POWERSHELL_SKILL.md)
 
 ## 当前边界
 
-- LoRA 配置和数据已准备，但尚未训练，不能宣称 85% 模型指令遵循率。
-- Q8 相对 FP16 通常约压缩一半，不能写成“压缩至 25%”而没有实测基线。
-- 合成语音下短唤醒词仍可能误识别；生产环境应接 sherpa-onnx 独立 KWS。
-- AEC、P95 延迟和 UART/SPI 仍需在目标机器人硬件上验收。
-
-项目采用 [Apache License 2.0](LICENSE)，GitHub Actions 运行仓库约束及 ROS 2 Jazzy
-build/test；本地 release gate 继续负责需要模型、云 API、Gazebo 与真人麦克风的链路。
+- 当前验收平台是 Gazebo/TurtleBot3 仿真，不是实体机器人。
+- 离线 LoRA 训练数据集和真实训练流程有接口与说明，训练本身不是当前主线交付内容。
+- openWakeWord、LiveKit WakeWord、Silero VAD 保留 seam/preflight/smoke，默认链路仍以 energy VAD + 当前 ASR 为主。
+- 复杂导航、地图构建、目标点规划不是本阶段目标；当前重点是语音到动作到仿真控制的端到端链路。

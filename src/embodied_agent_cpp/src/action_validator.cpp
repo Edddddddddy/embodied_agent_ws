@@ -29,6 +29,10 @@ ValidationResult ActionValidator::validate(const std::string & serialized_comman
     result.error = "action arguments must be an object";
     return result;
   }
+  if (command.contains("request_id") && !command["request_id"].is_string()) {
+    result.error = "request_id must be a string";
+    return result;
+  }
 
   const std::string name = command["name"];
   auto & arguments = command["arguments"];
@@ -36,14 +40,24 @@ ValidationResult ActionValidator::validate(const std::string & serialized_comman
     if (!require_exact_keys(arguments, {}, result.error)) {
       return result;
     }
-  } else if (name == "move") {
-    if (!require_exact_keys(arguments, {"linear_x", "duration_s"}, result.error) ||
+  } else if (name == "move" || name == "arc") {
+    const bool curved_move = arguments.contains("angular_z") || name == "arc";
+    if (!require_exact_keys(
+        arguments,
+        curved_move ? std::initializer_list<const char *>{"linear_x", "angular_z", "duration_s"} :
+        std::initializer_list<const char *>{"linear_x", "duration_s"},
+        result.error) ||
       !require_number(arguments, "linear_x", result.error) ||
+      (curved_move && !require_number(arguments, "angular_z", result.error)) ||
       !require_number(arguments, "duration_s", result.error))
     {
       return result;
     }
+    command["name"] = "move";
     arguments["linear_x"] = clamp(arguments["linear_x"].get<double>(), -0.5, 0.5);
+    if (curved_move) {
+      arguments["angular_z"] = clamp(arguments["angular_z"].get<double>(), -1.5, 1.5);
+    }
     arguments["duration_s"] = clamp(arguments["duration_s"].get<double>(), 0.0, 10.0);
   } else if (name == "turn") {
     if (!require_exact_keys(arguments, {"angular_z", "duration_s"}, result.error) ||
