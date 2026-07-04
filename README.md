@@ -113,6 +113,8 @@ CONTINUOUS_PRINT_CONFIG=true \
 长时间开麦时常见的“嗯/啊/哦/呃”等短语气词会在会话层忽略，同一句 ASR final 在短窗口内
 重复出现也会去重，并通过 monitor 输出 `[ignore] filler ...` 或
 `[ignore] duplicate_command ...`，减少真实麦克风抖动造成的误排队；
+去重窗口默认 1.2 秒，可用 `CONTINUOUS_DUPLICATE_WINDOW_S=0.6` 缩短，
+也可在 ASR 连续重复更明显时适当调大；
 `停下/急停` 会清空等待队列、取消正在等待结果的组合动作，并立即发布 `stop`；
 `退出控制/休眠/结束控制` 会关闭会话，同时发布安全 `stop`，后续命令必须重新唤醒。
 普通命令若在队列中等待超过 `continuous_command_max_age_s`（默认 30 秒）会自动过期跳过，
@@ -123,7 +125,8 @@ CONTINUOUS_PRINT_CONFIG=true \
 `VOICE_CONTROL_PROFILE` 提供 `normal`、`quiet`、`noisy_room` 三档现场预设：
 `quiet` 更灵敏、会话窗口更长，适合安静近讲；`noisy_room` 会提高 VAD 起始阈值、
 延长静音断句、缩短旧命令寿命并降低队列容量，适合嘈杂房间里避免误触发堆积。
-显式设置的 `SPEECH_START_THRESHOLD`、`CONTINUOUS_COMMAND_QUEUE_SIZE` 等环境变量
+显式设置的 `SPEECH_START_THRESHOLD`、`CONTINUOUS_COMMAND_QUEUE_SIZE`、
+`CONTINUOUS_DUPLICATE_WINDOW_S` 等环境变量
 优先级高于 preset。
 `continuous_voice_control.sh` 默认在 launch 后运行一次 3 秒 readiness check，
 采样 `/audio/frontend_metrics`（若使用 sherpa/openwakeword/livekit KWS 还会要求

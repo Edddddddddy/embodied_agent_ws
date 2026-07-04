@@ -45,6 +45,7 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
             "CONTINUOUS_READINESS_ENABLED": "true",
             "CONTINUOUS_READINESS_DURATION": "3.5",
             "CONTINUOUS_COMMAND_QUEUE_SIZE": "12",
+            "CONTINUOUS_DUPLICATE_WINDOW_S": "2.4",
             "COMMAND_NORMALIZATION_ENABLED": "true",
             "COMMAND_NORMALIZATION_FEEDBACK_ENABLED": "false",
             "COMMAND_NORMALIZATION_FUZZY_THRESHOLD": "0.77",
@@ -86,6 +87,7 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
     assert "CONTINUOUS_READINESS_ENABLED=true" in result.stdout
     assert "CONTINUOUS_READINESS_DURATION=3.5" in result.stdout
     assert "CONTINUOUS_COMMAND_QUEUE_SIZE=12" in result.stdout
+    assert "CONTINUOUS_DUPLICATE_WINDOW_S=2.4" in result.stdout
     assert "COMMAND_NORMALIZATION_ENABLED=true" in result.stdout
     assert "COMMAND_NORMALIZATION_FEEDBACK_ENABLED=false" in result.stdout
     assert "COMMAND_NORMALIZATION_FUZZY_THRESHOLD=0.77" in result.stdout
@@ -99,6 +101,7 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
     assert "silero_use_onnx:=true" in result.stdout
     assert "silero_threshold:=0.61" in result.stdout
     assert "continuous_command_queue_size:=12" in result.stdout
+    assert "continuous_duplicate_window_s:=2.4" in result.stdout
     assert "command_normalization_enabled:=true" in result.stdout
     assert "command_normalization_feedback_enabled:=false" in result.stdout
     assert "command_normalization_fuzzy_threshold:=0.77" in result.stdout
@@ -151,6 +154,7 @@ def test_continuous_voice_control_manual_env_overrides_profile():
             "VOICE_CONTROL_PROFILE": "noisy_room",
             "SPEECH_START_THRESHOLD": "0.031",
             "CONTINUOUS_COMMAND_QUEUE_SIZE": "9",
+            "CONTINUOUS_DUPLICATE_WINDOW_S": "0.6",
         }
     )
 
@@ -166,8 +170,10 @@ def test_continuous_voice_control_manual_env_overrides_profile():
     assert "VOICE_CONTROL_PROFILE=noisy_room" in result.stdout
     assert "SPEECH_START_THRESHOLD=0.031" in result.stdout
     assert "CONTINUOUS_COMMAND_QUEUE_SIZE=9" in result.stdout
+    assert "CONTINUOUS_DUPLICATE_WINDOW_S=0.6" in result.stdout
     assert "speech_start_threshold:=0.031" in result.stdout
     assert "continuous_command_queue_size:=9" in result.stdout
+    assert "continuous_duplicate_window_s:=0.6" in result.stdout
 
 
 def test_continuous_voice_control_rejects_unknown_profile():
@@ -214,6 +220,7 @@ def test_voice_launches_expose_audio_enhancer_arguments():
         assert "silero_use_onnx" in content, path
         assert "silero_threshold" in content, path
         assert "continuous_command_queue_size" in content, path
+        assert "continuous_duplicate_window_s" in content, path
         assert "command_normalization_enabled" in content, path
         assert "command_normalization_feedback_enabled" in content, path
         assert "command_normalization_fuzzy_threshold" in content, path

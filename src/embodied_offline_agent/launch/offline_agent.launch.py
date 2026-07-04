@@ -42,6 +42,7 @@ def generate_launch_description():
     voice_session_timeout_s = LaunchConfiguration("voice_session_timeout_s")
     continuous_command_queue_size = LaunchConfiguration("continuous_command_queue_size")
     continuous_command_max_age_s = LaunchConfiguration("continuous_command_max_age_s")
+    continuous_duplicate_window_s = LaunchConfiguration("continuous_duplicate_window_s")
     command_normalization_enabled = LaunchConfiguration("command_normalization_enabled")
     command_normalization_feedback_enabled = LaunchConfiguration(
         "command_normalization_feedback_enabled"
@@ -89,6 +90,7 @@ def generate_launch_description():
         DeclareLaunchArgument("voice_session_timeout_s", default_value="60.0"),
         DeclareLaunchArgument("continuous_command_queue_size", default_value="8"),
         DeclareLaunchArgument("continuous_command_max_age_s", default_value="30.0"),
+        DeclareLaunchArgument("continuous_duplicate_window_s", default_value="1.2"),
         DeclareLaunchArgument("command_normalization_enabled", default_value="true"),
         DeclareLaunchArgument(
             "command_normalization_feedback_enabled", default_value="true"
@@ -123,6 +125,9 @@ def generate_launch_description():
                 ),
                 "continuous_command_max_age_s": ParameterValue(
                     continuous_command_max_age_s, value_type=float
+                ),
+                "continuous_duplicate_window_s": ParameterValue(
+                    continuous_duplicate_window_s, value_type=float
                 ),
                 "command_normalization_enabled": ParameterValue(
                     command_normalization_enabled, value_type=bool

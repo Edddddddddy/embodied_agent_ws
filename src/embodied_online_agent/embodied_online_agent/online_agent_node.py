@@ -58,7 +58,9 @@ class OnlineAgentNode(Node):
             ),
         )
         self.voice_session = ContinuousVoiceSession(
-            self.wake_gate, enabled=self._continuous_enabled
+            self.wake_gate,
+            enabled=self._continuous_enabled,
+            duplicate_window_s=float(self._param("continuous_duplicate_window_s")),
         )
         self.retry_tracker = RecognitionRetryTracker(
             self._param("recognition_max_retries")
@@ -194,6 +196,7 @@ class OnlineAgentNode(Node):
             "voice_session_timeout_s": 60.0,
             "continuous_command_queue_size": 8,
             "continuous_command_max_age_s": 30.0,
+            "continuous_duplicate_window_s": 1.2,
             "speech_endpoint_events_enabled": True,
             "external_wake_event_enabled": True,
         }
