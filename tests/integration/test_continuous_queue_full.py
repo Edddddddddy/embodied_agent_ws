@@ -7,6 +7,7 @@
 3. 队列容量设为 1，连续发送两条普通命令；
 4. 验证第一条进入队列，第二条被 rejected/queue_full，并且 recognition_feedback
    给出 queue_rejected，方便 monitor 现场提示用户放慢语速或调大队列。
+5. 在队列已满时发布“急停”，验证高优先级 stop 仍然绕过容量限制、清空队列。
 """
 
 import json
@@ -20,6 +21,7 @@ from std_msgs.msg import String
 
 FIRST_QUEUED_COMMAND = "左转九十度"
 REJECTED_COMMAND = "绕圈"
+PRIORITY_STOP_COMMAND = "急停"
 
 
 class ContinuousQueueFullProbe(Node):
@@ -115,6 +117,27 @@ def main():
             "queue_full recognition feedback was not published",
         )
 
+        stop_candidate_start = len(node.candidates)
+        node.text_pub.publish(String(data=PRIORITY_STOP_COMMAND))
+        wait_until(
+            lambda: any(
+                event.get("event") == "clear"
+                and event.get("priority_stop") is True
+                and event.get("dropped", 0) >= 1
+                for event in node.queue_events
+            ),
+            5.0,
+            "priority stop did not clear the full queue",
+        )
+        wait_until(
+            lambda: any(
+                candidate.get("name") == "stop"
+                for candidate in node.candidates[stop_candidate_start:]
+            ),
+            5.0,
+            "priority stop did not publish stop while queue was full",
+        )
+
         rejected_event = next(
             event
             for event in node.queue_events
@@ -127,12 +150,18 @@ def main():
             if item.get("status") == "queue_rejected"
             and item.get("transcript") == REJECTED_COMMAND
         )
+        priority_clear_event = next(
+            event
+            for event in node.queue_events
+            if event.get("event") == "clear" and event.get("priority_stop") is True
+        )
         print(
             json.dumps(
                 {
                     "queued_command": FIRST_QUEUED_COMMAND,
                     "rejected_event": rejected_event,
                     "rejected_feedback": rejected_feedback,
+                    "priority_clear_event": priority_clear_event,
                     "candidate_count": len(node.candidates),
                     "status": "PASS",
                 },

@@ -34,6 +34,7 @@ bash scripts/acceptance_test.sh continuous-online
 和弧线速度；`continuous-mock` 验证一次唤醒、多命令队列、退出控制、常见 ASR 错词
 归一化和 online/offline 状态机复用；`continuous-queue-full` 将队列容量设为 1，
 验证说太快时第二条普通命令发布 `rejected/queue_full` 和 `queue_rejected` feedback；
+同时验证队列满时“急停”仍能清空等待队列并发布 `stop`；
 `continuous-ttl` 验证 Agent 忙于组合动作时，
 队列里的陈旧普通命令会发布 `expired` 并跳过执行；`continuous-timeout` 验证会话窗口
 超时后普通命令被拒绝，重新带唤醒词后才执行；`continuous-kws-mock` 验证 `keyword_wake` sidecar
