@@ -22,7 +22,7 @@
 | 发布前整修 | 当前 | 测试分区、diagnostics 深模块、中文设计注释、LICENSE 与贡献规范 |
 | 文档与结构收敛 | 当前 | 七份重叠笔记合并为三份，完成模块依赖与入口审计 |
 | rich simulation demo | 当前 | `arc` 弧线动作、组合动作顺序执行、mock demo 验收与企业化分支流程 |
-| 连续语音控制 | 当前 | 一次唤醒多命令队列、退出控制、stop 抢占与 online/offline mock 验收 |
+| 连续语音控制 | 当前 | 一次唤醒多命令队列、退出控制安全 stop、stop 抢占与 online/offline mock 验收 |
 | VAD endpoint seam | 当前 | speech_started/speech_ended topic、端点参数和 legacy silence 兼容 |
 | Audio frontend metrics | 当前 | `/audio/frontend_metrics` 暴露 rms/peak/speech/丢帧，辅助真实麦克风调参 |
 | WakeProvider seam | 当前 | TextWakeProvider、wake_event/session_state topic、wake_event_input 外部 KWS 注入入口 |

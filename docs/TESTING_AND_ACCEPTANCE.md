@@ -209,7 +209,7 @@ VAD 端点、队列容量、旧命令 TTL 和纠错阈值；其中 `quiet` 适�
 普通命令在队列里等待超过 30 秒会自动过期跳过，
 避免执行已经失去上下文的旧命令，并在 `/agent/command_queue` 发布 `expired` 事件；说
 “停下/急停”会清空等待队列并立即发布 stop；说
-“退出控制/休眠/结束控制”会关闭会话，后续命令必须重新唤醒。
+“退出控制/休眠/结束控制”会关闭会话并发布安全 stop，后续命令必须重新唤醒。
 `CONTINUOUS_COMMAND_QUEUE_SIZE` 可调队列容量；队列满时会发布 `rejected/queue_full`，
 monitor 和 summary 可用于判断是否应该减慢说话节奏或调大容量。
 如果 `voice_session_timeout_s` 到期，下一条不带唤醒词的普通命令也会被拒绝并进入

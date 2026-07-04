@@ -343,6 +343,7 @@ class OfflineAgentNode(Node):
             "clear", "", QueueSnapshot(True, self._command_queue.size(), dropped)
         )
         self._action_sequencer.cancel("external_sleep")
+        self._publish_actions([ActionCommand("stop", {})])
         session_event = self._voice_session.external_sleep(event.provider)
         self._publish_session_event(session_event)
         self._publish_state("sleeping")
@@ -367,6 +368,7 @@ class OfflineAgentNode(Node):
                     "clear", "", QueueSnapshot(True, self._command_queue.size(), dropped)
                 )
                 self._action_sequencer.cancel("session_sleep")
+                self._publish_actions([ActionCommand("stop", {})])
                 self._publish_state("sleeping")
                 self.get_logger().info("continuous voice session sleeping")
             elif decision.reason == "session_awake":

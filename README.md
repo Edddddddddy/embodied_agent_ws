@@ -21,7 +21,7 @@
   `/agent/session_state`；外部 KWS sidecar 可通过 `/agent/wake_event_input`
   注入 `wake/sleep` 事件；`keyword_wake` sidecar 已支持 `mock_text` 和可选
   `sherpa` KeywordSpotter adapter。
-- 连续控制：一次“小智”唤醒后进入 60 秒会话，后续命令排队顺序执行，停下/急停抢占。
+- 连续控制：一次“小智”唤醒后进入 60 秒会话，后续命令排队顺序执行，停下/急停抢占，退出控制时安全停车。
 - 动作安全：结构化动作、C++ schema 校验、限幅、急停和 watchdog。
 - 丰富演示：支持原地转一圈、绕圈/画圆、走正方形和“演示一下”组合动作。
 - 生命周期：Guard 与仿真执行器采用 C++ LifecycleNode，由 Nav2 manager 有序激活。
@@ -113,7 +113,8 @@ CONTINUOUS_PRINT_CONFIG=true \
 长时间开麦时常见的“嗯/啊/哦/呃”等短语气词会在会话层忽略，同一句 ASR final 在短窗口内
 重复出现也会去重，并通过 monitor 输出 `[ignore] filler ...` 或
 `[ignore] duplicate_command ...`，减少真实麦克风抖动造成的误排队；
-`停下/急停` 会清空等待队列、取消正在等待结果的组合动作，并立即发布 `stop`。
+`停下/急停` 会清空等待队列、取消正在等待结果的组合动作，并立即发布 `stop`；
+`退出控制/休眠/结束控制` 会关闭会话，同时发布安全 `stop`，后续命令必须重新唤醒。
 普通命令若在队列中等待超过 `continuous_command_max_age_s`（默认 30 秒）会自动过期跳过，
 避免长时间演示时执行已经失去上下文的旧命令；`停下/急停` 不会过期。过期事件会发布到
 `/agent/command_queue`，monitor 显示为 `[queue] expired ...`。

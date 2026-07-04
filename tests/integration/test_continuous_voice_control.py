@@ -118,11 +118,20 @@ def main():
         if names != expected:
             raise RuntimeError(f"unexpected continuous command order: {names}")
 
+        sleep_candidate_start = len(node.candidates)
         node.text_pub.publish(String(data="退出控制"))
         wait_until(
             lambda: "sleeping" in node.states and "sleeping" in node.session_states,
             5.0,
             "session did not sleep",
+        )
+        wait_until(
+            lambda: any(
+                candidate.get("name") == "stop"
+                for candidate in node.candidates[sleep_candidate_start:]
+            ),
+            5.0,
+            "session sleep did not publish a safety stop",
         )
         before = len(node.candidates)
         node.text_pub.publish(String(data="向前走一秒"))
