@@ -209,6 +209,7 @@ class MonitorStats:
     ignored: int = 0
     normalized: int = 0
     enqueued: int = 0
+    rejected: int = 0
     expired: int = 0
     started: int = 0
     finished: int = 0
@@ -246,6 +247,8 @@ class MonitorStats:
         event = _json_dict(serialized).get("event")
         if event == "enqueue":
             self.enqueued += 1
+        elif event == "rejected":
+            self.rejected += 1
         elif event == "expired":
             self.expired += 1
 
@@ -275,7 +278,7 @@ class MonitorStats:
             f"[summary] wake={self.wake} sleep={self.sleep} retry={self.retry} "
             f"asr={self.asr} ignored={self.ignored} "
             f"normalized={self.normalized} enqueued={self.enqueued} "
-            f"expired={self.expired} started={self.started} "
+            f"rejected={self.rejected} expired={self.expired} started={self.started} "
             f"finished={self.finished} succeeded={self.succeeded} failed={self.failed}"
         )
         if not self.audio_samples:

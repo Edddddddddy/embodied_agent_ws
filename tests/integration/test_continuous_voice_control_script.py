@@ -45,6 +45,7 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
             "CONTINUOUS_READINESS_ENABLED": "true",
             "CONTINUOUS_READINESS_DURATION": "3.5",
             "CONTINUOUS_COMMAND_QUEUE_SIZE": "12",
+            "CONTINUOUS_COMMAND_MAX_AGE": "18",
             "CONTINUOUS_DUPLICATE_WINDOW_S": "2.4",
             "COMMAND_NORMALIZATION_ENABLED": "true",
             "COMMAND_NORMALIZATION_FEEDBACK_ENABLED": "false",
@@ -87,6 +88,7 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
     assert "CONTINUOUS_READINESS_ENABLED=true" in result.stdout
     assert "CONTINUOUS_READINESS_DURATION=3.5" in result.stdout
     assert "CONTINUOUS_COMMAND_QUEUE_SIZE=12" in result.stdout
+    assert "CONTINUOUS_COMMAND_MAX_AGE=18" in result.stdout
     assert "CONTINUOUS_DUPLICATE_WINDOW_S=2.4" in result.stdout
     assert "COMMAND_NORMALIZATION_ENABLED=true" in result.stdout
     assert "COMMAND_NORMALIZATION_FEEDBACK_ENABLED=false" in result.stdout
@@ -101,6 +103,7 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
     assert "silero_use_onnx:=true" in result.stdout
     assert "silero_threshold:=0.61" in result.stdout
     assert "continuous_command_queue_size:=12" in result.stdout
+    assert "continuous_command_max_age_s:=18" in result.stdout
     assert "continuous_duplicate_window_s:=2.4" in result.stdout
     assert "command_normalization_enabled:=true" in result.stdout
     assert "command_normalization_feedback_enabled:=false" in result.stdout

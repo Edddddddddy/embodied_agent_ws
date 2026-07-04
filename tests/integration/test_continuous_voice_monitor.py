@@ -161,6 +161,17 @@ def test_monitor_stats_summarizes_long_running_session():
     stats.record_queue(
         json.dumps({"event": "expired", "text": "左转九十度", "size": 0}, ensure_ascii=False)
     )
+    stats.record_queue(
+        json.dumps(
+            {
+                "event": "rejected",
+                "text": "绕圈",
+                "size": 8,
+                "reason": "queue_full",
+            },
+            ensure_ascii=False,
+        )
+    )
     stats.record_execution(
         json.dumps({"event": "started", "text": "向前走一秒"}, ensure_ascii=False)
     )
@@ -178,7 +189,7 @@ def test_monitor_stats_summarizes_long_running_session():
     stats.record_result(json.dumps({"success": True, "message": "succeeded"}))
 
     assert stats.format_summary() == (
-        "[summary] wake=1 sleep=1 retry=1 asr=1 ignored=1 normalized=1 enqueued=1 expired=1 "
+        "[summary] wake=1 sleep=1 retry=1 asr=1 ignored=1 normalized=1 enqueued=1 rejected=1 expired=1 "
         "started=1 finished=1 succeeded=1 failed=0"
     )
 
