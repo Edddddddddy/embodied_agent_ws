@@ -8,6 +8,7 @@ usage() {
 Usage: acceptance_test.sh MODE
 
 Automated modes:
+  core                Typical developer gate: repository, Python unit, C++ unit tests
   preflight           Check offline model/runtime files
   mock                Build, unit tests, and dependency-free ROS smokes
   online              Minimal-token live ASR/LLM/TTS verification
@@ -59,8 +60,7 @@ require_file() {
 }
 
 run_base() {
-  bash tests/integration/test_acceptance_cli.sh
-  pytest -q tests/repository
+  bash scripts/run_core_tests.sh
   colcon build --symlink-install --allow-overriding \
     embodied_agent_interfaces embodied_agent_cpp embodied_online_agent \
     embodied_offline_agent embodied_simulation
@@ -128,6 +128,7 @@ check_offline_runtime() {
 }
 
 case "$LEVEL" in
+  core) bash scripts/run_core_tests.sh ;;
   preflight) check_offline_runtime ;;
   mock) run_base ;;
   online) run_online ;;

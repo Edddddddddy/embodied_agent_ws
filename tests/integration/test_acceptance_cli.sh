@@ -12,6 +12,7 @@ if [[ "$STATUS" -ne 0 ]]; then
   exit 1
 fi
 grep -q "all" <<<"$OUTPUT"
+grep -q "core" <<<"$OUTPUT"
 grep -q "microphone-offline" <<<"$OUTPUT"
 grep -q "microphone-online" <<<"$OUTPUT"
 grep -q "continuous-live-check" <<<"$OUTPUT"

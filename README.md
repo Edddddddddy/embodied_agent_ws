@@ -117,6 +117,15 @@ bash scripts/acceptance_test.sh offline
 bash scripts/acceptance_test.sh --help
 ```
 
+日常开发最小回归：
+
+```bash
+bash scripts/acceptance_test.sh core
+```
+
+`core` 只跑仓库结构检查、Python Agent 单元测试和 C++/仿真 GTest；`mock`
+会进一步启动依赖 mock 的 ROS smoke 链路，更适合提交前验收。
+
 ## 真实麦克风连续语音控制
 
 离线优先，适合现场演示：
