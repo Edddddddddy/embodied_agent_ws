@@ -15,6 +15,7 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
         {
             "WORKSPACE": str(ROOT),
             "CONTINUOUS_PRINT_CONFIG": "true",
+            "VOICE_SESSION_TIMEOUT": "44",
             "WAKE_WORD_ENABLED": "false",
             "SPEAKER_ENABLED": "true",
             "VAD_PROVIDER": "silero",
@@ -64,6 +65,7 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
     )
 
     assert "连续语音控制模式=online" in result.stdout
+    assert "VOICE_SESSION_TIMEOUT=44" in result.stdout
     assert "WAKE_WORD_ENABLED=false" in result.stdout
     assert "SPEAKER_ENABLED=true" in result.stdout
     assert "VAD_PROVIDER=silero" in result.stdout
@@ -103,6 +105,7 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
     assert "silero_use_onnx:=true" in result.stdout
     assert "silero_threshold:=0.61" in result.stdout
     assert "continuous_command_queue_size:=12" in result.stdout
+    assert "voice_session_timeout_s:=44" in result.stdout
     assert "continuous_command_max_age_s:=18" in result.stdout
     assert "continuous_duplicate_window_s:=2.4" in result.stdout
     assert "command_normalization_enabled:=true" in result.stdout

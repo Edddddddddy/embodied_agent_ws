@@ -278,7 +278,9 @@ LIVEKIT_WAKEWORD_THRESHOLD=0.63 \
   bash scripts/continuous_voice_control.sh offline
 ```
 
-`CONTINUOUS_PRINT_CONFIG=true` 会打印最终 launch 命令；`CONTINUOUS_PREFLIGHT_ENABLED=true`
+`CONTINUOUS_PRINT_CONFIG=true` 会打印最终 launch 命令，并明确列出
+`VOICE_SESSION_TIMEOUT`、`CONTINUOUS_COMMAND_QUEUE_SIZE`、`CONTINUOUS_COMMAND_MAX_AGE`
+和 `CONTINUOUS_DUPLICATE_WINDOW_S` 等现场调参值；`CONTINUOUS_PREFLIGHT_ENABLED=true`
 会在启动 ROS/Gazebo 前检查依赖和模型路径。`openwakeword_models` 与
 `livekit_wakeword_models` 在 launch 中以字符串传递，`keyword_wake` 节点会按逗号拆成
 模型列表，和 YAML list 写法兼容。

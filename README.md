@@ -108,6 +108,8 @@ CONTINUOUS_PRINT_CONFIG=true \
   bash scripts/continuous_voice_control.sh offline
 ```
 
+配置预览会明确打印 `VOICE_SESSION_TIMEOUT`、`CONTINUOUS_COMMAND_QUEUE_SIZE`、
+`CONTINUOUS_COMMAND_MAX_AGE` 和 `CONTINUOUS_DUPLICATE_WINDOW_S` 等现场调参值。
 推荐话术：`小智`、`向前走一秒`、`左转九十度`、`后退一秒`、`绕圈`、`走正方形`、
 `停下`、`退出控制`。连续模式不会在 Agent busy 时丢弃 ASR final，而是进入 FIFO 队列；
 长时间开麦时常见的“嗯/啊/哦/呃”等短语气词会在会话层忽略，同一句 ASR final 在短窗口内

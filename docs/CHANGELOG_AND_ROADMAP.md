@@ -39,7 +39,7 @@
 | AudioEnhancer seam | 当前 | NLMS AEC adapter、audio_enhancer/aec/ns/agc 参数与 WebRTC adapter 预留，`/audio/frontend_metrics` 暴露 requested/active 状态与 fallback 诊断 |
 | 连续演示 monitor | 当前 | 终端持续打印 session/asr/queue/action/feedback/result，队列满时显示 queue-feedback，长动作期间展示 ROS Action 进度 |
 | 连续演示 summary | 当前 | monitor 退出时汇总 wake/sleep/retry/timeout、ASR、ignored、normalized、queue enqueued/rejected/expired、execution、result 和最近窗口 audio profile 建议，`CONTINUOUS_MONITOR_AUDIO_SAMPLE_LIMIT` 可配置音频滑动窗口 |
-| 连续脚本配置预览 | 当前 | `continuous_voice_control.sh` 支持 `CONTINUOUS_PRINT_CONFIG=true` 无麦克风 dry-run，并透传 WAKE/AEC/NS/AGC/READINESS/COMMAND_MAX_AGE 环境变量 |
+| 连续脚本配置预览 | 当前 | `continuous_voice_control.sh` 支持 `CONTINUOUS_PRINT_CONFIG=true` 无麦克风 dry-run，并透传/打印 WAKE/AEC/NS/AGC/READINESS/SESSION_TIMEOUT/COMMAND_MAX_AGE 环境变量 |
 | 连续启动 readiness | 当前 | 连续脚本 launch 后默认运行 voice_control_readiness_check.py，提示可以开始说“小智”，失败时 warning 但不中断，并输出 profile quick_apply |
 | CommandExecutionTracker | 当前 | command_queue/command_execution topic 暴露队列长度和执行生命周期 |
 | 连续队列容量透传 | 当前 | `CONTINUOUS_COMMAND_QUEUE_SIZE` 经脚本和 launch 覆盖 online/offline Agent 队列容量 |
