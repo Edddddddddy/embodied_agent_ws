@@ -1,5 +1,6 @@
 """仓库结构约束：用户命令与集成测试必须分区，避免 scripts/ 再次退化成杂物箱。"""
 
+import re
 from pathlib import Path
 
 
@@ -70,6 +71,43 @@ def test_audio_endpoint_events_remain_wired_through_frontend_and_agents():
     assert "endpoint_events_enabled" in audio_frontend
     assert "speech_started_publisher_->publish" in audio_frontend
     assert "speech_ended_publisher_->publish" in audio_frontend
+
+
+def test_continuous_mode_does_not_drop_busy_asr_or_endpoint_commits():
+    """真实麦克风路径 busy 时也必须继续接收 ASR final 与 speech endpoint。
+
+    之前真人连续说话体验差的根因之一是 Agent 忙时直接丢弃后续 ASR final。
+    这里锁住 online/offline 两条真实音频路径的关键不变量：
+    只有“非连续模式”可以因为 busy 抑制 ASR final 或 endpoint commit；
+    连续模式必须让 transcript 进入 ContinuousCommandQueue。
+    """
+
+    agent_sources = [
+        ROOT
+        / "src"
+        / "embodied_online_agent"
+        / "embodied_online_agent"
+        / "online_agent_node.py",
+        ROOT
+        / "src"
+        / "embodied_offline_agent"
+        / "embodied_offline_agent"
+        / "offline_agent_node.py",
+    ]
+    for source_path in agent_sources:
+        source = source_path.read_text(encoding="utf-8")
+        for function_name in ("_commit_asr_endpoint", "_on_asr_final"):
+            match = re.search(
+                rf"def {function_name}\([^)]*\):(?P<body>.*?)(?=\n    def |\n\nclass |\Z)",
+                source,
+                flags=re.S,
+            )
+            assert match is not None, f"{function_name} missing in {source_path}"
+            body = match.group("body")
+            assert "self._is_busy()" in body, f"{function_name} lost busy guard"
+            assert "not self._continuous_enabled" in body, (
+                f"{function_name} must not suppress continuous-mode ASR in {source_path}"
+            )
 
 
 def test_continuous_voice_state_machine_remains_shared_by_online_and_offline_agents():
