@@ -14,6 +14,7 @@ Automated modes:
   offline             Real ZipFormer/llama.cpp/Sherpa-TTS verification
   demo                Rich mock demo: ordered actions, accessories, and arc motion
   continuous-mock     One wake word, several queued commands, and sleep gate
+  continuous-queue-full Busy continuous queue rejects excess commands with feedback
   continuous-ttl      Busy continuous queue expires stale non-priority commands
   continuous-timeout  Voice session timeout requires a fresh wake word
   continuous-kws-mock KWS sidecar opens a continuous session and executes a command
@@ -82,6 +83,7 @@ run_base() {
   bash scripts/smoke_test_mock_executor.sh
   bash scripts/smoke_test_demo_sequence.sh
   bash scripts/smoke_test_continuous_voice.sh online
+  bash scripts/smoke_test_continuous_queue_full.sh online
   bash scripts/smoke_test_continuous_command_ttl.sh online
   bash scripts/smoke_test_continuous_session_timeout.sh online
   bash scripts/smoke_test_continuous_kws_sidecar.sh online
@@ -126,6 +128,7 @@ case "$LEVEL" in
   offline) run_offline ;;
   demo) bash scripts/smoke_test_demo_sequence.sh ;;
   continuous-mock) bash scripts/smoke_test_continuous_voice.sh online; bash scripts/smoke_test_continuous_voice.sh offline ;;
+  continuous-queue-full) bash scripts/smoke_test_continuous_queue_full.sh online; bash scripts/smoke_test_continuous_queue_full.sh offline ;;
   continuous-ttl) bash scripts/smoke_test_continuous_command_ttl.sh online; bash scripts/smoke_test_continuous_command_ttl.sh offline ;;
   continuous-timeout) bash scripts/smoke_test_continuous_session_timeout.sh online; bash scripts/smoke_test_continuous_session_timeout.sh offline ;;
   continuous-kws-mock) bash scripts/smoke_test_continuous_kws_sidecar.sh online; bash scripts/smoke_test_continuous_kws_sidecar.sh offline ;;

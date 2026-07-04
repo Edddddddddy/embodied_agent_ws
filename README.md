@@ -147,6 +147,8 @@ ASR 错词时，推荐复制默认错词表后用 `COMMAND_NORMALIZATION_PATH=/p
 `COMMAND_NORMALIZATION_FEEDBACK_ENABLED=false`。
 自动验收可用 `bash scripts/acceptance_test.sh continuous-ttl` 复现实例：先执行长组合动作，
 再排入一条普通命令，确认它过期且没有发布动作候选。
+`bash scripts/acceptance_test.sh continuous-queue-full` 会把队列容量压到 1，
+验证说太快时第二条普通命令发布 `queue_full` 和 `[queue-feedback]`。
 `bash scripts/acceptance_test.sh continuous-timeout` 会验证会话窗口到期后，普通命令必须
 重新带“小智”才能执行。
 脚本会启动 `continuous_voice_monitor.py`，持续打印 `[session]`、`[asr]`、`[queue]`、
