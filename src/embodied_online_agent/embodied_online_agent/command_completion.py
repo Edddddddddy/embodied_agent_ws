@@ -14,6 +14,8 @@ from dataclasses import dataclass
 
 _PUNCTUATION = re.compile(r"[，。！？!?\s、,.；;：:]")
 
+# 只补“缺少默认槽位”的确定性短命令。这里故意不用大模型再推理一次：
+# 连续语音场景需要低延迟和可预测性，裸“左转/前进”映射成演示默认动作即可。
 _COMPLETIONS = {
     "前进": "前进一秒",
     "向前": "前进一秒",
@@ -62,6 +64,7 @@ class CommandCompleter:
         if not self._enabled or not original:
             return CompletionResult(original, original)
 
+        # 归一化仅移除标点和空白，避免把“不前进”之类自然语言误归为“前进”。
         normalized = _PUNCTUATION.sub("", original).lower()
         completed = _COMPLETIONS.get(normalized)
         if completed is None:

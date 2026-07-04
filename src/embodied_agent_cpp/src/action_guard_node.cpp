@@ -98,6 +98,8 @@ private:
       return;
     }
     const std::string command_id = "guard-" + std::to_string(++command_sequence_);
+    // ActionGuard 是 LLM 输出和机器人执行之间的安全边界：
+    // 这里只接受能通过 adapter 校验/限幅的 JSON，再同时发布旧 JSON 和强类型消息。
     auto result = adapter_.convert(message->data, command_id, "agent");
     std_msgs::msg::String output;
     if (!result.valid) {

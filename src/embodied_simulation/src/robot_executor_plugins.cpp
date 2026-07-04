@@ -26,6 +26,7 @@ public:
       return false;
     }
     if (command.action_type == RobotCommand::MOVE) {
+      // MOVE 同时支持 linear_x 与 angular_z，因此“绕圈/画圆”无需新增接口字段。
       controller_->set_manual_command(
         command.linear_x, command.angular_z, command.duration_s, now_s);
       return true;
@@ -45,6 +46,7 @@ public:
     if (command.action_type == RobotCommand::WAVE ||
       command.action_type == RobotCommand::SET_LED)
     {
+      // 仿真环境没有真实机械臂/灯带，这类附件动作只 ACK 并停车，保留接口可演示扩展点。
       controller_->stop();
       return true;
     }

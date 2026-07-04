@@ -300,6 +300,8 @@ class OnlineAgentNode(Node):
         if delay_ms <= 0:
             self._perform_asr_commit(source)
             return
+        # VAD 刚判定 speech_ended 时，云端 ASR 的 partial 可能还没稳定。
+        # 延迟少量时间再 commit，可以换取更完整的“左转90度/前进一秒”尾部识别。
         timer = threading.Timer(
             delay_ms / 1000.0, self._perform_asr_commit, args=(source,)
         )
@@ -406,6 +408,7 @@ class OnlineAgentNode(Node):
         self.retry_tracker.succeeded()
         command = decision.command
         if not decision.priority_stop:
+            # 正常控制命令允许做“短命令补全”；停下/急停保持原样，保证安全指令最快抢占。
             command = self._complete_command(command)
         if self._continuous_enabled:
             if decision.priority_stop:
@@ -423,6 +426,8 @@ class OnlineAgentNode(Node):
                 self._publish_actions([ActionCommand("stop", {})])
                 self._publish_state("listening")
                 return
+            # 连续控制模式下不直接执行，而是先入队；这样用户可以连续说多条命令，
+            # worker 线程按顺序等待上一个动作 result 后再处理下一条。
             snapshot = self._command_queue.put(command)
             self._publish_queue_event("enqueue", command, snapshot)
             if snapshot.accepted:
@@ -483,6 +488,7 @@ class OnlineAgentNode(Node):
             try:
                 with self._state_lock:
                     self._busy = True
+                # started/finished 事件是现场演示的“可观测性锚点”，monitor 依赖它判断是否卡住。
                 self._publish_execution_event(
                     self._command_tracker.execution_started(item)
                 )

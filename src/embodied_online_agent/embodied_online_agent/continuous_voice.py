@@ -278,6 +278,7 @@ class ContinuousVoiceSession:
                 priority_stop=False,
             )
         if not priority_stop:
+            # 急停类命令不能参与去重记忆：用户连续喊“停下”时，后一次也应该抢占。
             self._remember_command(command)
         self._had_active_session = wake_decision.active
         return self._decision_from_wake(
@@ -398,6 +399,7 @@ class ContinuousCommandQueue:
             context=context,
         )
         with self._lock:
+            # 急停是安全指令，优先级高于“演示动作队列”；先清队列再入队，保证它尽快执行。
             dropped = self.clear() if priority_stop else 0
             try:
                 self._queue.put_nowait(item)
@@ -414,6 +416,7 @@ class ContinuousCommandQueue:
             item = self._queue.get(timeout=timeout)
             if not self._is_stale(item):
                 return item
+            # 人说得太快或动作太长时，旧命令可能已经不符合当前意图；过期后显式丢弃并上报。
             if on_stale is not None:
                 on_stale(item)
             self._queue.task_done()

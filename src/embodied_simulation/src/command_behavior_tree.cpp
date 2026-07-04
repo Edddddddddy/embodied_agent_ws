@@ -195,6 +195,8 @@ public:
     blackboard_->set(kSafetyBlockedKey, safety_blocked);
     blackboard_->set(kExecutionStateKey, execution_state);
     blackboard_->set(kDetailKey, detail);
+    // 每个控制周期只 tick 一次，让“安全检查、执行状态、结果确认”保持可观测。
+    // 这样比在一个回调里写死 if/else 更容易替换成复杂 BT XML。
     const auto status = tree_->tickOnce();
     auto outcome = blackboard_->get<CommandTreeOutcome>(kOutcomeKey);
     if (status == BT::NodeStatus::FAILURE && outcome == CommandTreeOutcome::kRunning) {

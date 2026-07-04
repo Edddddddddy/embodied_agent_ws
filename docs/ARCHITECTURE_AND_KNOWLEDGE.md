@@ -1,329 +1,202 @@
-# 架构与知识笔记
+# 架构与模块说明
 
-本文是项目唯一的结构与原理说明。它回答三个问题：数据怎样流动、关键实现在哪里、
-为什么这样划分 C++ 与 Python。
+本文档描述当前项目的功能结构和模块边界。更详细的技术取舍、代码位置和面试讲法见 [LEARNING_NOTES.md](LEARNING_NOTES.md)。
 
-## 1. 系统分层
+## 1. 总体目标
+
+项目实现一个机器人智能语音交互与仿真控制系统：
 
 ```text
-音频输入层       C++ PortAudio -> AEC -> VAD -> silence timeout
-模型交互层       Online(Qwen) / Offline(ZipFormer + llama.cpp + Sherpa-TTS)
-对话编排层       唤醒与重试 -> 记忆 -> LLM -> speech/action parser
-动作可信层       C++ ActionGuard -> schema / clamp / reject
-执行层           Gazebo controller / UART / SPI / mock
-观测与验收层     state / metrics / ACK / odom / tests
+语音输入 → ASR → Agent 推理/解析 → 动作安全校验 → ROS 2 Action → Gazebo 仿真控制
 ```
 
-核心 seam 是 ROS 话题和 provider interface。声学/控制的实时实现不会依赖云 SDK，
-模型 adapter 也不直接操作电机。这种隔离让在线、离线和 mock 能复用相同动作安全链。
+当前验收对象是 Gazebo/TurtleBot3 仿真机器人。真实 UART/SPI 硬件控制保留为 mock/预留接口。
 
-## 2. ROS 包与关键代码
+## 2. 数据流
+
+```mermaid
+sequenceDiagram
+  participant U as User/Mic
+  participant A as Audio Frontend
+  participant S as ASR
+  participant G as Session Gate
+  participant Q as Command Queue
+  participant L as LLM/Fallback
+  participant AG as ActionGuard
+  participant AC as ROS2 Action
+  participant SIM as Gazebo Executor
+
+  U->>A: voice
+  A->>S: /audio/clean_pcm
+  A->>S: /audio/speech_ended
+  S->>G: /agent/asr_final
+  G->>Q: accepted command
+  Q->>L: sequential command
+  L->>AG: /agent/action_candidate
+  AG->>AC: /robot/action_command_typed
+  AC->>SIM: ExecuteRobotCommand goal
+  SIM->>SIM: BT validate/safety/execute/confirm
+  SIM-->>AC: feedback/result
+  SIM->>U: /cmd_vel + Gazebo motion
+```
+
+## 3. ROS 包职责
 
 ### `embodied_agent_interfaces`
 
-`RobotCommand.msg` 将 move、turn、stop、wave、LED 和模式切换表达为强类型字段，并携带
-command id、source 和时间戳。`ExecuteRobotCommand.action` 定义后续执行所需的 goal、
-feedback、result、取消、超时和阻塞状态。迁移期间 ActionGuard 同时发布旧 JSON 和新
-`/robot/action_command_typed`，因此既不破坏现有执行器，也为 Action/BT 链提供稳定 seam。
+职责：
 
-`typed_action_bridge` 将 typed topic 转成 `/robot/execute_command` Action goal，并把
-feedback/result 转发为可观察话题。仿真 Action server 复用纯 C++ `ActionExecution`
-状态机，统一成功进度、用户取消、目标抢占、雷达阻塞和硬超时语义；任一终止路径都会
-调用 `SimulationController::stop()`。
+- 定义跨包共享的强类型接口。
 
-`CommandBehaviorTree` 是执行编排的深模块。外部只提交 typed command，并在每个控制周期
-给出 safety/ActionExecution snapshot；内部由 `command_tree.xml` 的 ReactiveSequence 执行
-`ValidateCommand -> CheckSafety -> ExecuteCommand -> ConfirmResult`。ReactiveSequence 会在
-动作 RUNNING 时重新检查安全条件，因此新障碍可以 halt Execute；树的阶段和终态发布到
-`/robot/bt_status`。`use_behavior_tree:=false` 保留旧 ActionExecution 直连路径。
+核心文件：
 
-`RobotExecutor` 是 BT 下方的 pluginlib seam：Lifecycle 节点只调用 configure、execute、
-stop、update_scan 和 step，不知道具体 backend。`GazeboRobotExecutor` 封装原有
-SimulationController、LaserScan 安全和 PID；`MockRobotExecutor` 不依赖仿真或传感器，供
-CI 和插件教程使用。插件名由 `executor_plugin` 参数选择，新增 executor 不需修改 Guard、
-BT XML 或 Action server。
+- `msg/RobotCommand.msg`
+- `action/ExecuteRobotCommand.action`
 
-ActionGuard 与 SimulationControl 都是 `rclcpp_lifecycle::LifecycleNode`。configure 阶段
-创建 publisher、subscription、Action server 和 timer；activate 后才转发动作和发布速度；
-deactivate 会终止活动目标并在 publisher 停用前发送零速；cleanup 释放 ROS interface。
-launch 使用 `nav2_lifecycle_manager` 自动执行配置和激活，`bond_timeout=0` 用于管理原生
-rclcpp lifecycle node，而不是 Nav2 自带 bond 的节点基类。
+说明：
+
+- `RobotCommand` 表达 move、turn、stop、set_mode、wave、set_led 等动作。
+- `ExecuteRobotCommand` 用于表达可取消、带反馈、带结果的长动作。
 
 ### `embodied_agent_cpp`
 
-| 文件 | 责任 |
-|---|---|
-| `audio_processing.hpp/.cpp` | Energy VAD、speech endpoint、AudioFrameMetrics、AudioEnhancer/NLMS AEC，纯计算可单测 |
-| `audio_frontend_node.cpp` | PortAudio 回调、有界队列、PCM 发布、播放和前端诊断 |
-| `action_validator.hpp/.cpp` | 动作白名单、参数 schema、速度与时长限幅 |
-| `action_guard_node.cpp` | Lifecycle Guard；仅 active 时将 candidate 转成可信动作 |
-| `hardware_protocol.hpp/.cpp` | 版本、序号、payload 和 CRC 帧 |
-| `hardware_transport.hpp/.cpp` | mock、UART、SPI adapter |
-| `hardware_controller_node.cpp` | 发送、ACK、watchdog 和急停 |
+职责：
 
-PortAudio 回调只搬运数据，不执行网络、日志或模型推理；这是实时音频最重要的约束。
-动作校验是深模块：调用方只提交 JSON，schema、限幅和拒绝原因隐藏在统一 interface 后。
+- 承担和 ROS 2/C++ 工程化强相关的节点。
+- 提供音频前端、动作安全网关、typed action bridge、硬件 mock/预留。
+
+核心文件：
+
+- `src/audio_frontend_node.cpp`
+- `src/audio_processing.cpp`
+- `src/action_guard_node.cpp`
+- `src/typed_action_bridge_node.cpp`
+- `src/hardware_controller_node.cpp`
+- `src/robot_command_adapter.cpp`
+- `src/action_validator.cpp`
+
+说明：
+
+- `audio_frontend_node` 处理音频能量、VAD、endpoint、clean PCM 发布。
+- `action_guard_node` 是 LLM 输出到机器人执行之间的安全边界。
+- `typed_action_bridge_node` 把 topic 命令转换成 ROS 2 Action goal。
 
 ### `embodied_online_agent`
 
-| 文件 | 责任 |
-|---|---|
-| `online_agent_node.py` | ROS 与一轮在线对话的编排 |
-| `providers/` | mock、Qwen 实时 ASR/TTS、OpenAI-compatible LLM adapter |
-| `protocol.py` | `<speech>/<action>` 增量解析与按句 TTS 分块 |
-| `command_normalizer.py` | ASR 错词归一化，优先 RapidFuzz，支持默认/外置 YAML 词表 |
-| `command_fallback.py` | 有限机器人命令的确定性语义兜底 |
-| `continuous_voice.py` | 连续会话状态机、命令队列和 stop 优先级语义 |
-| `keyword_wake.py` | KWS detector/bridge seam，mock_text 与 sherpa-onnx KeywordSpotter adapter |
-| `keyword_wake_node.py` | KWS sidecar ROS 节点，发布 `/agent/wake_event_input` |
-| `wake_provider.py` | 文本唤醒 provider seam，输出 wake/continue/sleep/rejected 事件 |
-| `wakeword.py` | 文本唤醒窗口与兼容别名 |
-| `recognition_retry.py` | 可观测重试计数，不锁死监听 |
-| `memory.py` | 有界、原子写入的对话记忆 |
-| `metrics.py` | LLM 首 token 与 TTS 首音频时延 |
+职责：
 
-`providers/base.py` 是真实 seam：同一 interface 至少有 mock 与云端两个 adapter，测试可以
-不访问外网。`types.py` 中的 `ActionCommand` 和 `LatencySnapshot` 分别作为动作解析与
-延迟观测的值对象；二者都有实际调用方，并通过回归测试保护。
+- 在线语音 Agent。
+- 接入 Qwen/DashScope ASR、OpenAI-compatible LLM、Qwen TTS。
+- 负责连续语音控制、命令补全、动作解析、TTS 流式响应。
 
-连续语音控制不直接修改 ASR 模型，而是在 Agent 编排层增加两个深模块：
-`ContinuousVoiceSession` 负责“一次唤醒、60 秒会话、退出控制休眠”的文本状态机；
-`ContinuousCommandQueue` 负责 FIFO 排队和停下/急停优先级。online/offline 节点在
-`continuous_control_enabled:=true` 时不再因 `_busy` 丢弃 ASR final，而是让 worker 串行
-消费队列。stop 会同时清空等待队列、调用 `SequentialActionPublisher.cancel()` 取消正在
-等待 result 的组合动作，并立即发布 `stop` candidate。
-`CommandExecutionTracker` 将 enqueue/rejected/clear/started/finished 转成稳定 JSON 事件，
-发布到 `/agent/command_queue` 和 `/agent/command_execution`，用于演示、UI 和验收。
+核心文件：
 
-唤醒词当前仍是文本级实现：ASR final 先经过 `TextWakeProvider`，再由连续会话消费结构化
-`WakeEvent`。ROS 侧 `/agent/wake_event` 暴露 provider、事件种类和原始 transcript，
-`/agent/session_state` 暴露 `awake/sleeping`。外部 KWS sidecar 可向
-`/agent/wake_event_input` 发布 `{"kind":"wake","provider":"sherpa_kws"}` 或
-`{"kind":"sleep","provider":"sherpa_kws"}`，Agent 会把它桥接到同一个会话状态机。
-后续接 sherpa-onnx KWS 或 openWakeWord 时，新的 provider 只需产生相同事件契约，
-Agent 队列和动作执行层不用感知具体 KWS。
-`scripts/continuous_voice_monitor.py` 是人工演示层，不参与控制；它只订阅 wake、session、
-ASR、queue、execution、action 和 result topic，把链路压缩成
-`[session] / [asr] / [queue] / [exec] / [action] / [result]` 行日志。
+- `embodied_online_agent/online_agent_node.py`
+- `embodied_online_agent/continuous_voice.py`
+- `embodied_online_agent/command_normalizer.py`
+- `embodied_online_agent/command_completion.py`
+- `embodied_online_agent/command_fallback.py`
+- `embodied_online_agent/action_sequence.py`
+- `prompts/system_prompt_zh.txt`
+
+说明：
+
+- 在线模式用于验证云端 ASR/LLM/TTS 的端到端链路。
+- mock 模式用于无密钥、无模型的自动测试。
 
 ### `embodied_offline_agent`
 
-| 文件 | 责任 |
-|---|---|
-| `offline_agent_node.py` | 离线 ASR、LLM、TTS 并发编排 |
-| `providers/sherpa_asr.py` | ZipFormer 流式识别与 hotword biasing |
-| `providers/llama_cpp.py` | 本机 llama-server 流式接口 |
-| `providers/sherpa_tts.py` | VITS/Melo-TTS 合成 |
-| `double_buffer.py` | 容量为 2 的消息/音频缓冲与背压 |
-| `latency.py` | 静音到 final、首 token、首音频及整轮耗时 |
+职责：
 
-离线的“伪流式”不是模型逐帧生成音频，而是 LLM 按句输出、TTS 逐句合成，再将 PCM
-切成 80 ms 块播放。两个双缓冲使 LLM、TTS 和播放重叠执行，同时限制内存增长。
+- 离线语音 Agent。
+- 预留 Sherpa-onnx ZipFormer ASR、llama.cpp、Sherpa-TTS 的真实模型路径。
+- 复用在线 Agent 的连续语音、命令归一化、补全、动作序列逻辑。
+
+核心文件：
+
+- `embodied_offline_agent/offline_agent_node.py`
+- `embodied_offline_agent/providers/sherpa_asr.py`
+- `embodied_offline_agent/providers/llama_cpp.py`
+- `embodied_offline_agent/providers/sherpa_tts.py`
+- `embodied_offline_agent/double_buffer.py`
+- `embodied_offline_agent/latency.py`
+
+说明：
+
+- 离线链路体现端侧部署能力。
+- 当前训练流程不是主线交付，模型准备与量化作为后续增强。
 
 ### `embodied_simulation`
 
-| 文件 | 责任 |
-|---|---|
-| `simulation_controller.hpp/.cpp` | 手动运动、雷达停车、避障、沿墙 PID |
-| `command_behavior_tree.hpp/.cpp` | BT blackboard、异步状态与统一终态 |
-| `config/command_tree.xml` | Validate → Safety → Execute → Confirm 编排 |
-| `robot_executor.hpp` | Gazebo/mock 共用的小型执行 interface |
-| `robot_executor_plugins.cpp` | pluginlib Gazebo 与 mock adapters |
-| `simulation_control_node.cpp` | Lifecycle Action server、LaserScan、Twist、ACK 的 ROS seam |
-| `simulation_control_main.cpp` | 独立进程入口与双线程 MultiThreadedExecutor |
-| `simulation_control_factory.hpp` | 独立入口复用 component 实现的工厂 seam |
-| `node_configuration.cpp` | configure 前的控制参数与插件名交叉校验 |
-| `executor_diagnostics.cpp` | 从线程安全快照构造标准 diagnostics，统一等级与字段契约 |
-| `simulation_control.launch.py` | 独立/组合部署、namespace 与 Lifecycle 管理 |
-| `voice_turtlebot3.launch.py` | Agent、Guard、Gazebo、bridge 的组合启动 |
+职责：
 
-当前产品主链承诺 `move / turn / stop / arc` 和少量 accessory action；避障和沿墙用于展示
-安全控制模块，不继续扩展成完整导航栈。`arc` 在 ActionGuard 中规范化为 typed
-`MOVE(linear_x, angular_z, duration_s)`，因此不需要改 ROS msg/action 版本。Gazebo ACK
-和 `/odom` 位移共同证明命令确实经过了仿真执行器。
+- Gazebo/TurtleBot3 仿真执行层。
+- 将 RobotCommand/Action goal 转换为 `/cmd_vel`。
+- 用 BehaviorTree.CPP 编排执行流程，用 pluginlib 切换执行后端。
 
-组合演示动作不下沉到 executor。Agent 层将“走正方形”“演示一下”等口令拆成 primitive
-action，并通过 `/robot/action_result` 等待上一条结束后再发布下一条；任一步失败或超时
-会补发 `stop`，防止组合动作继续推进。
+核心文件：
 
-`SimulationControlNode` 只实现一次并注册为 `rclcpp_components` component；独立可执行文件
-通过 factory 创建同一个类，因此两种部署不会形成两份控制逻辑。独立模式使用双线程
-`MultiThreadedExecutor`，diagnostics timer 位于单独的互斥 callback group；控制快照通过
-mutex/atomic 读取，诊断发布不会与 Action 控制状态发生数据竞争。
+- `src/simulation_control_node.cpp`
+- `src/command_behavior_tree.cpp`
+- `config/command_tree.xml`
+- `src/robot_executor_plugins.cpp`
+- `src/simulation_controller.cpp`
 
-控制节点所有执行相关 topic 和 Action 都使用相对名称，launch 的 `namespace` 会同时作用于
-component container、Lifecycle manager、控制组件和 typed bridge。速度/动作/状态使用
-reliable QoS，LaserScan 使用 sensor-data QoS。标准 `/diagnostics`（加 namespace 后为
-`/<namespace>/diagnostics`）报告 lifecycle state、executor plugin/backend、control mode、
-active action、sensor stale、safety stopped 与原因。
+说明：
 
-## 3. 关键话题
+- `GazeboRobotExecutor` 驱动真实仿真。
+- `MockRobotExecutor` 用于不启动 Gazebo 的自动测试。
+- MOVE 支持 `linear_x + angular_z`，因此绕圈/画圆不需要新增接口字段。
 
-| 话题 | 生产者 -> 消费者 | 含义 |
-|---|---|---|
-| `/audio/clean_pcm` | AudioFrontend -> ASR | AEC 后 PCM16 |
-| `/audio/silence_timeout` | AudioFrontend -> Agent | 连续静音 0.4 秒 |
-| `/audio/frontend_metrics` | AudioFrontend -> UI/验收器 | rms、peak、speech、丢帧计数，用于真实麦克风排障 |
-| `/agent/asr_final` | ASR -> 观测者 | 最终识别文本 |
-| `/agent/recognition_feedback` | Agent -> UI/验收器 | 唤醒失败重试、命令归一化反馈 |
-| `/agent/state` | Agent -> UI/验收器 | listening、queued、thinking、speaking、session_awake、sleeping |
-| `/agent/wake_event` | WakeProvider -> UI/验收器 | text/sherpa/openWakeWord 等 provider 的 wake/continue/sleep/rejected |
-| `/agent/wake_event_input` | KWS sidecar -> Agent | 外部声学唤醒注入入口，支持 JSON `wake/sleep` |
-| `/agent/kws_event` | KWS sidecar -> UI/验收器 | KWS 检测诊断，包含 provider、transcript、score |
-| `/agent/kws_text_input` | 测试/调试 -> KWS sidecar | `mock_text` detector 的无模型输入 |
-| `/agent/session_state` | ContinuousVoiceSession -> UI/验收器 | awake 或 sleeping |
-| `/agent/command_queue` | CommandExecutionTracker -> UI/验收器 | enqueue、rejected、clear、size、dropped |
-| `/agent/command_execution` | CommandExecutionTracker -> UI/验收器 | started、finished、success、reason |
-| `/agent/action_candidate` | parser -> ActionGuard | 未可信动作 JSON |
-| `/robot/action_command` | ActionGuard -> executor | 已校验、已限幅动作 |
-| `/robot/action_command_typed` | ActionGuard -> 新 executor | 等价的强类型可信动作 |
-| `/robot/execute_command` | Action client -> SimulationController | 可取消、反馈、超时的 ROS Action |
-| `/robot/action_feedback` | typed bridge -> 观测者 | command id、阶段、进度和执行原因 |
-| `/robot/action_result` | typed bridge -> 观测者 | 成功、拒绝、取消、阻塞或超时结果 |
-| `/robot/bt_status` | SimulationController -> 观测者 | command id、BT 阶段、终态与原因 |
-| `/robot/action_rejected` | ActionGuard -> 观测者 | schema 或安全拒绝原因 |
-| `/robot/action_ack` | executor -> 观测者 | 接受、执行结果及实际 backend |
-| `/cmd_vel` | SimulationController -> Gazebo | 标准差速速度 |
-| `/scan`, `/odom` | Gazebo -> controller/probe | 雷达与物理位移证据 |
+## 4. 关键 topic 与 action
 
-## 4. 流式语音与延迟
+| 名称 | 方向 | 说明 |
+| --- | --- | --- |
+| `/audio/clean_pcm` | audio → ASR | 清理后的 PCM 音频 |
+| `/audio/speech_started` | audio → Agent | VAD 检测到开始说话 |
+| `/audio/speech_ended` | audio → Agent | VAD 检测到一句话结束 |
+| `/agent/asr_partial` | ASR → monitor | ASR partial |
+| `/agent/asr_final` | ASR → Agent/monitor | ASR final |
+| `/agent/session_state` | Agent → monitor | awake/sleeping 等会话状态 |
+| `/agent/command_queue` | Agent → monitor | enqueue/rejected/expired/clear |
+| `/agent/command_execution` | Agent → monitor | started/finished |
+| `/agent/action_candidate` | Agent → ActionGuard | 动作 JSON 候选 |
+| `/robot/action_command_typed` | ActionGuard → bridge | 强类型 RobotCommand |
+| `/robot/action_feedback` | bridge → monitor | Action feedback |
+| `/robot/action_result` | bridge/executor → Agent | Action result |
+| `/cmd_vel` | executor → Gazebo | 机器人速度命令 |
+| `robot/execute_command` | bridge → executor | ROS 2 Action |
 
-- 音频增强：AudioFrontend 只依赖 `AudioEnhancer` interface；默认 adapter 是
-  `NlmsAudioEnhancer`，用播放 PCM 作为参考估计回声。参数 `audio_enhancer:=nlms`、
-  `aec_enabled`、`noise_suppression_enabled`、`auto_gain_enabled` 已预留；真实设备需校准
-  delay、step、taps，并测双讲。WebRTC AEC/NS/AGC adapter 尚未接入。
-- VAD：默认 `vad_provider:=energy` 由 C++ AudioFrontend 内置 EnergyVad 判断单帧是否
-  有人声，`SpeechEndpointDetector` 负责发布 `/audio/speech_started`、
-  `/audio/speech_ended`，并用 `speech_end_silence_s`、`min_utterance_ms`、
-  `max_utterance_s` 控制端点。可选 `vad_provider:=silero` 时，AudioFrontend 只发布
-  `/audio/clean_pcm`，Python `silero_vad` sidecar 接管端点事件并额外发布
-  `/audio/vad_event`。旧的 `/audio/silence_timeout` 仍同步发布，Agent 对两种 commit
-  信号做短时间去重。
-- ASR：在线采用实时 WebSocket；离线 ZipFormer 采用流式 transducer 和 modified beam search。
-- 唤醒：当前文本门控前有热词偏置，失败会回到 `retry_listening`。生产级应增加声学 KWS。
-- LLM：token 到达即进入标签解析器；动作必须等完整 JSON，speech 可按标点提前送 TTS。
-- TTS：在线保持连接并流式返回 PCM；离线用按句合成模拟流式体验。
+## 5. 连续语音控制状态
 
-需要区分四种延迟：ASR finalization、LLM first token、TTS first audio、end-to-first-audio。
-平均值不足以证明体验，正式报告应记录至少 100 轮 P50/P95 和冷/热启动。
+核心状态：
 
-## 5. 动作与安全原则
+- sleeping：未唤醒或已退出控制。
+- awake：已唤醒，后续命令无需重复说“小智”。
+- queued：命令已进入队列。
+- thinking：Agent 正在解析/执行一条命令。
+- retry_listening：识别失败或会话超时后等待重试。
 
-模型输出格式：
+特殊规则：
 
-```text
-<speech>好的，向前走一秒。</speech>
-<action>{"name":"move","arguments":{"linear_x":0.2,"duration_s":1.0}}</action>
-```
+- `停下/急停/刹车/别动` 是 priority stop，会清空队列并抢占。
+- `退出控制/休眠/先这样` 让 session 进入 sleeping。
+- `嗯/啊/哦` 等 filler 不进入动作链路。
+- 短时间重复命令会被 duplicate window 过滤。
 
-LLM 输出永远视为不可信输入。ActionGuard 只接受白名单动作，拒绝多余/缺失字段，限制
-速度、角速度、持续时间和枚举值。硬件控制器还有 watchdog；真实机器人仍必须保留独立
-急停、碰撞、电机限流和 MCU 侧超时。
+## 6. 当前边界
 
-## 6. 量化、训练与事实边界
+已完成：
 
-- Qwen3-0.6B Q8_0 通过 llama.cpp CPU 推理；Q8 相对 FP16 通常约一半，不是四分之一。
-- `training/` 只有种子数据、dataset 注册和 LoRA 配置；没有执行训练就不能宣称 85%。
-- 小数据集上的确定性 command fallback 提升的是工程链正确率，不等于模型准确率。
-- 模型、`third_party/llama.cpp`、构建目录与密钥均被 Git 忽略，仓库保持轻量。
+- 语音/文本到动作到 Gazebo 控制的端到端链路。
+- 在线/离线 Agent 双入口。
+- 自定义 msg/action 与 C++ 安全边界。
+- 连续语音、多命令队列、急停抢占。
+- Gazebo 仿真动作与 odom/cmd_vel 验收。
 
-## 7. 结构审计与下一次重构
+未作为当前完成项：
 
-本轮保留在线和离线两个 ROS 节点，因为它们的 provider 生命周期、ASR threading 和
-TTS 策略确实不同。二者仍重复“唤醒 -> busy -> turn -> publish -> metrics”编排，下一轮
-应先定义一个小型 `TurnCoordinator` interface，通过 mock adapter 写端到端行为测试，
-然后替换重复代码，而不是再叠一层工具函数。
-
-集成探针已统一迁到 `tests/integration/`，`scripts/` 只保留用户命令与负责进程生命周期的
-runner。仓库约束测试会阻止 `scripts/test_*` 再次出现。最大的剩余热点仍是
-`simulation_control_node.cpp`；本轮先提取 diagnostics 深模块，使等级、字段和并发快照可
-独立测试，后续只在出现第二个明确职责簇时继续拆分，避免产生一批浅层转发类。
-
-## 8. 新增 RobotExecutor 插件教程
-
-新增机器人后端不应修改 Action server、BT XML 或 Guard。最小步骤如下：
-
-1. 新建类继承 `embodied_simulation::RobotExecutor`，实现 `configure`、`execute`、`stop`、
-   `update_scan`、`step`、`mode_name` 和 `backend_name`。ROS 节点负责通信，插件只负责控制
-   语义，避免在插件内再创建一套 node/executor。
-2. 在实现文件末尾使用 `PLUGINLIB_EXPORT_CLASS` 注册类，并在
-   `robot_executor_plugins.xml` 增加 `<class>`；插件名采用
-   `项目名/后端名RobotExecutor`，例如 `my_robot/MyRobotExecutor`。
-3. 将实现编译进共享库，通过 `pluginlib_export_plugin_description_file` 导出描述文件，
-   package.xml 声明 pluginlib 与消息依赖。
-4. 先扩展 `test_robot_executor_plugins.cpp`：要求 pluginlib 能真实发现并实例化插件，同一
-   `RobotCommand` 能执行、step 并 stop。再增加一条无模型 ROS smoke，验证 Action result、
-   BT confirm 和 diagnostics 中的 backend 名称。
-5. 启动时传入
-   `executor_plugin:=my_robot/MyRobotExecutor`；若必须修改 BT/Guard 才能切换，说明插件
-   interface 泄漏了机器人细节，应先重新收紧 seam。
-
-插件必须遵守三条契约：`stop()` 可重复且立即归零；每个 terminal path 最终停车；
-`step()` 不阻塞 ROS executor。UART/SPI 若要迁入该 seam，应让 transport 继续作为更底层
-adapter，而不是把串口重试、CRC 和 ROS Action 全塞进一个类。
-
-## 9. 求职版项目描述
-
-**具身智能机器人端侧语音交互与仿真控制系统｜ROS 2 Jazzy / C++17 / Python**
-
-- 打通麦克风、流式 ASR、LLM 结构化动作、C++ 安全 Guard、ROS 2 Action、
-  BehaviorTree.CPP、pluginlib executor 到 TurtleBot3 Gazebo `/cmd_vel`/`odom` 的在线与
-  全离线闭环，并保留 UART/SPI adapter。
-- 将控制链规范化为 LifecycleNode 与可取消 Action；通过 BT 实现 Validate→Safety→Execute
-  →Confirm，支持取消、抢占、障碍、超时和急停；同一实现支持独立进程、component
-  container 和 namespace 隔离。
-- 部署 Qwen3-0.6B Q8/llama.cpp、ZipFormer 与 Sherpa-TTS；当前环境 CPU decode
-  34.10 token/s、离线整轮 2.313 s、在线热启动首 token 350–384 ms；建立 166 项 colcon
-  测试、2 项仓库约束测试及 mock/online/offline/Gazebo/continuous mock 分层 release gates。
-- 新增连续语音控制状态机：一次唤醒后多命令 FIFO 排队，退出控制休眠，停下/急停可清空
-  等待队列并抢占当前组合动作，适合长时间麦克风控制 Gazebo 演示。
-- 新增 CommandExecutionTracker：队列长度和执行开始/结束变为 ROS 可观测事件。
-- 补齐 VAD endpoint seam：C++ AudioFrontend 增加 speech started/ended topic 和端点参数，
-  online/offline Agent 可由 `speech_ended` commit ASR；Silero VAD 已作为可选 sidecar
-  接入，默认不强制安装模型依赖。
-- 补齐 WakeProvider seam：文本唤醒输出结构化 wake event 和 session_state，为后续
-  sherpa-onnx KWS/openWakeWord adapter 留出替换点。
-- 补齐 AudioEnhancer seam：NLMS AEC 被封装为默认 adapter，AudioFrontend 预留
-  WebRTC AEC/NS/AGC 参数但当前仍回退到 NLMS。
-
-面试时必须主动说明：LoRA 尚未训练；2/8 是原始模型成绩，7/8 是 fallback 后系统成绩；
-冷启动在线 LLM 不达 1 秒；所有性能数字均是当前机器少量样本，不是生产 SLA。
-
-## 10. 面试问题与回答要点
-
-### 为什么模型不能直接发布 `/cmd_vel`？
-
-LLM 输出是不可信文本，可能格式错误、越界或幻觉。项目先转为强类型 command，经 C++
-schema/限幅，再由 Action/BT 检查生命周期与安全状态；真正的速度只由 executor 发布。
-
-### ROS topic、service、Action 在这里如何取舍？
-
-音频、雷达和状态是连续数据，用 topic；Lifecycle transition 是短请求，用 service；运动有
-持续时间、反馈、取消和 terminal result，用 Action。旧 JSON topic 仅作为兼容 gateway。
-
-### 为什么同时需要 Lifecycle 和 Behavior Tree？
-
-Lifecycle 管节点资源与启动顺序，回答“控制器是否可以工作”；BT 管一次任务的业务阶段，
-回答“这个动作如何验证、执行和确认”。两者状态机作用域不同，不能互相替代。
-
-### MultiThreadedExecutor 如何避免数据竞争？
-
-主控制 callback 使用默认互斥组，diagnostics timer 使用独立互斥组；跨组只共享 atomic
-动作标志与 mutex 保护的 `ControllerOutput`/后端快照，诊断线程不直接调用可变 executor。
-
-### pluginlib 带来了什么，不只是“为了设计模式”吗？
-
-它让 BT/Action 只依赖小型 `RobotExecutor` interface。Gazebo 与 mock 经过同一动态发现
-测试和同一 command 行为测试；新增后端通过参数选择，不需要改核心节点，seam 有可验证
-的替换价值。
-
-### 如何证明机器人真的执行了，而不是话题发成功？
-
-验收同时要求非零 `/cmd_vel`、Gazebo `/odom` 物理位移、Action success、BT
-`confirm/succeeded` 和 ACK backend；任何单一消息都不足以算闭环完成。
-
-### ASR 有错别字为什么还能动作？风险是什么？
-
-热词、唤醒别名和有限命令 fallback 可恢复常见同音/噪声文本，失败则继续监听。fallback
-只覆盖白名单动作并仍经过 Guard；它提高系统可用率，但不能冒充模型准确率，也不能无限
-扩充字符串规则替代声学 KWS。
+- 真实实体机器人硬件验收。
+- 完整离线模型训练与 LoRA 指标复现。
+- 复杂导航、建图、路径规划。
+- 真实声学 KWS/AEC 默认接入。

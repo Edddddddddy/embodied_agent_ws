@@ -275,6 +275,8 @@ class OfflineAgentNode(Node):
         delay_ms = max(0, int(self._param("asr_commit_delay_ms")))
         self._publish_asr_endpoint_feedback(source, delay_ms)
         if delay_ms > 0:
+            # 离线 ZipFormer 也可能在端点刚触发时漏掉尾部数字/量词；
+            # commit delay 让最后一小段音频先进入 ASR 队列，再统一提交 final。
             timer = threading.Timer(
                 delay_ms / 1000.0, self._enqueue_delayed_asr_commit, args=(source,)
             )
@@ -431,6 +433,7 @@ class OfflineAgentNode(Node):
         self._retry_tracker.succeeded()
         command = decision.command
         if not decision.priority_stop:
+            # 补全只作用于普通动作命令；停下/急停不能被延迟或改写。
             command = self._complete_command(command)
         if self._continuous_enabled:
             if decision.priority_stop:
@@ -448,6 +451,7 @@ class OfflineAgentNode(Node):
                 self._publish_actions([ActionCommand("stop", {})])
                 self._publish_state("listening")
                 return
+            # 离线链路把延迟统计对象一起放入队列，保证排队执行后仍能统计本轮耗时。
             snapshot = self._command_queue.put(command, context=self._latency)
             self._publish_queue_event("enqueue", command, snapshot)
             if snapshot.accepted:
@@ -509,6 +513,7 @@ class OfflineAgentNode(Node):
             try:
                 with self._state_lock:
                     self._busy = True
+                # execution 事件给 continuous monitor 使用，用于区分“已入队”和“正在执行”。
                 self._publish_execution_event(
                     self._command_tracker.execution_started(item)
                 )
