@@ -216,7 +216,8 @@ VAD 端点、队列容量、旧命令 TTL 和纠错阈值；其中 `quiet` 适�
 monitor 会显示 `[queue] rejected ...` 和 `[queue-feedback] queue_full ...`，
 summary 可用于判断是否应该减慢说话节奏或调大容量。
 如果 `voice_session_timeout_s` 到期，下一条不带唤醒词的普通命令也会被拒绝并进入
-`retry_listening`；`continuous-timeout` 用 0.8 秒窗口覆盖这个行为。
+`retry_listening`，monitor 会显示 `[session-timeout] 会话已超时，请先说小智 ...`；
+`continuous-timeout` 用 0.8 秒窗口覆盖这个行为。
 验收探针还会检查 `/agent/wake_event` 中出现 `wake/continue/sleep/rejected`，以及
 `/agent/session_state` 中出现 `awake/sleeping`；同时检查 `/agent/command_queue` 里有
 真实 `size`，`/agent/command_execution` 里有 `started/finished`。随后会重新唤醒，发送
@@ -236,12 +237,12 @@ summary 可用于判断是否应该减慢说话节奏或调大容量。
 [action] executing move
 [feedback] executing 45% mock_execution
 [result] succeeded
-[summary] wake=1 sleep=1 retry=0 asr=3 ignored=1 normalized=1 enqueued=2 rejected=0 expired=0 started=2 finished=2 succeeded=2 failed=0
+[summary] wake=1 sleep=1 retry=0 timeout=0 asr=3 ignored=1 normalized=1 enqueued=2 rejected=0 expired=0 started=2 finished=2 succeeded=2 failed=0
 [summary-audio] samples=12 profile=noisy_room reason=persistent_speech_or_noise mean_rms=0.0200 max_rms=0.0210 speech_ratio=1.00 dropped_input_delta=0 warnings=vad_threshold_may_be_too_low_or_environment_noisy
 ```
 
 `[summary]` 在 Ctrl-C 退出 monitor 时打印；`continuous_voice_control.sh` 的清理逻辑也会
-优先用 SIGINT 结束 monitor，确保这行复盘信息尽量落盘。`wake/sleep/retry` 反映会话门控和
+优先用 SIGINT 结束 monitor，确保这行复盘信息尽量落盘。`wake/sleep/retry/timeout` 反映会话门控和
 重试体验，`asr` 是收到的 final 数，`ignored` 是 filler/duplicate 过滤数，
 `normalized` 是错词归一化数，`enqueued/rejected/expired` 反映队列健康，
 `started/finished/succeeded/failed` 反映动作执行闭环。若 monitor 收到过

@@ -101,6 +101,10 @@ def main():
             raise RuntimeError(f"timeout rejection wake event missing: {node.wake_events}")
         if not any(item.get("status") == "retry" for item in node.feedback):
             raise RuntimeError(f"retry feedback missing after timeout: {node.feedback}")
+        if not any(item.get("status") == "session_timeout" for item in node.feedback):
+            raise RuntimeError(
+                f"session timeout feedback missing after timeout: {node.feedback}"
+            )
 
         node.text_pub.publish(String(data="小智向前走一秒"))
         wait_until(

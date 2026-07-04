@@ -198,6 +198,7 @@ class ContinuousVoiceSession:
         self._clock = clock
         self._last_command_text = ""
         self._last_command_at = 0.0
+        self._had_active_session = False
 
     def accept(self, transcript: str) -> SessionDecision:
         text = transcript.strip()
@@ -231,6 +232,7 @@ class ContinuousVoiceSession:
 
         if self.enabled and self._contains_any(text, self._sleep_words):
             wake_event = self._wake_provider.sleep()
+            self._had_active_session = False
             self._forget_command()
             return SessionDecision(
                 None,
@@ -250,9 +252,14 @@ class ContinuousVoiceSession:
         wake_decision = self._wake_provider.accept(text)
         command = wake_decision.command
         if wake_decision.event.kind == WakeEventKind.WAKE:
+            self._had_active_session = True
             self._forget_command()
         if command is None:
             reason = "session_awake" if wake_decision.active else "wake_word_not_detected"
+            if not wake_decision.active and self._had_active_session:
+                reason = "session_timeout"
+                self._had_active_session = False
+                self._forget_command()
             return self._decision_from_wake(
                 wake_decision,
                 accepted=False,
@@ -272,6 +279,7 @@ class ContinuousVoiceSession:
             )
         if not priority_stop:
             self._remember_command(command)
+        self._had_active_session = wake_decision.active
         return self._decision_from_wake(
             wake_decision,
             accepted=True,
@@ -282,6 +290,7 @@ class ContinuousVoiceSession:
 
     def external_wake(self, provider: str, transcript: str = "") -> SessionEvent:
         wake_event = self._wake_provider.external_wake(provider, transcript)
+        self._had_active_session = True
         self._forget_command()
         return SessionEvent(
             SessionEventKind.WAKE,
@@ -293,6 +302,7 @@ class ContinuousVoiceSession:
 
     def external_sleep(self, provider: str) -> SessionEvent:
         wake_event = self._wake_provider.external_sleep(provider)
+        self._had_active_session = False
         self._forget_command()
         return SessionEvent(
             SessionEventKind.SLEEP,

@@ -359,6 +359,14 @@ class OnlineAgentNode(Node):
             elif decision.reason in {"filler", "duplicate_command"}:
                 self._publish_ignored_recognition(transcript, decision.reason)
                 self._publish_state("listening")
+            elif decision.reason == "session_timeout":
+                feedback = self.retry_tracker.failed(transcript)
+                self.recognition_feedback_pub.publish(String(data=feedback.to_json()))
+                self._publish_session_timeout_feedback(transcript)
+                self.get_logger().warning(
+                    "voice session timed out; waiting for a new wake word"
+                )
+                self._publish_state("retry_listening")
             elif self._param("wake_word_enabled") and not self.wake_gate.active:
                 feedback = self.retry_tracker.failed(transcript)
                 self.recognition_feedback_pub.publish(String(data=feedback.to_json()))
@@ -645,6 +653,17 @@ class OnlineAgentNode(Node):
             "reason": snapshot.reason,
             "transcript": transcript,
             "queue_size": snapshot.size,
+        }
+        self.recognition_feedback_pub.publish(
+            String(data=json.dumps(payload, ensure_ascii=False))
+        )
+
+    def _publish_session_timeout_feedback(self, transcript: str):
+        payload = {
+            "status": "session_timeout",
+            "reason": "voice_session_timeout",
+            "transcript": transcript,
+            "prompt": "会话已超时，请先说小智",
         }
         self.recognition_feedback_pub.publish(
             String(data=json.dumps(payload, ensure_ascii=False))

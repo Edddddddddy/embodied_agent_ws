@@ -187,6 +187,10 @@ def format_recognition_feedback(serialized: str) -> str:
         transcript = payload.get("transcript", "")
         size = payload.get("queue_size", "?")
         return f"[queue-feedback] {reason} {transcript} size={size}".rstrip()
+    if payload.get("status") == "session_timeout":
+        prompt = payload.get("prompt", "会话已超时，请重新唤醒")
+        transcript = payload.get("transcript", "")
+        return f"[session-timeout] {prompt} {transcript}".rstrip()
     return "[feedback] " + (payload.get("reason") or "unknown")
 
 
@@ -211,6 +215,7 @@ class MonitorStats:
     wake: int = 0
     sleep: int = 0
     retry: int = 0
+    timeout: int = 0
     ignored: int = 0
     normalized: int = 0
     enqueued: int = 0
@@ -247,6 +252,8 @@ class MonitorStats:
             self.normalized += 1
         elif status == "retry":
             self.retry += 1
+        elif status == "session_timeout":
+            self.timeout += 1
 
     def record_queue(self, serialized: str) -> None:
         event = _json_dict(serialized).get("event")
@@ -281,6 +288,7 @@ class MonitorStats:
     def format_summary(self) -> str:
         base = (
             f"[summary] wake={self.wake} sleep={self.sleep} retry={self.retry} "
+            f"timeout={self.timeout} "
             f"asr={self.asr} ignored={self.ignored} "
             f"normalized={self.normalized} enqueued={self.enqueued} "
             f"rejected={self.rejected} expired={self.expired} started={self.started} "

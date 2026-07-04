@@ -119,6 +119,27 @@ def test_sleep_phrase_closes_the_continuous_control_session():
     assert rejected.event.kind == SessionEventKind.REJECTED
 
 
+def test_continuous_session_reports_timeout_after_previous_wake():
+    now = [100.0]
+    gate = WakeWordGate(
+        ["小智"],
+        enabled=True,
+        active_timeout_s=1.0,
+        clock=lambda: now[0],
+    )
+    session = ContinuousVoiceSession(gate, enabled=True)
+
+    session.accept("小智")
+    now[0] += 1.2
+    timed_out = session.accept("向前走一秒")
+    second_rejection = session.accept("左转九十度")
+
+    assert not timed_out.accepted
+    assert timed_out.reason == "session_timeout"
+    assert timed_out.event.kind == SessionEventKind.REJECTED
+    assert second_rejection.reason == "wake_word_not_detected"
+
+
 def test_external_wake_event_opens_same_continuous_session():
     gate = WakeWordGate(["小智"], enabled=True, active_timeout_s=60.0)
     session = ContinuousVoiceSession(gate, enabled=True)

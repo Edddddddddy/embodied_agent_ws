@@ -150,7 +150,7 @@ ASR 错词时，推荐复制默认错词表后用 `COMMAND_NORMALIZATION_PATH=/p
 脚本会启动 `continuous_voice_monitor.py`，持续打印 `[session]`、`[asr]`、`[queue]`、
 `[exec]`、`[action]`、`[feedback]`、`[result]`，便于现场演示链路；长动作执行期间
 `[feedback]` 会显示 ROS Action 进度，避免误以为系统卡住。Ctrl-C 结束 monitor 时会输出
-`[summary] wake=... sleep=... retry=... asr=... ignored=... enqueued=... rejected=... succeeded=...`，
+`[summary] wake=... sleep=... retry=... timeout=... asr=... ignored=... enqueued=... rejected=... succeeded=...`，
 如果收到过 `/audio/frontend_metrics`，还会输出
 `[summary-audio] samples=... profile=... reason=... mean_rms=... speech_ratio=...`，
 音频 summary 只保留最近 600 条 metrics（默认约 5 分钟窗口），

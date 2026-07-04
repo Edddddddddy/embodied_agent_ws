@@ -158,6 +158,23 @@ def test_monitor_formats_queue_rejected_feedback():
     )
 
 
+def test_monitor_formats_session_timeout_feedback():
+    feedback = json.dumps(
+        {
+            "status": "session_timeout",
+            "reason": "voice_session_timeout",
+            "transcript": "向前走一秒",
+            "prompt": "会话已超时，请先说小智",
+        },
+        ensure_ascii=False,
+    )
+
+    assert (
+        monitor.format_recognition_feedback(feedback)
+        == "[session-timeout] 会话已超时，请先说小智 向前走一秒"
+    )
+
+
 def test_monitor_stats_summarizes_long_running_session():
     stats = monitor.MonitorStats()
     stats.record_wake(json.dumps({"kind": "wake", "provider": "text"}, ensure_ascii=False))
@@ -165,6 +182,9 @@ def test_monitor_stats_summarizes_long_running_session():
     stats.record_asr("向前走一秒")
     stats.record_recognition_feedback(
         json.dumps({"status": "retry", "attempt": 1}, ensure_ascii=False)
+    )
+    stats.record_recognition_feedback(
+        json.dumps({"status": "session_timeout"}, ensure_ascii=False)
     )
     stats.record_recognition_feedback(
         json.dumps({"status": "ignored", "reason": "filler"}, ensure_ascii=False)
@@ -206,7 +226,7 @@ def test_monitor_stats_summarizes_long_running_session():
     stats.record_result(json.dumps({"success": True, "message": "succeeded"}))
 
     assert stats.format_summary() == (
-        "[summary] wake=1 sleep=1 retry=1 asr=1 ignored=1 normalized=1 enqueued=1 rejected=1 expired=1 "
+        "[summary] wake=1 sleep=1 retry=1 timeout=1 asr=1 ignored=1 normalized=1 enqueued=1 rejected=1 expired=1 "
         "started=1 finished=1 succeeded=1 failed=0"
     )
 
