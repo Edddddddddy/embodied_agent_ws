@@ -169,6 +169,7 @@ class OfflineAgentNode(Node):
             "tts_chunk_max_chars": 24,
             "tts_pcm_chunk_ms": 80,
             "mock_token_delay_s": 0.0,
+            "mock_asr_finals": "",
             "action_sequence_wait_timeout_s": 12.0,
             "continuous_control_enabled": False,
             "voice_session_timeout_s": 60.0,
@@ -196,7 +197,7 @@ class OfflineAgentNode(Node):
 
     def _create_providers(self):
         if self._mode == "mock":
-            return MockOfflineAsr(), MockOfflineLlm(self._param("mock_token_delay_s")), MockOfflineTts(self._param("tts_sample_rate"))
+            return MockOfflineAsr(self._mock_asr_finals()), MockOfflineLlm(self._param("mock_token_delay_s")), MockOfflineTts(self._param("tts_sample_rate"))
         if self._mode != "offline":
             raise ValueError("mode must be 'mock' or 'offline'")
         # Native model wheels are intentionally optional in mock mode.
@@ -222,6 +223,10 @@ class OfflineAgentNode(Node):
             ),
             SherpaVitsTts(self._param("tts_model_dir"), self._param("tts_num_threads"), self._param("tts_speaker_id"), self._param("tts_speed")),
         )
+
+    def _mock_asr_finals(self):
+        scripted = str(self._param("mock_asr_finals") or "")
+        return [item.strip() for item in scripted.split("|") if item.strip()]
 
     def _hotwords_file(self):
         configured = self._param("asr_hotwords_file")

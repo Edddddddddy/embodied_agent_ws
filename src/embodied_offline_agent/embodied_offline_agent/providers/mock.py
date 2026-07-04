@@ -5,7 +5,8 @@ import time
 
 
 class MockOfflineAsr:
-    def __init__(self):
+    def __init__(self, scripted_finals=None):
+        self._scripted_finals = list(scripted_finals or [])
         self._partial = None
         self._final = None
 
@@ -16,6 +17,8 @@ class MockOfflineAsr:
         return None
 
     def commit(self):
+        if self._scripted_finals and self._final is not None:
+            self._final(self._scripted_finals.pop(0))
         return None
 
 

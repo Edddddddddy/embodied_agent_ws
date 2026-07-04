@@ -147,6 +147,9 @@ ASR 错词时，推荐复制默认错词表后用 `COMMAND_NORMALIZATION_PATH=/p
 `COMMAND_NORMALIZATION_FEEDBACK_ENABLED=false`。
 自动验收可用 `bash scripts/acceptance_test.sh continuous-ttl` 复现实例：先执行长组合动作，
 再排入一条普通命令，确认它过期且没有发布动作候选。
+`bash scripts/acceptance_test.sh continuous-endpoint` 会绕过 `/agent/text_input`，
+直接发布 `/audio/speech_ended`，由脚本化 mock ASR 产生 final，验证真实麦克风端点事件
+可以触发连续命令入队。
 `bash scripts/acceptance_test.sh continuous-soak` 会模拟一次唤醒后的长会话，连续输入
 直行、后退、转向、绕圈、挥手和灯光命令，验证 busy 时后续 ASR final 持续进入队列并按
 顺序执行完成。
@@ -253,6 +256,7 @@ bash scripts/acceptance_test.sh online   # 少量云 API 调用
 bash scripts/acceptance_test.sh offline  # 本地模型、语音和性能
 bash scripts/acceptance_test.sh demo     # mock 仿真组合动作演示
 bash scripts/acceptance_test.sh continuous-mock  # 连续会话与命令队列
+bash scripts/acceptance_test.sh continuous-endpoint  # speech_ended 端点触发 ASR final 入队
 bash scripts/acceptance_test.sh continuous-soak  # 长会话持续输入多动作不丢失
 bash scripts/acceptance_test.sh continuous-timeout  # 会话超时后要求重新唤醒
 bash scripts/acceptance_test.sh continuous-kws-mock  # KWS sidecar 唤醒后执行动作
@@ -315,6 +319,9 @@ Q8 CPU decode 34.10 token/s、语音全链 2.313 s；typed Action/BT 驱动 Gaze
 `小智 -> move -> turn -> arc -> 退出控制` 链路，并刻意使用“钱进/作转/让圈/亭下”
 等 ASR 错词验证命令归一化；同一验收还覆盖外部 KWS wake/sleep 输入，
 确认 `/agent/wake_event_input` 的 sleep 会关闭会话并发布安全 `stop`。
+`acceptance_test.sh continuous-endpoint` 会进一步覆盖真实麦克风端点路径：
+`/audio/speech_ended -> ASR commit -> /agent/asr_final -> ContinuousCommandQueue`，
+证明 Agent 正在执行上一条命令时，下一次端点 commit 仍不会被 busy 状态吞掉。
 `acceptance_test.sh continuous-soak` 进一步验证一次唤醒后的长会话可持续接收直行、
 转向、后退、绕圈、挥手和灯光等多条命令，busy 时后续 ASR final 会入队，并等待前一条
 `/robot/action_result` 后按序执行，避免快速连续语音触发 ROS Action 抢占。

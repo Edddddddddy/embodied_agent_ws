@@ -8,6 +8,11 @@ from .base import AsrProvider, LlmProvider, TtsProvider
 
 
 class MockAsr(AsrProvider):
+    def __init__(self, scripted_finals: Iterable[str] | None = None):
+        self._scripted_finals = list(scripted_finals or [])
+        self.on_partial = None
+        self.on_final = None
+
     def start(self, on_partial, on_final):
         self.on_partial = on_partial
         self.on_final = on_final
@@ -16,6 +21,8 @@ class MockAsr(AsrProvider):
         del pcm16
 
     def commit(self):
+        if self._scripted_finals and self.on_final is not None:
+            self.on_final(self._scripted_finals.pop(0))
         return None
 
     def stop(self):

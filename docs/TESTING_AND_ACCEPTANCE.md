@@ -14,6 +14,7 @@ bash scripts/acceptance_test.sh online
 bash scripts/acceptance_test.sh offline
 bash scripts/acceptance_test.sh demo
 bash scripts/acceptance_test.sh continuous-mock
+bash scripts/acceptance_test.sh continuous-endpoint
 bash scripts/acceptance_test.sh continuous-soak
 bash scripts/acceptance_test.sh continuous-queue-full
 bash scripts/acceptance_test.sh continuous-ttl
@@ -33,7 +34,9 @@ bash scripts/acceptance_test.sh continuous-online
 
 `mock` 是每次提交前的最低门槛；`demo` 使用 mock executor 验证组合动作、accessory ACK
 和弧线速度；`continuous-mock` 验证一次唤醒、多命令队列、退出控制、常见 ASR 错词
-归一化和 online/offline 状态机复用；`continuous-soak` 模拟一次唤醒后的长会话，
+归一化和 online/offline 状态机复用；`continuous-endpoint` 不走 `/agent/text_input`，
+而是用 mock ASR 脚本验证 `/audio/speech_ended -> ASR commit -> /agent/asr_final`
+的真实端点路径在 busy 时仍会入队；`continuous-soak` 模拟一次唤醒后的长会话，
 连续输入直行、后退、转向、绕圈、挥手和灯光命令，验证 busy 时后续命令持续入队并按序
 执行；`continuous-queue-full` 将队列容量设为 1，
 验证说太快时第二条普通命令发布 `rejected/queue_full` 和 `queue_rejected` feedback；
@@ -68,6 +71,7 @@ DashScope token；`offline` 会启动 llama-server；Gazebo 模式用 ACK 与里
 | mock 插件全链 | `smoke_test_mock_executor.sh` | 不改 Guard/BT 即可切换 backend |
 | 组合演示 | `smoke_test_demo_sequence.sh` | `set_led → wave → move → turn → arc → stop` 顺序执行 |
 | 连续语音 | `smoke_test_continuous_voice.sh` | 一次唤醒后多条命令排队，急停抢占，最终 `/cmd_vel` 归零 |
+| 连续端点 ASR | `smoke_test_continuous_endpoint_asr.sh` | `/audio/speech_ended` 触发 mock ASR final，busy 时进入连续命令队列 |
 | 连续长会话 | `smoke_test_continuous_voice_soak.sh` | 一次唤醒后持续输入多动作命令，busy 时排队并等待 Action result 后串行执行 |
 | 连续队列 TTL | `smoke_test_continuous_command_ttl.sh` | 长组合动作占用 worker 时，陈旧普通命令发布 `expired` 且不执行 |
 | 连续会话超时 | `smoke_test_continuous_session_timeout.sh` | `voice_session_timeout_s` 后普通命令拒绝，重新唤醒后执行 |

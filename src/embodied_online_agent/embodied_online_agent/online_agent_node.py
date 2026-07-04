@@ -190,6 +190,7 @@ class OnlineAgentNode(Node):
             "llm_first_token_target_ms": 1000.0,
             "tts_first_audio_target_ms": 300.0,
             "mock_token_delay_s": 0.0,
+            "mock_asr_finals": "",
             "online_warmup_enabled": True,
             "action_sequence_wait_timeout_s": 12.0,
             "continuous_control_enabled": False,
@@ -227,7 +228,7 @@ class OnlineAgentNode(Node):
     def _create_providers(self):
         if self.mode == "mock":
             return (
-                MockAsr(),
+                MockAsr(self._mock_asr_finals()),
                 MockLlm(self._param("mock_token_delay_s")),
                 MockTts(self._param("tts_sample_rate")),
             )
@@ -252,6 +253,10 @@ class OnlineAgentNode(Node):
                 language=self._param("tts_language"),
             ),
         )
+
+    def _mock_asr_finals(self):
+        scripted = str(self._param("mock_asr_finals") or "")
+        return [item.strip() for item in scripted.split("|") if item.strip()]
 
     def _on_asr_partial(self, text: str):
         if self._is_busy() and not self._continuous_enabled:
