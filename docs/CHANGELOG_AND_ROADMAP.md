@@ -21,6 +21,7 @@
 | Nav2 bringup 入口 | 复用官方 Nav2 TurtleBot3 仿真 launch，接入本项目语音控制链路 | 新增 voice_nav2_turtlebot3.launch.py、nav2-preflight 和 nav2-turtlebot3 重型验收 |
 | Nav2 result 闭环 | 用 Nav2 action result 驱动本项目 ExecuteRobotCommand result | 新增 RobotExecutor external_action_update seam，避免导航 goal 按本地 duration 假完成 |
 | 真实 Nav2 验收修复 | 跑通 TurtleBot3/Nav2 目标点导航与多目标点巡航 | 修复官方 launch 布尔参数、AMCL initialpose 和导航长动作超时；`nav2-turtlebot3` PASS |
+| 真实麦克风 Nav2 连续导航 | 支持一次唤醒后连续说多个目标点/巡航命令并进入 Nav2 队列执行 | 新增 `continuous-nav2-offline/online`、AMCL initialpose 辅助脚本和 live-check 入口 |
 
 ## 2. 当前完成度结论
 
@@ -70,6 +71,13 @@ bash scripts/acceptance_test.sh nav2-preflight
 bash scripts/acceptance_test.sh nav2-turtlebot3
 ```
 
+真实麦克风 Nav2 连续导航验收：
+
+```bash
+bash scripts/acceptance_test.sh continuous-nav2-offline
+CONTINUOUS_LIVE_CHECK_DURATION=240 bash scripts/acceptance_test.sh continuous-nav2-live-check offline
+```
+
 Gazebo 验收：
 
 ```bash
@@ -90,6 +98,7 @@ bash scripts/acceptance_test.sh continuous-live-check offline
 ### P0：保持演示稳定
 
 - 优先保证 `continuous-offline` 在 3～5 分钟内稳定连续控制。
+- 优先保证 `continuous-nav2-offline` 能支撑 3～5 分钟真实麦克风目标点导航/巡航演示。
 - 继续完善 monitor 输出，让失败原因能直接定位到 ASR、session、queue、Action、Gazebo。
 - 为常见麦克风和噪声环境补充 profile 建议。
 

@@ -43,7 +43,10 @@ Interactive modes:
   microphone-online   Speak into the microphone using the online Agent
   continuous-offline  Long-running microphone control using the offline Agent
   continuous-online   Long-running microphone control using the online Agent
+  continuous-nav2-offline  Long-running microphone target navigation with Nav2/TurtleBot3
+  continuous-nav2-online   Long-running microphone target navigation with Nav2/TurtleBot3
   continuous-live-check {offline|online}  Observe a running live microphone demo and score evidence
+  continuous-nav2-live-check {offline|online}  Score a running live Nav2 microphone demo
 EOF
 }
 
@@ -165,6 +168,8 @@ case "$LEVEL" in
   microphone-online) bash scripts/accept_voice_simulation_microphone.sh online ;;
   continuous-offline) bash scripts/continuous_voice_control.sh offline ;;
   continuous-online) bash scripts/continuous_voice_control.sh online ;;
+  continuous-nav2-offline) bash scripts/continuous_nav2_voice_control.sh offline ;;
+  continuous-nav2-online) bash scripts/continuous_nav2_voice_control.sh online ;;
   continuous-live-check)
     CHECK_MODE="${2:-offline}"
     if [[ "$CHECK_MODE" != "offline" && "$CHECK_MODE" != "online" ]]; then
@@ -173,6 +178,19 @@ case "$LEVEL" in
     fi
     echo "continuous-live-check=$CHECK_MODE：请先在另一个终端启动 acceptance_test.sh continuous-$CHECK_MODE"
     python3 scripts/continuous_live_check.py --duration "${CONTINUOUS_LIVE_CHECK_DURATION:-180}"
+    ;;
+  continuous-nav2-live-check)
+    CHECK_MODE="${2:-offline}"
+    if [[ "$CHECK_MODE" != "offline" && "$CHECK_MODE" != "online" ]]; then
+      echo "Usage: $0 continuous-nav2-live-check {offline|online}" >&2
+      exit 2
+    fi
+    echo "continuous-nav2-live-check=$CHECK_MODE：请先在另一个终端启动 acceptance_test.sh continuous-nav2-$CHECK_MODE"
+    python3 scripts/continuous_live_check.py \
+      --duration "${CONTINUOUS_LIVE_CHECK_DURATION:-240}" \
+      --min-asr "${CONTINUOUS_NAV2_LIVE_MIN_ASR:-4}" \
+      --min-candidates "${CONTINUOUS_NAV2_LIVE_MIN_CANDIDATES:-2}" \
+      --min-success "${CONTINUOUS_NAV2_LIVE_MIN_SUCCESS:-2}"
     ;;
   all) run_base; run_online; run_offline; bash scripts/smoke_test_demo_sequence.sh; run_gazebo; USE_TYPED_ACTIONS=true bash scripts/smoke_test_gazebo_voice.sh; bash scripts/smoke_test_gazebo_voice_online.sh ;;
   *) usage >&2; exit 2 ;;

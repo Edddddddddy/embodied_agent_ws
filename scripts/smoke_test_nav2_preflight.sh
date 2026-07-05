@@ -28,6 +28,11 @@ grep -q "use_rviz" <<<"$OUTPUT"
 grep -q "headless" <<<"$OUTPUT"
 grep -q "nav_action_timeout_s" <<<"$OUTPUT"
 grep -q "action_timeout_s" <<<"$OUTPUT"
+grep -q "voice_session_timeout_s" <<<"$OUTPUT"
+grep -q "continuous_command_queue_size" <<<"$OUTPUT"
+grep -q "command_normalization_enabled" <<<"$OUTPUT"
+grep -q "command_completion_enabled" <<<"$OUTPUT"
+grep -q "asr_commit_delay_ms" <<<"$OUTPUT"
 
 test -s "$WORKSPACE/src/embodied_simulation/config/places.yaml"
 

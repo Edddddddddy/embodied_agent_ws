@@ -352,9 +352,12 @@
 - `src/embodied_simulation/src/simulation_control_node.cpp`
 - `src/embodied_simulation/src/robot_executor_plugins.cpp`
 - `src/embodied_simulation/launch/voice_nav2_turtlebot3.launch.py`
+- `scripts/continuous_nav2_voice_control.sh`
+- `scripts/publish_nav2_initial_pose.py`
 - `tests/integration/test_navigation_sequence.py`
 - `tests/integration/test_nav2_bridge_sequence.py`
 - `tests/integration/test_nav2_turtlebot3_voice.py`
+- `tests/integration/test_continuous_nav2_voice_control_script.py`
 
 设计方式：
 
@@ -372,6 +375,10 @@
   再叠加本项目的 Agent、ActionGuard、typed action bridge 和 Nav2 executor。
 - `nav2-turtlebot3` 重型验收会启动真实 TurtleBot3/Nav2 仿真，注入语音文本命令，
   等待目标点导航/巡航 result，并检查 `/odom` 运动证据。
+- `continuous_nav2_voice_control.sh` 面向现场真实麦克风演示：它在 TurtleBot3/Nav2
+  bringup 之上打开在线/离线 Agent 的连续语音模式，让用户一次唤醒后连续说多个目标点命令。
+- `publish_nav2_initial_pose.py` 在演示启动后重复发布 AMCL `/initialpose`，降低现场
+  “Nav2 已启动但机器人还没有定位”的失败概率。
 - 真实 Nav2 bringup 前需要给 AMCL 发布 `/initialpose`，否则 map->odom/base_link TF
   不成立；导航 action 也要使用较长 `nav_action_timeout_s`，不能沿用普通动作 12 秒超时。
 
@@ -384,6 +391,9 @@
   而不是仅发布一个 topic 后马上认为成功。
 - AMCL 初始位姿和长动作超时放在验收/launch 层处理，而不是塞进 Agent，保持“语音语义层”和
   “导航运行时状态层”职责分离。
+- 连续麦克风 Nav2 演示脚本保留 `VOICE_CONTROL_PROFILE`、VAD endpoint、ASR commit delay、
+  session timeout 和 queue size 参数，原因是导航命令更长、更容易被噪声或尾部漏识别影响；
+  把这些参数显式打印出来，比“没反应时猜原因”更适合工程验收。
 - Nav2 自己会发布 `/cmd_vel`，所以 `RobotExecutor::publishes_cmd_vel()` 允许 Nav2 插件禁止
   simulation node 周期性发布速度，避免两个控制器抢同一个速度话题。
 
@@ -391,6 +401,7 @@
 
 - 直接让 LLM 输出 `{x,y,yaw}`：灵活但不稳定，且每个地图都要改 prompt；本项目更适合展示工程闭环，所以先固定语义地点。
 - 只做 fake Nav2 bridge：速度快、CI 稳定，但不能证明 controller server 真的驱动机器人；因此本项目同时提供 `nav2-turtlebot3` 重型验收入口，演示前单独跑。
+- 只做文本注入 Nav2 验收：自动化更稳，但不能覆盖真实麦克风的 ASR/session/queue 体验；因此新增 `continuous-nav2-offline/online` 作为人工演示入口。
 - 只做字符串 topic：实现快，但难体现可取消、带反馈、可测试的 ROS 2 Action 能力。
 
 ## 13. 面试讲法建议

@@ -174,6 +174,31 @@ bash scripts/acceptance_test.sh continuous-offline
 bash scripts/acceptance_test.sh continuous-online
 ```
 
+Nav2/TurtleBot3 目标点导航连续语音演示：
+
+```bash
+bash scripts/acceptance_test.sh continuous-nav2-offline
+# 或
+bash scripts/acceptance_test.sh continuous-nav2-online
+```
+
+推荐话术：
+
+```text
+小智
+去门口
+前往书桌
+依次去门口、书桌、起点
+停止巡航
+退出控制
+```
+
+辅助计分终端：
+
+```bash
+CONTINUOUS_LIVE_CHECK_DURATION=240 bash scripts/acceptance_test.sh continuous-nav2-live-check offline
+```
+
 推荐话术：
 
 ```text
@@ -246,6 +271,7 @@ bash scripts/acceptance_test.sh navigation-demo
 bash scripts/acceptance_test.sh nav2-bridge
 bash scripts/acceptance_test.sh nav2-preflight
 bash scripts/acceptance_test.sh nav2-turtlebot3
+bash scripts/acceptance_test.sh continuous-nav2-offline
 
 # Gazebo 语音到仿真运动
 bash scripts/acceptance_test.sh gazebo-voice

@@ -1,63 +1,63 @@
 # 项目代码知识图谱使用说明
 
-本项目使用第三方工具 `codebase-memory-mcp` 作为轻量代码知识图谱/代码记忆工具。它会把仓库中的文件、类、函数、调用关系、测试关系、ROS topic 等信息索引成本地图谱，方便后续开发时快速定位代码，减少反复全仓阅读带来的 token 消耗。
+本项目使用 `codebase-memory-mcp` 为 ROS2/C++/Python 混合代码建立本地知识图谱，目标是在后续开发中减少反复 `rg/read` 全仓搜索带来的 token 消耗，并更快定位“某个功能在哪些文件、哪些函数互相调用、改动会影响哪些模块”。
 
 ## 当前安装状态
 
-- WSL 路径：`/home/ubuntu/.local/bin/codebase-memory-mcp`
+- 工具位置：`/home/ubuntu/.local/bin/codebase-memory-mcp`
 - 当前版本：`0.8.1`
-- 当前项目名：`home-ubuntu-embodied_agent_ws`
-- 当前仓库路径：`/home/ubuntu/embodied_agent_ws`
+- 本项目索引名：`home-ubuntu-embodied_agent_ws`
+- 缓存位置：`~/.cache/codebase-memory-mcp/`
+- 当前索引规模：约 `2731` 个节点、`8123` 条边
 
-## 更新索引
+> 说明：索引缓存不提交到 Git。它是本地开发辅助数据，业务代码仍以仓库为准。
 
-每次完成一轮较大的代码修改后，建议重新索引：
+## 常用命令
 
-```bash
-wsl -d Ubuntu-24.04 --% bash -lc "cd /home/ubuntu/embodied_agent_ws && /home/ubuntu/.local/bin/codebase-memory-mcp cli index_repository '{\"repo_path\":\"/home/ubuntu/embodied_agent_ws\"}'"
-```
-
-索引成功时会输出类似：
-
-```text
-{"project":"home-ubuntu-embodied_agent_ws","status":"indexed","nodes":2629,"edges":7739}
-```
-
-## 常用查询
-
-列出已索引项目：
+在 WSL 中执行：
 
 ```bash
-wsl -d Ubuntu-24.04 --% bash -lc "/home/ubuntu/.local/bin/codebase-memory-mcp cli list_projects '{}'"
+cd /home/ubuntu/embodied_agent_ws
+
+# 重建/增量更新本项目图谱
+/home/ubuntu/.local/bin/codebase-memory-mcp cli index_repository \
+  '{"repo_path":"/home/ubuntu/embodied_agent_ws"}'
+
+# 查看已经索引的项目
+/home/ubuntu/.local/bin/codebase-memory-mcp cli list_projects
+
+# 查询整体架构热点
+/home/ubuntu/.local/bin/codebase-memory-mcp cli get_architecture \
+  '{"project":"home-ubuntu-embodied_agent_ws","aspects":["overview","hotspots"]}'
+
+# 按语义/关键词查相关代码节点
+/home/ubuntu/.local/bin/codebase-memory-mcp cli search_graph \
+  '{"project":"home-ubuntu-embodied_agent_ws","query":"continuous voice command queue nav2","limit":8}'
+
+# 查询某个符号的调用关系
+/home/ubuntu/.local/bin/codebase-memory-mcp cli trace_path \
+  '{"project":"home-ubuntu-embodied_agent_ws","symbol":"SequentialActionPublisher.publish","direction":"inbound","max_depth":2}'
 ```
 
-搜索某个技术点对应的代码：
+## Codex 开发约定
 
-```bash
-wsl -d Ubuntu-24.04 --% bash -lc "/home/ubuntu/.local/bin/codebase-memory-mcp cli search_graph '{\"project\":\"home-ubuntu-embodied_agent_ws\",\"query\":\"voice navigation action queue nav2 executor\",\"limit\":8}'"
-```
+后续进行结构性问题分析时，优先使用代码知识图谱：
 
-查看整体架构摘要：
+1. 先用 `get_architecture` 或 `search_graph` 快速定位模块。
+2. 再用 `trace_path` 查调用链和影响范围。
+3. 只有在需要确认具体实现细节、修改代码、或图谱结果不足时，再用 `rg` / `sed` / 直接打开文件。
+4. 每次较大开发阶段结束后，重新运行 `index_repository`，让图谱跟上代码变化。
 
-```bash
-wsl -d Ubuntu-24.04 --% bash -lc "/home/ubuntu/.local/bin/codebase-memory-mcp cli get_architecture '{\"project\":\"home-ubuntu-embodied_agent_ws\",\"aspects\":[\"all\"]}'"
-```
+## 适合用图谱回答的问题
 
-## 开发时怎么用
+- “连续语音队列相关逻辑在哪些文件？”
+- “`/agent/action_candidate` 是从哪里发布的？”
+- “Nav2 目标点导航链路从脚本到 ROS Action 经过哪些模块？”
+- “修改 `SequentialActionPublisher` 会影响哪些测试？”
+- “哪些函数是高 fan-in 的架构热点？”
 
-建议在这些场景先查知识图谱，再读源码：
+## 不适合完全依赖图谱的问题
 
-1. 想知道“某个功能在哪里实现”：用 `search_graph` 搜中文/英文关键词。
-2. 想梳理“入口节点、热点函数、模块边界”：用 `get_architecture`。
-3. 想避免误改重复逻辑：先搜相似关键词，例如 `command queue`、`ActionGuard`、`Nav2RobotExecutor`。
-4. 做阶段总结或汇报材料：用图谱输出的 entry points、routes、hotspots 辅助整理代码讲解路径。
-
-## PowerShell 调 WSL 注意事项
-
-涉及 JSON 参数时，优先使用 `--%`，否则 PowerShell 容易提前解析引号、冒号、逗号：
-
-```bash
-wsl -d Ubuntu-24.04 --% bash -lc "..."
-```
-
-如果命令仍然复杂，优先改成单行命令，避免 here-doc 被 PowerShell 改写。
+- 真实麦克风、Gazebo、Nav2 的运行时问题：仍需要看日志和实际 topic。
+- 参数调优和性能瓶颈：仍需要验收脚本、`ros2 topic echo`、`ros2 action`、`colcon test` 验证。
+- 未保存到文件的临时状态：图谱只看文件系统中的代码。

@@ -46,6 +46,9 @@ bash scripts/acceptance_test.sh --help
 | `continuous-offline` | 人工 | 真实麦克风离线连续控制 |
 | `continuous-online` | 人工/联网 | 真实麦克风在线连续控制 |
 | `continuous-live-check` | 人工辅助 | 订阅 topic 并统计现场演示证据 |
+| `continuous-nav2-offline` | 人工/Nav2 | 真实麦克风离线连续目标点导航与多目标点巡航 |
+| `continuous-nav2-online` | 人工/联网/Nav2 | 真实麦克风在线连续目标点导航与多目标点巡航 |
+| `continuous-nav2-live-check` | 人工辅助/Nav2 | 订阅 topic 并统计现场 Nav2 连续导航演示证据 |
 | `all` | 自动 | release gate，不包含人工 microphone 模式 |
 
 ## 2. 推荐测试顺序
@@ -203,6 +206,39 @@ action server，证明 `Nav2RobotExecutor` 已能把语义地点转换成真正�
 result 和 `/odom` 运动证据。该模式会给 AMCL 发布 `/initialpose`，并把 Nav2 长动作
 超时提高到演示级窗口，避免按普通短动作提前取消真实导航 goal。该模式耗时较长，
 通常不放入 CI。
+
+真实麦克风连续 Nav2 演示：
+
+```bash
+bash scripts/acceptance_test.sh continuous-nav2-offline
+# 或
+bash scripts/acceptance_test.sh continuous-nav2-online
+```
+
+推荐另开一个终端做现场计分：
+
+```bash
+CONTINUOUS_LIVE_CHECK_DURATION=240 bash scripts/acceptance_test.sh continuous-nav2-live-check offline
+```
+
+推荐话术：
+
+```text
+小智
+去门口
+前往书桌
+依次去门口、书桌、起点
+停止巡航
+退出控制
+```
+
+通过标准：
+
+- 终端持续打印 session、ASR、queue、action/result 事件。
+- `去门口/前往书桌` 能产生 `navigate_to`，并收到 Nav2 action result。
+- `依次去门口、书桌、起点` 能产生 `follow_waypoints`，多个 waypoint 按顺序进入 Nav2。
+- 执行过程中再次说目标点命令时，命令进入连续队列等待，而不是丢失。
+- `停止巡航/取消导航/停下` 能抢占当前导航并让 `/cmd_vel` 归零。
 
 ## 5. 真实语音问题排查
 

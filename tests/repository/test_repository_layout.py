@@ -27,6 +27,7 @@ def test_critical_full_chain_probes_remain_discoverable():
         "test_continuous_voice_soak.py",
         "test_continuous_voice_control.py",
         "test_continuous_voice_control_script.py",
+        "test_continuous_nav2_voice_control_script.py",
         "test_continuous_voice_monitor.py",
         "test_continuous_kws_sidecar.py",
         "test_voice_provider_preflight.py",
@@ -46,7 +47,15 @@ def test_voice_navigation_acceptance_entrypoints_remain_available():
     acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
         encoding="utf-8"
     )
-    for mode in ("navigation-demo", "nav2-bridge", "nav2-preflight", "nav2-turtlebot3"):
+    for mode in (
+        "navigation-demo",
+        "nav2-bridge",
+        "nav2-preflight",
+        "nav2-turtlebot3",
+        "continuous-nav2-offline",
+        "continuous-nav2-online",
+        "continuous-nav2-live-check",
+    ):
         assert mode in acceptance
 
     for script in (
@@ -54,6 +63,8 @@ def test_voice_navigation_acceptance_entrypoints_remain_available():
         "smoke_test_nav2_bridge.sh",
         "smoke_test_nav2_preflight.sh",
         "smoke_test_nav2_turtlebot3_voice.sh",
+        "continuous_nav2_voice_control.sh",
+        "publish_nav2_initial_pose.py",
     ):
         assert (ROOT / "scripts" / script).is_file()
 
