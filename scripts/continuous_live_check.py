@@ -24,6 +24,7 @@ class LiveCheckThresholds:
     min_asr: int = 6
     min_candidates: int = 4
     min_success: int = 4
+    required_candidates: list[str] | None = None
 
 
 @dataclass
@@ -34,6 +35,7 @@ class LiveCheckReport:
     command_enqueue_count: int
     execution_started_count: int
     execution_finished_count: int
+    action_candidate_names: dict[str, int]
     saw_awake: bool
     saw_sleeping: bool
     final_cmd_vel_zero: bool
@@ -86,6 +88,11 @@ class LiveCheckNode(Node):
         started_count = sum(1 for event in self.execution_events if event.get("event") == "started")
         finished_count = sum(1 for event in self.execution_events if event.get("event") == "finished")
         final_zero = bool(self.velocities) and all(abs(v) < 1e-6 for v in self.velocities[-1])
+        candidate_names: dict[str, int] = {}
+        for candidate in self.candidates:
+            name = str(candidate.get("name") or "")
+            if name:
+                candidate_names[name] = candidate_names.get(name, 0) + 1
         checks = {
             f"ASR final >= {thresholds.min_asr}": len(self.asr) >= thresholds.min_asr,
             f"action candidate >= {thresholds.min_candidates}": len(self.candidates)
@@ -96,6 +103,8 @@ class LiveCheckNode(Node):
             "session sleeping observed": "sleeping" in self.session_states,
             "final cmd_vel is zero": final_zero,
         }
+        for required in thresholds.required_candidates or []:
+            checks[f"candidate {required} observed"] = candidate_names.get(required, 0) > 0
         missing = [name for name, passed in checks.items() if not passed]
         return LiveCheckReport(
             asr_count=len(self.asr),
@@ -104,6 +113,7 @@ class LiveCheckNode(Node):
             command_enqueue_count=enqueue_count,
             execution_started_count=started_count,
             execution_finished_count=finished_count,
+            action_candidate_names=candidate_names,
             saw_awake=checks["session awake observed"],
             saw_sleeping=checks["session sleeping observed"],
             final_cmd_vel_zero=final_zero,
@@ -126,11 +136,32 @@ def main() -> None:
     parser.add_argument("--min-asr", type=int, default=6)
     parser.add_argument("--min-candidates", type=int, default=4)
     parser.add_argument("--min-success", type=int, default=4)
+    parser.add_argument(
+        "--require-candidate",
+        action="append",
+        default=[],
+        help="要求现场至少出现一次指定 action candidate，可重复传入",
+    )
+    parser.add_argument(
+        "--scenario",
+        choices=("motion", "nav2"),
+        default="motion",
+        help="打印哪套人工验收话术",
+    )
     args = parser.parse_args()
-    thresholds = LiveCheckThresholds(args.min_asr, args.min_candidates, args.min_success)
+    thresholds = LiveCheckThresholds(
+        args.min_asr,
+        args.min_candidates,
+        args.min_success,
+        args.require_candidate,
+    )
 
-    print("请在另一个终端启动 continuous-offline/online，然后按顺序说：", flush=True)
-    print("小智 / 向前走一秒 / 左转九十度 / 后退一秒 / 绕圈 / 走正方形 / 停下 / 退出控制", flush=True)
+    if args.scenario == "nav2":
+        print("请在另一个终端启动 continuous-nav2-offline/online，然后按顺序说：", flush=True)
+        print("小智 / 去门口 / 前往书桌 / 依次去门口、书桌、起点 / 停止巡航 / 退出控制", flush=True)
+    else:
+        print("请在另一个终端启动 continuous-offline/online，然后按顺序说：", flush=True)
+        print("小智 / 向前走一秒 / 左转九十度 / 后退一秒 / 绕圈 / 走正方形 / 停下 / 退出控制", flush=True)
     print(f"开始统计 {args.duration:.0f}s 内的连续语音链路事件...", flush=True)
 
     rclpy.init()

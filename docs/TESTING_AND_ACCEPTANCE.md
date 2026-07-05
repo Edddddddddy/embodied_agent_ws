@@ -226,6 +226,9 @@ bash scripts/acceptance_test.sh continuous-nav2-online
 CONTINUOUS_LIVE_CHECK_DURATION=240 bash scripts/acceptance_test.sh continuous-nav2-live-check offline
 ```
 
+`continuous-nav2-live-check` 会在通用连续语音统计基础上，额外要求至少出现一次
+`navigate_to` 和一次 `follow_waypoints` action candidate。
+
 推荐话术：
 
 ```text

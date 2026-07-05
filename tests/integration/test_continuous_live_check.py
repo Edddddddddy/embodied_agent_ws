@@ -36,7 +36,9 @@ def test_live_check_report_passes_when_required_evidence_is_present():
     node = live_check.LiveCheckNode()
     node.asr.extend(["小智", "向前走一秒", "左转九十度", "后退一秒", "绕圈", "退出控制"])
     node.session_states.extend(["awake", "sleeping"])
-    node.candidates.extend([{} for _ in range(4)])
+    node.candidates.extend(
+        [{"name": "move"}, {"name": "turn"}, {"name": "arc"}, {"name": "stop"}]
+    )
     node.results.extend([{"success": True} for _ in range(4)])
     node.queue_events.extend([{"event": "enqueue"} for _ in range(4)])
     node.execution_events.extend([{"event": "started"}, {"event": "finished"}])
@@ -48,6 +50,52 @@ def test_live_check_report_passes_when_required_evidence_is_present():
     assert report.missing == []
     assert report.asr_count == 6
     assert report.action_success_count == 4
+    assert report.action_candidate_names["move"] == 1
+
+
+def test_live_check_report_requires_navigation_candidates():
+    node = live_check.LiveCheckNode()
+    node.asr.extend(["小智", "去门口", "前往书桌", "依次去门口书桌起点"])
+    node.session_states.extend(["awake", "sleeping"])
+    node.candidates.extend(
+        [{"name": "navigate_to"}, {"name": "navigate_to"}, {"name": "follow_waypoints"}]
+    )
+    node.results.extend([{"success": True} for _ in range(3)])
+    node.velocities.append((0.0, 0.0))
+
+    report = node.build_report(
+        live_check.LiveCheckThresholds(
+            min_asr=3,
+            min_candidates=2,
+            min_success=2,
+            required_candidates=["navigate_to", "follow_waypoints"],
+        )
+    )
+
+    assert report.ok is True
+    assert report.action_candidate_names["navigate_to"] == 2
+    assert report.action_candidate_names["follow_waypoints"] == 1
+
+
+def test_live_check_report_lists_missing_required_navigation_candidate():
+    node = live_check.LiveCheckNode()
+    node.asr.extend(["小智", "去门口", "退出控制"])
+    node.session_states.extend(["awake", "sleeping"])
+    node.candidates.append({"name": "navigate_to"})
+    node.results.append({"success": True})
+    node.velocities.append((0.0, 0.0))
+
+    report = node.build_report(
+        live_check.LiveCheckThresholds(
+            min_asr=1,
+            min_candidates=1,
+            min_success=1,
+            required_candidates=["navigate_to", "follow_waypoints"],
+        )
+    )
+
+    assert report.ok is False
+    assert "candidate follow_waypoints observed" in report.missing
 
 
 def test_live_check_report_lists_missing_evidence():

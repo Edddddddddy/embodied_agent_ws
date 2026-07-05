@@ -190,10 +190,13 @@ case "$LEVEL" in
     fi
     echo "continuous-nav2-live-check=$CHECK_MODE：请先在另一个终端启动 acceptance_test.sh continuous-nav2-$CHECK_MODE"
     python3 scripts/continuous_live_check.py \
+      --scenario nav2 \
       --duration "${CONTINUOUS_LIVE_CHECK_DURATION:-240}" \
       --min-asr "${CONTINUOUS_NAV2_LIVE_MIN_ASR:-4}" \
       --min-candidates "${CONTINUOUS_NAV2_LIVE_MIN_CANDIDATES:-2}" \
-      --min-success "${CONTINUOUS_NAV2_LIVE_MIN_SUCCESS:-2}"
+      --min-success "${CONTINUOUS_NAV2_LIVE_MIN_SUCCESS:-2}" \
+      --require-candidate navigate_to \
+      --require-candidate follow_waypoints
     ;;
   all) run_base; run_online; run_offline; bash scripts/smoke_test_demo_sequence.sh; run_gazebo; USE_TYPED_ACTIONS=true bash scripts/smoke_test_gazebo_voice.sh; bash scripts/smoke_test_gazebo_voice_online.sh ;;
   *) usage >&2; exit 2 ;;
