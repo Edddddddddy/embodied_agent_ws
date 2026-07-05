@@ -202,6 +202,8 @@ bash scripts/acceptance_test.sh continuous-navigation
 - `/cmd_vel` 能观察到目标导航的前进速度，以及巡航的线速度 + 角速度。
 
 边界说明：语义地点仍由 `places.yaml` 维护，不在本阶段做自动建图或复杂任务规划。
+仓库结构测试会锁住 Agent 地点词表、ActionGuard 地点白名单和 `places.yaml` 的
+canonical place 一致性，防止某一层配置漂移。
 `navigation-demo` 由仿真 executor 生成可观测运动；`nav2-bridge` 会启动 fake Nav2
 action server，证明 `Nav2RobotExecutor` 已能把语义地点转换成真正的
 `NavigateToPose / FollowWaypoints` goal，并且 action result 由 Nav2 result 驱动，

@@ -367,6 +367,8 @@
 - `RobotCommand.msg` 新增 `NAVIGATE_TO / FOLLOW_WAYPOINTS / CANCEL_NAVIGATION` 和 `target/waypoints/number_of_loops` 字段。
 - `ActionGuard` 继续作为安全边界：校验地点白名单、巡航点数量、循环次数，再转换为 typed command。
 - `places.yaml` 维护语义地点到地图坐标的映射。
+- `tests/repository/test_repository_layout.py` 会检查 Agent 地点词表、ActionGuard 白名单和
+  `places.yaml` 的 canonical place 完全一致，避免“语音能解析但 Nav2 不认地点”的漂移。
 - mock/Gazebo executor 用“运动窗口”模拟导航和巡航，确保 `/cmd_vel`、Action feedback、Action result 可观测。
 - `Nav2RobotExecutor` 作为 pluginlib 插件调用 Nav2 `NavigateToPose / FollowWaypoints` action；
   `nav2-bridge` 用 fake Nav2 action server 自动验证 goal 内容。

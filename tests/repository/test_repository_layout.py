@@ -1,10 +1,24 @@
 """仓库结构约束：用户命令与集成测试必须分区，避免 scripts/ 再次退化成杂物箱。"""
 
+import ast
 import re
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def _python_literal(module_path: Path, name: str):
+    tree = ast.parse(module_path.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            if node.target.id == name:
+                return ast.literal_eval(node.value)
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == name:
+                    return ast.literal_eval(node.value)
+    raise AssertionError(f"{name} not found in {module_path}")
 
 
 def test_integration_probes_are_not_mixed_with_user_scripts():
@@ -75,6 +89,44 @@ def test_voice_navigation_acceptance_entrypoints_remain_available():
         ROOT / "src" / "embodied_simulation" / "launch" / "voice_nav2_turtlebot3.launch.py"
     ).is_file()
     assert (ROOT / "src" / "embodied_simulation" / "config" / "places.yaml").is_file()
+
+
+def test_voice_navigation_places_stay_consistent_across_agent_guard_and_nav2():
+    """Agent、ActionGuard、Nav2 executor 必须共享同一组标准地点名。
+
+    语音导航链路跨 Python Agent、C++ 安全网关和 Nav2 坐标配置。任何一层漏掉
+    某个 canonical place，都会导致“ASR/LLM 已解析，但机器人不执行”的现场事故。
+    这里不限制中文别名，只锁住标准地点名和默认巡航点。
+    """
+
+    navigation_phrases = (
+        ROOT
+        / "src"
+        / "embodied_online_agent"
+        / "embodied_online_agent"
+        / "navigation_phrases.py"
+    )
+    action_validator = (
+        ROOT / "src" / "embodied_agent_cpp" / "src" / "action_validator.cpp"
+    ).read_text(encoding="utf-8")
+    places_yaml = (
+        ROOT / "src" / "embodied_simulation" / "config" / "places.yaml"
+    ).read_text(encoding="utf-8")
+
+    agent_places = set(_python_literal(navigation_phrases, "PLACE_ALIASES"))
+    default_patrol = _python_literal(navigation_phrases, "DEFAULT_PATROL_WAYPOINTS")
+    guard_function = re.search(
+        r"supported_navigation_places\(\).*?static const std::set<std::string> places\{(?P<body>.*?)\};",
+        action_validator,
+        flags=re.S,
+    )
+    assert guard_function is not None
+    guard_places = set(re.findall(r'"([a-zA-Z0-9_]+)"', guard_function.group("body")))
+    nav2_places = set(re.findall(r"^  ([a-zA-Z0-9_]+):\s*\{", places_yaml, flags=re.M))
+
+    assert agent_places == guard_places == nav2_places
+    assert set(default_patrol) <= agent_places
+    assert default_patrol == ["door", "desk", "home"]
 
 
 def test_audio_endpoint_events_remain_wired_through_frontend_and_agents():
