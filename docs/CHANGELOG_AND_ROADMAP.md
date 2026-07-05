@@ -20,6 +20,7 @@
 | 语音导航与巡航 | 支持语音目标点导航、多目标点巡航，并接入 typed Action 与 Nav2 bridge | 新增 navigate_to/follow_waypoints/cancel_navigation 协议、NLU、ActionGuard 校验、navigation-demo 和 nav2-bridge |
 | Nav2 bringup 入口 | 复用官方 Nav2 TurtleBot3 仿真 launch，接入本项目语音控制链路 | 新增 voice_nav2_turtlebot3.launch.py、nav2-preflight 和 nav2-turtlebot3 重型验收 |
 | Nav2 result 闭环 | 用 Nav2 action result 驱动本项目 ExecuteRobotCommand result | 新增 RobotExecutor external_action_update seam，避免导航 goal 按本地 duration 假完成 |
+| 真实 Nav2 验收修复 | 跑通 TurtleBot3/Nav2 目标点导航与多目标点巡航 | 修复官方 launch 布尔参数、AMCL initialpose 和导航长动作超时；`nav2-turtlebot3` PASS |
 
 ## 2. 当前完成度结论
 

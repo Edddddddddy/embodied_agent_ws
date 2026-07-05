@@ -198,9 +198,11 @@ bash scripts/acceptance_test.sh nav2-preflight
 action server，证明 `Nav2RobotExecutor` 已能把语义地点转换成真正的
 `NavigateToPose / FollowWaypoints` goal，并且 action result 由 Nav2 result 驱动，
 不是本地固定 duration 假完成。`nav2-preflight` 用于在启动重型 Gazebo/Nav2 前
-确认依赖包、`voice_nav2_turtlebot3.launch.py` 和关键参数可用；`nav2-turtlebot3`
-用于真实 TurtleBot3/Nav2 bringup，验证目标点导航/多目标点巡航 result 和 `/odom`
-运动证据。该模式耗时较长，通常不放入 CI。
+确认依赖包、`voice_nav2_turtlebot3.launch.py`、`nav_action_timeout_s` 和关键参数可用；
+`nav2-turtlebot3` 用于真实 TurtleBot3/Nav2 bringup，验证目标点导航/多目标点巡航
+result 和 `/odom` 运动证据。该模式会给 AMCL 发布 `/initialpose`，并把 Nav2 长动作
+超时提高到演示级窗口，避免按普通短动作提前取消真实导航 goal。该模式耗时较长，
+通常不放入 CI。
 
 ## 5. 真实语音问题排查
 

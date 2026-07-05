@@ -14,6 +14,7 @@ import threading
 import time
 
 import rclpy
+from geometry_msgs.msg import PoseWithCovarianceStamped
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from std_msgs.msg import String
@@ -23,6 +24,9 @@ class Nav2TurtleBot3VoiceProbe(Node):
     def __init__(self):
         super().__init__("nav2_turtlebot3_voice_probe")
         self.text_pub = self.create_publisher(String, "/agent/text_input", 10)
+        self.initial_pose_pub = self.create_publisher(
+            PoseWithCovarianceStamped, "/initialpose", 10
+        )
         self.candidates = []
         self.results = []
         self.positions = []
@@ -71,6 +75,35 @@ def traveled_distance(positions):
     return max(math.hypot(x - start[0], y - start[1]) for x, y in positions)
 
 
+def quaternion_from_yaw(yaw):
+    return math.sin(yaw / 2.0), math.cos(yaw / 2.0)
+
+
+def publish_initial_pose(node, x, y, yaw):
+    """Seed AMCL before sending Nav2 goals.
+
+    官方 TurtleBot3/Nav2 bringup 不一定自动给 AMCL 初始位姿；没有 map->odom TF 时
+    Nav2 goal 会一直卡在 costmap/transform 等待。这里用 launch 默认出生点给 AMCL
+    一个近似初值，足够支撑演示级目标点导航验收。
+    """
+
+    qz, qw = quaternion_from_yaw(yaw)
+    message = PoseWithCovarianceStamped()
+    message.header.frame_id = "map"
+    message.header.stamp = node.get_clock().now().to_msg()
+    message.pose.pose.position.x = x
+    message.pose.pose.position.y = y
+    message.pose.pose.orientation.z = qz
+    message.pose.pose.orientation.w = qw
+    message.pose.covariance[0] = 0.25
+    message.pose.covariance[7] = 0.25
+    message.pose.covariance[35] = 0.0685
+    for _ in range(10):
+        message.header.stamp = node.get_clock().now().to_msg()
+        node.initial_pose_pub.publish(message)
+        time.sleep(0.2)
+
+
 def run_command(node, text, candidate_name, timeout):
     before = len(node.results)
     node.text_pub.publish(String(data=text))
@@ -94,6 +127,9 @@ def main():
     parser.add_argument("--navigate-timeout", type=float, default=120.0)
     parser.add_argument("--patrol-timeout", type=float, default=240.0)
     parser.add_argument("--skip-patrol", action="store_true")
+    parser.add_argument("--initial-x", type=float, default=-2.0)
+    parser.add_argument("--initial-y", type=float, default=-0.5)
+    parser.add_argument("--initial-yaw", type=float, default=0.0)
     args = parser.parse_args()
 
     rclpy.init()
@@ -113,6 +149,8 @@ def main():
             "voice/Nav2/TurtleBot3 topics were not ready",
         )
         time.sleep(2.0)
+        publish_initial_pose(node, args.initial_x, args.initial_y, args.initial_yaw)
+        time.sleep(3.0)
 
         navigate_candidate = run_command(
             node, "去门口", "navigate_to", args.navigate_timeout

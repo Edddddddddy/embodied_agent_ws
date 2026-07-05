@@ -36,6 +36,9 @@ def generate_launch_description():
                 use_behavior_tree, value_type=bool
             ),
             "executor_plugin": executor_plugin,
+            "action_timeout_s": ParameterValue(
+                LaunchConfiguration("action_timeout_s"), value_type=float
+            ),
         },
     ]
     return LaunchDescription([
@@ -48,6 +51,7 @@ def generate_launch_description():
             default_value="embodied_simulation/GazeboRobotExecutor",
         ),
         DeclareLaunchArgument("autostart", default_value="true"),
+        DeclareLaunchArgument("action_timeout_s", default_value="12.0"),
         DeclareLaunchArgument("use_composition", default_value="false"),
         DeclareLaunchArgument("namespace", default_value=""),
         LifecycleNode(

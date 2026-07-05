@@ -20,6 +20,10 @@ def include_launch(package, filename, arguments=None, condition=None):
     )
 
 
+def as_python_bool(value):
+    return PythonExpression(["'True' if '", value, "'.lower() == 'true' else 'False'"])
+
+
 def generate_launch_description():
     simulation_share = get_package_share_directory("embodied_simulation")
     nav2_share = get_package_share_directory("nav2_bringup")
@@ -36,6 +40,11 @@ def generate_launch_description():
     continuous_control = LaunchConfiguration("continuous_control_enabled")
     wake_word = LaunchConfiguration("wake_word_enabled")
     lifecycle_autostart = LaunchConfiguration("lifecycle_autostart")
+    nav_action_timeout_s = LaunchConfiguration("nav_action_timeout_s")
+    slam = LaunchConfiguration("slam")
+    use_rviz = LaunchConfiguration("use_rviz")
+    headless = LaunchConfiguration("headless")
+    use_composition = LaunchConfiguration("use_composition")
 
     online_condition = IfCondition(
         PythonExpression([
@@ -62,6 +71,7 @@ def generate_launch_description():
         DeclareLaunchArgument("map", default_value=nav2_map),
         DeclareLaunchArgument("params_file", default_value=nav2_params),
         DeclareLaunchArgument("use_composition", default_value="true"),
+        DeclareLaunchArgument("nav_action_timeout_s", default_value="180.0"),
         DeclareLaunchArgument("x_pose", default_value="-2.0"),
         DeclareLaunchArgument("y_pose", default_value="-0.5"),
         DeclareLaunchArgument("yaw", default_value="0.0"),
@@ -71,14 +81,17 @@ def generate_launch_description():
             "nav2_bringup",
             "tb3_simulation_launch.py",
             {
-                "slam": LaunchConfiguration("slam"),
+                # Nav2 官方 launch 内部使用 PythonExpression(['not ', use_composition])
+                # 这类表达式，必须收到 Python 可识别的 True/False；本项目对外仍保留
+                # ROS 常见的小写 true/false 参数，避免用户命令行习惯被打破。
+                "slam": as_python_bool(slam),
                 "map": LaunchConfiguration("map"),
                 "params_file": LaunchConfiguration("params_file"),
-                "use_rviz": LaunchConfiguration("use_rviz"),
-                "headless": LaunchConfiguration("headless"),
+                "use_rviz": as_python_bool(use_rviz),
+                "headless": as_python_bool(headless),
                 "autostart": "true",
                 "use_sim_time": "true",
-                "use_composition": LaunchConfiguration("use_composition"),
+                "use_composition": as_python_bool(use_composition),
                 "x_pose": LaunchConfiguration("x_pose"),
                 "y_pose": LaunchConfiguration("y_pose"),
                 "yaw": LaunchConfiguration("yaw"),
@@ -94,6 +107,7 @@ def generate_launch_description():
                 "use_behavior_tree": "true",
                 "executor_plugin": "embodied_simulation/Nav2RobotExecutor",
                 "autostart": lifecycle_autostart,
+                "action_timeout_s": nav_action_timeout_s,
             },
         ),
         include_launch(

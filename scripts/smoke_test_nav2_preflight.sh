@@ -26,6 +26,8 @@ grep -q "map" <<<"$OUTPUT"
 grep -q "params_file" <<<"$OUTPUT"
 grep -q "use_rviz" <<<"$OUTPUT"
 grep -q "headless" <<<"$OUTPUT"
+grep -q "nav_action_timeout_s" <<<"$OUTPUT"
+grep -q "action_timeout_s" <<<"$OUTPUT"
 
 test -s "$WORKSPACE/src/embodied_simulation/config/places.yaml"
 

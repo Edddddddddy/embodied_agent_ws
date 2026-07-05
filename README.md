@@ -130,6 +130,9 @@ Nav2/TurtleBot3 真实仿真重型验收（会启动 Gazebo/Nav2，耗时数分�
 bash scripts/acceptance_test.sh nav2-turtlebot3
 ```
 
+该模式会先发布 AMCL `/initialpose`，并使用较长的 `nav_action_timeout_s` 等待真实
+Nav2 action result，避免按普通短动作提前取消导航。
+
 在线接口最小 token 验证：
 
 ```bash
