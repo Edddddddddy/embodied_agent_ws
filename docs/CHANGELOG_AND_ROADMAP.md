@@ -18,6 +18,8 @@
 | 阶段性文档收尾 | 整理 README、验收文档、学习笔记、关键中文注释 | 当前阶段 |
 | 轻量 NLU 多命令 | 识别一句 ASR final 内的多个动作，并保证队列顺序 | 新增 CommandNLU、batch 可观测性、request_id/result 关联 |
 | 语音导航与巡航 | 支持语音目标点导航、多目标点巡航，并接入 typed Action 与 Nav2 bridge | 新增 navigate_to/follow_waypoints/cancel_navigation 协议、NLU、ActionGuard 校验、navigation-demo 和 nav2-bridge |
+| Nav2 bringup 入口 | 复用官方 Nav2 TurtleBot3 仿真 launch，接入本项目语音控制链路 | 新增 voice_nav2_turtlebot3.launch.py、nav2-preflight 和 nav2-turtlebot3 重型验收 |
+| Nav2 result 闭环 | 用 Nav2 action result 驱动本项目 ExecuteRobotCommand result | 新增 RobotExecutor external_action_update seam，避免导航 goal 按本地 duration 假完成 |
 
 ## 2. 当前完成度结论
 
@@ -30,13 +32,13 @@
 - 工程化接口：自定义 msg/action、Lifecycle、BehaviorTree.CPP、pluginlib。
 - 演示能力：真实麦克风连续语音、多动作序列、急停抢占、Gazebo 运动验证。
 - 多命令能力：一条 ASR final 可被轻量 NLU 解析为多个队列项，并按 ROS 2 Action result 顺序执行。
-- 导航演示能力：支持“去门口”“前往书桌”“依次去门口、书桌、起点”等语音目标点/多点巡航命令，并通过 typed Action 驱动仿真 executor 或 Nav2 action bridge。
+- 导航演示能力：支持“去门口”“前往书桌”“依次去门口、书桌、起点”等语音目标点/多点巡航命令，并通过 typed Action 驱动仿真 executor、Nav2 action bridge 或完整 TurtleBot3/Nav2 bringup。
 - 测试体系：单元测试、集成 smoke、Gazebo 验收、真实麦克风辅助统计。
 
 需要谨慎表述的边界：
 
 - 当前硬件控制是预留/mock，不是实体机器人完整验收。
-- 当前 Nav2 bridge 已能发 `NavigateToPose / FollowWaypoints` goal，但完整地图构建、定位和路径规划效果还需要真实 Nav2 bringup 验收。
+- 当前已提供完整 TurtleBot3/Nav2 重型验收入口，但地图构建、复杂目标点规划和更复杂场景仍是后续增强。
 - 离线 LoRA 训练、量化指标可以作为规划和接口说明，不应夸大为已复现完整训练结果。
 - openWakeWord、LiveKit WakeWord、Silero VAD 是可选 seam/preflight，不是默认强依赖链路。
 
@@ -63,6 +65,8 @@ bash scripts/acceptance_test.sh voice-readiness
 ```bash
 bash scripts/acceptance_test.sh navigation-demo
 bash scripts/acceptance_test.sh nav2-bridge
+bash scripts/acceptance_test.sh nav2-preflight
+bash scripts/acceptance_test.sh nav2-turtlebot3
 ```
 
 Gazebo 验收：
@@ -99,10 +103,10 @@ bash scripts/acceptance_test.sh continuous-live-check offline
 - 固化离线模型下载、量化、启动 llama.cpp server 的流程。
 - 增加离线 benchmark 报告模板。
 
-### P3：接入真实 Nav2 导航栈
+### P3：增强真实 Nav2 导航栈
 
-- 将 `Nav2RobotExecutor` 接入 TurtleBot3/Nav2 bringup，而不是 fake action server。
-- 为 TurtleBot3 world 增加保存地图、AMCL/SLAM、目标点巡航验收脚本。
+- 在已有 `voice_nav2_turtlebot3.launch.py` 基础上增加保存地图、AMCL/SLAM、目标点巡航场景资产。
+- 增加更稳定的真实 Nav2 odom/goal-result 统计报告，区分 planner/controller/behavior tree 失败原因。
 - 明确 LoRA 训练数据集格式和复现实验入口。
 
 ### P3：可选增强

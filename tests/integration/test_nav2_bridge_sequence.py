@@ -82,6 +82,7 @@ def main():
         )
         time.sleep(0.5)
 
+        navigate_started_at = time.monotonic()
         node.text_pub.publish(String(data="去门口"))
         wait_until(
             lambda: node.navigate_goals
@@ -102,12 +103,19 @@ def main():
             12.0,
             "navigate_to command did not finish",
         )
+        navigate_elapsed = time.monotonic() - navigate_started_at
+        if navigate_elapsed > 2.5:
+            raise RuntimeError(
+                "navigate_to result waited for local duration instead of Nav2 result: "
+                f"{navigate_elapsed:.2f}s"
+            )
         pose = node.navigate_goals[-1]
         if pose.header.frame_id != "map":
             raise RuntimeError(f"unexpected nav frame: {pose.header.frame_id}")
         if abs(pose.pose.position.x - 1.2) > 1e-6 or abs(pose.pose.position.y) > 1e-6:
             raise RuntimeError(f"unexpected nav pose: {pose}")
 
+        follow_started_at = time.monotonic()
         node.text_pub.publish(String(data="依次去门口、书桌、起点"))
         wait_until(
             lambda: node.follow_goals
@@ -128,6 +136,12 @@ def main():
             15.0,
             "follow_waypoints command did not finish",
         )
+        follow_elapsed = time.monotonic() - follow_started_at
+        if follow_elapsed > 3.0:
+            raise RuntimeError(
+                "follow_waypoints result waited for local duration instead of Nav2 result: "
+                f"{follow_elapsed:.2f}s"
+            )
         follow = node.follow_goals[-1]
         if follow.number_of_loops != 1 or len(follow.poses) != 3:
             raise RuntimeError(f"unexpected follow goal: {follow}")
@@ -146,6 +160,10 @@ def main():
                         "y": pose.pose.position.y,
                     },
                     "follow_waypoints": positions,
+                    "result_latency_s": {
+                        "navigate_to": round(navigate_elapsed, 3),
+                        "follow_waypoints": round(follow_elapsed, 3),
+                    },
                     "result_count": len(node.results),
                     "status": "PASS",
                 },

@@ -1,10 +1,12 @@
 #pragma once
 
+#include <optional>
 #include <string>
 #include <vector>
 
 #include <embodied_agent_interfaces/msg/robot_command.hpp>
 
+#include "embodied_simulation/action_execution.hpp"
 #include "embodied_simulation/simulation_controller.hpp"
 
 namespace embodied_simulation
@@ -33,6 +35,12 @@ public:
   // Nav2 这类外部控制器会自己发布 /cmd_vel；此时 simulation_control 只负责发 action goal，
   // 不能再周期性发布零速度，否则会和 Nav2 controller 抢控制权。
   virtual bool publishes_cmd_vel() const {return true;}
+  // 普通仿真动作由 duration_s 判定完成；Nav2 这类外部 action server 则应把真正的
+  // result 回传到这里，避免“goal 刚发送就按固定时间取消”的假完成。
+  virtual std::optional<ActionExecutionUpdate> external_action_update() const
+  {
+    return std::nullopt;
+  }
   // 名称会进入 ACK 与 diagnostics，必须稳定，不能包含一次运行的随机信息。
   virtual std::string mode_name() const = 0;
   virtual std::string backend_name() const = 0;

@@ -288,15 +288,21 @@ public:
 
   void stop() override
   {
+    bool canceled = false;
     if (navigate_goal_handle_) {
       navigate_client_->async_cancel_goal(navigate_goal_handle_);
       navigate_goal_handle_.reset();
+      canceled = true;
     }
     if (follow_goal_handle_) {
       follow_client_->async_cancel_goal(follow_goal_handle_);
       follow_goal_handle_.reset();
+      canceled = true;
     }
     active_.store(false);
+    if (canceled) {
+      set_external_state(ActionExecutionState::kCanceled);
+    }
   }
 
   void update_scan(
@@ -313,6 +319,13 @@ public:
 
   bool publishes_cmd_vel() const override {return false;}
 
+  std::optional<ActionExecutionUpdate> external_action_update() const override
+  {
+    return ActionExecutionUpdate{
+      static_cast<ActionExecutionState>(external_state_.load()),
+      active_.load() ? 0.5 : 1.0};
+  }
+
   std::string mode_name() const override
   {
     return active_.load() ? "nav2_navigation" : "manual";
@@ -326,6 +339,7 @@ private:
     if (!navigate_client_->wait_for_action_server(std::chrono::milliseconds(500))) {
       return false;
     }
+    set_external_state(ActionExecutionState::kRunning);
     NavigateToPose::Goal goal;
     goal.pose = places_.to_pose_stamped(target);
     goal.pose.header.stamp = node_->now();
@@ -336,13 +350,20 @@ private:
         active_.store(handle != nullptr);
       };
     options.result_callback =
-      [this](const NavigateGoalHandle::WrappedResult &) {
+      [this](const NavigateGoalHandle::WrappedResult & result) {
         navigate_goal_handle_.reset();
         active_.store(false);
+        set_external_state(state_from_result_code(result.code));
       };
     auto future = navigate_client_->async_send_goal(goal, options);
-    return future.wait_for(std::chrono::seconds(1)) == std::future_status::ready &&
-           future.get() != nullptr;
+    const bool accepted =
+      future.wait_for(std::chrono::seconds(1)) == std::future_status::ready &&
+      future.get() != nullptr;
+    if (!accepted) {
+      set_external_state(ActionExecutionState::kBlocked);
+      active_.store(false);
+    }
+    return accepted;
   }
 
   bool send_follow_goal(
@@ -352,6 +373,7 @@ private:
     if (!follow_client_->wait_for_action_server(std::chrono::milliseconds(500))) {
       return false;
     }
+    set_external_state(ActionExecutionState::kRunning);
     FollowWaypoints::Goal goal;
     goal.number_of_loops = std::max<std::uint32_t>(1U, loops);
     for (const auto & waypoint : waypoints) {
@@ -366,13 +388,36 @@ private:
         active_.store(handle != nullptr);
       };
     options.result_callback =
-      [this](const FollowGoalHandle::WrappedResult &) {
+      [this](const FollowGoalHandle::WrappedResult & result) {
         follow_goal_handle_.reset();
         active_.store(false);
+        set_external_state(state_from_result_code(result.code));
       };
     auto future = follow_client_->async_send_goal(goal, options);
-    return future.wait_for(std::chrono::seconds(1)) == std::future_status::ready &&
-           future.get() != nullptr;
+    const bool accepted =
+      future.wait_for(std::chrono::seconds(1)) == std::future_status::ready &&
+      future.get() != nullptr;
+    if (!accepted) {
+      set_external_state(ActionExecutionState::kBlocked);
+      active_.store(false);
+    }
+    return accepted;
+  }
+
+  static ActionExecutionState state_from_result_code(rclcpp_action::ResultCode code)
+  {
+    if (code == rclcpp_action::ResultCode::SUCCEEDED) {
+      return ActionExecutionState::kSucceeded;
+    }
+    if (code == rclcpp_action::ResultCode::CANCELED) {
+      return ActionExecutionState::kCanceled;
+    }
+    return ActionExecutionState::kBlocked;
+  }
+
+  void set_external_state(ActionExecutionState state)
+  {
+    external_state_.store(static_cast<int>(state));
   }
 
   Nav2Places places_;
@@ -384,6 +429,8 @@ private:
   std::unique_ptr<rclcpp::executors::SingleThreadedExecutor> executor_;
   std::thread spin_thread_;
   std::atomic_bool active_{false};
+  std::atomic<int> external_state_{
+    static_cast<int>(ActionExecutionState::kSucceeded)};
 };
 
 }  // namespace embodied_simulation

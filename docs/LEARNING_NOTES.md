@@ -351,8 +351,10 @@
 - `src/embodied_simulation/config/places.yaml`
 - `src/embodied_simulation/src/simulation_control_node.cpp`
 - `src/embodied_simulation/src/robot_executor_plugins.cpp`
+- `src/embodied_simulation/launch/voice_nav2_turtlebot3.launch.py`
 - `tests/integration/test_navigation_sequence.py`
 - `tests/integration/test_nav2_bridge_sequence.py`
+- `tests/integration/test_nav2_turtlebot3_voice.py`
 
 设计方式：
 
@@ -364,19 +366,27 @@
 - mock/Gazebo executor 用“运动窗口”模拟导航和巡航，确保 `/cmd_vel`、Action feedback、Action result 可观测。
 - `Nav2RobotExecutor` 作为 pluginlib 插件调用 Nav2 `NavigateToPose / FollowWaypoints` action；
   `nav2-bridge` 用 fake Nav2 action server 自动验证 goal 内容。
+- `RobotExecutor::external_action_update()` 让 Nav2 action result 反向驱动本项目
+  `ExecuteRobotCommand` 的 result，避免只按本地 `duration_s` 假完成。
+- `voice_nav2_turtlebot3.launch.py` 复用官方 `nav2_bringup/tb3_simulation_launch.py`，
+  再叠加本项目的 Agent、ActionGuard、typed action bridge 和 Nav2 executor。
+- `nav2-turtlebot3` 重型验收会启动真实 TurtleBot3/Nav2 仿真，注入语音文本命令，
+  等待目标点导航/巡航 result，并检查 `/odom` 运动证据。
 
 为什么这样设计：
 
 - 先做语义地点，而不是直接语音转坐标，可以减少 ASR/LLM 的自由度，方便测试和演示。
 - 新增强类型字段，而不是继续塞 JSON 字符串，可以体现 ROS2/C++ 工程能力，也让后续 Nav2 bridge 更自然。
 - 把真实 Nav2 作为 executor 插件，避免把导航细节侵入 Agent、ActionGuard 和测试。
+- 用 external result seam 连接 Nav2 与本项目 Action，能体现“长动作可反馈、可取消、可等待结果”，
+  而不是仅发布一个 topic 后马上认为成功。
 - Nav2 自己会发布 `/cmd_vel`，所以 `RobotExecutor::publishes_cmd_vel()` 允许 Nav2 插件禁止
   simulation node 周期性发布速度，避免两个控制器抢同一个速度话题。
 
 方案对比：
 
 - 直接让 LLM 输出 `{x,y,yaw}`：灵活但不稳定，且每个地图都要改 prompt；本项目更适合展示工程闭环，所以先固定语义地点。
-- 直接完整 bringup Nav2：最真实，但需要地图、AMCL/SLAM、controller server 和仿真环境全部稳定。本项目先用 `nav2-bridge` 验证 action goal seam，再把完整 bringup 作为下一阶段。
+- 只做 fake Nav2 bridge：速度快、CI 稳定，但不能证明 controller server 真的驱动机器人；因此本项目同时提供 `nav2-turtlebot3` 重型验收入口，演示前单独跑。
 - 只做字符串 topic：实现快，但难体现可取消、带反馈、可测试的 ROS 2 Action 能力。
 
 ## 13. 面试讲法建议

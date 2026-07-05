@@ -32,9 +32,35 @@ def test_critical_full_chain_probes_remain_discoverable():
         "test_voice_provider_preflight.py",
         "test_audio_frontend_calibration.py",
         "test_typed_action_server.py",
+        "test_navigation_sequence.py",
+        "test_nav2_bridge_sequence.py",
+        "test_nav2_turtlebot3_voice.py",
     }
     present = {path.name for path in integration.glob("test_*")}
     assert required <= present
+
+
+def test_voice_navigation_acceptance_entrypoints_remain_available():
+    """语音目标点导航/巡航是当前阶段核心能力，入口脚本不能在整理中丢失。"""
+
+    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
+        encoding="utf-8"
+    )
+    for mode in ("navigation-demo", "nav2-bridge", "nav2-preflight", "nav2-turtlebot3"):
+        assert mode in acceptance
+
+    for script in (
+        "smoke_test_navigation_sequence.sh",
+        "smoke_test_nav2_bridge.sh",
+        "smoke_test_nav2_preflight.sh",
+        "smoke_test_nav2_turtlebot3_voice.sh",
+    ):
+        assert (ROOT / "scripts" / script).is_file()
+
+    assert (
+        ROOT / "src" / "embodied_simulation" / "launch" / "voice_nav2_turtlebot3.launch.py"
+    ).is_file()
+    assert (ROOT / "src" / "embodied_simulation" / "config" / "places.yaml").is_file()
 
 
 def test_audio_endpoint_events_remain_wired_through_frontend_and_agents():

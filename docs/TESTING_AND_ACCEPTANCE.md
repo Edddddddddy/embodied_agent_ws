@@ -30,6 +30,8 @@ bash scripts/acceptance_test.sh --help
 | `offline` | 自动/本地模型 | Sherpa/llama.cpp/Sherpa-TTS 真实离线链路 |
 | `navigation-demo` | 自动/仿真 | 语音风格目标点导航与多目标点巡航，覆盖 online/offline mock Agent |
 | `nav2-bridge` | 自动/Nav2 seam | 用 fake Nav2 action server 验证语义地点会发成 NavigateToPose/FollowWaypoints goal |
+| `nav2-preflight` | 自动/Nav2 | 检查 Nav2/TurtleBot3 voice launch 依赖和参数 |
+| `nav2-turtlebot3` | 重型/Nav2/Gazebo | 启动官方 Nav2 TurtleBot3 仿真，注入语音文本，验证目标点导航/巡航 result 与 odom |
 | `gazebo` | 自动/仿真 | typed Action 到 Gazebo 运动验证 |
 | `gazebo-voice` | 自动/仿真 | 离线合成语音到 Gazebo 动作 |
 | `gazebo-voice-online` | 自动/联网/仿真 | 在线 provider 到 Gazebo 动作 |
@@ -57,6 +59,8 @@ bash scripts/acceptance_test.sh continuous-endpoint
 bash scripts/acceptance_test.sh continuous-mock
 bash scripts/acceptance_test.sh navigation-demo
 bash scripts/acceptance_test.sh nav2-bridge
+bash scripts/acceptance_test.sh nav2-preflight
+bash scripts/acceptance_test.sh nav2-turtlebot3
 bash scripts/acceptance_test.sh continuous-multi-command
 bash scripts/acceptance_test.sh continuous-queue-full
 bash scripts/acceptance_test.sh voice-readiness
@@ -153,6 +157,7 @@ bash scripts/acceptance_test.sh continuous-live-check online
 ```bash
 bash scripts/acceptance_test.sh navigation-demo
 bash scripts/acceptance_test.sh nav2-bridge
+bash scripts/acceptance_test.sh nav2-preflight
 ```
 
 覆盖链路：
@@ -188,11 +193,14 @@ bash scripts/acceptance_test.sh nav2-bridge
 - `/robot/action_result` 中对应 command_id success=true。
 - `/cmd_vel` 能观察到目标导航的前进速度，以及巡航的线速度 + 角速度。
 
-边界说明：本阶段不是完整 SLAM/Nav2 目标点规划；语义地点先由词表维护，
+边界说明：语义地点仍由 `places.yaml` 维护，不在本阶段做自动建图或复杂任务规划。
 `navigation-demo` 由仿真 executor 生成可观测运动；`nav2-bridge` 会启动 fake Nav2
 action server，证明 `Nav2RobotExecutor` 已能把语义地点转换成真正的
-`NavigateToPose / FollowWaypoints` goal。完整地图、AMCL/SLAM、controller server
-和路径规划效果仍需要真实 Nav2 bringup 单独验收。
+`NavigateToPose / FollowWaypoints` goal，并且 action result 由 Nav2 result 驱动，
+不是本地固定 duration 假完成。`nav2-preflight` 用于在启动重型 Gazebo/Nav2 前
+确认依赖包、`voice_nav2_turtlebot3.launch.py` 和关键参数可用；`nav2-turtlebot3`
+用于真实 TurtleBot3/Nav2 bringup，验证目标点导航/多目标点巡航 result 和 `/odom`
+运动证据。该模式耗时较长，通常不放入 CI。
 
 ## 5. 真实语音问题排查
 

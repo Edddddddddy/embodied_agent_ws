@@ -1,4 +1,5 @@
 #include <atomic>
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -454,8 +455,14 @@ private:
     }
     active_goal_ = goal_handle;
     action_active_ = true;
+    active_action_uses_external_result_ =
+      (active_action_name_ == "navigate_to" ||
+      active_action_name_ == "follow_waypoints") &&
+      executor_->external_action_update().has_value();
+    const double execution_duration_s = active_action_uses_external_result_ ?
+      action_timeout_s_ + 1.0 : command.duration_s;
     action_execution_.emplace(
-      command.duration_s, action_timeout_s_, now);
+      execution_duration_s, action_timeout_s_, now);
     publish_action_feedback(
       ExecuteRobotCommand::Feedback::PHASE_ACCEPTED, 0.0F, "accepted");
     publish_action_ack(active_action_name_, "accepted");
@@ -522,6 +529,7 @@ private:
     publish_action_ack(active_action_name_, message);
     active_goal_.reset();
     action_active_ = false;
+    active_action_uses_external_result_ = false;
     action_execution_.reset();
     active_action_name_.clear();
   }
@@ -531,8 +539,19 @@ private:
     if (!active_goal_ || !action_execution_) {
       return false;
     }
-    const auto update = action_execution_->update(
+    const auto timed_update = action_execution_->update(
       now, active_goal_->is_canceling(), output.safety_stopped);
+    auto update = timed_update;
+    if (active_action_uses_external_result_ &&
+      timed_update.state == ActionExecutionState::kRunning)
+    {
+      // Nav2 是外部 action server，真正的完成/失败要以 Nav2 result 为准；
+      // duration_s 在这里只作为兜底超时进度，避免目标点还没到就被本节点提前取消。
+      if (const auto external_update = executor_->external_action_update()) {
+        update = *external_update;
+        update.progress = std::max(update.progress, timed_update.progress);
+      }
+    }
     if (behavior_tree_) {
       const std::string detail =
         update.state == ActionExecutionState::kSucceeded ? "succeeded" :
@@ -824,6 +843,7 @@ private:
     cmd_vel_pub_.reset();
     active_goal_.reset();
     action_active_ = false;
+    active_action_uses_external_result_ = false;
     action_execution_.reset();
     active_action_name_.clear();
     action_sequence_ = 0;
@@ -892,6 +912,7 @@ private:
   std::shared_ptr<GoalHandle> active_goal_;
   std::optional<ActionExecution> action_execution_;
   std::string active_action_name_;
+  bool active_action_uses_external_result_{false};
   bool use_behavior_tree_{true};
   std::unique_ptr<CommandBehaviorTree> behavior_tree_;
   std::string last_bt_status_;

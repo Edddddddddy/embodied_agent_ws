@@ -21,10 +21,10 @@
 - 语音导航：支持“去门口/前往书桌/回到起点”等语义目标点导航，以及“依次去门口、书桌、起点/开始巡航”等多目标点巡航命令。
 - 验收脚本：提供 mock、在线、离线、Gazebo、真实麦克风连续控制等多层验收入口。
 
-说明：当前导航能力分两层验收：`navigation-demo` 用 mock/Gazebo executor 做可观测运动；
+说明：当前导航能力分三层验收：`navigation-demo` 用 mock/Gazebo executor 做可观测运动；
 `nav2-bridge` 用 fake Nav2 action server 证明语义地点已经能转换为真实 Nav2
-`NavigateToPose / FollowWaypoints` goal。完整地图、AMCL/SLAM 和路径规划 bringup
-仍属于下一阶段。
+`NavigateToPose / FollowWaypoints` goal；`nav2-turtlebot3` 启动官方 Nav2 TurtleBot3
+仿真做重型端到端验收。日常开发优先跑前两层，演示前再跑完整 Nav2。
 
 ## 系统链路
 
@@ -116,6 +116,18 @@ Nav2 action bridge 验收（无需完整地图，用 fake Nav2 action server）�
 
 ```bash
 bash scripts/acceptance_test.sh nav2-bridge
+```
+
+Nav2/TurtleBot3 完整 bringup 前置检查：
+
+```bash
+bash scripts/acceptance_test.sh nav2-preflight
+```
+
+Nav2/TurtleBot3 真实仿真重型验收（会启动 Gazebo/Nav2，耗时数分钟）：
+
+```bash
+bash scripts/acceptance_test.sh nav2-turtlebot3
 ```
 
 在线接口最小 token 验证：
@@ -229,6 +241,8 @@ bash scripts/acceptance_test.sh voice-readiness
 # 语音导航 / 多目标点巡航
 bash scripts/acceptance_test.sh navigation-demo
 bash scripts/acceptance_test.sh nav2-bridge
+bash scripts/acceptance_test.sh nav2-preflight
+bash scripts/acceptance_test.sh nav2-turtlebot3
 
 # Gazebo 语音到仿真运动
 bash scripts/acceptance_test.sh gazebo-voice
