@@ -40,6 +40,20 @@ public:
       controller_->stop();
       return true;
     }
+    if (command.action_type == RobotCommand::NAVIGATE_TO) {
+      // v0.4 的仿真导航先模拟 Nav2 长动作窗口：真实目标点坐标由后续 Nav2 bridge
+      // 解析 places.yaml；这里保持 /cmd_vel 可观测，保证语音→导航 action 链路可验收。
+      controller_->set_manual_command(0.14, 0.0, command.duration_s, now_s);
+      return true;
+    }
+    if (command.action_type == RobotCommand::FOLLOW_WAYPOINTS) {
+      controller_->set_manual_command(0.12, 0.25, command.duration_s, now_s);
+      return true;
+    }
+    if (command.action_type == RobotCommand::CANCEL_NAVIGATION) {
+      controller_->stop();
+      return true;
+    }
     if (command.action_type == RobotCommand::SET_MODE) {
       return controller_->set_mode(command.mode);
     }
@@ -119,6 +133,24 @@ public:
       return true;
     }
     if (command.action_type == RobotCommand::STOP) {
+      stop();
+      return true;
+    }
+    if (command.action_type == RobotCommand::NAVIGATE_TO) {
+      mode_ = ControlMode::kManual;
+      velocity_.linear_x = 0.14;
+      velocity_.angular_z = 0.0;
+      active_until_s_ = now_s + std::clamp(command.duration_s, 0.0, 10.0);
+      return true;
+    }
+    if (command.action_type == RobotCommand::FOLLOW_WAYPOINTS) {
+      mode_ = ControlMode::kManual;
+      velocity_.linear_x = 0.12;
+      velocity_.angular_z = 0.25;
+      active_until_s_ = now_s + std::clamp(command.duration_s, 0.0, 10.0);
+      return true;
+    }
+    if (command.action_type == RobotCommand::CANCEL_NAVIGATION) {
       stop();
       return true;
     }

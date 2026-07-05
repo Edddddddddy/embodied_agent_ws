@@ -19,6 +19,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, List
 
+from .navigation_phrases import (
+    DEFAULT_PATROL_WAYPOINTS,
+    extract_waypoints,
+    is_navigation_cancel,
+    is_patrol_request,
+    resolve_place,
+)
 from .types import ActionCommand
 
 
@@ -108,6 +115,9 @@ _DEFAULT_PROTOTYPES = {
     "wave": ["挥手", "挥手三次"],
     "set_led": ["开蓝灯", "把灯设为蓝色", "关灯"],
     "set_mode": ["开启自动避障", "开始沿墙行走", "退出自动模式"],
+    "navigate_to": ["去门口", "去客厅", "前往书桌", "回到起点"],
+    "follow_waypoints": ["开始巡航", "依次去门口书桌起点", "多点巡航"],
+    "cancel_navigation": ["取消导航", "停止巡航"],
 }
 
 
@@ -192,6 +202,9 @@ class CommandNLU:
         ("wave", ("挥手",)),
         ("set_led", ("灯",)),
         ("set_mode", ("自动避障", "避障模式", "沿墙", "贴墙", "手动模式", "手动控制", "退出自动")),
+        ("cancel_navigation", ("取消导航", "停止导航", "退出导航", "取消巡航", "停止巡航")),
+        ("follow_waypoints", ("开始巡航", "巡航一圈", "巡逻一圈", "开始巡逻", "多点巡航", "依次", "按顺序")),
+        ("navigate_to", ("导航到", "前往", "回到", "返回", "去", "到")),
     )
 
     def __init__(
@@ -222,6 +235,59 @@ class CommandNLU:
             return NluResult(
                 source,
                 [ParsedCommand("stop", "停下", [ActionCommand("stop", {})], 1.0)],
+            )
+        if any(intent == "cancel_navigation" for _, intent in anchors) or is_navigation_cancel(normalized):
+            return NluResult(
+                source,
+                [
+                    ParsedCommand(
+                        "cancel_navigation",
+                        "取消导航",
+                        [ActionCommand("cancel_navigation", {})],
+                        1.0,
+                    )
+                ],
+            )
+        whole_waypoints = extract_waypoints(normalized)
+        if ("依次" in normalized or "按顺序" in normalized) and len(whole_waypoints) >= 2:
+            return NluResult(
+                source,
+                [
+                    ParsedCommand(
+                        "follow_waypoints",
+                        normalized,
+                        [
+                            ActionCommand(
+                                "follow_waypoints",
+                                {
+                                    "waypoints": whole_waypoints,
+                                    "number_of_loops": 1,
+                                },
+                            )
+                        ],
+                        1.0,
+                    )
+                ],
+            )
+        if is_patrol_request(normalized):
+            return NluResult(
+                source,
+                [
+                    ParsedCommand(
+                        "follow_waypoints",
+                        normalized,
+                        [
+                            ActionCommand(
+                                "follow_waypoints",
+                                {
+                                    "waypoints": whole_waypoints or DEFAULT_PATROL_WAYPOINTS,
+                                    "number_of_loops": 1,
+                                },
+                            )
+                        ],
+                        1.0,
+                    )
+                ],
             )
 
         commands: list[ParsedCommand] = []
@@ -287,4 +353,19 @@ class CommandNLU:
                 return [ActionCommand("set_mode", {"mode": "obstacle_avoidance"})]
             if "手动" in segment or "退出自动" in segment:
                 return [ActionCommand("set_mode", {"mode": "manual"})]
+        if intent == "navigate_to":
+            target = resolve_place(segment)
+            if target:
+                return [ActionCommand("navigate_to", {"target": target})]
+        if intent == "follow_waypoints":
+            waypoints = extract_waypoints(segment) or (
+                DEFAULT_PATROL_WAYPOINTS if is_patrol_request(segment) else []
+            )
+            if len(waypoints) >= 2:
+                return [
+                    ActionCommand(
+                        "follow_waypoints",
+                        {"waypoints": waypoints, "number_of_loops": 1},
+                    )
+                ]
         return []

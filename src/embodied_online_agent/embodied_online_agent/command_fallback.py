@@ -1,6 +1,14 @@
 import re
 from typing import List, Optional
 
+from .navigation_phrases import (
+    DEFAULT_PATROL_WAYPOINTS,
+    extract_waypoints,
+    is_navigation_cancel,
+    is_navigation_request,
+    is_patrol_request,
+    resolve_place,
+)
 from .types import ActionCommand
 
 _CHINESE_NUMBERS = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5}
@@ -68,6 +76,29 @@ def parse_fallback_actions(text: str) -> List[ActionCommand]:
         return [ActionCommand("stop", {})]
     if should_block_model_actions(normalized):
         return []
+    if is_navigation_cancel(normalized):
+        return [ActionCommand("cancel_navigation", {})]
+    if is_patrol_request(normalized):
+        waypoints = extract_waypoints(normalized) or DEFAULT_PATROL_WAYPOINTS
+        return [
+            ActionCommand(
+                "follow_waypoints",
+                {"waypoints": waypoints, "number_of_loops": 1},
+            )
+        ]
+    if "依次" in normalized or "按顺序" in normalized:
+        waypoints = extract_waypoints(normalized)
+        if len(waypoints) >= 2:
+            return [
+                ActionCommand(
+                    "follow_waypoints",
+                    {"waypoints": waypoints, "number_of_loops": 1},
+                )
+            ]
+    if is_navigation_request(normalized):
+        target = resolve_place(normalized)
+        if target:
+            return [ActionCommand("navigate_to", {"target": target})]
     if any(word in normalized for word in ("停止", "停下", "急停")):
         return [ActionCommand("stop", {})]
     if any(word in normalized for word in ("原地转一圈", "旋转一圈", "转一圈")):

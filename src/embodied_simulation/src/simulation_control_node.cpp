@@ -312,6 +312,21 @@ private:
              std::isfinite(command.duration_s) &&
              command.duration_s >= 0.0 && command.duration_s <= 10.0;
     }
+    if (command.action_type == Command::NAVIGATE_TO) {
+      return !command.target.empty() &&
+             std::isfinite(command.duration_s) &&
+             command.duration_s >= 0.0 && command.duration_s <= 10.0;
+    }
+    if (command.action_type == Command::FOLLOW_WAYPOINTS) {
+      return !command.waypoints.empty() &&
+             command.number_of_loops >= 1 &&
+             command.number_of_loops <= 3 &&
+             std::isfinite(command.duration_s) &&
+             command.duration_s >= 0.0 && command.duration_s <= 10.0;
+    }
+    if (command.action_type == Command::CANCEL_NAVIGATION) {
+      return true;
+    }
     return false;
   }
 
@@ -354,6 +369,12 @@ private:
       executor_->stop();
       finish_immediate_action(goal_handle, true, "stopped");
       publish_action_ack("stop", "accepted");
+      return;
+    }
+    if (command.action_type == Command::CANCEL_NAVIGATION) {
+      executor_->stop();
+      finish_immediate_action(goal_handle, true, "navigation_canceled");
+      publish_action_ack("cancel_navigation", "accepted");
       return;
     }
     if (command.action_type == Command::SET_MODE) {
@@ -412,6 +433,20 @@ private:
         return;
       }
       active_action_name_ = "turn";
+    } else if (command.action_type == Command::NAVIGATE_TO) {
+      if (!executor_->execute(command, now)) {
+        finish_immediate_action(goal_handle, false, "executor_rejected");
+        active_goal_.reset();
+        return;
+      }
+      active_action_name_ = "navigate_to";
+    } else if (command.action_type == Command::FOLLOW_WAYPOINTS) {
+      if (!executor_->execute(command, now)) {
+        finish_immediate_action(goal_handle, false, "executor_rejected");
+        active_goal_.reset();
+        return;
+      }
+      active_action_name_ = "follow_waypoints";
     } else {
       finish_immediate_action(goal_handle, false, "invalid_command");
       active_goal_.reset();
@@ -575,6 +610,33 @@ private:
         publish_mode();
         publish_action_ack(name, "accepted");
       } else if (name == "stop") {
+        executor_->stop();
+        publish_mode();
+        publish_action_ack(name, "accepted");
+      } else if (name == "navigate_to") {
+        typed_command.action_type = typed_command.NAVIGATE_TO;
+        typed_command.target = arguments.at("target").get<std::string>();
+        typed_command.duration_s = 3.0;
+        executor_->execute(typed_command, now_seconds());
+        publish_mode();
+        publish_action_ack(name, "accepted");
+      } else if (name == "follow_waypoints") {
+        typed_command.action_type = typed_command.FOLLOW_WAYPOINTS;
+        for (const auto & waypoint : arguments.at("waypoints")) {
+          typed_command.waypoints.push_back(waypoint.get<std::string>());
+        }
+        typed_command.number_of_loops = arguments.value("number_of_loops", 1);
+        typed_command.duration_s = std::min(
+          10.0,
+          std::max(
+            2.0,
+            static_cast<double>(
+              typed_command.waypoints.size() *
+              std::max<std::uint32_t>(1U, typed_command.number_of_loops)) * 2.0));
+        executor_->execute(typed_command, now_seconds());
+        publish_mode();
+        publish_action_ack(name, "accepted");
+      } else if (name == "cancel_navigation") {
         executor_->stop();
         publish_mode();
         publish_action_ack(name, "accepted");

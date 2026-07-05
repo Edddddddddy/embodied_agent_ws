@@ -64,3 +64,26 @@ def test_nlu_prioritizes_stop_and_blocks_unsafe_language():
 
     assert not CommandNLU().parse("不要向前走").accepted
     assert not CommandNLU().parse("你觉得向前是什么意思").accepted
+
+
+def test_nlu_extracts_navigation_and_waypoint_patrol():
+    nav = CommandNLU().parse("去门口")
+    assert nav.accepted
+    assert nav.commands[0].intent == "navigate_to"
+    assert nav.commands[0].actions[0].as_dict() == {
+        "name": "navigate_to",
+        "arguments": {"target": "door"},
+    }
+
+    patrol = CommandNLU().parse("依次去门口、书桌、起点")
+    assert patrol.accepted
+    assert patrol.commands[0].intent == "follow_waypoints"
+    assert patrol.commands[0].actions[0].as_dict() == {
+        "name": "follow_waypoints",
+        "arguments": {"waypoints": ["door", "desk", "home"], "number_of_loops": 1},
+    }
+
+    cancel = CommandNLU().parse("取消导航然后去门口")
+    assert [action.name for command in cancel.commands for action in command.actions] == [
+        "cancel_navigation"
+    ]

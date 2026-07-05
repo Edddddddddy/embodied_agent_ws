@@ -3,9 +3,27 @@
 #include <algorithm>
 #include <cmath>
 #include <set>
+#include <string>
 
 namespace embodied_agent_cpp
 {
+
+namespace
+{
+const std::set<std::string> & supported_navigation_places()
+{
+  static const std::set<std::string> places{
+    "home", "door", "desk", "living_room", "kitchen", "charging_station",
+    "waypoint_a", "waypoint_b", "waypoint_c"};
+  return places;
+}
+
+bool is_supported_navigation_place(const nlohmann::json & value)
+{
+  return value.is_string() &&
+         supported_navigation_places().count(value.get<std::string>()) > 0;
+}
+}  // namespace
 
 ValidationResult ActionValidator::validate(const std::string & serialized_command) const
 {
@@ -104,6 +122,54 @@ ValidationResult ActionValidator::validate(const std::string & serialized_comman
       "manual", "obstacle_avoidance", "wall_following"};
     if (supported_modes.count(arguments["mode"].get<std::string>()) == 0) {
       result.error = "unsupported control mode";
+      return result;
+    }
+  } else if (name == "navigate_to") {
+    if (!require_exact_keys(arguments, {"target"}, result.error)) {
+      return result;
+    }
+    if (!is_supported_navigation_place(arguments["target"])) {
+      result.error = "unsupported navigation target";
+      return result;
+    }
+  } else if (name == "follow_waypoints" || name == "patrol") {
+    command["name"] = "follow_waypoints";
+    const bool has_loops = arguments.contains("number_of_loops");
+    if (!require_exact_keys(
+        arguments,
+        has_loops ?
+        std::initializer_list<const char *>{"waypoints", "number_of_loops"} :
+        std::initializer_list<const char *>{"waypoints"},
+        result.error))
+    {
+      return result;
+    }
+    if (!arguments["waypoints"].is_array() || arguments["waypoints"].empty()) {
+      result.error = "waypoints must be a non-empty array";
+      return result;
+    }
+    if (arguments["waypoints"].size() > 8) {
+      result.error = "too many waypoints";
+      return result;
+    }
+    for (const auto & waypoint : arguments["waypoints"]) {
+      if (!is_supported_navigation_place(waypoint)) {
+        result.error = "unsupported navigation waypoint";
+        return result;
+      }
+    }
+    if (has_loops) {
+      if (!arguments["number_of_loops"].is_number_integer()) {
+        result.error = "number_of_loops must be an integer";
+        return result;
+      }
+      const int loops = arguments["number_of_loops"].get<int>();
+      arguments["number_of_loops"] = static_cast<int>(clamp(loops, 1, 3));
+    } else {
+      arguments["number_of_loops"] = 1;
+    }
+  } else if (name == "cancel_navigation") {
+    if (!require_exact_keys(arguments, {}, result.error)) {
       return result;
     }
   } else {

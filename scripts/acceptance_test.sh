@@ -14,6 +14,7 @@ Automated modes:
   online              Minimal-token live ASR/LLM/TTS verification
   offline             Real ZipFormer/llama.cpp/Sherpa-TTS verification
   demo                Rich mock demo: ordered actions, accessories, and arc motion
+  navigation-demo     Voice-style target navigation and multi-waypoint patrol smoke
   continuous-mock     One wake word, several queued commands, and sleep gate
   continuous-soak     Long wake session keeps accepting many queued commands
   continuous-endpoint Endpoint speech_ended commits feed continuous ASR commands
@@ -86,6 +87,7 @@ run_base() {
   bash scripts/smoke_test_typed_action_pipeline.sh
   bash scripts/smoke_test_mock_executor.sh
   bash scripts/smoke_test_demo_sequence.sh
+  bash scripts/smoke_test_navigation_sequence.sh
   bash scripts/smoke_test_continuous_voice.sh online
   bash scripts/smoke_test_continuous_voice_soak.sh online
   bash scripts/smoke_test_continuous_endpoint_asr.sh online
@@ -134,6 +136,7 @@ case "$LEVEL" in
   online) run_online ;;
   offline) run_offline ;;
   demo) bash scripts/smoke_test_demo_sequence.sh ;;
+  navigation-demo) bash scripts/smoke_test_navigation_sequence.sh online; bash scripts/smoke_test_navigation_sequence.sh offline ;;
   continuous-mock) bash scripts/smoke_test_continuous_voice.sh online; bash scripts/smoke_test_continuous_voice.sh offline ;;
   continuous-soak) bash scripts/smoke_test_continuous_voice_soak.sh online; bash scripts/smoke_test_continuous_voice_soak.sh offline ;;
   continuous-endpoint) bash scripts/smoke_test_continuous_endpoint_asr.sh online; bash scripts/smoke_test_continuous_endpoint_asr.sh offline ;;

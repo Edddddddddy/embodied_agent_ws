@@ -81,3 +81,31 @@ TEST(ActionValidatorTest, ValidatesSimulationControlMode)
   EXPECT_FALSE(result.valid);
   EXPECT_EQ(result.error, "unsupported control mode");
 }
+
+TEST(ActionValidatorTest, ValidatesNavigationTargetsAndWaypointLoops)
+{
+  embodied_agent_cpp::ActionValidator validator;
+  const auto target = validator.validate(
+    R"({"name":"navigate_to","arguments":{"target":"door"}})");
+  ASSERT_TRUE(target.valid) << target.error;
+
+  const auto patrol = validator.validate(
+    R"({"name":"patrol","arguments":{"waypoints":["door","desk","home"],"number_of_loops":9}})");
+  ASSERT_TRUE(patrol.valid) << patrol.error;
+  EXPECT_EQ(patrol.command["name"], "follow_waypoints");
+  EXPECT_EQ(patrol.command["arguments"]["number_of_loops"], 3);
+
+  const auto unsupported = validator.validate(
+    R"({"name":"navigate_to","arguments":{"target":"server_room"}})");
+  EXPECT_FALSE(unsupported.valid);
+  EXPECT_EQ(unsupported.error, "unsupported navigation target");
+}
+
+TEST(ActionValidatorTest, ValidatesCancelNavigation)
+{
+  embodied_agent_cpp::ActionValidator validator;
+  EXPECT_TRUE(validator.validate(
+      R"({"name":"cancel_navigation","arguments":{}})").valid);
+  EXPECT_FALSE(validator.validate(
+      R"({"name":"cancel_navigation","arguments":{"target":"door"}})").valid);
+}

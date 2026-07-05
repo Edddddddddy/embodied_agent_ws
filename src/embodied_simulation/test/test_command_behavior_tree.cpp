@@ -104,5 +104,29 @@ TEST(CommandBehaviorTreeTest, ANewCommandRecoversAfterSafetyBlock)
     CommandTreeOutcome::kSucceeded);
 }
 
+TEST(CommandBehaviorTreeTest, NavigationCommandsAreValidLongActions)
+{
+  CommandBehaviorTree tree(kTreeXml);
+  embodied_agent_interfaces::msg::RobotCommand nav;
+  nav.action_type = nav.NAVIGATE_TO;
+  nav.target = "door";
+  nav.duration_s = 3.0;
+
+  tree.start(nav);
+  auto result = tree.tick(false, ActionExecutionState::kRunning, "accepted");
+  EXPECT_EQ(result.outcome, CommandTreeOutcome::kRunning);
+  result = tree.tick(false, ActionExecutionState::kSucceeded, "succeeded");
+  EXPECT_EQ(result.outcome, CommandTreeOutcome::kSucceeded);
+
+  embodied_agent_interfaces::msg::RobotCommand patrol;
+  patrol.action_type = patrol.FOLLOW_WAYPOINTS;
+  patrol.waypoints = {"door", "desk", "home"};
+  patrol.number_of_loops = 1;
+  patrol.duration_s = 6.0;
+  tree.start(patrol);
+  result = tree.tick(false, ActionExecutionState::kRunning, "accepted");
+  EXPECT_EQ(result.outcome, CommandTreeOutcome::kRunning);
+}
+
 }  // namespace
 }  // namespace embodied_simulation

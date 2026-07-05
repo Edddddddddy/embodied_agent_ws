@@ -28,6 +28,7 @@ bash scripts/acceptance_test.sh --help
 | `mock` | 自动 | 构建、单测、无模型 ROS smoke 主链路 |
 | `online` | 自动/联网 | DashScope 在线 ASR/LLM/TTS 最小 token 验证 |
 | `offline` | 自动/本地模型 | Sherpa/llama.cpp/Sherpa-TTS 真实离线链路 |
+| `navigation-demo` | 自动/仿真 | 语音风格目标点导航与多目标点巡航，覆盖 online/offline mock Agent |
 | `gazebo` | 自动/仿真 | typed Action 到 Gazebo 运动验证 |
 | `gazebo-voice` | 自动/仿真 | 离线合成语音到 Gazebo 动作 |
 | `gazebo-voice-online` | 自动/联网/仿真 | 在线 provider 到 Gazebo 动作 |
@@ -53,12 +54,15 @@ pytest -q tests/repository
 bash tests/integration/test_acceptance_cli.sh
 bash scripts/acceptance_test.sh continuous-endpoint
 bash scripts/acceptance_test.sh continuous-mock
+bash scripts/acceptance_test.sh navigation-demo
 bash scripts/acceptance_test.sh continuous-multi-command
 bash scripts/acceptance_test.sh continuous-queue-full
 bash scripts/acceptance_test.sh voice-readiness
 ```
 
 通过后说明：仓库结构、脚本入口、连续语音会话、队列、endpoint、readiness 基本正常。
+`navigation-demo` 额外证明“去门口”和“依次去门口、书桌、起点”能被 online/offline
+Agent 解析成 `navigate_to / follow_waypoints`，并通过 typed Action 驱动仿真 executor。
 
 ### 2.2 Python/C++ 单元测试
 
@@ -140,9 +144,55 @@ bash scripts/acceptance_test.sh continuous-live-check online
 - `停下/急停` 能抢占，队列被清空。
 - 结束后 `/cmd_vel` 为 0。
 
-## 4. 真实语音问题排查
+## 4. 语音目标点导航与多目标点巡航
 
-### 4.1 ASR 完全没听到
+自动验收：
+
+```bash
+bash scripts/acceptance_test.sh navigation-demo
+```
+
+覆盖链路：
+
+```text
+/agent/text_input 模拟 ASR final
+  -> CommandNLU / fallback parser
+  -> /agent/action_candidate
+  -> C++ ActionGuard
+  -> RobotCommand.NAVIGATE_TO / FOLLOW_WAYPOINTS
+  -> ROS 2 ExecuteRobotCommand Action
+  -> BehaviorTree + pluginlib executor
+  -> /cmd_vel 与 /robot/action_result
+```
+
+当前支持的话术示例：
+
+```text
+去门口
+前往书桌
+回到起点
+导航到厨房
+依次去门口、书桌、起点
+开始巡航
+停止巡航 / 取消导航
+```
+
+通过标准：
+
+- online 和 offline mock Agent 均 PASS。
+- `去门口` 解析为 `{"name": "navigate_to", "arguments": {"target": "door"}}`。
+- `依次去门口、书桌、起点` 解析为 `follow_waypoints`，waypoints 为 `door/desk/home`。
+- `/robot/action_result` 中对应 command_id success=true。
+- `/cmd_vel` 能观察到目标导航的前进速度，以及巡航的线速度 + 角速度。
+
+边界说明：本阶段不是完整 SLAM/Nav2 目标点规划；语义地点先由词表维护，
+仿真 executor 生成可观测运动。这样能先证明语音 Agent、动作协议、安全校验和
+ROS 2 Action 链路正确；后续可把 executor 内部替换为 Nav2
+`NavigateToPose / FollowWaypoints` action client。
+
+## 5. 真实语音问题排查
+
+### 5.1 ASR 完全没听到
 
 运行：
 
@@ -163,7 +213,7 @@ VOICE_CONTROL_PROFILE=quiet bash scripts/acceptance_test.sh continuous-offline
 VOICE_CONTROL_PROFILE=noisy_room bash scripts/acceptance_test.sh continuous-offline
 ```
 
-### 4.2 “左转90度”只识别成“左转”
+### 5.2 “左转90度”只识别成“左转”
 
 当前链路有两层保护：
 
@@ -178,7 +228,7 @@ SPEECH_END_SILENCE_S=0.85 ASR_COMMIT_DELAY_MS=500 bash scripts/acceptance_test.s
 
 如果 monitor 输出 `completed_missing_slot`，说明短命令补全已经生效。
 
-### 4.3 一句话里多个命令没有顺序执行
+### 5.3 一句话里多个命令没有顺序执行
 
 当前连续控制链路增加了轻量 NLU 层。它会把一条 ASR final 解析为多个队列项：
 
@@ -203,7 +253,7 @@ ros2 topic echo /robot/action_result
 
 通过时应看到 `nlu_parsed`、同一个 `batch_id` 下的多个 `enqueue`，以及与 `request_id` 对应的 `command_id` result。
 
-### 4.4 ASR 有输出但动作没执行
+### 5.4 ASR 有输出但动作没执行
 
 依次观察：
 
@@ -224,7 +274,7 @@ ros2 topic echo /cmd_vel
 - 卡在 typed command：检查 ActionGuard 是否 active。
 - 卡在 result/cmd_vel：检查 typed action bridge 和 simulation executor。
 
-### 4.5 在线模式失败
+### 5.5 在线模式失败
 
 检查 API Key：
 
@@ -235,7 +285,7 @@ bash scripts/acceptance_test.sh online
 
 在线真实语音受网络和云端服务波动影响，现场演示建议优先使用 `continuous-offline`，在线作为补充展示。
 
-## 5. Release gate
+## 6. Release gate
 
 完整自动门禁：
 
@@ -249,7 +299,7 @@ bash scripts/acceptance_test.sh all
 - `all` 不包含 `continuous-offline` / `continuous-online`，因为它们需要人工真实说话。
 - 如果本轮只修改文档和注释，可先跑轻量门禁；发布前再跑 `all`。
 
-## 6. 当前完成度
+## 7. 当前完成度
 
 已完成：
 

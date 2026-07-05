@@ -112,5 +112,48 @@ TEST(RobotExecutorPluginsTest, AccessoriesAreAcceptedAsSimulationAcks)
   EXPECT_DOUBLE_EQ(mock->step(0.05).velocity.linear_x, 0.0);
 }
 
+TEST(RobotExecutorPluginsTest, NavigationCommandsProduceObservableMotion)
+{
+  pluginlib::ClassLoader<RobotExecutor> loader(
+    "embodied_simulation", "embodied_simulation::RobotExecutor");
+  auto gazebo = loader.createSharedInstance(
+    "embodied_simulation/GazeboRobotExecutor");
+  auto mock = loader.createSharedInstance(
+    "embodied_simulation/MockRobotExecutor");
+  gazebo->configure(ControllerConfig{});
+  mock->configure(ControllerConfig{});
+
+  std::vector<float> clear_scan(360, 2.0F);
+  gazebo->update_scan(
+    clear_scan, -3.14159265, 2.0 * 3.14159265 / 360.0,
+    0.05, 10.0, 0.0);
+
+  embodied_agent_interfaces::msg::RobotCommand nav;
+  nav.action_type = nav.NAVIGATE_TO;
+  nav.target = "door";
+  nav.duration_s = 3.0;
+  ASSERT_TRUE(gazebo->execute(nav, 0.0));
+  ASSERT_TRUE(mock->execute(nav, 0.0));
+  EXPECT_GT(gazebo->step(0.05).velocity.linear_x, 0.0);
+  EXPECT_GT(mock->step(0.05).velocity.linear_x, 0.0);
+
+  embodied_agent_interfaces::msg::RobotCommand patrol;
+  patrol.action_type = patrol.FOLLOW_WAYPOINTS;
+  patrol.waypoints = {"door", "desk", "home"};
+  patrol.number_of_loops = 1;
+  patrol.duration_s = 6.0;
+  ASSERT_TRUE(gazebo->execute(patrol, 1.0));
+  ASSERT_TRUE(mock->execute(patrol, 1.0));
+  EXPECT_GT(gazebo->step(1.05).velocity.angular_z, 0.0);
+  EXPECT_GT(mock->step(1.05).velocity.angular_z, 0.0);
+
+  embodied_agent_interfaces::msg::RobotCommand cancel;
+  cancel.action_type = cancel.CANCEL_NAVIGATION;
+  ASSERT_TRUE(gazebo->execute(cancel, 2.0));
+  ASSERT_TRUE(mock->execute(cancel, 2.0));
+  EXPECT_DOUBLE_EQ(gazebo->step(2.05).velocity.linear_x, 0.0);
+  EXPECT_DOUBLE_EQ(mock->step(2.05).velocity.linear_x, 0.0);
+}
+
 }  // namespace
 }  // namespace embodied_simulation

@@ -337,7 +337,41 @@
 - 只做人工演示：不可复现，回归成本高。
 - 单测 + smoke + 人工验收：更适合当前工程规模。
 
-## 12. 面试讲法建议
+## 12. 语音目标点导航与多目标点巡航
+
+关键代码：
+
+- `src/embodied_online_agent/embodied_online_agent/navigation_phrases.py`
+- `src/embodied_online_agent/embodied_online_agent/command_nlu.py`
+- `src/embodied_online_agent/embodied_online_agent/command_fallback.py`
+- `src/embodied_agent_interfaces/msg/RobotCommand.msg`
+- `src/embodied_agent_cpp/src/action_validator.cpp`
+- `src/embodied_agent_cpp/src/robot_command_adapter.cpp`
+- `src/embodied_simulation/src/simulation_control_node.cpp`
+- `src/embodied_simulation/src/robot_executor_plugins.cpp`
+- `tests/integration/test_navigation_sequence.py`
+
+设计方式：
+
+- Agent 层只解析“去哪里”和“经过哪些点”，输出 `navigate_to` 或 `follow_waypoints`，不直接写坐标。
+- `navigation_phrases.py` 用语义地点词表把“门口/书桌/起点”等口语映射为 `door/desk/home`。
+- `RobotCommand.msg` 新增 `NAVIGATE_TO / FOLLOW_WAYPOINTS / CANCEL_NAVIGATION` 和 `target/waypoints/number_of_loops` 字段。
+- `ActionGuard` 继续作为安全边界：校验地点白名单、巡航点数量、循环次数，再转换为 typed command。
+- 仿真 executor 目前用“运动窗口”模拟导航和巡航，确保 `/cmd_vel`、Action feedback、Action result 可观测。
+
+为什么这样设计：
+
+- 先做语义地点，而不是直接语音转坐标，可以减少 ASR/LLM 的自由度，方便测试和演示。
+- 新增强类型字段，而不是继续塞 JSON 字符串，可以体现 ROS2/C++ 工程能力，也让后续 Nav2 bridge 更自然。
+- 把真实 Nav2 作为 executor 插件替换点，避免把导航细节侵入 Agent、ActionGuard 和测试。
+
+方案对比：
+
+- 直接让 LLM 输出 `{x,y,yaw}`：灵活但不稳定，且每个地图都要改 prompt；本项目更适合展示工程闭环，所以先固定语义地点。
+- 直接接 Nav2 `NavigateToPose`：更真实，但需要地图、AMCL/SLAM、目标点配置和仿真环境全部稳定。本阶段先把语音到 Action 链路打通，后续只替换 executor。
+- 只做字符串 topic：实现快，但难体现可取消、带反馈、可测试的 ROS 2 Action 能力。
+
+## 13. 面试讲法建议
 
 可以用这条主线介绍项目：
 
