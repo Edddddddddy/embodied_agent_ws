@@ -347,9 +347,12 @@
 - `src/embodied_agent_interfaces/msg/RobotCommand.msg`
 - `src/embodied_agent_cpp/src/action_validator.cpp`
 - `src/embodied_agent_cpp/src/robot_command_adapter.cpp`
+- `src/embodied_simulation/include/embodied_simulation/nav2_places.hpp`
+- `src/embodied_simulation/config/places.yaml`
 - `src/embodied_simulation/src/simulation_control_node.cpp`
 - `src/embodied_simulation/src/robot_executor_plugins.cpp`
 - `tests/integration/test_navigation_sequence.py`
+- `tests/integration/test_nav2_bridge_sequence.py`
 
 设计方式：
 
@@ -357,18 +360,23 @@
 - `navigation_phrases.py` 用语义地点词表把“门口/书桌/起点”等口语映射为 `door/desk/home`。
 - `RobotCommand.msg` 新增 `NAVIGATE_TO / FOLLOW_WAYPOINTS / CANCEL_NAVIGATION` 和 `target/waypoints/number_of_loops` 字段。
 - `ActionGuard` 继续作为安全边界：校验地点白名单、巡航点数量、循环次数，再转换为 typed command。
-- 仿真 executor 目前用“运动窗口”模拟导航和巡航，确保 `/cmd_vel`、Action feedback、Action result 可观测。
+- `places.yaml` 维护语义地点到地图坐标的映射。
+- mock/Gazebo executor 用“运动窗口”模拟导航和巡航，确保 `/cmd_vel`、Action feedback、Action result 可观测。
+- `Nav2RobotExecutor` 作为 pluginlib 插件调用 Nav2 `NavigateToPose / FollowWaypoints` action；
+  `nav2-bridge` 用 fake Nav2 action server 自动验证 goal 内容。
 
 为什么这样设计：
 
 - 先做语义地点，而不是直接语音转坐标，可以减少 ASR/LLM 的自由度，方便测试和演示。
 - 新增强类型字段，而不是继续塞 JSON 字符串，可以体现 ROS2/C++ 工程能力，也让后续 Nav2 bridge 更自然。
-- 把真实 Nav2 作为 executor 插件替换点，避免把导航细节侵入 Agent、ActionGuard 和测试。
+- 把真实 Nav2 作为 executor 插件，避免把导航细节侵入 Agent、ActionGuard 和测试。
+- Nav2 自己会发布 `/cmd_vel`，所以 `RobotExecutor::publishes_cmd_vel()` 允许 Nav2 插件禁止
+  simulation node 周期性发布速度，避免两个控制器抢同一个速度话题。
 
 方案对比：
 
 - 直接让 LLM 输出 `{x,y,yaw}`：灵活但不稳定，且每个地图都要改 prompt；本项目更适合展示工程闭环，所以先固定语义地点。
-- 直接接 Nav2 `NavigateToPose`：更真实，但需要地图、AMCL/SLAM、目标点配置和仿真环境全部稳定。本阶段先把语音到 Action 链路打通，后续只替换 executor。
+- 直接完整 bringup Nav2：最真实，但需要地图、AMCL/SLAM、controller server 和仿真环境全部稳定。本项目先用 `nav2-bridge` 验证 action goal seam，再把完整 bringup 作为下一阶段。
 - 只做字符串 topic：实现快，但难体现可取消、带反馈、可测试的 ROS 2 Action 能力。
 
 ## 13. 面试讲法建议

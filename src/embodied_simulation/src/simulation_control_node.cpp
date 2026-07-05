@@ -841,10 +841,12 @@ private:
       diagnostic_output_ = output;
     }
     const bool action_stopped = update_active_action(output, now);
-    geometry_msgs::msg::Twist velocity;
-    velocity.linear.x = action_stopped ? 0.0 : output.velocity.linear_x;
-    velocity.angular.z = action_stopped ? 0.0 : output.velocity.angular_z;
-    cmd_vel_pub_->publish(velocity);
+    if (executor_->publishes_cmd_vel()) {
+      geometry_msgs::msg::Twist velocity;
+      velocity.linear.x = action_stopped ? 0.0 : output.velocity.linear_x;
+      velocity.angular.z = action_stopped ? 0.0 : output.velocity.angular_z;
+      cmd_vel_pub_->publish(velocity);
+    }
 
     nlohmann::json state{
       {"mode", SimulationController::mode_name(output.mode)},

@@ -1,11 +1,22 @@
 #include "embodied_simulation/robot_executor.hpp"
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cstdlib>
 #include <limits>
 #include <memory>
 #include <string>
+#include <thread>
 
+#include <ament_index_cpp/get_package_share_directory.hpp>
+#include <nav2_msgs/action/follow_waypoints.hpp>
+#include <nav2_msgs/action/navigate_to_pose.hpp>
 #include <pluginlib/class_list_macros.hpp>
+#include <rclcpp/rclcpp.hpp>
+#include <rclcpp_action/rclcpp_action.hpp>
+
+#include "embodied_simulation/nav2_places.hpp"
 
 namespace embodied_simulation
 {
@@ -218,6 +229,163 @@ private:
   double active_until_s_{0.0};
 };
 
+class Nav2RobotExecutor : public RobotExecutor
+{
+public:
+  using NavigateToPose = nav2_msgs::action::NavigateToPose;
+  using FollowWaypoints = nav2_msgs::action::FollowWaypoints;
+  using NavigateGoalHandle = rclcpp_action::ClientGoalHandle<NavigateToPose>;
+  using FollowGoalHandle = rclcpp_action::ClientGoalHandle<FollowWaypoints>;
+
+  ~Nav2RobotExecutor() override
+  {
+    stop();
+    if (executor_) {
+      executor_->cancel();
+    }
+    if (spin_thread_.joinable()) {
+      spin_thread_.join();
+    }
+  }
+
+  void configure(const ControllerConfig &) override
+  {
+    const char * configured_path = std::getenv("EMBODIED_NAV2_PLACES_FILE");
+    const std::string places_path = configured_path && configured_path[0] != '\0' ?
+      std::string(configured_path) :
+      ament_index_cpp::get_package_share_directory("embodied_simulation") +
+      "/config/places.yaml";
+    places_ = load_nav2_places_yaml(places_path);
+    node_ = std::make_shared<rclcpp::Node>("nav2_robot_executor");
+    navigate_client_ = rclcpp_action::create_client<NavigateToPose>(
+      node_, "navigate_to_pose");
+    follow_client_ = rclcpp_action::create_client<FollowWaypoints>(
+      node_, "follow_waypoints");
+    executor_ = std::make_unique<rclcpp::executors::SingleThreadedExecutor>();
+    executor_->add_node(node_);
+    spin_thread_ = std::thread([this]() {executor_->spin();});
+  }
+
+  bool execute(const RobotCommand & command, double) override
+  {
+    if (!node_) {
+      return false;
+    }
+    if (command.action_type == RobotCommand::NAVIGATE_TO) {
+      return send_navigate_goal(command.target);
+    }
+    if (command.action_type == RobotCommand::FOLLOW_WAYPOINTS) {
+      return send_follow_goal(command.waypoints, command.number_of_loops);
+    }
+    if (command.action_type == RobotCommand::CANCEL_NAVIGATION ||
+      command.action_type == RobotCommand::STOP)
+    {
+      stop();
+      return true;
+    }
+    return false;
+  }
+
+  void stop() override
+  {
+    if (navigate_goal_handle_) {
+      navigate_client_->async_cancel_goal(navigate_goal_handle_);
+      navigate_goal_handle_.reset();
+    }
+    if (follow_goal_handle_) {
+      follow_client_->async_cancel_goal(follow_goal_handle_);
+      follow_goal_handle_.reset();
+    }
+    active_.store(false);
+  }
+
+  void update_scan(
+    const std::vector<float> &, double, double, double, double, double) override {}
+
+  ControllerOutput step(double) override
+  {
+    ControllerOutput output;
+    output.mode = ControlMode::kManual;
+    output.sensor_stale = false;
+    output.reason = active_.load() ? "nav2_goal_active" : "nav2_idle";
+    return output;
+  }
+
+  bool publishes_cmd_vel() const override {return false;}
+
+  std::string mode_name() const override
+  {
+    return active_.load() ? "nav2_navigation" : "manual";
+  }
+
+  std::string backend_name() const override {return "nav2";}
+
+private:
+  bool send_navigate_goal(const std::string & target)
+  {
+    if (!navigate_client_->wait_for_action_server(std::chrono::milliseconds(500))) {
+      return false;
+    }
+    NavigateToPose::Goal goal;
+    goal.pose = places_.to_pose_stamped(target);
+    goal.pose.header.stamp = node_->now();
+    rclcpp_action::Client<NavigateToPose>::SendGoalOptions options;
+    options.goal_response_callback =
+      [this](const NavigateGoalHandle::SharedPtr & handle) {
+        navigate_goal_handle_ = handle;
+        active_.store(handle != nullptr);
+      };
+    options.result_callback =
+      [this](const NavigateGoalHandle::WrappedResult &) {
+        navigate_goal_handle_.reset();
+        active_.store(false);
+      };
+    auto future = navigate_client_->async_send_goal(goal, options);
+    return future.wait_for(std::chrono::seconds(1)) == std::future_status::ready &&
+           future.get() != nullptr;
+  }
+
+  bool send_follow_goal(
+    const std::vector<std::string> & waypoints,
+    std::uint32_t loops)
+  {
+    if (!follow_client_->wait_for_action_server(std::chrono::milliseconds(500))) {
+      return false;
+    }
+    FollowWaypoints::Goal goal;
+    goal.number_of_loops = std::max<std::uint32_t>(1U, loops);
+    for (const auto & waypoint : waypoints) {
+      auto pose = places_.to_pose_stamped(waypoint);
+      pose.header.stamp = node_->now();
+      goal.poses.push_back(pose);
+    }
+    rclcpp_action::Client<FollowWaypoints>::SendGoalOptions options;
+    options.goal_response_callback =
+      [this](const FollowGoalHandle::SharedPtr & handle) {
+        follow_goal_handle_ = handle;
+        active_.store(handle != nullptr);
+      };
+    options.result_callback =
+      [this](const FollowGoalHandle::WrappedResult &) {
+        follow_goal_handle_.reset();
+        active_.store(false);
+      };
+    auto future = follow_client_->async_send_goal(goal, options);
+    return future.wait_for(std::chrono::seconds(1)) == std::future_status::ready &&
+           future.get() != nullptr;
+  }
+
+  Nav2Places places_;
+  std::shared_ptr<rclcpp::Node> node_;
+  rclcpp_action::Client<NavigateToPose>::SharedPtr navigate_client_;
+  rclcpp_action::Client<FollowWaypoints>::SharedPtr follow_client_;
+  NavigateGoalHandle::SharedPtr navigate_goal_handle_;
+  FollowGoalHandle::SharedPtr follow_goal_handle_;
+  std::unique_ptr<rclcpp::executors::SingleThreadedExecutor> executor_;
+  std::thread spin_thread_;
+  std::atomic_bool active_{false};
+};
+
 }  // namespace embodied_simulation
 
 PLUGINLIB_EXPORT_CLASS(
@@ -225,4 +393,7 @@ PLUGINLIB_EXPORT_CLASS(
   embodied_simulation::RobotExecutor)
 PLUGINLIB_EXPORT_CLASS(
   embodied_simulation::MockRobotExecutor,
+  embodied_simulation::RobotExecutor)
+PLUGINLIB_EXPORT_CLASS(
+  embodied_simulation::Nav2RobotExecutor,
   embodied_simulation::RobotExecutor)

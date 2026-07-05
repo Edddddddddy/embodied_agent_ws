@@ -21,10 +21,10 @@
 - 语音导航：支持“去门口/前往书桌/回到起点”等语义目标点导航，以及“依次去门口、书桌、起点/开始巡航”等多目标点巡航命令。
 - 验收脚本：提供 mock、在线、离线、Gazebo、真实麦克风连续控制等多层验收入口。
 
-说明：当前导航能力优先服务“语音到仿真控制闭环”展示，目标点以语义地点
-`home/door/desk/...` 表达，仿真 executor 将其映射为可观测运动窗口；真实 Nav2
-`NavigateToPose / FollowWaypoints` action client 是后续增强方向，协议层已预留
-`NAVIGATE_TO / FOLLOW_WAYPOINTS / CANCEL_NAVIGATION`。
+说明：当前导航能力分两层验收：`navigation-demo` 用 mock/Gazebo executor 做可观测运动；
+`nav2-bridge` 用 fake Nav2 action server 证明语义地点已经能转换为真实 Nav2
+`NavigateToPose / FollowWaypoints` goal。完整地图、AMCL/SLAM 和路径规划 bringup
+仍属于下一阶段。
 
 ## 系统链路
 
@@ -110,6 +110,12 @@ bash scripts/acceptance_test.sh gazebo
 
 ```bash
 bash scripts/acceptance_test.sh navigation-demo
+```
+
+Nav2 action bridge 验收（无需完整地图，用 fake Nav2 action server）：
+
+```bash
+bash scripts/acceptance_test.sh nav2-bridge
 ```
 
 在线接口最小 token 验证：
@@ -222,6 +228,7 @@ bash scripts/acceptance_test.sh voice-readiness
 
 # 语音导航 / 多目标点巡航
 bash scripts/acceptance_test.sh navigation-demo
+bash scripts/acceptance_test.sh nav2-bridge
 
 # Gazebo 语音到仿真运动
 bash scripts/acceptance_test.sh gazebo-voice

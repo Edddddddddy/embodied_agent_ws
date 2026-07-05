@@ -11,4 +11,10 @@
     base_class_type="embodied_simulation::RobotExecutor">
     <description>Deterministic executor that requires no simulator or sensors.</description>
   </class>
+  <class
+    name="embodied_simulation/Nav2RobotExecutor"
+    type="embodied_simulation::Nav2RobotExecutor"
+    base_class_type="embodied_simulation::RobotExecutor">
+    <description>Bridge semantic RobotCommand navigation goals to Nav2 actions.</description>
+  </class>
 </library>

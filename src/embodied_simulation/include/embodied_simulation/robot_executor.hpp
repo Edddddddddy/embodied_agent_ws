@@ -30,6 +30,9 @@ public:
     double range_max,
     double now_s) = 0;
   virtual ControllerOutput step(double now_s) = 0;
+  // Nav2 这类外部控制器会自己发布 /cmd_vel；此时 simulation_control 只负责发 action goal，
+  // 不能再周期性发布零速度，否则会和 Nav2 controller 抢控制权。
+  virtual bool publishes_cmd_vel() const {return true;}
   // 名称会进入 ACK 与 diagnostics，必须稳定，不能包含一次运行的随机信息。
   virtual std::string mode_name() const = 0;
   virtual std::string backend_name() const = 0;

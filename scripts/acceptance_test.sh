@@ -15,6 +15,7 @@ Automated modes:
   offline             Real ZipFormer/llama.cpp/Sherpa-TTS verification
   demo                Rich mock demo: ordered actions, accessories, and arc motion
   navigation-demo     Voice-style target navigation and multi-waypoint patrol smoke
+  nav2-bridge         Voice navigation commands are converted to Nav2 action goals
   continuous-mock     One wake word, several queued commands, and sleep gate
   continuous-soak     Long wake session keeps accepting many queued commands
   continuous-endpoint Endpoint speech_ended commits feed continuous ASR commands
@@ -137,6 +138,7 @@ case "$LEVEL" in
   offline) run_offline ;;
   demo) bash scripts/smoke_test_demo_sequence.sh ;;
   navigation-demo) bash scripts/smoke_test_navigation_sequence.sh online; bash scripts/smoke_test_navigation_sequence.sh offline ;;
+  nav2-bridge) bash scripts/smoke_test_nav2_bridge.sh ;;
   continuous-mock) bash scripts/smoke_test_continuous_voice.sh online; bash scripts/smoke_test_continuous_voice.sh offline ;;
   continuous-soak) bash scripts/smoke_test_continuous_voice_soak.sh online; bash scripts/smoke_test_continuous_voice_soak.sh offline ;;
   continuous-endpoint) bash scripts/smoke_test_continuous_endpoint_asr.sh online; bash scripts/smoke_test_continuous_endpoint_asr.sh offline ;;

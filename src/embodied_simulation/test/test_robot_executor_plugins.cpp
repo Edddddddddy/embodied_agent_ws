@@ -26,6 +26,11 @@ TEST(RobotExecutorPluginsTest, GazeboAndMockAdaptersAreDiscoverable)
       classes.begin(), classes.end(),
       "embodied_simulation/MockRobotExecutor"),
     classes.end());
+  EXPECT_NE(
+    std::find(
+      classes.begin(), classes.end(),
+      "embodied_simulation/Nav2RobotExecutor"),
+    classes.end());
 }
 
 TEST(RobotExecutorPluginsTest, SameCommandRunsThroughBothAdapters)
