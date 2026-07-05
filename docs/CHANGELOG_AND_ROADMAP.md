@@ -22,6 +22,7 @@
 | Nav2 result 闭环 | 用 Nav2 action result 驱动本项目 ExecuteRobotCommand result | 新增 RobotExecutor external_action_update seam，避免导航 goal 按本地 duration 假完成 |
 | 真实 Nav2 验收修复 | 跑通 TurtleBot3/Nav2 目标点导航与多目标点巡航 | 修复官方 launch 布尔参数、AMCL initialpose 和导航长动作超时；`nav2-turtlebot3` PASS |
 | 真实麦克风 Nav2 连续导航 | 支持一次唤醒后连续说多个目标点/巡航命令并进入 Nav2 队列执行 | 新增 `continuous-nav2-offline/online`、AMCL initialpose 辅助脚本和 live-check 入口 |
+| 连续导航队列回归 | 自动验证连续会话中目标点导航与多目标点巡航不会丢队列 | 新增 `continuous-navigation`，覆盖多目标点 NLU、队列元数据和 request_id/result 关联 |
 
 ## 2. 当前完成度结论
 
@@ -66,6 +67,7 @@ bash scripts/acceptance_test.sh voice-readiness
 
 ```bash
 bash scripts/acceptance_test.sh navigation-demo
+bash scripts/acceptance_test.sh continuous-navigation
 bash scripts/acceptance_test.sh nav2-bridge
 bash scripts/acceptance_test.sh nav2-preflight
 bash scripts/acceptance_test.sh nav2-turtlebot3

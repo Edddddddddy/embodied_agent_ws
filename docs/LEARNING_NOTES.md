@@ -355,6 +355,7 @@
 - `scripts/continuous_nav2_voice_control.sh`
 - `scripts/publish_nav2_initial_pose.py`
 - `tests/integration/test_navigation_sequence.py`
+- `tests/integration/test_continuous_navigation_queue.py`
 - `tests/integration/test_nav2_bridge_sequence.py`
 - `tests/integration/test_nav2_turtlebot3_voice.py`
 - `tests/integration/test_continuous_nav2_voice_control_script.py`
@@ -375,6 +376,9 @@
   再叠加本项目的 Agent、ActionGuard、typed action bridge 和 Nav2 executor。
 - `nav2-turtlebot3` 重型验收会启动真实 TurtleBot3/Nav2 仿真，注入语音文本命令，
   等待目标点导航/巡航 result，并检查 `/odom` 运动证据。
+- `test_continuous_navigation_queue.py` 是介于普通连续队列测试和真实 Nav2 重型测试之间的
+  自动回归：它验证一次唤醒后，多目标点导航和巡航命令都能进入连续队列，并按 request_id
+  对应到 ROS 2 Action result。
 - `continuous_nav2_voice_control.sh` 面向现场真实麦克风演示：它在 TurtleBot3/Nav2
   bringup 之上打开在线/离线 Agent 的连续语音模式，让用户一次唤醒后连续说多个目标点命令。
 - `publish_nav2_initial_pose.py` 在演示启动后重复发布 AMCL `/initialpose`，降低现场

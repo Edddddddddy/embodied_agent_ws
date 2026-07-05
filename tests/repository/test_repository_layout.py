@@ -22,6 +22,7 @@ def test_critical_full_chain_probes_remain_discoverable():
         "test_continuous_command_ttl.py",
         "test_continuous_endpoint_asr.py",
         "test_continuous_multi_command.py",
+        "test_continuous_navigation_queue.py",
         "test_continuous_live_check.py",
         "test_continuous_session_timeout.py",
         "test_continuous_voice_soak.py",
@@ -55,11 +56,13 @@ def test_voice_navigation_acceptance_entrypoints_remain_available():
         "continuous-nav2-offline",
         "continuous-nav2-online",
         "continuous-nav2-live-check",
+        "continuous-navigation",
     ):
         assert mode in acceptance
 
     for script in (
         "smoke_test_navigation_sequence.sh",
+        "smoke_test_continuous_navigation_queue.sh",
         "smoke_test_nav2_bridge.sh",
         "smoke_test_nav2_preflight.sh",
         "smoke_test_nav2_turtlebot3_voice.sh",

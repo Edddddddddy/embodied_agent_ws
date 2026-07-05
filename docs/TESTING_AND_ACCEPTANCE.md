@@ -40,6 +40,7 @@ bash scripts/acceptance_test.sh --help
 | `continuous-soak` | 自动 | 长会话连续命令稳定性 |
 | `continuous-queue-full` | 自动 | busy 时队列满反馈 |
 | `continuous-multi-command` | 自动 | 一条 ASR final 被轻量 NLU 解析成多条队列命令 |
+| `continuous-navigation` | 自动/仿真 | 连续会话中目标点导航与多目标点巡航按队列顺序执行 |
 | `continuous-ttl` | 自动 | 过期命令丢弃 |
 | `continuous-timeout` | 自动 | 会话超时后重新要求唤醒 |
 | `voice-readiness` | 自动 | 麦克风/音频前端 readiness 检查 |
@@ -65,6 +66,7 @@ bash scripts/acceptance_test.sh nav2-bridge
 bash scripts/acceptance_test.sh nav2-preflight
 bash scripts/acceptance_test.sh nav2-turtlebot3
 bash scripts/acceptance_test.sh continuous-multi-command
+bash scripts/acceptance_test.sh continuous-navigation
 bash scripts/acceptance_test.sh continuous-queue-full
 bash scripts/acceptance_test.sh voice-readiness
 ```
@@ -161,6 +163,7 @@ bash scripts/acceptance_test.sh continuous-live-check online
 bash scripts/acceptance_test.sh navigation-demo
 bash scripts/acceptance_test.sh nav2-bridge
 bash scripts/acceptance_test.sh nav2-preflight
+bash scripts/acceptance_test.sh continuous-navigation
 ```
 
 覆盖链路：
@@ -193,6 +196,8 @@ bash scripts/acceptance_test.sh nav2-preflight
 - online 和 offline mock Agent 均 PASS。
 - `去门口` 解析为 `{"name": "navigate_to", "arguments": {"target": "door"}}`。
 - `依次去门口、书桌、起点` 解析为 `follow_waypoints`，waypoints 为 `door/desk/home`。
+- `continuous-navigation` 会验证一次唤醒后，`去门口，然后前往书桌` 与
+  `依次去门口、书桌、起点` 能排入同一个连续控制链路，且 result 与 request_id 对应。
 - `/robot/action_result` 中对应 command_id success=true。
 - `/cmd_vel` 能观察到目标导航的前进速度，以及巡航的线速度 + 角速度。
 

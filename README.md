@@ -112,6 +112,12 @@ bash scripts/acceptance_test.sh gazebo
 bash scripts/acceptance_test.sh navigation-demo
 ```
 
+连续语音会话中的目标点导航/多目标点巡航队列验收：
+
+```bash
+bash scripts/acceptance_test.sh continuous-navigation
+```
+
 Nav2 action bridge 验收（无需完整地图，用 fake Nav2 action server）：
 
 ```bash
