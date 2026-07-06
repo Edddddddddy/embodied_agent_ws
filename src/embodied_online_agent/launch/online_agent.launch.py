@@ -31,6 +31,10 @@ def generate_launch_description():
     openwakeword_threshold = LaunchConfiguration("openwakeword_threshold")
     livekit_wakeword_models = LaunchConfiguration("livekit_wakeword_models")
     livekit_wakeword_threshold = LaunchConfiguration("livekit_wakeword_threshold")
+    speaker_identity_enabled = LaunchConfiguration("speaker_identity_enabled")
+    speaker_identity_mode = LaunchConfiguration("speaker_identity_mode")
+    speaker_identity_sherpa_model = LaunchConfiguration("speaker_identity_sherpa_model")
+    speaker_identity_sherpa_file = LaunchConfiguration("speaker_identity_sherpa_file")
     audio_enhancer = LaunchConfiguration("audio_enhancer")
     aec_enabled = LaunchConfiguration("aec_enabled")
     noise_suppression_enabled = LaunchConfiguration("noise_suppression_enabled")
@@ -86,6 +90,10 @@ def generate_launch_description():
             DeclareLaunchArgument("openwakeword_threshold", default_value="0.5"),
             DeclareLaunchArgument("livekit_wakeword_models", default_value=""),
             DeclareLaunchArgument("livekit_wakeword_threshold", default_value="0.5"),
+            DeclareLaunchArgument("speaker_identity_enabled", default_value="false"),
+            DeclareLaunchArgument("speaker_identity_mode", default_value="mock"),
+            DeclareLaunchArgument("speaker_identity_sherpa_model", default_value=""),
+            DeclareLaunchArgument("speaker_identity_sherpa_file", default_value=""),
             DeclareLaunchArgument("audio_enhancer", default_value="nlms"),
             DeclareLaunchArgument("aec_enabled", default_value="true"),
             DeclareLaunchArgument("noise_suppression_enabled", default_value="false"),
@@ -159,6 +167,20 @@ def generate_launch_description():
                             asr_commit_delay_ms, value_type=int
                         ),
                     },
+                ],
+            ),
+            Node(
+                package="embodied_online_agent",
+                executable="speaker_identity",
+                name="speaker_identity",
+                output="screen",
+                condition=IfCondition(speaker_identity_enabled),
+                parameters=[
+                    {
+                        "mode": speaker_identity_mode,
+                        "sherpa_model": speaker_identity_sherpa_model,
+                        "sherpa_speaker_file": speaker_identity_sherpa_file,
+                    }
                 ],
             ),
             Node(

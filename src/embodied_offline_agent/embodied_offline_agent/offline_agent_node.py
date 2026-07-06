@@ -22,6 +22,11 @@ from embodied_online_agent.continuous_voice import CommandExecutionTracker, Queu
 from embodied_online_agent.protocol import SentenceChunker, TaggedStreamParser
 from embodied_online_agent.recognition_retry import RecognitionRetryTracker
 from embodied_online_agent.types import ActionCommand
+from embodied_online_agent.user_memory import (
+    SpeakerIdentity,
+    UserMemoryStore,
+    parse_memory_command,
+)
 from embodied_online_agent.wake_event_input import parse_external_wake_event
 from embodied_online_agent.wakeword import WakeWordGate
 
@@ -52,6 +57,11 @@ class OfflineAgentNode(Node):
 
         self._memory = ConversationMemory(
             self._param("memory_path"), self._param("memory_max_turns")
+        )
+        self._current_speaker = SpeakerIdentity()
+        self._user_memory = UserMemoryStore(
+            self._param("user_memory_dir"),
+            max_recent=int(self._param("user_memory_max_recent")),
         )
         self._wake_gate = WakeWordGate(
             self._param("wake_words"),
@@ -106,6 +116,9 @@ class OfflineAgentNode(Node):
         self._recognition_feedback_pub = self.create_publisher(
             String, "/agent/recognition_feedback", 10
         )
+        self._speaker_enroll_request_pub = self.create_publisher(
+            String, "/agent/speaker_enroll_request", 10
+        )
         self._metrics_pub = self.create_publisher(String, "/offline_agent/metrics", 10)
         audio_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
@@ -118,6 +131,9 @@ class OfflineAgentNode(Node):
             self.create_subscription(
                 String, "/agent/wake_event_input", self._on_wake_event_input, 10
             )
+        self.create_subscription(
+            String, "/agent/speaker_identity", self._on_speaker_identity, 10
+        )
         self.create_subscription(Empty, "/agent/clear_memory", self._on_clear, 10)
         self.create_subscription(String, "/robot/action_result", self._on_action_result, 10)
         if self._continuous_enabled:
@@ -153,6 +169,9 @@ class OfflineAgentNode(Node):
             "wake_active_timeout_s": 10.0,
             "memory_path": "~/.ros/embodied_agent/offline_memory.json",
             "memory_max_turns": 6,
+            "user_memory_dir": "~/.ros/embodied_agent/users",
+            "user_memory_max_recent": 8,
+            "speaker_identity_min_confidence": 0.55,
             "system_prompt_path": "",
             "asr_model_dir": "/home/ubuntu/embodied_agent_ws/models/sherpa-onnx-streaming-zipformer-small-bilingual-zh-en-2023-02-16",
             "asr_num_threads": 2,
@@ -394,9 +413,21 @@ class OfflineAgentNode(Node):
 
     def _on_clear(self, _message):
         self._memory.clear()
+        self._user_memory.clear(self._current_speaker)
 
     def _on_action_result(self, message):
         self._action_sequencer.notify_result(message.data)
+
+    def _on_speaker_identity(self, message):
+        identity = SpeakerIdentity.from_json(
+            message.data,
+            min_confidence=float(self._param("speaker_identity_min_confidence")),
+        )
+        self._current_speaker = identity
+        if identity.usable:
+            self.get_logger().info(
+                f"speaker identity accepted: speaker_id={identity.speaker_id}, confidence={identity.confidence:.3f}"
+            )
 
     def _accept_transcript(self, transcript):
         transcript = self._normalize_transcript(transcript)
@@ -443,6 +474,9 @@ class OfflineAgentNode(Node):
         if not decision.priority_stop:
             # 补全只作用于普通动作命令；停下/急停不能被延迟或改写。
             command = self._complete_command(command)
+        if self._handle_memory_command(command):
+            self._publish_state("listening")
+            return
         if self._continuous_enabled:
             if decision.priority_stop:
                 dropped = self._command_queue.clear()
@@ -470,6 +504,91 @@ class OfflineAgentNode(Node):
         threading.Thread(
             target=self._run_turn, args=(command, turn_latency), daemon=True
         ).start()
+
+    def _handle_memory_command(self, command):
+        memory_command = parse_memory_command(command)
+        if memory_command is None:
+            return False
+        identity = self._current_speaker
+        if memory_command.kind == "whoami":
+            if identity.usable:
+                profile = self._user_memory.profile(identity)
+                name = profile.display_name or identity.display_name or identity.speaker_id
+                response = f"我识别到当前用户是：{name}。"
+            else:
+                response = "我还没有可靠识别到当前用户，可以先说“记住我，我是某某”。"
+        elif memory_command.kind == "clear":
+            self._user_memory.clear(identity)
+            response = "已清除当前用户的本地行为记忆。"
+        elif memory_command.kind == "enroll_request":
+            if identity.usable:
+                self._publish_speaker_enroll_request(
+                    identity.speaker_id, identity.display_name or identity.speaker_id
+                )
+                response = "已开始声纹录入，请连续说三句短句用于采集样本。"
+            else:
+                response = "请先说“记住我，我是某某”，我会用这个名字开始声纹录入。"
+        elif memory_command.kind == "enroll_name":
+            if not identity.usable:
+                # 没有真实声纹 identity 时提供演示兜底；真实部署仍以 /agent/speaker_identity 为准。
+                identity = SpeakerIdentity(
+                    speaker_id=str(memory_command.value),
+                    confidence=1.0,
+                    enrolled=True,
+                    model="text-enroll-fallback",
+                    display_name=str(memory_command.value),
+                    updated_at=time.time(),
+                )
+                self._current_speaker = identity
+            profile = self._user_memory.enroll(identity, str(memory_command.value))
+            self._publish_speaker_enroll_request(identity.speaker_id, profile.display_name)
+            response = (
+                f"好的，我记住你是 {profile.display_name or profile.speaker_id}。"
+                "如果已启动声纹 sidecar，请继续说三句短句完成样本采集。"
+            )
+        elif memory_command.kind == "preference":
+            if not identity.usable:
+                response = "我还没有可靠识别当前用户，先说“记住我，我是某某”后再记录偏好。"
+            else:
+                profile = self._user_memory.profile(identity)
+                for key, value in dict(memory_command.value).items():
+                    profile = self._user_memory.set_preference(identity, key, value)
+                response = "已记录你的偏好：" + "，".join(
+                    f"{key}={value}" for key, value in sorted(profile.preferences.items())
+                )
+        else:
+            return False
+        self._response_delta_pub.publish(String(data=response))
+        self._response_pub.publish(String(data=response))
+        threading.Thread(
+            target=self._speak_memory_response, args=(response,), daemon=True
+        ).start()
+        self._user_memory.record_interaction(
+            identity,
+            user_text=command,
+            assistant_text=response,
+            actions=[],
+            success=True,
+        )
+        return True
+
+    def _speak_memory_response(self, response):
+        try:
+            self._audio_pub.publish(
+                UInt8MultiArray(data=list(self._tts.synthesize(response)))
+            )
+        except Exception as exc:
+            self.get_logger().warning(f"memory response TTS failed: {exc}")
+
+    def _publish_speaker_enroll_request(self, speaker_id, display_name):
+        payload = {
+            "speaker_id": speaker_id,
+            "display_name": display_name or speaker_id,
+            "samples_required": 3,
+        }
+        self._speaker_enroll_request_pub.publish(
+            String(data=json.dumps(payload, ensure_ascii=False))
+        )
 
     def _normalize_transcript(self, transcript):
         if not self._param("command_normalization_enabled"):
@@ -573,7 +692,13 @@ class OfflineAgentNode(Node):
         model_actions = []
         self._publish_state("thinking")
         try:
-            messages = [{"role": "system", "content": self._system_prompt + "\n/no_think"}]
+            messages = [
+                {
+                    "role": "system",
+                    "content": self._system_prompt_with_user_memory()
+                    + "\n/no_think",
+                }
+            ]
             messages.extend(self._memory.messages())
             messages.append({"role": "user", "content": user_text + " /no_think"})
             latency.mark_llm_start()
@@ -623,6 +748,13 @@ class OfflineAgentNode(Node):
             assistant_text = "".join(speech_parts).strip()
             self._response_pub.publish(String(data=assistant_text))
             self._memory.append_turn(user_text, assistant_text)
+            self._user_memory.record_interaction(
+                self._current_speaker,
+                user_text=user_text,
+                assistant_text=assistant_text,
+                actions=[action.as_dict() for action in (fallback_actions or model_actions)],
+                success=True,
+            )
             latency.finish()
             report = latency.report(message_buffer.stats.dropped, audio_buffer.stats.dropped)
             self._metrics_pub.publish(String(data=json.dumps(report, ensure_ascii=False)))
@@ -657,7 +789,14 @@ class OfflineAgentNode(Node):
         response = "好的，按顺序执行：" + "，".join(action.name for action in actions) + "。"
         self._response_delta_pub.publish(String(data=response))
         self._response_pub.publish(String(data=response))
-        self._publish_actions(actions)
+        report = self._publish_actions(actions)
+        self._user_memory.record_interaction(
+            self._current_speaker,
+            user_text=user_text,
+            assistant_text=response,
+            actions=[action.as_dict() for action in actions],
+            success=not report.failed,
+        )
         latency.finish()
         report = latency.report(0, 0)
         self._metrics_pub.publish(String(data=json.dumps(report, ensure_ascii=False)))
@@ -766,6 +905,17 @@ class OfflineAgentNode(Node):
             and self._continuous_enabled
             and self._command_worker_thread is not None
             and threading.current_thread() is self._command_worker_thread
+        )
+
+    def _system_prompt_with_user_memory(self):
+        summary = self._user_memory.prompt_summary(self._current_speaker)
+        if not summary:
+            return self._system_prompt
+        return (
+            self._system_prompt
+            + "\n\n[用户画像记忆]\n"
+            + summary
+            + "\n请仅把用户画像作为偏好参考，所有动作仍必须遵守输出格式和安全限幅。"
         )
 
     def _publish_state(self, state):

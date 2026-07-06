@@ -19,6 +19,7 @@
 - ROS 2 工程化：自定义 msg/action、C++ ActionGuard、typed action bridge、Lifecycle、BehaviorTree.CPP、pluginlib executor。
 - 仿真动作：前进、后退、左转、右转、停止、原地转圈、绕圈、走正方形、演示动作序列。
 - 语音导航：支持“去门口/前往书桌/回到起点”等语义目标点导航，以及“依次去门口、书桌、起点/开始巡航”等多目标点巡航命令。
+- 用户记忆：支持 `/agent/speaker_identity` 声纹身份事件、按用户保存本地偏好/行为习惯，并在 Agent 推理前注入用户画像；声纹 sidecar 支持 mock 和 sherpa-onnx 接入 seam。
 - 验收脚本：提供 mock、在线、离线、Gazebo、真实麦克风连续控制等多层验收入口。
 
 说明：当前导航能力分三层验收：`navigation-demo` 用 mock/Gazebo executor 做可观测运动；
@@ -32,9 +33,12 @@
 flowchart LR
   Mic["麦克风 / mock 文本"] --> Audio["C++ audio_frontend\nVAD / endpoint / clean_pcm"]
   Audio --> ASR["在线 Qwen ASR\n或离线 Sherpa ASR"]
+  Audio -.-> Speaker["speaker_identity sidecar\nmock / sherpa-onnx"]
+  Speaker -.-> Memory["UserMemoryStore\n用户画像 / 行为习惯"]
   ASR --> Gate["Wake / Session Gate\n去重、语气词过滤、超时"]
   Gate --> Queue["连续命令队列\n普通命令 FIFO\n急停抢占"]
   Queue --> Agent["在线/离线 Agent\n轻量 NLU + LLM fallback\n短命令补全"]
+  Memory -.-> Agent
   Agent --> Parser["动作解析\nprimitive / navigation"]
   Parser --> Guard["C++ ActionGuard\n动作校验、限幅、强类型转换"]
   Guard --> Bridge["Typed Action Bridge\nRobotCommand → ROS 2 Action"]
@@ -49,7 +53,7 @@ embodied_agent_ws/
 ├── src/
 │   ├── embodied_agent_interfaces/   # RobotCommand.msg 与 ExecuteRobotCommand.action
 │   ├── embodied_agent_cpp/          # C++ 音频前端、ActionGuard、Action bridge、硬件 mock
-│   ├── embodied_online_agent/       # 在线 Agent、Qwen ASR/LLM/TTS、连续语音控制
+│   ├── embodied_online_agent/       # 在线 Agent、Qwen ASR/LLM/TTS、连续语音控制、用户记忆/声纹 sidecar
 │   ├── embodied_offline_agent/      # 离线 Agent、Sherpa/llama.cpp/Sherpa-TTS 适配
 │   └── embodied_simulation/         # Gazebo/TurtleBot3 执行器、BehaviorTree、pluginlib
 ├── scripts/                         # 一键验收、连续语音、校准、smoke test
@@ -97,6 +101,39 @@ bash scripts/setup_offline_runtime.sh
 ```bash
 bash scripts/setup_sherpa_asr_runtime.sh
 bash scripts/acceptance_test.sh sherpa-asr-smoke
+```
+
+## 用户声纹与本地记忆
+
+当前版本把“声纹识别”和“用户记忆”解耦：
+
+- `speaker_identity` sidecar 订阅 `/audio/clean_pcm`、`/audio/speech_ended`，发布 `/agent/speaker_identity`。
+- 录入声纹时，Agent 发布 `/agent/speaker_enroll_request`，sidecar 收集后续 3 句语音为 wav 样本并维护 `speakers.txt`。
+- 在线/离线 Agent 订阅 `/agent/speaker_identity`，把当前用户画像从 `~/.ros/embodied_agent/users/` 加载进 prompt。
+- 支持语音/文本命令：“记住我，我是小李”“我喜欢慢一点”“我是谁”“清除我的记忆”。
+- 个性化偏好只作为 Agent 上下文，动作仍必须经过 ActionGuard 限幅和 ROS 2 Action 执行。
+
+mock 验收：
+
+```bash
+bash scripts/acceptance_test.sh speaker-memory-mock
+bash scripts/acceptance_test.sh speaker-enroll
+```
+
+真实 sherpa-onnx 声纹接入需要准备 speaker embedding 模型和注册样本文件，然后启动时开启：
+
+```bash
+ros2 launch embodied_online_agent online_agent.launch.py \
+  speaker_identity_enabled:=true \
+  speaker_identity_mode:=sherpa \
+  speaker_identity_sherpa_model:=/path/to/speaker_model.onnx \
+  speaker_identity_sherpa_file:=/path/to/speakers.txt
+```
+
+`speakers.txt` 每行格式为：
+
+```text
+lcy /path/to/lcy_enroll.wav
 ```
 
 ## 五分钟跑通主链路
@@ -324,6 +361,10 @@ bash scripts/acceptance_test.sh continuous-mock
 bash scripts/acceptance_test.sh continuous-multi-command
 bash scripts/acceptance_test.sh continuous-queue-full
 bash scripts/acceptance_test.sh voice-readiness
+
+# 声纹身份事件 + 用户行为记忆 mock 验收
+bash scripts/acceptance_test.sh speaker-memory-mock
+bash scripts/acceptance_test.sh speaker-enroll
 
 # 语音导航 / 多目标点巡航
 bash scripts/acceptance_test.sh nav2-stage

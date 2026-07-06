@@ -49,6 +49,8 @@ bash scripts/acceptance_test.sh --help
 | `continuous-multi-command` | 自动 | 一条 ASR final 被轻量 NLU 解析成多条队列命令 |
 | `continuous-navigation` | 自动/仿真 | 连续会话中目标点导航与多目标点巡航按队列顺序执行 |
 | `continuous-navigation-natural` | 自动/仿真 | 自然多目标话术解析为多目标点巡航并按队列执行 |
+| `speaker-memory-mock` | 自动 | mock 声纹身份事件、用户偏好记忆、prompt/action 记录 |
+| `speaker-enroll` | 自动 | 声纹录入请求收集 wav 样本并生成 `speakers.txt` |
 | `continuous-ttl` | 自动 | 过期命令丢弃 |
 | `continuous-timeout` | 自动 | 会话超时后重新要求唤醒 |
 | `voice-readiness` | 自动 | 麦克风/音频前端 readiness 检查 |
@@ -84,6 +86,21 @@ bash scripts/acceptance_test.sh voice-readiness
 ```
 
 通过后说明：仓库结构、脚本入口、连续语音会话、队列、endpoint、readiness 基本正常。
+
+用户声纹与本地记忆 mock 验收：
+
+```bash
+bash scripts/acceptance_test.sh speaker-memory-mock
+bash scripts/acceptance_test.sh speaker-enroll
+```
+
+通过后说明：
+
+- `/agent/speaker_identity` 能驱动 Agent 绑定当前用户。
+- “记住我，我是小李”“我喜欢慢一点”“我是谁”等管理命令能写入/读取本地用户画像。
+- 普通动作执行后会把动作统计写入当前用户 profile。
+- `/agent/speaker_enroll_request` 能触发 sidecar 收集 3 段 wav 样本并维护 speaker-file。
+- 该验收不依赖真实声纹模型；真实 sherpa-onnx 声纹需要另行准备 speaker embedding 模型和注册 wav。
 `navigation-demo` 额外证明“去门口”和“依次去门口、书桌、起点”能被 online/offline
 Agent 解析成 `navigate_to / follow_waypoints`，并通过 typed Action 驱动仿真 executor。
 

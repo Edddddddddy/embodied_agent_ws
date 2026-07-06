@@ -242,7 +242,48 @@
 - 大模型 function calling：泛化强，但响应和稳定性受模型影响。
 - 本地轻量 NLU + ActionGuard：在固定动作域内更适合端侧演示。
 
-## 9. 离线 Agent：Sherpa、llama.cpp、Sherpa-TTS 与双缓冲
+## 9. 声纹识别与用户行为记忆
+
+关键代码：
+
+- `src/embodied_online_agent/embodied_online_agent/speaker_identity_node.py`
+- `src/embodied_online_agent/embodied_online_agent/user_memory.py`
+- `src/embodied_online_agent/embodied_online_agent/online_agent_node.py`
+- `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py`
+- `tests/integration/test_speaker_memory_mock.py`
+
+设计方式：
+
+- 声纹识别被做成 sidecar：订阅 `/audio/clean_pcm` 和 `/audio/speech_ended`，发布 `/agent/speaker_identity`。
+- 声纹录入通过 `/agent/speaker_enroll_request` 触发，sidecar 把后续语音段保存成 wav 样本并维护 `speakers.txt`。
+- Agent 只消费稳定 JSON identity，不直接绑定某个模型库。
+- `UserMemoryStore` 按 `speaker_id` 保存本地 profile，包括用户名、偏好、常用动作、最近交互。
+- Agent 推理前把当前用户画像追加进 system prompt，但动作仍必须经过 ActionGuard。
+- 管理命令直接在 Agent 层处理，例如“记住我，我是小李”“我喜欢慢一点”“我是谁”“清除我的记忆”。
+
+为什么这样设计：
+
+- 声纹模型属于可替换能力，和 ASR/LLM/动作控制主链路解耦，降低演示风险。
+- 用户画像是长期稳定信息，不适合无限追加到普通对话历史里。
+- 记忆写入必须可控，不能完全交给 LLM 自行决定，否则容易把误识别或幻觉写入本地 profile。
+- 低置信度声纹返回 `unknown`，避免把 A 用户偏好误写到 B 用户。
+
+方案对比：
+
+- 直接接 mem0/Letta/Zep：记忆能力强，但偏 Web Agent/服务端框架，当前 ROS2 端侧项目会变重。
+- 使用 SpeechBrain/pyannote：模型能力成熟，但依赖 PyTorch 或 HuggingFace 模型，部署复杂。
+- 当前方案：mock 可自动验收，sherpa-onnx seam 可接真实端侧声纹，和已有离线技术栈一致。
+
+验收方式：
+
+```bash
+bash scripts/acceptance_test.sh speaker-memory-mock
+bash scripts/acceptance_test.sh speaker-enroll
+```
+
+该验收证明：speaker identity 进入 Agent、用户偏好落盘、动作执行后更新用户行为统计，并且声纹录入 seam 能采集样本文件。
+
+## 10. 离线 Agent：Sherpa、llama.cpp、Sherpa-TTS 与双缓冲
 
 关键代码：
 
@@ -273,7 +314,7 @@
 - Python 大模型框架直接推理：开发方便，但部署和性能压力更大。
 - llama.cpp + Sherpa：工程味更强，适合展示端侧推理思路。
 
-## 10. BehaviorTree.CPP 与 pluginlib 仿真执行
+## 11. BehaviorTree.CPP 与 pluginlib 仿真执行
 
 关键代码：
 
@@ -302,7 +343,7 @@
 - 直接引入完整 Nav2：功能强，但本项目目标不是复杂导航，成本过高。
 - 轻量 BT + pluginlib：足够展示工程规范，同时保持项目可跑通。
 
-## 11. 测试体系
+## 12. 测试体系
 
 关键代码：
 
@@ -335,7 +376,7 @@
 - 只做人工演示：不可复现，回归成本高。
 - 单测 + smoke + 人工验收：更适合当前工程规模。
 
-## 12. 语音目标点导航与多目标点巡航
+## 13. 语音目标点导航与多目标点巡航
 
 关键代码：
 
@@ -408,7 +449,7 @@
 - 只做文本注入 Nav2 验收：自动化更稳，但不能覆盖真实麦克风的 ASR/session/queue 体验；因此新增 `continuous-nav2-offline/online` 作为人工演示入口。
 - 只做字符串 topic：实现快，但难体现可取消、带反馈、可测试的 ROS 2 Action 能力。
 
-## 13. 面试讲法建议
+## 14. 面试讲法建议
 
 可以用这条主线介绍项目：
 

@@ -32,6 +32,8 @@ Automated modes:
   continuous-ttl      Busy continuous queue expires stale non-priority commands
   continuous-timeout  Voice session timeout requires a fresh wake word
   continuous-kws-mock KWS sidecar opens a continuous session and executes a command
+  speaker-memory-mock Speaker identity and per-user memory smoke test
+  speaker-enroll     Speaker enrollment request saves wav samples and speakers.txt
   vad-sidecar         Dependency-free Silero VAD sidecar seam smoke test
   kws-sidecar         Dependency-free keyword wake sidecar seam smoke test
   openwakeword-sidecar Dependency-free openWakeWord adapter runtime smoke test
@@ -205,6 +207,8 @@ case "$LEVEL" in
   continuous-ttl) bash scripts/smoke_test_continuous_command_ttl.sh online; bash scripts/smoke_test_continuous_command_ttl.sh offline ;;
   continuous-timeout) bash scripts/smoke_test_continuous_session_timeout.sh online; bash scripts/smoke_test_continuous_session_timeout.sh offline ;;
   continuous-kws-mock) bash scripts/smoke_test_continuous_kws_sidecar.sh online; bash scripts/smoke_test_continuous_kws_sidecar.sh offline ;;
+  speaker-memory-mock) bash scripts/smoke_test_speaker_memory.sh online; bash scripts/smoke_test_speaker_memory.sh offline ;;
+  speaker-enroll) bash scripts/smoke_test_speaker_enrollment.sh ;;
   vad-sidecar) bash scripts/smoke_test_silero_vad_sidecar.sh ;;
   kws-sidecar) bash scripts/smoke_test_keyword_wake_sidecar.sh ;;
   openwakeword-sidecar) bash scripts/smoke_test_openwakeword_sidecar.sh ;;
