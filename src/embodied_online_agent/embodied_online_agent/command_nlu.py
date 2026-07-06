@@ -22,8 +22,10 @@ from typing import Iterable, List
 from .navigation_phrases import (
     DEFAULT_PATROL_WAYPOINTS,
     extract_waypoints,
+    is_multi_stop_route_request,
     is_navigation_cancel,
     is_patrol_request,
+    is_waypoint_sequence_request,
     resolve_place,
 )
 from .types import ActionCommand
@@ -203,7 +205,10 @@ class CommandNLU:
         ("set_led", ("灯",)),
         ("set_mode", ("自动避障", "避障模式", "沿墙", "贴墙", "手动模式", "手动控制", "退出自动")),
         ("cancel_navigation", ("取消导航", "停止导航", "退出导航", "取消巡航", "停止巡航")),
-        ("follow_waypoints", ("开始巡航", "巡航一圈", "巡逻一圈", "开始巡逻", "多点巡航", "依次", "按顺序")),
+        (
+            "follow_waypoints",
+            ("开始巡航", "巡航一圈", "巡逻一圈", "开始巡逻", "多点巡航", "巡逻", "巡航", "依次", "按顺序"),
+        ),
         ("navigate_to", ("导航到", "前往", "回到", "返回", "去", "到")),
     )
 
@@ -249,7 +254,9 @@ class CommandNLU:
                 ],
             )
         whole_waypoints = extract_waypoints(normalized)
-        if ("依次" in normalized or "按顺序" in normalized) and len(whole_waypoints) >= 2:
+        if (
+            is_waypoint_sequence_request(source) and len(whole_waypoints) >= 2
+        ) or (is_multi_stop_route_request(source) and len(whole_waypoints) >= 3):
             return NluResult(
                 source,
                 [

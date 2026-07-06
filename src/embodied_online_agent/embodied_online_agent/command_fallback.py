@@ -4,9 +4,11 @@ from typing import List, Optional
 from .navigation_phrases import (
     DEFAULT_PATROL_WAYPOINTS,
     extract_waypoints,
+    is_multi_stop_route_request,
     is_navigation_cancel,
     is_navigation_request,
     is_patrol_request,
+    is_waypoint_sequence_request,
     resolve_place,
 )
 from .types import ActionCommand
@@ -86,7 +88,7 @@ def parse_fallback_actions(text: str) -> List[ActionCommand]:
                 {"waypoints": waypoints, "number_of_loops": 1},
             )
         ]
-    if "依次" in normalized or "按顺序" in normalized:
+    if is_waypoint_sequence_request(text) or is_multi_stop_route_request(text):
         waypoints = extract_waypoints(normalized)
         if len(waypoints) >= 2:
             return [

@@ -10,7 +10,7 @@ import re
 
 
 PLACE_ALIASES: dict[str, tuple[str, ...]] = {
-    "home": ("起点", "原点", "回家", "回到起点", "返回起点", "出发点", "home"),
+    "home": ("起点", "原点", "回家", "回到起点", "返回起点", "回起点", "出发点", "home"),
     "door": ("门口", "门边", "门", "door"),
     "desk": ("桌子", "书桌", "桌子旁", "办公桌", "desk"),
     "living_room": ("客厅", "大厅", "livingroom"),
@@ -61,7 +61,38 @@ def is_navigation_cancel(text: str) -> bool:
 
 def is_patrol_request(text: str) -> bool:
     normalized = normalize_place_text(text)
-    return any(word in normalized for word in ("开始巡航", "巡航一圈", "巡逻一圈", "开始巡逻", "多点巡航"))
+    return any(
+        word in normalized
+        for word in (
+            "开始巡航",
+            "巡航一圈",
+            "巡逻一圈",
+            "开始巡逻",
+            "多点巡航",
+            "巡逻",
+            "巡航",
+        )
+    )
+
+
+def is_waypoint_sequence_request(text: str) -> bool:
+    normalized = normalize_place_text(text)
+    return any(
+        word in normalized
+        for word in (
+            "依次",
+            "按顺序",
+            "逐个",
+            "逐一",
+        )
+    ) or is_patrol_request(normalized)
+
+
+def is_multi_stop_route_request(text: str) -> bool:
+    normalized = normalize_place_text(text)
+    return "最后" in normalized and any(
+        word in normalized for word in ("先", "再", "然后", "接着", "随后")
+    )
 
 
 def is_navigation_request(text: str) -> bool:
