@@ -31,6 +31,8 @@ bash scripts/acceptance_test.sh --help
 | `mock` | 自动 | 构建、单测、无模型 ROS smoke 主链路 |
 | `online` | 自动/联网 | DashScope 在线 ASR/LLM/TTS 最小 token 验证 |
 | `offline` | 自动/本地模型 | Sherpa/llama.cpp/Sherpa-TTS 真实离线链路 |
+| `sherpa-asr-preflight` | 自动/本地模型 | ASR-only 预检：检查 `sherpa_onnx` 和 ZipFormer 模型文件 |
+| `sherpa-asr-smoke` | 自动/本地模型 | ASR-only 真实解码：用 ZipFormer test wav 验证 Sherpa provider |
 | `navigation-demo` | 自动/仿真 | 语音风格目标点导航与多目标点巡航，覆盖 online/offline mock Agent |
 | `nav2-bridge` | 自动/Nav2 seam | 用 fake Nav2 action server 验证语义地点会发成 NavigateToPose/FollowWaypoints goal |
 | `nav2-preflight` | 自动/Nav2 | 检查 Nav2/TurtleBot3 voice launch 依赖和参数 |
@@ -83,6 +85,31 @@ bash scripts/acceptance_test.sh voice-readiness
 通过后说明：仓库结构、脚本入口、连续语音会话、队列、endpoint、readiness 基本正常。
 `navigation-demo` 额外证明“去门口”和“依次去门口、书桌、起点”能被 online/offline
 Agent 解析成 `navigate_to / follow_waypoints`，并通过 typed Action 驱动仿真 executor。
+
+### 2.1.1 Sherpa-ONNX ASR-only 真实部署检查
+
+如果只想先验证离线 ASR 推理框架，不想下载/编译完整离线 LLM/TTS 栈，运行：
+
+```bash
+bash scripts/setup_sherpa_asr_runtime.sh
+bash scripts/acceptance_test.sh sherpa-asr-preflight
+bash scripts/acceptance_test.sh sherpa-asr-smoke
+```
+
+通过后说明：
+
+- `sherpa_onnx` Python 包可导入。
+- ZipFormer encoder/decoder/joiner/tokens 文件存在且大小合理。
+- `SherpaZipformerAsr` provider 可以加载真实模型，并对 test wav 输出 final 文本。
+
+这只覆盖 ASR 层；完整离线链路仍使用：
+
+```bash
+bash scripts/setup_offline_runtime.sh
+bash scripts/acceptance_test.sh offline
+```
+
+详细说明见 [SHERPA_ONNX_DEPLOYMENT.md](SHERPA_ONNX_DEPLOYMENT.md)。
 
 ### 2.2 Python/C++ 单元测试
 

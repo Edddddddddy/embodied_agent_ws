@@ -14,6 +14,7 @@ fi
 LOG_FILE="$(mktemp)"
 PIDS=()
 cleanup() {
+  set +e
   for pid in "${PIDS[@]}"; do
     kill -TERM -- "-$pid" 2>/dev/null || true
   done
@@ -23,6 +24,7 @@ cleanup() {
     wait "$pid" 2>/dev/null || true
   done
   rm -f "$LOG_FILE"
+  return 0
 }
 trap cleanup EXIT
 
@@ -55,10 +57,17 @@ else
 fi
 PIDS+=("$!")
 
-activate_lifecycle_node action_guard
-wait_for_topic_subscribers /robot/action_command_typed
+if ! activate_lifecycle_node action_guard; then
+  cat "$LOG_FILE" >&2
+  exit 1
+fi
+if ! wait_for_topic_subscribers /robot/action_command_typed; then
+  cat "$LOG_FILE" >&2
+  exit 1
+fi
 if ! timeout 55 python3 "$WORKSPACE/tests/integration/test_continuous_navigation_queue.py"; then
   cat "$LOG_FILE" >&2
   exit 1
 fi
 echo "PASS: continuous voice -> queued target navigation and waypoint patrol ($AGENT_KIND)"
+exit 0

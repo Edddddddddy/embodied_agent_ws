@@ -97,6 +97,34 @@ def test_voice_navigation_acceptance_entrypoints_remain_available():
     assert (ROOT / "src" / "embodied_simulation" / "config" / "places.yaml").is_file()
 
 
+def test_sherpa_asr_deployment_entrypoints_remain_available():
+    """离线 ASR 真实部署必须有轻量入口，不能只依赖完整离线大脚本。
+
+    setup_offline_runtime.sh 会同时拉 TTS、llama.cpp 和 Qwen GGUF，适合完整离线链路；
+    但真实排查 ASR 时需要 ASR-only 预检和单 wav smoke，便于快速确认 sherpa-onnx
+    推理框架、ZipFormer 模型文件和项目 provider seam 是否可用。
+    """
+
+    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
+        encoding="utf-8"
+    )
+    for mode in ("sherpa-asr-preflight", "sherpa-asr-smoke"):
+        assert mode in acceptance
+
+    setup_script = ROOT / "scripts" / "setup_sherpa_asr_runtime.sh"
+    smoke_script = ROOT / "scripts" / "sherpa_asr_smoke.py"
+    assert setup_script.is_file()
+    assert smoke_script.is_file()
+
+    setup_text = setup_script.read_text(encoding="utf-8")
+    smoke_text = smoke_script.read_text(encoding="utf-8")
+    assert "sherpa-onnx==" in setup_text
+    assert "k2fsa-zipformer-bilingual-zh-en-t" in setup_text
+    assert "setup_offline_runtime.sh" in setup_text
+    assert "SherpaZipformerAsr" in smoke_text
+    assert "--preflight-only" in smoke_text
+
+
 def test_nav2_live_evidence_script_keeps_control_and_scoring_together():
     """一键现场留证脚本必须同时启动控制链路与 live-check，并保存可复核报告。"""
 

@@ -13,6 +13,8 @@ Automated modes:
   mock                Build, unit tests, and dependency-free ROS smokes
   online              Minimal-token live ASR/LLM/TTS verification
   offline             Real ZipFormer/llama.cpp/Sherpa-TTS verification
+  sherpa-asr-preflight ASR-only check: sherpa_onnx import + ZipFormer model files
+  sherpa-asr-smoke    ASR-only real decode on bundled ZipFormer test wav
   demo                Rich mock demo: ordered actions, accessories, and arc motion
   navigation-demo     Voice-style target navigation and multi-waypoint patrol smoke
   nav2-bridge         Voice navigation commands are converted to Nav2 action goals
@@ -142,24 +144,51 @@ check_offline_runtime() {
   require_file third_party/llama.cpp/build/bin/llama-server
 }
 
+run_sherpa_asr_preflight() {
+  python3 scripts/sherpa_asr_smoke.py --preflight-only
+}
+
+run_sherpa_asr_smoke() {
+  python3 scripts/sherpa_asr_smoke.py
+}
+
+run_isolated_ros_smoke() {
+  local domain_id="$1"
+  shift
+  local exit_code=0
+  echo "[nav2-stage] ROS_DOMAIN_ID=$domain_id $*"
+  ROS_DOMAIN_ID="$domain_id" "$@" || exit_code=$?
+  if (( exit_code != 0 )); then
+    echo "[nav2-stage] FAILED exit=$exit_code $*" >&2
+    return "$exit_code"
+  fi
+  # 连续启动多个 ROS graph 时，给 DDS discovery 和进程组清理留出很短缓冲。
+  # 这能避免阶段门禁里相邻 smoke 互相看到上一轮残留节点。
+  sleep 0.5
+  echo "[nav2-stage] PASS $*"
+  return 0
+}
+
 case "$LEVEL" in
   core) bash scripts/run_core_tests.sh ;;
   preflight) check_offline_runtime ;;
   mock) run_base ;;
   online) run_online ;;
   offline) run_offline ;;
+  sherpa-asr-preflight) run_sherpa_asr_preflight ;;
+  sherpa-asr-smoke) run_sherpa_asr_smoke ;;
   demo) bash scripts/smoke_test_demo_sequence.sh ;;
   navigation-demo) bash scripts/smoke_test_navigation_sequence.sh online; bash scripts/smoke_test_navigation_sequence.sh offline ;;
   nav2-bridge) bash scripts/smoke_test_nav2_bridge.sh ;;
   nav2-preflight) bash scripts/smoke_test_nav2_preflight.sh ;;
   nav2-stage)
-    bash scripts/smoke_test_navigation_sequence.sh online
-    bash scripts/smoke_test_navigation_sequence.sh offline
-    bash scripts/smoke_test_continuous_navigation_queue.sh online
-    bash scripts/smoke_test_continuous_navigation_queue.sh offline
-    bash scripts/smoke_test_continuous_navigation_natural.sh online
-    bash scripts/smoke_test_continuous_navigation_natural.sh offline
-    bash scripts/smoke_test_nav2_bridge.sh
+    run_isolated_ros_smoke 181 bash scripts/smoke_test_navigation_sequence.sh online
+    run_isolated_ros_smoke 182 bash scripts/smoke_test_navigation_sequence.sh offline
+    run_isolated_ros_smoke 183 bash scripts/smoke_test_continuous_navigation_queue.sh online
+    run_isolated_ros_smoke 184 bash scripts/smoke_test_continuous_navigation_queue.sh offline
+    run_isolated_ros_smoke 185 bash scripts/smoke_test_continuous_navigation_natural.sh online
+    run_isolated_ros_smoke 186 bash scripts/smoke_test_continuous_navigation_natural.sh offline
+    run_isolated_ros_smoke 187 bash scripts/smoke_test_nav2_bridge.sh
     bash scripts/smoke_test_nav2_preflight.sh
     ;;
   nav2-turtlebot3) bash scripts/smoke_test_nav2_turtlebot3_voice.sh ;;

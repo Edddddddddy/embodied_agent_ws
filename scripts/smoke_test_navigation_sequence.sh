@@ -39,6 +39,7 @@ fi
 PIDS+=("$!")
 
 cleanup() {
+  set +e
   for pid in "${PIDS[@]}"; do
     kill -TERM -- "-$pid" 2>/dev/null || true
   done
@@ -48,13 +49,21 @@ cleanup() {
     wait "$pid" 2>/dev/null || true
   done
   rm -f "$LOG_FILE"
+  return 0
 }
 trap cleanup EXIT
 
-activate_lifecycle_node action_guard
-wait_for_topic_subscribers /robot/action_command_typed
+if ! activate_lifecycle_node action_guard; then
+  cat "$LOG_FILE" >&2
+  exit 1
+fi
+if ! wait_for_topic_subscribers /robot/action_command_typed; then
+  cat "$LOG_FILE" >&2
+  exit 1
+fi
 if ! timeout 55 python3 "$WORKSPACE/tests/integration/test_navigation_sequence.py"; then
   cat "$LOG_FILE" >&2
   exit 1
 fi
 echo "PASS: text voice nav -> target navigation + waypoint patrol -> typed Action simulation ($AGENT_KIND)"
+exit 0

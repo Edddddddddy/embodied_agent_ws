@@ -8,6 +8,7 @@ export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((150 + $$ % 30))}"
 LOG_FILE="$(mktemp)"
 PIDS=()
 cleanup() {
+  set +e
   for pid in "${PIDS[@]}"; do
     kill -TERM -- "-$pid" 2>/dev/null || true
   done
@@ -17,6 +18,7 @@ cleanup() {
     wait "$pid" 2>/dev/null || true
   done
   rm -f "$LOG_FILE"
+  return 0
 }
 trap cleanup EXIT
 
@@ -35,10 +37,17 @@ setsid ros2 run embodied_online_agent online_agent --ros-args \
   >>"$LOG_FILE" 2>&1 &
 PIDS+=("$!")
 
-activate_lifecycle_node action_guard
-wait_for_topic_subscribers /robot/action_command_typed
+if ! activate_lifecycle_node action_guard; then
+  cat "$LOG_FILE" >&2
+  exit 1
+fi
+if ! wait_for_topic_subscribers /robot/action_command_typed; then
+  cat "$LOG_FILE" >&2
+  exit 1
+fi
 if ! timeout 45 python3 "$WORKSPACE/tests/integration/test_nav2_bridge_sequence.py"; then
   cat "$LOG_FILE" >&2
   exit 1
 fi
 echo "PASS: voice nav command -> Nav2 NavigateToPose/FollowWaypoints action goals"
+exit 0
