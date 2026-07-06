@@ -66,6 +66,7 @@ def test_voice_navigation_acceptance_entrypoints_remain_available():
         "navigation-demo",
         "nav2-bridge",
         "nav2-preflight",
+        "nav2-stage",
         "nav2-turtlebot3",
         "continuous-nav2-offline",
         "continuous-nav2-online",

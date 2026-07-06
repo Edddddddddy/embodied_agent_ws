@@ -130,6 +130,12 @@ Nav2/TurtleBot3 完整 bringup 前置检查：
 bash scripts/acceptance_test.sh nav2-preflight
 ```
 
+语音导航阶段门禁（推荐提交前跑；不启动重型 Gazebo/Nav2）：
+
+```bash
+bash scripts/acceptance_test.sh nav2-stage
+```
+
 Nav2/TurtleBot3 真实仿真重型验收（会启动 Gazebo/Nav2，耗时数分钟）：
 
 ```bash
@@ -276,6 +282,7 @@ bash scripts/acceptance_test.sh continuous-queue-full
 bash scripts/acceptance_test.sh voice-readiness
 
 # 语音导航 / 多目标点巡航
+bash scripts/acceptance_test.sh nav2-stage
 bash scripts/acceptance_test.sh navigation-demo
 bash scripts/acceptance_test.sh nav2-bridge
 bash scripts/acceptance_test.sh nav2-preflight

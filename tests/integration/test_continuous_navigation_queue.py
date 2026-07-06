@@ -88,7 +88,22 @@ def main():
         node.text_pub.publish(String(data="依次去门口、书桌、起点"))
 
         wait_until(
-            lambda: len(node.candidates) >= 3 and len(node.results) >= 3,
+            lambda: (
+                len(node.candidates) >= 3
+                and len(node.results) >= 3
+                and sum(
+                    1
+                    for event in node.execution_events
+                    if event.get("event") == "started"
+                )
+                >= 3
+                and sum(
+                    1
+                    for event in node.execution_events
+                    if event.get("event") == "finished"
+                )
+                >= 3
+            ),
             45.0,
             "continuous navigation queue did not finish",
         )

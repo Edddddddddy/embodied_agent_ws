@@ -67,6 +67,7 @@ bash scripts/acceptance_test.sh voice-readiness
 语音导航/巡航验收：
 
 ```bash
+bash scripts/acceptance_test.sh nav2-stage
 bash scripts/acceptance_test.sh navigation-demo
 bash scripts/acceptance_test.sh continuous-navigation
 bash scripts/acceptance_test.sh nav2-bridge
