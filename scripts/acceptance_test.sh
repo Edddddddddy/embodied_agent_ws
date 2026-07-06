@@ -49,6 +49,8 @@ Interactive modes:
   continuous-nav2-online   Long-running microphone target navigation with Nav2/TurtleBot3
   continuous-live-check {offline|online}  Observe a running live microphone demo and score evidence
   continuous-nav2-live-check {offline|online}  Score a running live Nav2 microphone demo
+  continuous-live-report REPORT_JSON  Re-score a saved continuous live-check report
+  continuous-nav2-live-report REPORT_JSON  Re-score a saved Nav2 live-check report
 EOF
 }
 
@@ -215,6 +217,29 @@ case "$LEVEL" in
       LIVE_CHECK_ARGS+=(--output "$CONTINUOUS_LIVE_CHECK_REPORT")
     fi
     python3 scripts/continuous_live_check.py "${LIVE_CHECK_ARGS[@]}"
+    ;;
+  continuous-live-report)
+    REPORT_PATH="${2:-}"
+    if [[ -z "$REPORT_PATH" ]]; then
+      echo "Usage: $0 continuous-live-report REPORT_JSON" >&2
+      exit 2
+    fi
+    python3 scripts/continuous_live_check.py --input-report "$REPORT_PATH"
+    ;;
+  continuous-nav2-live-report)
+    REPORT_PATH="${2:-}"
+    if [[ -z "$REPORT_PATH" ]]; then
+      echo "Usage: $0 continuous-nav2-live-report REPORT_JSON" >&2
+      exit 2
+    fi
+    python3 scripts/continuous_live_check.py \
+      --scenario nav2 \
+      --input-report "$REPORT_PATH" \
+      --min-asr "${CONTINUOUS_NAV2_LIVE_MIN_ASR:-4}" \
+      --min-candidates "${CONTINUOUS_NAV2_LIVE_MIN_CANDIDATES:-2}" \
+      --min-success "${CONTINUOUS_NAV2_LIVE_MIN_SUCCESS:-2}" \
+      --require-candidate navigate_to \
+      --require-candidate follow_waypoints
     ;;
   all) run_base; run_online; run_offline; bash scripts/smoke_test_demo_sequence.sh; run_gazebo; USE_TYPED_ACTIONS=true bash scripts/smoke_test_gazebo_voice.sh; bash scripts/smoke_test_gazebo_voice_online.sh ;;
   *) usage >&2; exit 2 ;;

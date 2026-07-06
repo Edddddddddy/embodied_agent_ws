@@ -139,3 +139,75 @@ def test_write_report_creates_parent_directory(tmp_path):
     payload = json.loads(destination.read_text(encoding="utf-8"))
     assert payload["ok"] is True
     assert payload["action_candidate_names"] == {"navigate_to": 1}
+
+
+def test_saved_report_is_re_evaluated_with_navigation_thresholds(tmp_path):
+    destination = tmp_path / "nav2-live-check.json"
+    destination.write_text(
+        json.dumps(
+            {
+                "asr_count": 4,
+                "action_candidate_count": 2,
+                "action_success_count": 2,
+                "command_enqueue_count": 2,
+                "execution_started_count": 2,
+                "execution_finished_count": 2,
+                "action_candidate_names": {"navigate_to": 1, "follow_waypoints": 1},
+                "saw_awake": True,
+                "saw_sleeping": True,
+                "final_cmd_vel_zero": True,
+                "ok": False,
+                "missing": ["old stale failure"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = live_check.evaluate_report(
+        live_check.load_report(str(destination)),
+        live_check.LiveCheckThresholds(
+            min_asr=4,
+            min_candidates=2,
+            min_success=2,
+            required_candidates=["navigate_to", "follow_waypoints"],
+        ),
+    )
+
+    assert report.ok is True
+    assert report.missing == []
+
+
+def test_saved_report_fails_when_patrol_candidate_is_missing(tmp_path):
+    destination = tmp_path / "nav2-live-check.json"
+    destination.write_text(
+        json.dumps(
+            {
+                "asr_count": 4,
+                "action_candidate_count": 2,
+                "action_success_count": 2,
+                "command_enqueue_count": 2,
+                "execution_started_count": 2,
+                "execution_finished_count": 2,
+                "action_candidate_names": {"navigate_to": 2},
+                "saw_awake": True,
+                "saw_sleeping": True,
+                "final_cmd_vel_zero": True,
+                "ok": True,
+                "missing": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = live_check.evaluate_report(
+        live_check.load_report(str(destination)),
+        live_check.LiveCheckThresholds(
+            min_asr=4,
+            min_candidates=2,
+            min_success=2,
+            required_candidates=["navigate_to", "follow_waypoints"],
+        ),
+    )
+
+    assert report.ok is False
+    assert "candidate follow_waypoints observed" in report.missing

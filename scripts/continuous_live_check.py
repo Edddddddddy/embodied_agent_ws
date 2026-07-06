@@ -123,12 +123,72 @@ class LiveCheckNode(Node):
         )
 
 
+def evaluate_report(report: LiveCheckReport, thresholds: LiveCheckThresholds) -> LiveCheckReport:
+    """按当前验收阈值重新判定历史报告。
+
+    现场报告会被保存成 JSON，后续复盘时不能只相信文件里的 ok 字段；
+    这里用同一套规则重新计算 missing，保证“留证文件”可以独立验收。
+    """
+    checks = {
+        f"ASR final >= {thresholds.min_asr}": report.asr_count >= thresholds.min_asr,
+        f"action candidate >= {thresholds.min_candidates}": report.action_candidate_count
+        >= thresholds.min_candidates,
+        f"successful action result >= {thresholds.min_success}": report.action_success_count
+        >= thresholds.min_success,
+        "session awake observed": report.saw_awake,
+        "session sleeping observed": report.saw_sleeping,
+        "final cmd_vel is zero": report.final_cmd_vel_zero,
+    }
+    for required in thresholds.required_candidates or []:
+        checks[f"candidate {required} observed"] = (
+            report.action_candidate_names.get(required, 0) > 0
+        )
+    missing = [name for name, passed in checks.items() if not passed]
+    return LiveCheckReport(
+        asr_count=report.asr_count,
+        action_candidate_count=report.action_candidate_count,
+        action_success_count=report.action_success_count,
+        command_enqueue_count=report.command_enqueue_count,
+        execution_started_count=report.execution_started_count,
+        execution_finished_count=report.execution_finished_count,
+        action_candidate_names=report.action_candidate_names,
+        saw_awake=report.saw_awake,
+        saw_sleeping=report.saw_sleeping,
+        final_cmd_vel_zero=report.final_cmd_vel_zero,
+        ok=not missing,
+        missing=missing,
+    )
+
+
 def _json_dict(serialized: str) -> dict:
     try:
         payload = json.loads(serialized)
     except json.JSONDecodeError:
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def load_report(path: str) -> LiveCheckReport:
+    payload = json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("report JSON must be an object")
+    candidate_names = payload.get("action_candidate_names") or {}
+    if not isinstance(candidate_names, dict):
+        candidate_names = {}
+    return LiveCheckReport(
+        asr_count=int(payload.get("asr_count", 0)),
+        action_candidate_count=int(payload.get("action_candidate_count", 0)),
+        action_success_count=int(payload.get("action_success_count", 0)),
+        command_enqueue_count=int(payload.get("command_enqueue_count", 0)),
+        execution_started_count=int(payload.get("execution_started_count", 0)),
+        execution_finished_count=int(payload.get("execution_finished_count", 0)),
+        action_candidate_names={str(k): int(v) for k, v in candidate_names.items()},
+        saw_awake=bool(payload.get("saw_awake", False)),
+        saw_sleeping=bool(payload.get("saw_sleeping", False)),
+        final_cmd_vel_zero=bool(payload.get("final_cmd_vel_zero", False)),
+        ok=bool(payload.get("ok", False)),
+        missing=[str(item) for item in payload.get("missing", [])],
+    )
 
 
 def write_report(path: str | None, report: LiveCheckReport) -> None:
@@ -161,6 +221,7 @@ def main() -> None:
         help="打印哪套人工验收话术",
     )
     parser.add_argument("--output", default="", help="可选：把验收统计 JSON 写入文件")
+    parser.add_argument("--input-report", default="", help="读取已有 JSON 报告并重新判定")
     args = parser.parse_args()
     thresholds = LiveCheckThresholds(
         args.min_asr,
@@ -168,6 +229,18 @@ def main() -> None:
         args.min_success,
         args.require_candidate,
     )
+
+    if args.input_report:
+        report = evaluate_report(load_report(args.input_report), thresholds)
+        print(json.dumps(asdict(report), ensure_ascii=False, indent=2), flush=True)
+        if report.ok:
+            print("PASS: saved live microphone evidence is sufficient")
+            return
+        print(
+            "FAIL: saved live microphone evidence is incomplete; missing="
+            + "、".join(report.missing)
+        )
+        raise SystemExit(1)
 
     if args.scenario == "nav2":
         print("请在另一个终端启动 continuous-nav2-offline/online，然后按顺序说：", flush=True)

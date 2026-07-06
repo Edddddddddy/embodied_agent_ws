@@ -221,6 +221,12 @@ CONTINUOUS_LIVE_CHECK_REPORT=logs/nav2-live-check.json \
   bash scripts/acceptance_test.sh continuous-nav2-live-check offline
 ```
 
+保存后可离线复核这份证据，不需要重新启动仿真或麦克风：
+
+```bash
+bash scripts/acceptance_test.sh continuous-nav2-live-report logs/nav2-live-check.json
+```
+
 推荐话术：
 
 ```text
