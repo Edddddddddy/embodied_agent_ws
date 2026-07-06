@@ -115,3 +115,27 @@ def test_live_check_report_lists_missing_evidence():
 def test_json_dict_ignores_non_json_payloads():
     assert live_check._json_dict("not-json") == {}
     assert live_check._json_dict(json.dumps({"event": "enqueue"})) == {"event": "enqueue"}
+
+
+def test_write_report_creates_parent_directory(tmp_path):
+    report = live_check.LiveCheckReport(
+        asr_count=1,
+        action_candidate_count=1,
+        action_success_count=1,
+        command_enqueue_count=1,
+        execution_started_count=1,
+        execution_finished_count=1,
+        action_candidate_names={"navigate_to": 1},
+        saw_awake=True,
+        saw_sleeping=True,
+        final_cmd_vel_zero=True,
+        ok=True,
+        missing=[],
+    )
+    destination = tmp_path / "nested" / "nav2-live-check.json"
+
+    live_check.write_report(str(destination), report)
+
+    payload = json.loads(destination.read_text(encoding="utf-8"))
+    assert payload["ok"] is True
+    assert payload["action_candidate_names"] == {"navigate_to": 1}

@@ -213,6 +213,13 @@ CONTINUOUS_LIVE_CHECK_DURATION=240 bash scripts/acceptance_test.sh continuous-na
 
 该计分脚本会要求现场至少出现一次 `navigate_to` 和一次 `follow_waypoints`，
 避免只看到普通动作 result 就误判为 Nav2 导航演示通过。
+如需保存现场证据：
+
+```bash
+CONTINUOUS_LIVE_CHECK_REPORT=logs/nav2-live-check.json \
+  CONTINUOUS_LIVE_CHECK_DURATION=240 \
+  bash scripts/acceptance_test.sh continuous-nav2-live-check offline
+```
 
 推荐话术：
 

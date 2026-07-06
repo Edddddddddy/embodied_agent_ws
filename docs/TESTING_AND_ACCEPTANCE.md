@@ -233,6 +233,13 @@ CONTINUOUS_LIVE_CHECK_DURATION=240 bash scripts/acceptance_test.sh continuous-na
 
 `continuous-nav2-live-check` 会在通用连续语音统计基础上，额外要求至少出现一次
 `navigate_to` 和一次 `follow_waypoints` action candidate。
+如果需要留存验收证据，可以指定报告文件：
+
+```bash
+CONTINUOUS_LIVE_CHECK_REPORT=logs/nav2-live-check.json \
+  CONTINUOUS_LIVE_CHECK_DURATION=240 \
+  bash scripts/acceptance_test.sh continuous-nav2-live-check offline
+```
 
 推荐话术：
 

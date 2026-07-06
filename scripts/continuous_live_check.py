@@ -12,6 +12,7 @@ import json
 import threading
 import time
 from dataclasses import asdict, dataclass
+from pathlib import Path
 
 import rclpy
 from geometry_msgs.msg import Twist
@@ -130,6 +131,17 @@ def _json_dict(serialized: str) -> dict:
     return payload if isinstance(payload, dict) else {}
 
 
+def write_report(path: str | None, report: LiveCheckReport) -> None:
+    if not path:
+        return
+    destination = Path(path).expanduser()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(
+        json.dumps(asdict(report), ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--duration", type=float, default=180.0, help="统计窗口秒数")
@@ -148,6 +160,7 @@ def main() -> None:
         default="motion",
         help="打印哪套人工验收话术",
     )
+    parser.add_argument("--output", default="", help="可选：把验收统计 JSON 写入文件")
     args = parser.parse_args()
     thresholds = LiveCheckThresholds(
         args.min_asr,
@@ -173,6 +186,7 @@ def main() -> None:
     try:
         time.sleep(max(1.0, args.duration))
         report = node.build_report(thresholds)
+        write_report(args.output, report)
         print(json.dumps(asdict(report), ensure_ascii=False, indent=2), flush=True)
         if report.ok:
             print("PASS: live microphone continuous voice control evidence is sufficient")
