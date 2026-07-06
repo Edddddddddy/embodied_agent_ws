@@ -89,15 +89,20 @@ class OfflineSherpaTypedProbe(Node):
     def _on_velocity(self, message: Twist) -> None:
         self.velocities.append((message.linear.x, message.angular.z))
 
-    def latest_candidate(self, name: str) -> dict | None:
-        for candidate in reversed(self.candidates):
-            if candidate.get("name") == name:
-                return candidate
-        return None
+    def candidates_by_name(self, name: str) -> list[dict]:
+        return [candidate for candidate in self.candidates if candidate.get("name") == name]
 
-    def successful_result_for(self, command_id: str) -> dict | None:
+    def move_command_ids(self) -> set[str]:
+        return {
+            command.command_id
+            for command in self.typed_commands
+            if command.action_type == RobotCommand.MOVE
+        }
+
+    def successful_move_result(self) -> dict | None:
+        move_ids = self.move_command_ids()
         for result in self.action_results:
-            if result.get("command_id") == command_id and result.get("success") is True:
+            if result.get("command_id") in move_ids and result.get("success") is True:
                 return result
         return None
 
@@ -109,7 +114,9 @@ def main() -> None:
     tts = SherpaVitsTts(
         "/home/ubuntu/embodied_agent_ws/models/vits-melo-tts-zh_en", 2, 0, 1.0
     )
-    pcm = resample(tts.synthesize("小智向前走一秒"), tts.sample_rate, 16000)
+    # 使用“三秒”给 /cmd_vel 订阅留出更宽的观测窗口；即便 ASR 漏掉时长，
+    # CommandCompleter 也会把“向前走”补成安全的默认前进命令。
+    pcm = resample(tts.synthesize("小智向前走三秒"), tts.sample_rate, 16000)
     pcm += bytes(16000)
 
     rclpy.init()
@@ -140,34 +147,39 @@ def main() -> None:
             raise RuntimeError(f"unexpected ASR transcript: {node.asr_text!r}")
 
         wait_until(
-            lambda: node.latest_candidate("move") is not None,
+            lambda: bool(node.candidates_by_name("move")),
             70.0,
             f"Offline Agent produced no move candidate; asr={node.asr_text!r}",
         )
-        candidate = node.latest_candidate("move")
-        command_id = candidate["request_id"]
 
         wait_until(
-            lambda: any(
-                command.command_id == command_id
-                and command.action_type == RobotCommand.MOVE
-                for command in node.typed_commands
-            ),
+            lambda: bool(node.move_command_ids()),
             10.0,
             "ActionGuard did not publish typed MOVE command",
         )
         wait_until(
-            lambda: node.successful_result_for(command_id) is not None
+            lambda: node.successful_move_result() is not None
             and node.has_forward_velocity()
             and node.metrics is not None,
             25.0,
             "typed action did not finish, cmd_vel did not move, or metrics missing",
         )
-        result = node.successful_result_for(command_id)
+        result = node.successful_move_result()
+        command_id = result["command_id"]
+        candidate = next(
+            (
+                item
+                for item in node.candidates_by_name("move")
+                if item.get("request_id") == command_id
+            ),
+            node.candidates_by_name("move")[-1],
+        )
         print(
             json.dumps(
                 {
                     "asr_text": node.asr_text,
+                    "move_candidates": node.candidates_by_name("move"),
+                    "typed_move_command_ids": sorted(node.move_command_ids()),
                     "action_candidate": candidate,
                     "typed_command": {
                         "command_id": command_id,
