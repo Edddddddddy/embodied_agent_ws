@@ -221,6 +221,13 @@ CONTINUOUS_LIVE_CHECK_REPORT=logs/nav2-live-check.json \
 
 它会自动启动连续 Nav2 语音控制、运行现场计分、保存 JSON 报告，并在结束时清理
 Gazebo/Nav2/Agent 进程。两终端方式仍适合调试 topic 和日志。
+正式占用麦克风和 Gazebo 前，也可以先 dry-run 检查参数：
+
+```bash
+CONTINUOUS_NAV2_EVIDENCE_DRY_RUN=true \
+  CONTINUOUS_LIVE_CHECK_REPORT=logs/nav2-live-check.json \
+  bash scripts/acceptance_test.sh continuous-nav2-evidence offline
+```
 
 该计分脚本会要求现场至少出现一次 `navigate_to` 和一次 `follow_waypoints`，
 避免只看到普通动作 result 就误判为 Nav2 导航演示通过。

@@ -38,4 +38,18 @@ grep -q "continuous-queue-full" <<<"$OUTPUT"
 grep -q "continuous-ttl" <<<"$OUTPUT"
 grep -q "continuous-timeout" <<<"$OUTPUT"
 grep -q "excludes interactive microphone" <<<"$OUTPUT"
+
+DRY_RUN_OUTPUT="$(
+  ROS_DOMAIN_ID=31 \
+  CONTINUOUS_NAV2_EVIDENCE_DRY_RUN=true \
+  CONTINUOUS_LIVE_CHECK_REPORT=/tmp/nav2-live-check-dry-run.json \
+  CONTINUOUS_LIVE_CHECK_DURATION=9 \
+  bash "$WORKSPACE/scripts/acceptance_test.sh" continuous-nav2-evidence offline
+)"
+grep -q "DRY RUN" <<<"$DRY_RUN_OUTPUT"
+grep -q "continuous_nav2_voice_control.sh offline" <<<"$DRY_RUN_OUTPUT"
+grep -q "continuous_live_check.py" <<<"$DRY_RUN_OUTPUT"
+grep -q "/tmp/nav2-live-check-dry-run.json" <<<"$DRY_RUN_OUTPUT"
+grep -q "navigate_to" <<<"$DRY_RUN_OUTPUT"
+grep -q "follow_waypoints" <<<"$DRY_RUN_OUTPUT"
 echo "PASS: acceptance CLI documents automated and interactive delivery modes"

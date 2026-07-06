@@ -107,6 +107,9 @@ def test_nav2_live_evidence_script_keeps_control_and_scoring_together():
     assert "--output \"$REPORT_PATH\"" in evidence
     assert "--require-candidate navigate_to" in evidence
     assert "--require-candidate follow_waypoints" in evidence
+    assert "CONTINUOUS_NAV2_EVIDENCE_DRY_RUN" in evidence
+    assert "LIVE_CHECK_ARGS" in evidence
+    assert "DRY RUN" in evidence
     assert "export ROS_DOMAIN_ID" in evidence
     assert "kill -TERM -- \"-$CONTROL_PID\"" in evidence
 

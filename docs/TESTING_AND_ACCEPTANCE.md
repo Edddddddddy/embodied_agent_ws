@@ -239,6 +239,13 @@ CONTINUOUS_LIVE_CHECK_REPORT=logs/nav2-live-check.json \
 该模式会在同一个 `ROS_DOMAIN_ID` 下后台启动连续 Nav2 语音控制，前台运行
 `continuous-nav2-live-check` 等价的现场统计，并在结束时清理 Gazebo/Nav2/Agent。
 如果要分开观察日志和 topic，再使用下面的两终端方式。
+正式启动前可用 dry-run 自检参数，不会占用麦克风或启动 Gazebo：
+
+```bash
+CONTINUOUS_NAV2_EVIDENCE_DRY_RUN=true \
+  CONTINUOUS_LIVE_CHECK_REPORT=logs/nav2-live-check.json \
+  bash scripts/acceptance_test.sh continuous-nav2-evidence offline
+```
 
 推荐另开一个终端做现场计分：
 
