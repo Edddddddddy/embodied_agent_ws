@@ -15,6 +15,7 @@ Automated modes:
   offline             Real ZipFormer/llama.cpp/Sherpa-TTS verification
   sherpa-asr-preflight ASR-only check: sherpa_onnx import + ZipFormer model files
   sherpa-asr-smoke    ASR-only real decode on bundled ZipFormer test wav
+  offline-sherpa-typed Real Sherpa ASR/TTS + llama.cpp through typed Action simulation
   demo                Rich mock demo: ordered actions, accessories, and arc motion
   navigation-demo     Voice-style target navigation and multi-waypoint patrol smoke
   nav2-bridge         Voice navigation commands are converted to Nav2 action goals
@@ -128,6 +129,7 @@ run_offline() {
   bash scripts/evaluate_instruction_following.sh
   bash scripts/smoke_test_offline_real.sh
   bash scripts/smoke_test_offline_voice_real.sh
+  bash scripts/smoke_test_offline_sherpa_typed_simulation.sh
 }
 
 run_gazebo() {
@@ -177,6 +179,7 @@ case "$LEVEL" in
   offline) run_offline ;;
   sherpa-asr-preflight) run_sherpa_asr_preflight ;;
   sherpa-asr-smoke) run_sherpa_asr_smoke ;;
+  offline-sherpa-typed) check_offline_runtime; bash scripts/smoke_test_offline_sherpa_typed_simulation.sh ;;
   demo) bash scripts/smoke_test_demo_sequence.sh ;;
   navigation-demo) bash scripts/smoke_test_navigation_sequence.sh online; bash scripts/smoke_test_navigation_sequence.sh offline ;;
   nav2-bridge) bash scripts/smoke_test_nav2_bridge.sh ;;

@@ -31,6 +31,7 @@
 | 自然多目标导航话术 | 提升真实语音目标点/巡航表达容错 | 支持“先去门口再去书桌最后回起点”“巡逻门口书桌起点”，同时保留两目标语句拆成多个 `navigate_to` 入队 |
 | 自然导航验收入口 | 将自然多目标话术纳入 ROS pipeline 回归 | 新增 `continuous-navigation-natural`，覆盖自然话术到 `follow_waypoints` 队列执行 |
 | Sherpa-ONNX ASR-only 部署 | 开始真实部署离线 ASR 推理框架，先隔离验证 ASR 层 | 新增 `setup_sherpa_asr_runtime.sh`、`sherpa_asr_smoke.py`、`sherpa-asr-preflight/smoke` 验收入口 |
+| Sherpa-ONNX 离线完整链路验证 | 验证真实 Sherpa 语音模型进入 ROS2 typed Action 控制闭环 | 新增 `offline-sherpa-typed`，覆盖 Sherpa-TTS 音频、ZipFormer ASR、Offline Agent、ActionGuard、ExecuteRobotCommand、`/cmd_vel` |
 
 ## 2. 当前完成度结论
 
@@ -87,6 +88,7 @@ Sherpa-ONNX ASR-only 验收：
 ```bash
 bash scripts/acceptance_test.sh sherpa-asr-preflight
 bash scripts/acceptance_test.sh sherpa-asr-smoke
+bash scripts/acceptance_test.sh offline-sherpa-typed
 ```
 
 真实麦克风 Nav2 连续导航验收：

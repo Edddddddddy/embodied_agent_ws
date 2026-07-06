@@ -33,6 +33,7 @@ bash scripts/acceptance_test.sh --help
 | `offline` | 自动/本地模型 | Sherpa/llama.cpp/Sherpa-TTS 真实离线链路 |
 | `sherpa-asr-preflight` | 自动/本地模型 | ASR-only 预检：检查 `sherpa_onnx` 和 ZipFormer 模型文件 |
 | `sherpa-asr-smoke` | 自动/本地模型 | ASR-only 真实解码：用 ZipFormer test wav 验证 Sherpa provider |
+| `offline-sherpa-typed` | 自动/本地模型/ROS2 | Sherpa ASR/TTS + llama.cpp 经过 ActionGuard、typed Action 和仿真 `/cmd_vel` |
 | `navigation-demo` | 自动/仿真 | 语音风格目标点导航与多目标点巡航，覆盖 online/offline mock Agent |
 | `nav2-bridge` | 自动/Nav2 seam | 用 fake Nav2 action server 验证语义地点会发成 NavigateToPose/FollowWaypoints goal |
 | `nav2-preflight` | 自动/Nav2 | 检查 Nav2/TurtleBot3 voice launch 依赖和参数 |
@@ -107,6 +108,27 @@ bash scripts/acceptance_test.sh sherpa-asr-smoke
 ```bash
 bash scripts/setup_offline_runtime.sh
 bash scripts/acceptance_test.sh offline
+```
+
+如果只想验证“Sherpa-ONNX 语音模型参与的 ROS2 typed Action 控制闭环”，运行：
+
+```bash
+bash scripts/acceptance_test.sh offline-sherpa-typed
+```
+
+该模式会启动：
+
+```text
+Sherpa-TTS 合成命令音频
+  -> /audio/clean_pcm
+  -> Sherpa ZipFormer ASR
+  -> Offline Agent + llama.cpp + Sherpa-TTS
+  -> /agent/action_candidate
+  -> C++ ActionGuard
+  -> /robot/action_command_typed
+  -> ExecuteRobotCommand Action
+  -> simulation_control MockRobotExecutor
+  -> /cmd_vel + /robot/action_result
 ```
 
 详细说明见 [SHERPA_ONNX_DEPLOYMENT.md](SHERPA_ONNX_DEPLOYMENT.md)。

@@ -52,6 +52,7 @@ def test_critical_full_chain_probes_remain_discoverable():
         "test_navigation_sequence.py",
         "test_nav2_bridge_sequence.py",
         "test_nav2_turtlebot3_voice.py",
+        "test_offline_sherpa_typed_simulation.py",
     }
     present = {path.name for path in integration.glob("test_*")}
     assert required <= present
@@ -108,21 +109,30 @@ def test_sherpa_asr_deployment_entrypoints_remain_available():
     acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
         encoding="utf-8"
     )
-    for mode in ("sherpa-asr-preflight", "sherpa-asr-smoke"):
+    for mode in ("sherpa-asr-preflight", "sherpa-asr-smoke", "offline-sherpa-typed"):
         assert mode in acceptance
 
     setup_script = ROOT / "scripts" / "setup_sherpa_asr_runtime.sh"
     smoke_script = ROOT / "scripts" / "sherpa_asr_smoke.py"
+    typed_script = ROOT / "scripts" / "smoke_test_offline_sherpa_typed_simulation.sh"
+    typed_probe = ROOT / "tests" / "integration" / "test_offline_sherpa_typed_simulation.py"
     assert setup_script.is_file()
     assert smoke_script.is_file()
+    assert typed_script.is_file()
+    assert typed_probe.is_file()
 
     setup_text = setup_script.read_text(encoding="utf-8")
     smoke_text = smoke_script.read_text(encoding="utf-8")
+    typed_text = typed_probe.read_text(encoding="utf-8")
     assert "sherpa-onnx==" in setup_text
     assert "k2fsa-zipformer-bilingual-zh-en-t" in setup_text
     assert "setup_offline_runtime.sh" in setup_text
     assert "SherpaZipformerAsr" in smoke_text
     assert "--preflight-only" in smoke_text
+    assert "SherpaVitsTts" in typed_text
+    assert "/robot/action_command_typed" in typed_text
+    assert "/cmd_vel" in typed_text
+    assert "RobotCommand.MOVE" in typed_text
 
 
 def test_nav2_live_evidence_script_keeps_control_and_scoring_together():

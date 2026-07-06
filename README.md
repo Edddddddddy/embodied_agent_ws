@@ -92,6 +92,13 @@ cp .env.example .env
 bash scripts/setup_offline_runtime.sh
 ```
 
+如果只想先部署和验证 Sherpa-ONNX ZipFormer ASR，可运行更轻量的 ASR-only 入口：
+
+```bash
+bash scripts/setup_sherpa_asr_runtime.sh
+bash scripts/acceptance_test.sh sherpa-asr-smoke
+```
+
 ## 五分钟跑通主链路
 
 无密钥、无麦克风、无真实模型的主链路验收：
@@ -155,6 +162,12 @@ bash scripts/acceptance_test.sh online
 
 ```bash
 bash scripts/acceptance_test.sh offline
+```
+
+Sherpa-ONNX 语音模型参与的 typed Action 仿真控制闭环：
+
+```bash
+bash scripts/acceptance_test.sh offline-sherpa-typed
 ```
 
 查看所有验收模式：
