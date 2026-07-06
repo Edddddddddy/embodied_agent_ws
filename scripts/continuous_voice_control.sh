@@ -100,6 +100,8 @@ fi
 print_configuration() {
   cat <<EOF
 ROS_DOMAIN_ID=$ROS_DOMAIN_ID，连续语音控制模式=$MODE
+FASTDDS_BUILTIN_TRANSPORTS=${FASTDDS_BUILTIN_TRANSPORTS:-<unset>}（默认 UDPv4，用于规避 WSL FastDDS SHM 锁报错）
+EMBODIED_ALLOW_FASTDDS_SHM=${EMBODIED_ALLOW_FASTDDS_SHM:-false}
 
 建议演示话术：
   小智

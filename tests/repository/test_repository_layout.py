@@ -310,3 +310,25 @@ def test_continuous_voice_state_machine_remains_shared_by_online_and_offline_age
 
     assert "from .continuous_voice import" in online_agent
     assert "from embodied_online_agent.continuous_voice import" in offline_agent
+
+
+def test_ros_dds_env_disables_fastdds_shm_by_default_for_wsl_demos():
+    """WSL 真实语音/Gazebo 演示默认绕开 FastDDS SHM 端口锁。
+
+    用户现场经常遇到 `Failed init_port fastrtps_port7000`。这个结构测试锁住
+    activate.sh 的默认 DDS 环境，避免后续脚本整理时把 UDPv4 fallback 删掉。
+    """
+
+    activate = (ROOT / "scripts" / "activate.sh").read_text(encoding="utf-8")
+    dds_env_path = ROOT / "scripts" / "ros_dds_env.sh"
+    dds_env = dds_env_path.read_text(encoding="utf-8")
+    continuous = (ROOT / "scripts" / "continuous_voice_control.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert dds_env_path.is_file()
+    assert "source \"$WORKSPACE/scripts/ros_dds_env.sh\"" in activate
+    assert "FASTDDS_BUILTIN_TRANSPORTS" in dds_env
+    assert "UDPv4" in dds_env
+    assert "EMBODIED_ALLOW_FASTDDS_SHM" in dds_env
+    assert "FASTDDS_BUILTIN_TRANSPORTS" in continuous

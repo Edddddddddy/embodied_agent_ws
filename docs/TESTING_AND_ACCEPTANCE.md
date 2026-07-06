@@ -475,6 +475,35 @@ bash scripts/acceptance_test.sh online
 
 在线真实语音受网络和云端服务波动影响，现场演示建议优先使用 `continuous-offline`，在线作为补充展示。
 
+### 5.6 FastDDS SHM 端口锁报错
+
+现象：
+
+```text
+RTPS_TRANSPORT_SHM Error ... Failed init_port fastrtps_port7000: open_and_lock_file failed
+```
+
+原因通常是 WSL 中 FastDDS shared-memory transport 的 `/dev/shm/fastrtps_port*`
+锁文件或残留 ROS/Gazebo 进程冲突。当前项目的 `scripts/activate.sh` 会默认 source
+`scripts/ros_dds_env.sh`，设置：
+
+```bash
+FASTDDS_BUILTIN_TRANSPORTS=UDPv4
+```
+
+这会绕开 SHM transport，连续语音/Gazebo 本机演示仍可正常通过 DDS 通信。若要临时恢复
+FastDDS SHM：
+
+```bash
+EMBODIED_ALLOW_FASTDDS_SHM=true bash scripts/acceptance_test.sh continuous-offline
+```
+
+如果恢复 SHM 后仍报错，先清理残留仿真进程：
+
+```bash
+CLEANUP_CONFIRM=true bash scripts/cleanup_simulation_processes.sh
+```
+
 ## 6. Release gate
 
 完整自动门禁：

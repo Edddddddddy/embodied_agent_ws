@@ -449,6 +449,28 @@ SIMULATION_CLEANUP_STALE=true bash scripts/acceptance_test.sh continuous-online
 GUI_ENABLED=false bash scripts/acceptance_test.sh continuous-online
 ```
 
+### FastDDS SHM 报 `fastrtps_port7000`
+
+如果看到类似：
+
+```text
+RTPS_TRANSPORT_SHM Error ... Failed init_port fastrtps_port7000: open_and_lock_file failed
+```
+
+这是 WSL 中 FastDDS 共享内存传输的常见锁文件/残留进程问题。项目默认在
+`scripts/activate.sh` 中设置：
+
+```bash
+FASTDDS_BUILTIN_TRANSPORTS=UDPv4
+```
+
+用于禁用 FastDDS SHM，真实麦克风/Gazebo 演示仍在本机 UDP 通信下运行。如果你确实要调试
+FastDDS SHM，可临时恢复：
+
+```bash
+EMBODIED_ALLOW_FASTDDS_SHM=true bash scripts/acceptance_test.sh continuous-offline
+```
+
 ### 在线模式失败
 
 检查 `.env`：

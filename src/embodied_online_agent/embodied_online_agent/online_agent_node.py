@@ -844,7 +844,7 @@ class OnlineAgentNode(Node):
             self.get_logger().warning(
                 f"action sequence stopped after {report.completed} completed step(s): {report.reason}"
             )
-        return report.published
+        return report
 
     def _should_wait_for_action_results(self, action_list):
         if len(action_list) > 1:
