@@ -85,6 +85,10 @@ PRINT_CONFIG="${CONTINUOUS_PRINT_CONFIG:-false}"
 PREFLIGHT_ENABLED="${CONTINUOUS_PREFLIGHT_ENABLED:-true}"
 READINESS_ENABLED="${CONTINUOUS_READINESS_ENABLED:-true}"
 READINESS_DURATION="${CONTINUOUS_READINESS_DURATION:-3.0}"
+SIMULATION_READINESS_ENABLED="${SIMULATION_READINESS_ENABLED:-true}"
+SIMULATION_READINESS_REQUIRED="${SIMULATION_READINESS_REQUIRED:-true}"
+SIMULATION_READINESS_TIMEOUT="${SIMULATION_READINESS_TIMEOUT:-35.0}"
+SIMULATION_CLEANUP_STALE="${SIMULATION_CLEANUP_STALE:-false}"
 source "$WORKSPACE/scripts/activate.sh"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((140 + $$ % 80))}"
 
@@ -149,6 +153,10 @@ CONTINUOUS_MONITOR_AUDIO_SAMPLE_LIMIT=$MONITOR_AUDIO_SAMPLE_LIMIT
 CONTINUOUS_PREFLIGHT_ENABLED=$PREFLIGHT_ENABLED
 CONTINUOUS_READINESS_ENABLED=$READINESS_ENABLED
 CONTINUOUS_READINESS_DURATION=$READINESS_DURATION
+SIMULATION_READINESS_ENABLED=$SIMULATION_READINESS_ENABLED
+SIMULATION_READINESS_REQUIRED=$SIMULATION_READINESS_REQUIRED
+SIMULATION_READINESS_TIMEOUT=$SIMULATION_READINESS_TIMEOUT
+SIMULATION_CLEANUP_STALE=$SIMULATION_CLEANUP_STALE（true 时启动前清理残留 Gazebo/ROS 仿真进程）
 CONTINUOUS_COMMAND_MAX_AGE=$COMMAND_MAX_AGE
 CONTINUOUS_DUPLICATE_WINDOW_S=$COMMAND_DUPLICATE_WINDOW
 GUI_ENABLED=$GUI_ENABLED
@@ -249,6 +257,19 @@ if ! pactl list short sources 2>/dev/null | grep -q .; then
   exit 1
 fi
 
+if [[ "$SIMULATION_CLEANUP_STALE" == "true" ]]; then
+  CLEANUP_CONFIRM=true bash "$WORKSPACE/scripts/cleanup_simulation_processes.sh" || true
+else
+  if bash "$WORKSPACE/scripts/cleanup_simulation_processes.sh" >/tmp/embodied_agent_stale_simulation_check.log 2>&1; then
+    :
+  else
+    echo "WARN: 检测到可能残留的 Gazebo/ROS 仿真进程，可能导致 Gazebo GUI 空世界或小车模型不出现。" >&2
+    echo "      建议先运行：CLEANUP_CONFIRM=true bash scripts/cleanup_simulation_processes.sh" >&2
+    echo "      或本次直接运行：SIMULATION_CLEANUP_STALE=true bash scripts/acceptance_test.sh continuous-$MODE" >&2
+    sed 's/^/      /' /tmp/embodied_agent_stale_simulation_check.log >&2 || true
+  fi
+fi
+
 SERVER_PID=""
 LAUNCH_PID=""
 MONITOR_PID=""
@@ -284,6 +305,22 @@ if [[ "$MONITOR_ENABLED" == "true" ]]; then
   python3 "$WORKSPACE/scripts/continuous_voice_monitor.py" \
     --audio-sample-limit "$MONITOR_AUDIO_SAMPLE_LIMIT" &
   MONITOR_PID=$!
+fi
+
+if [[ "$SIMULATION_READINESS_ENABLED" == "true" ]]; then
+  echo
+  echo "正在检查 Gazebo/TurtleBot3 小车模型 readiness（timeout=${SIMULATION_READINESS_TIMEOUT}s）..."
+  if python3 "$WORKSPACE/scripts/simulation_readiness_check.py" \
+    --timeout "$SIMULATION_READINESS_TIMEOUT"; then
+    echo "仿真小车已就绪：已收到 /odom 与 /scan，/cmd_vel 和 ROS 2 Action 链路在线。"
+  else
+    echo "FAIL: Gazebo/TurtleBot3 小车模型未就绪；为避免演示时只跑语音不动小车，当前停止 continuous-$MODE。" >&2
+    echo "排查建议：先运行 bash scripts/acceptance_test.sh gazebo；若需要无 GUI 演示可设置 GUI_ENABLED=false。" >&2
+    if [[ "$SIMULATION_READINESS_REQUIRED" == "true" ]]; then
+      exit 1
+    fi
+    echo "WARN: SIMULATION_READINESS_REQUIRED=false，继续运行但小车可能不可见或不可控。" >&2
+  fi
 fi
 
 if [[ "$READINESS_ENABLED" == "true" ]]; then

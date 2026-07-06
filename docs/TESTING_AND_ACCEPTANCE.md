@@ -134,6 +134,28 @@ bash scripts/acceptance_test.sh continuous-offline
 bash scripts/acceptance_test.sh continuous-online
 ```
 
+`continuous-offline/online` 会先检查 Gazebo/TurtleBot3 仿真 readiness：必须收到
+`/odom`、`/scan`，并且 `/cmd_vel` 与 `/robot/execute_command` 链路在线。若检查失败，
+脚本会直接停止，避免出现“语音在跑，但 Gazebo 里没有小车模型”的演示假阳性。
+如果只想先排查仿真本身，运行：
+
+```bash
+bash scripts/acceptance_test.sh gazebo
+```
+
+如果 WSL 里残留了旧 Gazebo 进程，可能出现 GUI 空世界、模型不出现、odom 跳变等现象。
+先运行：
+
+```bash
+CLEANUP_CONFIRM=true bash scripts/cleanup_simulation_processes.sh
+```
+
+也可以让连续语音演示入口启动前自动清理：
+
+```bash
+SIMULATION_CLEANUP_STALE=true bash scripts/acceptance_test.sh continuous-online
+```
+
 推荐话术：
 
 ```text

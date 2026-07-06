@@ -373,6 +373,28 @@ ros2 topic echo /cmd_vel
 
 如果 `/agent/action_candidate` 有输出但 `/robot/action_result` 没有，重点检查 ActionGuard、typed action bridge 和 simulation executor 是否已启动。
 
+### continuous-online 启动后 Gazebo 里没有小车
+
+先清理上一次残留的 Gazebo/ROS 仿真进程，再跑仿真自检：
+
+```bash
+CLEANUP_CONFIRM=true bash scripts/cleanup_simulation_processes.sh
+bash scripts/acceptance_test.sh gazebo
+```
+
+`continuous-offline/online` 启动时会自动做 TurtleBot3 readiness check：必须看到
+`/odom`、`/scan`、`/cmd_vel` 和 `/robot/execute_command`。如果你想让脚本启动前自动清理残留进程：
+
+```bash
+SIMULATION_CLEANUP_STALE=true bash scripts/acceptance_test.sh continuous-online
+```
+
+如果只想后台无界面演示，可以设置：
+
+```bash
+GUI_ENABLED=false bash scripts/acceptance_test.sh continuous-online
+```
+
 ### 在线模式失败
 
 检查 `.env`：
