@@ -24,6 +24,7 @@ Automated modes:
   continuous-endpoint Endpoint speech_ended commits feed continuous ASR commands
   continuous-multi-command NLU parses one ASR final into ordered queued commands
   continuous-navigation Multi-target navigation and patrol commands queue in a continuous session
+  continuous-navigation-natural Natural multi-target speech becomes waypoint patrol commands
   continuous-queue-full Busy continuous queue rejects excess commands with feedback
   continuous-ttl      Busy continuous queue expires stale non-priority commands
   continuous-timeout  Voice session timeout requires a fresh wake word
@@ -156,6 +157,8 @@ case "$LEVEL" in
     bash scripts/smoke_test_navigation_sequence.sh offline
     bash scripts/smoke_test_continuous_navigation_queue.sh online
     bash scripts/smoke_test_continuous_navigation_queue.sh offline
+    bash scripts/smoke_test_continuous_navigation_natural.sh online
+    bash scripts/smoke_test_continuous_navigation_natural.sh offline
     bash scripts/smoke_test_nav2_bridge.sh
     bash scripts/smoke_test_nav2_preflight.sh
     ;;
@@ -165,6 +168,7 @@ case "$LEVEL" in
   continuous-endpoint) bash scripts/smoke_test_continuous_endpoint_asr.sh online; bash scripts/smoke_test_continuous_endpoint_asr.sh offline ;;
   continuous-multi-command) bash scripts/smoke_test_continuous_multi_command.sh online; bash scripts/smoke_test_continuous_multi_command.sh offline ;;
   continuous-navigation) bash scripts/smoke_test_continuous_navigation_queue.sh online; bash scripts/smoke_test_continuous_navigation_queue.sh offline ;;
+  continuous-navigation-natural) bash scripts/smoke_test_continuous_navigation_natural.sh online; bash scripts/smoke_test_continuous_navigation_natural.sh offline ;;
   continuous-queue-full) bash scripts/smoke_test_continuous_queue_full.sh online; bash scripts/smoke_test_continuous_queue_full.sh offline ;;
   continuous-ttl) bash scripts/smoke_test_continuous_command_ttl.sh online; bash scripts/smoke_test_continuous_command_ttl.sh offline ;;
   continuous-timeout) bash scripts/smoke_test_continuous_session_timeout.sh online; bash scripts/smoke_test_continuous_session_timeout.sh offline ;;

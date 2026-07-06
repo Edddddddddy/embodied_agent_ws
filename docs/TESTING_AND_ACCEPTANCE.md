@@ -42,6 +42,7 @@ bash scripts/acceptance_test.sh --help
 | `continuous-queue-full` | 自动 | busy 时队列满反馈 |
 | `continuous-multi-command` | 自动 | 一条 ASR final 被轻量 NLU 解析成多条队列命令 |
 | `continuous-navigation` | 自动/仿真 | 连续会话中目标点导航与多目标点巡航按队列顺序执行 |
+| `continuous-navigation-natural` | 自动/仿真 | 自然多目标话术解析为多目标点巡航并按队列执行 |
 | `continuous-ttl` | 自动 | 过期命令丢弃 |
 | `continuous-timeout` | 自动 | 会话超时后重新要求唤醒 |
 | `voice-readiness` | 自动 | 麦克风/音频前端 readiness 检查 |
