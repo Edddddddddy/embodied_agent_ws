@@ -5,6 +5,9 @@
 1. 项目哪些能力可以自动验证？
 2. 真实麦克风、在线接口、Gazebo 仿真应该如何人工验收？
 
+Nav2 语音目标点导航与多目标点巡航的逐项完成度审计见
+[NAV2_VOICE_ACCEPTANCE_AUDIT.md](NAV2_VOICE_ACCEPTANCE_AUDIT.md)。
+
 所有命令默认在 WSL Ubuntu 中执行：
 
 ```bash
