@@ -51,6 +51,7 @@ bash scripts/acceptance_test.sh --help
 | `continuous-live-report` | 自动/复盘 | 读取已保存的连续语音验收 JSON 并重新判定 |
 | `continuous-nav2-offline` | 人工/Nav2 | 真实麦克风离线连续目标点导航与多目标点巡航 |
 | `continuous-nav2-online` | 人工/联网/Nav2 | 真实麦克风在线连续目标点导航与多目标点巡航 |
+| `continuous-nav2-evidence` | 人工辅助/Nav2 | 一终端启动 Nav2 语音控制、现场计分并保存报告 |
 | `continuous-nav2-live-check` | 人工辅助/Nav2 | 订阅 topic 并统计现场 Nav2 连续导航演示证据 |
 | `continuous-nav2-live-report` | 自动/复盘/Nav2 | 读取已保存的 Nav2 连续语音验收 JSON 并重新判定 |
 | `all` | 自动 | release gate，不包含人工 microphone 模式 |
@@ -226,6 +227,18 @@ bash scripts/acceptance_test.sh continuous-nav2-offline
 # 或
 bash scripts/acceptance_test.sh continuous-nav2-online
 ```
+
+推荐的一终端留证方式：
+
+```bash
+CONTINUOUS_LIVE_CHECK_REPORT=logs/nav2-live-check.json \
+  CONTINUOUS_LIVE_CHECK_DURATION=240 \
+  bash scripts/acceptance_test.sh continuous-nav2-evidence offline
+```
+
+该模式会在同一个 `ROS_DOMAIN_ID` 下后台启动连续 Nav2 语音控制，前台运行
+`continuous-nav2-live-check` 等价的现场统计，并在结束时清理 Gazebo/Nav2/Agent。
+如果要分开观察日志和 topic，再使用下面的两终端方式。
 
 推荐另开一个终端做现场计分：
 

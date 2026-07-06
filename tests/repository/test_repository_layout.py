@@ -70,6 +70,7 @@ def test_voice_navigation_acceptance_entrypoints_remain_available():
         "nav2-turtlebot3",
         "continuous-nav2-offline",
         "continuous-nav2-online",
+        "continuous-nav2-evidence",
         "continuous-nav2-live-check",
         "continuous-navigation",
     ):
@@ -82,6 +83,7 @@ def test_voice_navigation_acceptance_entrypoints_remain_available():
         "smoke_test_nav2_preflight.sh",
         "smoke_test_nav2_turtlebot3_voice.sh",
         "continuous_nav2_voice_control.sh",
+        "continuous_nav2_voice_evidence.sh",
         "publish_nav2_initial_pose.py",
     ):
         assert (ROOT / "scripts" / script).is_file()
@@ -90,6 +92,23 @@ def test_voice_navigation_acceptance_entrypoints_remain_available():
         ROOT / "src" / "embodied_simulation" / "launch" / "voice_nav2_turtlebot3.launch.py"
     ).is_file()
     assert (ROOT / "src" / "embodied_simulation" / "config" / "places.yaml").is_file()
+
+
+def test_nav2_live_evidence_script_keeps_control_and_scoring_together():
+    """一键现场留证脚本必须同时启动控制链路与 live-check，并保存可复核报告。"""
+
+    evidence = (ROOT / "scripts" / "continuous_nav2_voice_evidence.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "continuous_nav2_voice_control.sh" in evidence
+    assert "continuous_live_check.py" in evidence
+    assert "CONTINUOUS_LIVE_CHECK_REPORT" in evidence
+    assert "--output \"$REPORT_PATH\"" in evidence
+    assert "--require-candidate navigate_to" in evidence
+    assert "--require-candidate follow_waypoints" in evidence
+    assert "export ROS_DOMAIN_ID" in evidence
+    assert "kill -TERM -- \"-$CONTROL_PID\"" in evidence
 
 
 def test_voice_navigation_places_stay_consistent_across_agent_guard_and_nav2():

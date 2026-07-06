@@ -47,6 +47,7 @@ Interactive modes:
   continuous-online   Long-running microphone control using the online Agent
   continuous-nav2-offline  Long-running microphone target navigation with Nav2/TurtleBot3
   continuous-nav2-online   Long-running microphone target navigation with Nav2/TurtleBot3
+  continuous-nav2-evidence {offline|online}  Run Nav2 microphone demo and live-check evidence in one terminal
   continuous-live-check {offline|online}  Observe a running live microphone demo and score evidence
   continuous-nav2-live-check {offline|online}  Score a running live Nav2 microphone demo
   continuous-live-report REPORT_JSON  Re-score a saved continuous live-check report
@@ -184,6 +185,14 @@ case "$LEVEL" in
   continuous-online) bash scripts/continuous_voice_control.sh online ;;
   continuous-nav2-offline) bash scripts/continuous_nav2_voice_control.sh offline ;;
   continuous-nav2-online) bash scripts/continuous_nav2_voice_control.sh online ;;
+  continuous-nav2-evidence)
+    CHECK_MODE="${2:-offline}"
+    if [[ "$CHECK_MODE" != "offline" && "$CHECK_MODE" != "online" ]]; then
+      echo "Usage: $0 continuous-nav2-evidence {offline|online}" >&2
+      exit 2
+    fi
+    bash scripts/continuous_nav2_voice_evidence.sh "$CHECK_MODE"
+    ;;
   continuous-live-check)
     CHECK_MODE="${2:-offline}"
     if [[ "$CHECK_MODE" != "offline" && "$CHECK_MODE" != "online" ]]; then

@@ -211,6 +211,17 @@ bash scripts/acceptance_test.sh continuous-nav2-online
 CONTINUOUS_LIVE_CHECK_DURATION=240 bash scripts/acceptance_test.sh continuous-nav2-live-check offline
 ```
 
+更推荐的一终端留证方式：
+
+```bash
+CONTINUOUS_LIVE_CHECK_REPORT=logs/nav2-live-check.json \
+  CONTINUOUS_LIVE_CHECK_DURATION=240 \
+  bash scripts/acceptance_test.sh continuous-nav2-evidence offline
+```
+
+它会自动启动连续 Nav2 语音控制、运行现场计分、保存 JSON 报告，并在结束时清理
+Gazebo/Nav2/Agent 进程。两终端方式仍适合调试 topic 和日志。
+
 该计分脚本会要求现场至少出现一次 `navigate_to` 和一次 `follow_waypoints`，
 避免只看到普通动作 result 就误判为 Nav2 导航演示通过。
 如需保存现场证据：
