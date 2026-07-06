@@ -36,7 +36,7 @@ flowchart LR
   Gate --> Queue["连续命令队列\n普通命令 FIFO\n急停抢占"]
   Queue --> Agent["在线/离线 Agent\n轻量 NLU + LLM fallback\n短命令补全"]
   Agent --> Parser["动作解析\nprimitive / navigation"]
-  Parser --> Guard["C++ ActionGuard\nJSON 校验、限幅、强类型转换"]
+  Parser --> Guard["C++ ActionGuard\n动作校验、限幅、强类型转换"]
   Guard --> Bridge["Typed Action Bridge\nRobotCommand → ROS 2 Action"]
   Bridge --> Sim["Simulation Executor\nBT + pluginlib + /cmd_vel"]
   Sim --> Gazebo["Gazebo / TurtleBot3"]
@@ -219,7 +219,7 @@ CONTINUOUS_LIVE_CHECK_REPORT=logs/nav2-live-check.json \
   bash scripts/acceptance_test.sh continuous-nav2-evidence offline
 ```
 
-它会自动启动连续 Nav2 语音控制、运行现场计分、保存 JSON 报告，并在结束时清理
+它会自动启动连续 Nav2 语音控制、运行现场计分、保存证据报告，并在结束时清理
 Gazebo/Nav2/Agent 进程。两终端方式仍适合调试 topic 和日志。
 正式占用麦克风和 Gazebo 前，也可以先 dry-run 检查参数：
 

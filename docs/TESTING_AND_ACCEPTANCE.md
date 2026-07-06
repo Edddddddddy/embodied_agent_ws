@@ -49,12 +49,12 @@ bash scripts/acceptance_test.sh --help
 | `continuous-offline` | 人工 | 真实麦克风离线连续控制 |
 | `continuous-online` | 人工/联网 | 真实麦克风在线连续控制 |
 | `continuous-live-check` | 人工辅助 | 订阅 topic 并统计现场演示证据 |
-| `continuous-live-report` | 自动/复盘 | 读取已保存的连续语音验收 JSON 并重新判定 |
+| `continuous-live-report` | 自动/复盘 | 读取已保存的连续语音验收报告并重新判定 |
 | `continuous-nav2-offline` | 人工/Nav2 | 真实麦克风离线连续目标点导航与多目标点巡航 |
 | `continuous-nav2-online` | 人工/联网/Nav2 | 真实麦克风在线连续目标点导航与多目标点巡航 |
 | `continuous-nav2-evidence` | 人工辅助/Nav2 | 一终端启动 Nav2 语音控制、现场计分并保存报告 |
 | `continuous-nav2-live-check` | 人工辅助/Nav2 | 订阅 topic 并统计现场 Nav2 连续导航演示证据 |
-| `continuous-nav2-live-report` | 自动/复盘/Nav2 | 读取已保存的 Nav2 连续语音验收 JSON 并重新判定 |
+| `continuous-nav2-live-report` | 自动/复盘/Nav2 | 读取已保存的 Nav2 连续语音验收报告并重新判定 |
 | `all` | 自动 | release gate，不包含人工 microphone 模式 |
 
 ## 2. 推荐测试顺序

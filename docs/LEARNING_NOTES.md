@@ -18,8 +18,8 @@
 
 设计方式：
 
-- Agent 先发布 `/agent/action_candidate`，内容是 LLM 或 fallback parser 生成的动作 JSON。
-- C++ ActionGuard 将 JSON 转为强类型 `RobotCommand`。
+- Agent 先发布 `/agent/action_candidate`，内容是 LLM 或 fallback parser 生成的结构化动作候选。
+- C++ ActionGuard 将动作候选转为强类型 `RobotCommand`。
 - typed action bridge 将 `RobotCommand` 发送为 `ExecuteRobotCommand` goal。
 - simulation executor 返回 feedback/result，并驱动 `/cmd_vel`。
 
@@ -27,13 +27,13 @@
 
 - topic 适合广播状态和瞬时事件，例如 ASR final、动作候选、监控日志。
 - ROS 2 Action 适合“移动一秒”“转九十度”这种有持续时间、可取消、需要反馈的动作。
-- 自定义 msg/action 让动作接口可测试、可限幅、可扩展，比纯字符串 JSON 更工程化。
+- 自定义 msg/action 让动作接口可测试、可限幅、可扩展，比纯字符串事件载荷更工程化。
 
 方案对比：
 
 - 只用 `/cmd_vel`：简单，但 LLM 直接控制速度风险高，也难以表达执行结果。
 - 只用 service：适合短请求，不适合持续动作和取消。
-- 只用 JSON topic：开发快，但类型不安全，后期维护和测试成本高。
+- 只用字符串事件 topic：开发快，但类型不安全，后期维护和测试成本高。
 
 ## 2. ActionGuard：LLM 输出和机器人执行之间的安全边界
 
@@ -48,18 +48,16 @@
 设计方式：
 
 - 订阅 `/agent/action_candidate`。
-- 解析动作 JSON。
+- 解析动作候选。
 - 校验动作类型、速度、时长、颜色、模式等字段。
-- 通过后同时发布：
-  - `/robot/action_command`：兼容旧 JSON 链路。
-  - `/robot/action_command_typed`：新的强类型 ROS 2 msg。
+- 通过后发布 `/robot/action_command_typed` 强类型 ROS 2 msg。
 - 拒绝时发布 `/robot/action_rejected`。
 
 为什么这样设计：
 
 - 大模型输出不可完全信任，必须在进入机器人执行层前做白名单和限幅。
-- 保留旧 JSON topic，方便兼容早期脚本和测试。
-- 新增 typed message，方便 C++、Action、仿真执行器稳定对接。
+- 删除旧字符串动作命令入口，避免仿真/硬件执行层出现双入口。
+- 使用 typed message，方便 C++、Action、仿真执行器稳定对接。
 
 方案对比：
 
@@ -391,7 +389,7 @@
 为什么这样设计：
 
 - 先做语义地点，而不是直接语音转坐标，可以减少 ASR/LLM 的自由度，方便测试和演示。
-- 新增强类型字段，而不是继续塞 JSON 字符串，可以体现 ROS2/C++ 工程能力，也让后续 Nav2 bridge 更自然。
+- 新增强类型字段，而不是继续塞字符串字段，可以体现 ROS2/C++ 工程能力，也让后续 Nav2 bridge 更自然。
 - 把真实 Nav2 作为 executor 插件，避免把导航细节侵入 Agent、ActionGuard 和测试。
 - 用 external result seam 连接 Nav2 与本项目 Action，能体现“长动作可反馈、可取消、可等待结果”，
   而不是仅发布一个 topic 后马上认为成功。

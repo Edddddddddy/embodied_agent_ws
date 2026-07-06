@@ -55,11 +55,11 @@ ament_target_dependencies(
 
 add_executable(robot_action_stub src/robot_action_stub_node.cpp)
 target_link_libraries(robot_action_stub nlohmann_json::nlohmann_json)
-ament_target_dependencies(robot_action_stub rclcpp std_msgs)
+ament_target_dependencies(robot_action_stub rclcpp std_msgs embodied_agent_interfaces)
 
 add_executable(hardware_controller src/hardware_controller_node.cpp)
 target_link_libraries(hardware_controller embodied_agent_core nlohmann_json::nlohmann_json)
-ament_target_dependencies(hardware_controller rclcpp std_msgs)
+ament_target_dependencies(hardware_controller embodied_agent_interfaces rclcpp std_msgs)
 
 install(TARGETS
   embodied_agent_core

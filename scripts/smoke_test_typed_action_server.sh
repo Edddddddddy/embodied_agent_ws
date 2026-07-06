@@ -7,7 +7,7 @@ export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((120 + $$ % 80))}"
 
 LOG_FILE="$(mktemp)"
 setsid ros2 run embodied_simulation simulation_control_node --ros-args \
-  -p legacy_command_enabled:=false -p action_timeout_s:=1.0 \
+  -p action_timeout_s:=1.0 \
   >"$LOG_FILE" 2>&1 &
 SERVER_PID=$!
 cleanup() {

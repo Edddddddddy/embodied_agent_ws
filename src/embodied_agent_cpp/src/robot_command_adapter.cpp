@@ -21,7 +21,6 @@ RobotCommandConversion RobotCommandAdapter::convert(
     return conversion;
   }
 
-  conversion.legacy_command = validation.command;
   conversion.typed_command.command_id = command_id;
   if (validation.command.contains("request_id")) {
     conversion.typed_command.command_id =

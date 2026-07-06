@@ -36,7 +36,7 @@ Automated modes:
   kws-calibration     Dependency-free KWS score calibration smoke test
   voice-readiness     Dependency-free voice readiness smoke test
   provider-preflight  Dependency-free optional VAD/KWS provider preflight
-  gazebo              Legacy and typed Action physical motion verification
+  gazebo              Typed Action physical motion verification
   gazebo-voice        Offline synthesized speech through typed Action to Gazebo
   gazebo-voice-online Online voice provider through typed Action to Gazebo
   all                 Run all automated release gates; excludes interactive microphone
@@ -51,8 +51,8 @@ Interactive modes:
   continuous-nav2-evidence {offline|online}  Run Nav2 microphone demo and live-check evidence in one terminal
   continuous-live-check {offline|online}  Observe a running live microphone demo and score evidence
   continuous-nav2-live-check {offline|online}  Score a running live Nav2 microphone demo
-  continuous-live-report REPORT_JSON  Re-score a saved continuous live-check report
-  continuous-nav2-live-report REPORT_JSON  Re-score a saved Nav2 live-check report
+  continuous-live-report REPORT_FILE  Re-score a saved continuous live-check report
+  continuous-nav2-live-report REPORT_FILE  Re-score a saved Nav2 live-check report
 EOF
 }
 
@@ -224,7 +224,8 @@ case "$LEVEL" in
       --min-candidates "${CONTINUOUS_NAV2_LIVE_MIN_CANDIDATES:-2}" \
       --min-success "${CONTINUOUS_NAV2_LIVE_MIN_SUCCESS:-2}" \
       --require-candidate navigate_to \
-      --require-candidate follow_waypoints
+      --require-candidate follow_waypoints \
+      --require-navigation-details
     )
     if [[ -n "${CONTINUOUS_LIVE_CHECK_REPORT:-}" ]]; then
       LIVE_CHECK_ARGS+=(--output "$CONTINUOUS_LIVE_CHECK_REPORT")
@@ -234,7 +235,7 @@ case "$LEVEL" in
   continuous-live-report)
     REPORT_PATH="${2:-}"
     if [[ -z "$REPORT_PATH" ]]; then
-      echo "Usage: $0 continuous-live-report REPORT_JSON" >&2
+      echo "Usage: $0 continuous-live-report REPORT_FILE" >&2
       exit 2
     fi
     python3 scripts/continuous_live_check.py --input-report "$REPORT_PATH"
@@ -242,7 +243,7 @@ case "$LEVEL" in
   continuous-nav2-live-report)
     REPORT_PATH="${2:-}"
     if [[ -z "$REPORT_PATH" ]]; then
-      echo "Usage: $0 continuous-nav2-live-report REPORT_JSON" >&2
+      echo "Usage: $0 continuous-nav2-live-report REPORT_FILE" >&2
       exit 2
     fi
     python3 scripts/continuous_live_check.py \
@@ -252,7 +253,8 @@ case "$LEVEL" in
       --min-candidates "${CONTINUOUS_NAV2_LIVE_MIN_CANDIDATES:-2}" \
       --min-success "${CONTINUOUS_NAV2_LIVE_MIN_SUCCESS:-2}" \
       --require-candidate navigate_to \
-      --require-candidate follow_waypoints
+      --require-candidate follow_waypoints \
+      --require-navigation-details
     ;;
   all) run_base; run_online; run_offline; bash scripts/smoke_test_demo_sequence.sh; run_gazebo; USE_TYPED_ACTIONS=true bash scripts/smoke_test_gazebo_voice.sh; bash scripts/smoke_test_gazebo_voice_online.sh ;;
   *) usage >&2; exit 2 ;;

@@ -28,6 +28,7 @@ LIVE_CHECK_ARGS=(
   --min-success "${CONTINUOUS_NAV2_LIVE_MIN_SUCCESS:-2}"
   --require-candidate navigate_to
   --require-candidate follow_waypoints
+  --require-navigation-details
 )
 
 CONTROL_PID=""

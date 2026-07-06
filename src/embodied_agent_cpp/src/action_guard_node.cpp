@@ -28,8 +28,6 @@ public:
 protected:
   CallbackReturn on_configure(const rclcpp_lifecycle::State &) override
   {
-    command_publisher_ = create_publisher<std_msgs::msg::String>(
-      "/robot/action_command", 10);
     typed_command_publisher_ =
       create_publisher<embodied_agent_interfaces::msg::RobotCommand>(
       "/robot/action_command_typed", 10);
@@ -47,7 +45,6 @@ protected:
 
   CallbackReturn on_activate(const rclcpp_lifecycle::State &) override
   {
-    command_publisher_->on_activate();
     typed_command_publisher_->on_activate();
     rejection_publisher_->on_activate();
     RCLCPP_INFO(get_logger(), "ActionGuard activated");
@@ -56,7 +53,6 @@ protected:
 
   CallbackReturn on_deactivate(const rclcpp_lifecycle::State &) override
   {
-    command_publisher_->on_deactivate();
     typed_command_publisher_->on_deactivate();
     rejection_publisher_->on_deactivate();
     RCLCPP_INFO(get_logger(), "ActionGuard deactivated");
@@ -68,7 +64,6 @@ protected:
     candidate_subscription_.reset();
     rejection_publisher_.reset();
     typed_command_publisher_.reset();
-    command_publisher_.reset();
     command_sequence_ = 0;
     RCLCPP_INFO(get_logger(), "ActionGuard cleaned up");
     return CallbackReturn::SUCCESS;
@@ -79,7 +74,6 @@ protected:
     candidate_subscription_.reset();
     rejection_publisher_.reset();
     typed_command_publisher_.reset();
-    command_publisher_.reset();
     RCLCPP_INFO(get_logger(), "ActionGuard shut down");
     return CallbackReturn::SUCCESS;
   }
@@ -99,7 +93,8 @@ private:
     }
     const std::string command_id = "guard-" + std::to_string(++command_sequence_);
     // ActionGuard 是 LLM 输出和机器人执行之间的安全边界：
-    // 这里只接受能通过 adapter 校验/限幅的 JSON，再同时发布旧 JSON 和强类型消息。
+    // 这里只接受能通过 adapter 校验/限幅的候选动作，并只发布强类型 RobotCommand。
+    // 旧版 /robot/action_command 字符串命令已删除，避免仿真执行链路出现双入口。
     auto result = adapter_.convert(message->data, command_id, "agent");
     std_msgs::msg::String output;
     if (!result.valid) {
@@ -108,17 +103,15 @@ private:
       RCLCPP_WARN(get_logger(), "action rejected: %s", result.error.c_str());
       return;
     }
-    output.data = result.legacy_command.dump();
-    command_publisher_->publish(output);
     result.typed_command.header.stamp = now();
     typed_command_publisher_->publish(result.typed_command);
-    RCLCPP_INFO(get_logger(), "action accepted: %s", output.data.c_str());
+    RCLCPP_INFO(
+      get_logger(), "action accepted: command_id=%s type=%u",
+      result.typed_command.command_id.c_str(), result.typed_command.action_type);
   }
 
   RobotCommandAdapter adapter_;
   std::atomic_uint64_t command_sequence_{0};
-  rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::String>::SharedPtr
-    command_publisher_;
   rclcpp_lifecycle::LifecyclePublisher<
     embodied_agent_interfaces::msg::RobotCommand>::SharedPtr
     typed_command_publisher_;

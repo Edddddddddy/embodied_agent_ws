@@ -17,7 +17,7 @@ class MockOnlineProbe(Node):
         self.action = None
         self.metrics = None
         self.done = threading.Event()
-        self.create_subscription(String, "/robot/action_command", self._on_action, 10)
+        self.create_subscription(String, "/robot/action_ack", self._on_action, 10)
         self.create_subscription(String, "/agent/metrics", self._on_metrics, 10)
 
     def _on_action(self, message):
@@ -52,7 +52,7 @@ def main():
     try:
         wait_until(
             lambda: node.input_pub.get_subscription_count() > 0
-            and node.count_publishers("/robot/action_command") > 0
+            and node.count_publishers("/robot/action_ack") > 0
             and node.count_publishers("/agent/metrics") > 0,
             10.0,
             "mock Agent topics were not discovered",
@@ -63,7 +63,7 @@ def main():
             raise TimeoutError(
                 f"mock turn incomplete: action={node.action}, metrics={node.metrics}"
             )
-        if node.action.get("name") != "move":
+        if node.action.get("action") != "move":
             raise RuntimeError(f"unexpected action: {node.action}")
         if "llm_first_token_ms" not in node.metrics:
             raise RuntimeError(f"incomplete metrics: {node.metrics}")

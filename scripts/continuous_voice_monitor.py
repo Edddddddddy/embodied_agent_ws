@@ -237,7 +237,7 @@ def install_signal_handlers() -> None:
 class MonitorStats:
     """长时间语音演示的轻量统计器。
 
-    统计只依赖已有 JSON topic，退出 monitor 时输出一行 summary，帮助判断问题是在
+    统计只依赖已有事件 topic，退出 monitor 时输出一行 summary，帮助判断问题是在
     ASR、过滤、队列还是执行阶段。
     """
 

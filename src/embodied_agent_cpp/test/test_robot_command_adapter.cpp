@@ -19,7 +19,6 @@ TEST(RobotCommandAdapterTest, ConvertsAndClampsMoveIntoTypedCommand)
   EXPECT_EQ(result.typed_command.source, "online_agent");
   EXPECT_DOUBLE_EQ(result.typed_command.linear_x, 0.5);
   EXPECT_DOUBLE_EQ(result.typed_command.duration_s, 10.0);
-  EXPECT_DOUBLE_EQ(result.legacy_command["arguments"]["linear_x"], 0.5);
 }
 
 TEST(RobotCommandAdapterTest, UsesRequestIdWhenProvidedByAgent)
@@ -47,7 +46,6 @@ TEST(RobotCommandAdapterTest, ConvertsArcIntoTypedCurvedMove)
   EXPECT_DOUBLE_EQ(result.typed_command.linear_x, 0.12);
   EXPECT_DOUBLE_EQ(result.typed_command.angular_z, 0.45);
   EXPECT_DOUBLE_EQ(result.typed_command.duration_s, 6.0);
-  EXPECT_EQ(result.legacy_command["name"], "move");
 }
 
 TEST(RobotCommandAdapterTest, ConvertsTurnAndStopWithoutAmbiguousFields)
@@ -110,7 +108,6 @@ TEST(RobotCommandAdapterTest, RejectsInvalidInputWithoutProducingACommand)
 
   EXPECT_FALSE(result.valid);
   EXPECT_FALSE(result.error.empty());
-  EXPECT_TRUE(result.legacy_command.is_null());
   EXPECT_TRUE(result.typed_command.command_id.empty());
   EXPECT_EQ(
     result.typed_command.action_type,

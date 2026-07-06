@@ -7,7 +7,7 @@ export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((80 + $$ % 20))}"
 
 LOG_FILE="$(mktemp)"
 setsid ros2 launch embodied_simulation simulation_control.launch.py \
-  use_typed_actions:=false >"$LOG_FILE" 2>&1 &
+  use_typed_actions:=true >"$LOG_FILE" 2>&1 &
 CONTROL_PID=$!
 setsid ros2 run embodied_agent_cpp action_guard >>"$LOG_FILE" 2>&1 &
 GUARD_PID=$!

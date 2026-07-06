@@ -92,8 +92,6 @@ protected:
       "robot/bt_status", rclcpp::QoS(10).reliable());
     diagnostics_pub_ = create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
       "diagnostics", rclcpp::QoS(10).reliable());
-    const bool legacy_command_enabled =
-      bool_parameter("legacy_command_enabled", true);
     use_behavior_tree_ = bool_parameter("use_behavior_tree", true);
     if (use_behavior_tree_) {
       const auto default_tree =
@@ -113,11 +111,6 @@ protected:
         RCLCPP_ERROR(get_logger(), "failed to load BT XML: %s", error.what());
         return CallbackReturn::FAILURE;
       }
-    }
-    if (legacy_command_enabled) {
-      action_sub_ = create_subscription<std_msgs::msg::String>(
-        "robot/action_command", rclcpp::QoS(10).reliable(),
-        std::bind(&SimulationControlNode::on_action, this, _1));
     }
     action_server_ = rclcpp_action::create_server<ExecuteRobotCommand>(
       this,
@@ -603,84 +596,6 @@ private:
     return true;
   }
 
-  void on_action(const std_msgs::msg::String::SharedPtr message)
-  {
-    if (!is_active()) {
-      return;
-    }
-    try {
-      const auto command = nlohmann::json::parse(message->data);
-      const std::string name = command.at("name").get<std::string>();
-      const auto & arguments = command.at("arguments");
-      embodied_agent_interfaces::msg::RobotCommand typed_command;
-      if (name == "move") {
-        typed_command.action_type = typed_command.MOVE;
-        typed_command.linear_x = arguments.at("linear_x").get<double>();
-        typed_command.angular_z = arguments.value("angular_z", 0.0);
-        typed_command.duration_s = arguments.at("duration_s").get<double>();
-        executor_->execute(typed_command, now_seconds());
-        publish_mode();
-        publish_action_ack(name, "accepted");
-      } else if (name == "turn") {
-        typed_command.action_type = typed_command.TURN;
-        typed_command.angular_z = arguments.at("angular_z").get<double>();
-        typed_command.duration_s = arguments.at("duration_s").get<double>();
-        executor_->execute(typed_command, now_seconds());
-        publish_mode();
-        publish_action_ack(name, "accepted");
-      } else if (name == "stop") {
-        executor_->stop();
-        publish_mode();
-        publish_action_ack(name, "accepted");
-      } else if (name == "navigate_to") {
-        typed_command.action_type = typed_command.NAVIGATE_TO;
-        typed_command.target = arguments.at("target").get<std::string>();
-        typed_command.duration_s = 3.0;
-        executor_->execute(typed_command, now_seconds());
-        publish_mode();
-        publish_action_ack(name, "accepted");
-      } else if (name == "follow_waypoints") {
-        typed_command.action_type = typed_command.FOLLOW_WAYPOINTS;
-        for (const auto & waypoint : arguments.at("waypoints")) {
-          typed_command.waypoints.push_back(waypoint.get<std::string>());
-        }
-        typed_command.number_of_loops = arguments.value("number_of_loops", 1);
-        typed_command.duration_s = std::min(
-          10.0,
-          std::max(
-            2.0,
-            static_cast<double>(
-              typed_command.waypoints.size() *
-              std::max<std::uint32_t>(1U, typed_command.number_of_loops)) * 2.0));
-        executor_->execute(typed_command, now_seconds());
-        publish_mode();
-        publish_action_ack(name, "accepted");
-      } else if (name == "cancel_navigation") {
-        executor_->stop();
-        publish_mode();
-        publish_action_ack(name, "accepted");
-      } else if (name == "set_mode") {
-        const bool accepted = set_mode(arguments.at("mode").get<std::string>());
-        publish_action_ack(name, accepted ? "accepted" : "rejected");
-      } else if (name == "wave") {
-        typed_command.action_type = typed_command.WAVE;
-        typed_command.count = arguments.at("count").get<int>();
-        const bool accepted = executor_->execute(typed_command, now_seconds());
-        publish_action_ack(name, accepted ? "accepted" : "rejected");
-      } else if (name == "set_led") {
-        typed_command.action_type = typed_command.SET_LED;
-        typed_command.color = arguments.at("color").get<std::string>();
-        const bool accepted = executor_->execute(typed_command, now_seconds());
-        publish_action_ack(name, accepted ? "accepted" : "rejected");
-      } else {
-        publish_action_ack(name, "ignored");
-      }
-    } catch (const std::exception & error) {
-      RCLCPP_WARN(get_logger(), "ignored malformed trusted action: %s", error.what());
-      publish_action_ack("unknown", "rejected", error.what());
-    }
-  }
-
   void on_mode_request(const std_msgs::msg::String::SharedPtr message)
   {
     if (!is_active()) {
@@ -834,7 +749,6 @@ private:
     scan_sub_.reset();
     emergency_sub_.reset();
     mode_sub_.reset();
-    action_sub_.reset();
     diagnostics_pub_.reset();
     bt_status_pub_.reset();
     action_ack_pub_.reset();
@@ -899,7 +813,6 @@ private:
     bt_status_pub_;
   rclcpp_lifecycle::LifecyclePublisher<
     diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diagnostics_pub_;
-  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr action_sub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr mode_sub_;
   rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr emergency_sub_;
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;

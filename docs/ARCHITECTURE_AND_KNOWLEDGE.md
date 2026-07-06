@@ -160,7 +160,7 @@ sequenceDiagram
 | `/agent/session_state` | Agent → monitor | awake/sleeping 等会话状态 |
 | `/agent/command_queue` | Agent → monitor | enqueue/rejected/expired/clear |
 | `/agent/command_execution` | Agent → monitor | started/finished |
-| `/agent/action_candidate` | Agent → ActionGuard | 动作 JSON 候选 |
+| `/agent/action_candidate` | Agent → ActionGuard | 结构化动作候选 |
 | `/robot/action_command_typed` | ActionGuard → bridge | 强类型 RobotCommand |
 | `/robot/action_feedback` | bridge → monitor | Action feedback |
 | `/robot/action_result` | bridge/executor → Agent | Action result |

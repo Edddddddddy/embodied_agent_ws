@@ -11,7 +11,7 @@ import argparse
 import json
 import threading
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import rclpy
@@ -26,6 +26,7 @@ class LiveCheckThresholds:
     min_candidates: int = 4
     min_success: int = 4
     required_candidates: list[str] | None = None
+    require_navigation_details: bool = False
 
 
 @dataclass
@@ -42,6 +43,9 @@ class LiveCheckReport:
     final_cmd_vel_zero: bool
     ok: bool
     missing: list[str]
+    asr_samples: list[str] = field(default_factory=list)
+    action_candidate_samples: list[dict] = field(default_factory=list)
+    successful_action_samples: list[dict] = field(default_factory=list)
 
 
 class LiveCheckNode(Node):
@@ -106,6 +110,9 @@ class LiveCheckNode(Node):
         }
         for required in thresholds.required_candidates or []:
             checks[f"candidate {required} observed"] = candidate_names.get(required, 0) > 0
+        if thresholds.require_navigation_details:
+            checks["navigate_to target observed"] = _has_navigate_target(self.candidates)
+            checks["follow_waypoints waypoints observed"] = _has_waypoint_patrol(self.candidates)
         missing = [name for name, passed in checks.items() if not passed]
         return LiveCheckReport(
             asr_count=len(self.asr),
@@ -120,13 +127,18 @@ class LiveCheckNode(Node):
             final_cmd_vel_zero=final_zero,
             ok=not missing,
             missing=missing,
+            asr_samples=_tail(self.asr),
+            action_candidate_samples=_tail(self.candidates),
+            successful_action_samples=_tail(
+                [result for result in self.results if result.get("success") is True]
+            ),
         )
 
 
 def evaluate_report(report: LiveCheckReport, thresholds: LiveCheckThresholds) -> LiveCheckReport:
     """按当前验收阈值重新判定历史报告。
 
-    现场报告会被保存成 JSON，后续复盘时不能只相信文件里的 ok 字段；
+    现场报告会被保存成证据文件，后续复盘时不能只相信文件里的 ok 字段；
     这里用同一套规则重新计算 missing，保证“留证文件”可以独立验收。
     """
     checks = {
@@ -143,6 +155,13 @@ def evaluate_report(report: LiveCheckReport, thresholds: LiveCheckThresholds) ->
         checks[f"candidate {required} observed"] = (
             report.action_candidate_names.get(required, 0) > 0
         )
+    if thresholds.require_navigation_details:
+        checks["navigate_to target observed"] = _has_navigate_target(
+            report.action_candidate_samples
+        )
+        checks["follow_waypoints waypoints observed"] = _has_waypoint_patrol(
+            report.action_candidate_samples
+        )
     missing = [name for name, passed in checks.items() if not passed]
     return LiveCheckReport(
         asr_count=report.asr_count,
@@ -157,6 +176,9 @@ def evaluate_report(report: LiveCheckReport, thresholds: LiveCheckThresholds) ->
         final_cmd_vel_zero=report.final_cmd_vel_zero,
         ok=not missing,
         missing=missing,
+        asr_samples=report.asr_samples,
+        action_candidate_samples=report.action_candidate_samples,
+        successful_action_samples=report.successful_action_samples,
     )
 
 
@@ -168,27 +190,91 @@ def _json_dict(serialized: str) -> dict:
     return payload if isinstance(payload, dict) else {}
 
 
+def _tail(items: list, limit: int = 12) -> list:
+    return items[-limit:]
+
+
+def _has_navigate_target(candidates: list[dict]) -> bool:
+    for candidate in candidates:
+        if candidate.get("name") != "navigate_to":
+            continue
+        arguments = candidate.get("arguments") or {}
+        if isinstance(arguments, dict) and arguments.get("target"):
+            return True
+    return False
+
+
+def _has_waypoint_patrol(candidates: list[dict]) -> bool:
+    for candidate in candidates:
+        if candidate.get("name") != "follow_waypoints":
+            continue
+        arguments = candidate.get("arguments") or {}
+        waypoints = arguments.get("waypoints") if isinstance(arguments, dict) else None
+        if isinstance(waypoints, list) and len(waypoints) >= 2:
+            return True
+    return False
+
+
 def load_report(path: str) -> LiveCheckReport:
     payload = json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
-        raise ValueError("report JSON must be an object")
-    candidate_names = payload.get("action_candidate_names") or {}
-    if not isinstance(candidate_names, dict):
-        candidate_names = {}
+        raise ValueError("report must be an object")
+    candidate_names = _required_dict(payload, "action_candidate_names")
     return LiveCheckReport(
-        asr_count=int(payload.get("asr_count", 0)),
-        action_candidate_count=int(payload.get("action_candidate_count", 0)),
-        action_success_count=int(payload.get("action_success_count", 0)),
-        command_enqueue_count=int(payload.get("command_enqueue_count", 0)),
-        execution_started_count=int(payload.get("execution_started_count", 0)),
-        execution_finished_count=int(payload.get("execution_finished_count", 0)),
+        asr_count=int(_required(payload, "asr_count")),
+        action_candidate_count=int(_required(payload, "action_candidate_count")),
+        action_success_count=int(_required(payload, "action_success_count")),
+        command_enqueue_count=int(_required(payload, "command_enqueue_count")),
+        execution_started_count=int(_required(payload, "execution_started_count")),
+        execution_finished_count=int(_required(payload, "execution_finished_count")),
         action_candidate_names={str(k): int(v) for k, v in candidate_names.items()},
-        saw_awake=bool(payload.get("saw_awake", False)),
-        saw_sleeping=bool(payload.get("saw_sleeping", False)),
-        final_cmd_vel_zero=bool(payload.get("final_cmd_vel_zero", False)),
-        ok=bool(payload.get("ok", False)),
-        missing=[str(item) for item in payload.get("missing", [])],
+        saw_awake=bool(_required(payload, "saw_awake")),
+        saw_sleeping=bool(_required(payload, "saw_sleeping")),
+        final_cmd_vel_zero=bool(_required(payload, "final_cmd_vel_zero")),
+        ok=bool(_required(payload, "ok")),
+        missing=_required_str_list(payload, "missing"),
+        asr_samples=_required_str_list(payload, "asr_samples"),
+        action_candidate_samples=_required_dict_list(
+            payload, "action_candidate_samples"
+        ),
+        successful_action_samples=_required_dict_list(
+            payload, "successful_action_samples"
+        ),
     )
+
+
+def _required(payload: dict, key: str) -> object:
+    if key not in payload:
+        raise ValueError(f"report missing required field: {key}")
+    return payload[key]
+
+
+def _required_dict(payload: dict, key: str) -> dict:
+    value = _required(payload, key)
+    if not isinstance(value, dict):
+        raise ValueError(f"report field must be an object: {key}")
+    return value
+
+
+def _required_list(payload: dict, key: str) -> list:
+    value = _required(payload, key)
+    if not isinstance(value, list):
+        raise ValueError(f"report field must be a list: {key}")
+    return value
+
+
+def _required_str_list(payload: dict, key: str) -> list[str]:
+    values = _required_list(payload, key)
+    if any(not isinstance(item, str) for item in values):
+        raise ValueError(f"report field must be a list of strings: {key}")
+    return values
+
+
+def _required_dict_list(payload: dict, key: str) -> list[dict]:
+    values = _required_list(payload, key)
+    if any(not isinstance(item, dict) for item in values):
+        raise ValueError(f"report field must be a list of objects: {key}")
+    return values
 
 
 def write_report(path: str | None, report: LiveCheckReport) -> None:
@@ -220,14 +306,20 @@ def main() -> None:
         default="motion",
         help="打印哪套人工验收话术",
     )
-    parser.add_argument("--output", default="", help="可选：把验收统计 JSON 写入文件")
-    parser.add_argument("--input-report", default="", help="读取已有 JSON 报告并重新判定")
+    parser.add_argument("--output", default="", help="可选：把验收统计写入证据文件")
+    parser.add_argument("--input-report", default="", help="读取已有证据文件并重新判定")
+    parser.add_argument(
+        "--require-navigation-details",
+        action="store_true",
+        help="要求报告中出现带 target 的 navigate_to 和带 waypoints 的 follow_waypoints",
+    )
     args = parser.parse_args()
     thresholds = LiveCheckThresholds(
         args.min_asr,
         args.min_candidates,
         args.min_success,
         args.require_candidate,
+        args.require_navigation_details,
     )
 
     if args.input_report:

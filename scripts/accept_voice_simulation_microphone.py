@@ -8,6 +8,7 @@ import threading
 import time
 
 import rclpy
+from embodied_agent_interfaces.msg import RobotCommand
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
@@ -35,7 +36,7 @@ class MicrophoneAcceptanceProbe(Node):
             String, "/agent/action_candidate", self._on_candidate, 10
         )
         self.create_subscription(
-            String, "/robot/action_command", self._on_command, 10
+            RobotCommand, "/robot/action_command_typed", self._on_command, 10
         )
         self.create_subscription(String, "/robot/action_ack", self._on_ack, 10)
         self.create_subscription(Twist, "/cmd_vel", self._on_velocity, 10)
@@ -55,7 +56,7 @@ class MicrophoneAcceptanceProbe(Node):
         print(f"[2/6] action candidate: {self.action_candidate}", flush=True)
 
     def _on_command(self, message):
-        self.action_command = self._decode(message.data)
+        self.action_command = self._typed_command_to_dict(message)
         print(f"[3/6] guarded command: {self.action_command}", flush=True)
 
     def _on_ack(self, message):
@@ -104,6 +105,35 @@ class MicrophoneAcceptanceProbe(Node):
             return json.loads(value)
         except json.JSONDecodeError:
             return {"raw": value}
+
+    @staticmethod
+    def _typed_command_to_dict(message):
+        if message.action_type == RobotCommand.MOVE:
+            return {
+                "name": "move",
+                "command_id": message.command_id,
+                "arguments": {
+                    "linear_x": message.linear_x,
+                    "angular_z": message.angular_z,
+                    "duration_s": message.duration_s,
+                },
+            }
+        if message.action_type == RobotCommand.TURN:
+            return {
+                "name": "turn",
+                "command_id": message.command_id,
+                "arguments": {
+                    "angular_z": message.angular_z,
+                    "duration_s": message.duration_s,
+                },
+            }
+        if message.action_type == RobotCommand.STOP:
+            return {"name": "stop", "command_id": message.command_id, "arguments": {}}
+        return {
+            "name": "typed_command",
+            "command_id": message.command_id,
+            "action_type": message.action_type,
+        }
 
     def ready(self):
         return (

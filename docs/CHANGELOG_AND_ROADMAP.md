@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | 初始骨架 | 创建 ROS 2 workspace，搭建在线 Agent、动作 topic、stub 节点 | 完成无密钥 mock 链路 |
 | 在线 Agent | 接入在线 ASR/LLM/TTS，设计 prompt、记忆、动作格式 | 完成在线接口 smoke 与动作解析 |
-| C++ 化与安全网关 | 将适合 C++ 的 ROS 节点迁移/新增为 C++，加入 ActionGuard | 完成 JSON 校验、限幅、强类型转换 |
+| C++ 化与安全网关 | 将适合 C++ 的 ROS 节点迁移/新增为 C++，加入 ActionGuard | 完成动作校验、限幅、强类型转换 |
 | 离线 Agent | 接入 Sherpa/llama.cpp/Sherpa-TTS 适配与 mock 链路 | 完成离线结构、双缓冲、延迟统计、smoke 入口 |
 | 仿真控制 | 接入 Gazebo/TurtleBot3，打通 `/cmd_vel` 与 odom 验收 | 完成语音到 Gazebo 运动闭环 |
 | Nav2 风格规范化 | 引入自定义 msg/action、Lifecycle、BehaviorTree、pluginlib | 完成 typed Action、BT 编排、mock/Gazebo executor |
@@ -24,7 +24,7 @@
 | 真实麦克风 Nav2 连续导航 | 支持一次唤醒后连续说多个目标点/巡航命令并进入 Nav2 队列执行 | 新增 `continuous-nav2-offline/online`、AMCL initialpose 辅助脚本和 live-check 入口 |
 | 连续导航队列回归 | 自动验证连续会话中目标点导航与多目标点巡航不会丢队列 | 新增 `continuous-navigation`，覆盖多目标点 NLU、队列元数据和 request_id/result 关联 |
 | Nav2 现场验收增强 | 让真实麦克风辅助计分更贴近导航目标 | `continuous-nav2-live-check` 额外要求出现 `navigate_to` 与 `follow_waypoints` |
-| 真实麦克风验收留证 | 让现场验收结果可保存、可复查 | `CONTINUOUS_LIVE_CHECK_REPORT=...` 可导出 live-check JSON 报告 |
+| 真实麦克风验收留证 | 让现场验收结果可保存、可复查 | `CONTINUOUS_LIVE_CHECK_REPORT=...` 可导出 live-check 证据报告 |
 | 真实麦克风报告复核 | 让现场报告可以脱离仿真环境二次判定 | 新增 `continuous-live-report` / `continuous-nav2-live-report` |
 | 一键式 Nav2 现场留证 | 降低真实麦克风 Nav2 验收操作复杂度 | 新增 `continuous-nav2-evidence`，单终端启动控制、计分、保存报告并清理进程 |
 | 一键留证 dry-run | 让现场验收脚本可自动测试、可提前检查参数 | `CONTINUOUS_NAV2_EVIDENCE_DRY_RUN=true` 打印控制/计分命令但不启动仿真 |
@@ -153,5 +153,5 @@ bash scripts/acceptance_test.sh continuous-live-check offline
 - 在线流式 Agent：接入在线 ASR/LLM/TTS provider，设计系统 prompt、记忆管理、动作输出格式、fallback parser 与动作回调，实现 ASR final 到动作候选和 TTS 反馈的流式交互。
 - 离线 Agent：预留 Sherpa-onnx ZipFormer ASR、llama.cpp、Sherpa-TTS 的端侧部署结构，设计双缓冲和延迟统计，支持 mock 与真实模型 smoke 验收。
 - 连续语音控制：实现 wake/session gate、重复 ASR final 过滤、filler 过滤、命令队列、TTL、急停抢占、短命令补全和现场 monitor，提高真实麦克风长时间控制稳定性。
-- ROS 2/C++ 控制链路：基于 C++ 编写 ActionGuard、typed action bridge、仿真执行节点，将 LLM 动作 JSON 转换为强类型 RobotCommand 和 ROS 2 Action，并在 Gazebo/TurtleBot3 中验证 `/cmd_vel` 和 odom 变化。
+- ROS 2/C++ 控制链路：基于 C++ 编写 ActionGuard、typed action bridge、仿真执行节点，将 LLM 动作候选转换为强类型 RobotCommand 和 ROS 2 Action，并在 Gazebo/TurtleBot3 中验证 `/cmd_vel` 和 odom 变化。
 - 工程化与验收：引入 BehaviorTree.CPP 编排动作校验、安全检查、执行和结果确认，用 pluginlib 支持 mock/Gazebo executor，配套单元测试、集成 smoke、Gazebo 验收和真实麦克风人工验收脚本。

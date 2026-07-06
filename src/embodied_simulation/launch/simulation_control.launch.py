@@ -4,7 +4,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition, UnlessCondition
-from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import ComposableNodeContainer, LifecycleNode, Node
 from launch_ros.descriptions import ComposableNode
 from launch_ros.parameter_descriptions import ParameterValue
@@ -27,10 +27,6 @@ def generate_launch_description():
         {
             "use_sim_time": ParameterValue(
                 LaunchConfiguration("use_sim_time"), value_type=bool
-            ),
-            "legacy_command_enabled": ParameterValue(
-                PythonExpression(["'", use_typed_actions, "' != 'true'"]),
-                value_type=bool,
             ),
             "use_behavior_tree": ParameterValue(
                 use_behavior_tree, value_type=bool
