@@ -36,6 +36,7 @@ bash scripts/acceptance_test.sh --help
 | `summer-tts-preflight` | 自动/本地模型 | SummerTTS 源码、二进制和模型文件预检 |
 | `summer-tts-smoke` | 自动/本地模型 | 真实 SummerTTS C++ 二进制合成验证 |
 | `summer-pseudo-tts` | 自动/本地模型 | SummerTTS 与项目伪流式双缓冲 pipeline 集成验证 |
+| `summer-tts-service` | 自动/ROS2/C++ | 常驻 SummerTTS C++ ROS service 合成验证 |
 | `sherpa-asr-preflight` | 自动/本地模型 | ASR-only 预检：检查 `sherpa_onnx` 和 ZipFormer 模型文件 |
 | `sherpa-asr-smoke` | 自动/本地模型 | ASR-only 真实解码：用 ZipFormer test wav 验证 Sherpa provider |
 | `offline-sherpa-typed` | 自动/本地模型/ROS2 | Sherpa ASR/TTS + llama.cpp 经过 ActionGuard、typed Action 和仿真 `/cmd_vel` |
@@ -155,6 +156,7 @@ bash scripts/setup_summer_tts_runtime.sh
 bash scripts/acceptance_test.sh summer-tts-preflight
 bash scripts/acceptance_test.sh summer-tts-smoke
 bash scripts/acceptance_test.sh summer-pseudo-tts
+bash scripts/acceptance_test.sh summer-tts-service
 ```
 
 通过标准：
@@ -163,6 +165,8 @@ bash scripts/acceptance_test.sh summer-pseudo-tts
 - `third_party/SummerTTS/models/single_speaker_fast.bin` 存在。
 - `summer-tts-smoke` 能输出非空 PCM。
 - `summer-pseudo-tts` 的 `tts_pipeline.synth_calls` 为 2，且产生多个 audio chunks。
+- `summer-tts-service` 能启动 `embodied_agent_cpp/summer_tts_service`，通过 `/tts/synthesize`
+  返回 `sample_rate=16000` 和非空 PCM。
 
 常见失败定位：
 
@@ -170,8 +174,10 @@ bash scripts/acceptance_test.sh summer-pseudo-tts
   24.04/GCC 13 自动补 `<cstdint>` 兼容 include。
 - `SummerTTS runtime preflight failed`：检查 `third_party/SummerTTS` 是否完整克隆、构建是否完成。
 - 完整离线 Agent 想切换 SummerTTS：启动时设置 `tts_provider:=summer`。
-- SummerTTS 当前是命令行 provider，每句会启动进程并加载模型，因此不作为 `<300ms`
-  低延迟默认 TTS；`offline-latency` 的 TTS 指标以默认 Sherpa-TTS provider 为准。
+- 完整离线 Agent 想切换常驻 C++ service：启动时设置 `tts_provider:=summer_ros`。
+- SummerTTS 命令行 provider 每句会启动进程并加载模型；`summer_ros` 已消除这部分开销，
+  但当前 CPU infer 仍明显高于 Sherpa-TTS，因此 `offline-latency` 的 `<300ms`
+  TTS 指标仍以默认 Sherpa-TTS provider 为准。
 
 ### 2.1.3 离线低延迟指标验收
 

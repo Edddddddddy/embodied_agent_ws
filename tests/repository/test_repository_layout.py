@@ -216,6 +216,47 @@ def test_summer_tts_deployment_entrypoints_remain_available():
     assert "summer_tts_binary" in offline_launch
 
 
+def test_summer_tts_resident_ros_component_entrypoints_remain_available():
+    """SummerTTS 常驻 C++ ROS 组件化入口必须可构建、可验收、可从 Agent 选择。"""
+
+    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
+        encoding="utf-8"
+    )
+    cpp_cmake = (ROOT / "src" / "embodied_agent_cpp" / "CMakeLists.txt").read_text(
+        encoding="utf-8"
+    )
+    offline_node = (
+        ROOT
+        / "src"
+        / "embodied_offline_agent"
+        / "embodied_offline_agent"
+        / "offline_agent_node.py"
+    ).read_text(encoding="utf-8")
+    offline_launch = (
+        ROOT / "src" / "embodied_offline_agent" / "launch" / "offline_agent.launch.py"
+    ).read_text(encoding="utf-8")
+
+    assert (ROOT / "src" / "embodied_agent_interfaces" / "srv" / "SynthesizeSpeech.srv").is_file()
+    assert (
+        ROOT
+        / "src"
+        / "embodied_agent_cpp"
+        / "include"
+        / "embodied_agent_cpp"
+        / "summer_tts_service_node.hpp"
+    ).is_file()
+    assert (
+        ROOT / "src" / "embodied_agent_cpp" / "src" / "summer_tts_service_node.cpp"
+    ).is_file()
+    assert "summer_tts_component" in cpp_cmake
+    assert "rclcpp_components_register_nodes" in cpp_cmake
+    assert "summer_tts_service" in cpp_cmake
+    assert "summer-tts-service" in acceptance
+    assert "summer_tts_service_probe.py" in acceptance or "smoke_test_summer_tts_service.sh" in acceptance
+    assert "summer_ros" in offline_node
+    assert "summer_tts_service" in offline_launch
+
+
 def test_offline_runtime_versions_are_pinned_and_documented():
     """离线运行时必须有固定版本，避免第三方 main 分支漂移破坏演示。"""
 
@@ -272,7 +313,8 @@ def test_offline_latency_gate_remains_available_and_documented():
     assert "offline-latency" in readme
     assert "≤ 1000ms" in readme
     assert "≤ 300ms" in readme
-    assert "SummerTTS 当前是命令行 provider" in testing_doc
+    assert "SummerTTS 命令行 provider" in testing_doc
+    assert "tts_provider:=summer_ros" in testing_doc
 
 
 def test_nav2_live_evidence_script_keeps_control_and_scoring_together():

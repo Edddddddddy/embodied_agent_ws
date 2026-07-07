@@ -130,10 +130,21 @@ bash scripts/setup_summer_tts_runtime.sh
 bash scripts/acceptance_test.sh summer-tts-preflight
 bash scripts/acceptance_test.sh summer-tts-smoke
 bash scripts/acceptance_test.sh summer-pseudo-tts
+bash scripts/acceptance_test.sh summer-tts-service
 ```
 
 `summer-pseudo-tts` 会使用真实 SummerTTS C++ 二进制合成短文本，再通过项目的
 `PseudoStreamingTtsPipeline` 分块发布，验证“开源 C++ TTS 后端 + 双缓冲伪流式”的嵌入链路。
+`summer-tts-service` 会启动常驻 C++ ROS service，模型在节点启动时加载，后续请求通过
+`/tts/synthesize` 合成，不再每句启动命令行进程。
+
+使用常驻 SummerTTS ROS 后端：
+
+```bash
+ros2 launch embodied_offline_agent offline_agent.launch.py \
+  mode:=offline \
+  tts_provider:=summer_ros
+```
 
 低延迟验收：
 
@@ -143,7 +154,9 @@ bash scripts/acceptance_test.sh offline-latency
 
 当前低延迟默认路径为 `llama.cpp + Sherpa-TTS`：验收要求 LLM 首 token ≤ 1000ms、
 TTS 首音频 ≤ 300ms。SummerTTS 目前通过命令行二进制接入，每句会重新启动进程并加载模型，
-适合展示 C++ 离线 TTS runtime，但不作为 `<300ms` 低延迟默认 TTS；后续优化方向是常驻 C++ ROS 组件化。
+适合展示 C++ 离线 TTS runtime，但不作为 `<300ms` 低延迟默认 TTS。`summer_ros`
+已经把 SummerTTS 做成常驻 C++ ROS 组件，消除了进程/模型重复加载；当前瓶颈主要是
+SummerTTS CPU infer 本身，后续若要继续冲 `<300ms`，需要模型量化/短音频缓存/更快声码器等进一步优化。
 
 如果只想先部署和验证 Sherpa-ONNX ZipFormer ASR，可运行更轻量的 ASR-only 入口：
 

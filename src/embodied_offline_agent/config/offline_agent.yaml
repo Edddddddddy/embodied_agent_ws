@@ -51,6 +51,10 @@ offline_agent:
     summer_tts_binary: "/home/ubuntu/embodied_agent_ws/third_party/SummerTTS/build/tts_test"
     summer_tts_model: "/home/ubuntu/embodied_agent_ws/third_party/SummerTTS/models/single_speaker_fast.bin"
     summer_tts_timeout_s: 30.0
+    summer_tts_service_name: "/tts/synthesize"
+    summer_tts_service_timeout_s: 10.0
+    summer_tts_service_speaker_id: -1
+    summer_tts_service_length_scale: 0.0
     mock_token_delay_s: 0.0
 
 audio_frontend:

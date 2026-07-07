@@ -1,0 +1,9 @@
+string text
+int32 speaker_id
+float32 length_scale
+---
+bool ok
+string error
+uint32 sample_rate
+uint8[] pcm
+float32 synthesize_ms

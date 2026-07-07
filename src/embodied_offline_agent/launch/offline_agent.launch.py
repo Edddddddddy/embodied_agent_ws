@@ -61,6 +61,10 @@ def generate_launch_description():
     summer_tts_binary = LaunchConfiguration("summer_tts_binary")
     summer_tts_model = LaunchConfiguration("summer_tts_model")
     summer_tts_timeout_s = LaunchConfiguration("summer_tts_timeout_s")
+    summer_tts_service_name = LaunchConfiguration("summer_tts_service_name")
+    summer_tts_service_timeout_s = LaunchConfiguration("summer_tts_service_timeout_s")
+    summer_tts_service_speaker_id = LaunchConfiguration("summer_tts_service_speaker_id")
+    summer_tts_service_length_scale = LaunchConfiguration("summer_tts_service_length_scale")
     hardware_backend = LaunchConfiguration("hardware_backend")
     hardware_enabled = LaunchConfiguration("hardware_enabled")
     wake_word_enabled = LaunchConfiguration("wake_word_enabled")
@@ -125,6 +129,29 @@ def generate_launch_description():
             default_value="/home/ubuntu/embodied_agent_ws/third_party/SummerTTS/models/single_speaker_fast.bin",
         ),
         DeclareLaunchArgument("summer_tts_timeout_s", default_value="30.0"),
+        DeclareLaunchArgument("summer_tts_service_name", default_value="/tts/synthesize"),
+        DeclareLaunchArgument("summer_tts_service_timeout_s", default_value="10.0"),
+        DeclareLaunchArgument("summer_tts_service_speaker_id", default_value="-1"),
+        DeclareLaunchArgument("summer_tts_service_length_scale", default_value="0.0"),
+        Node(
+            package="embodied_agent_cpp",
+            executable="summer_tts_service",
+            name="summer_tts_service",
+            output="screen",
+            condition=IfCondition(
+                PythonExpression(["'", tts_provider, "' == 'summer_ros'"])
+            ),
+            parameters=[{
+                "model_path": summer_tts_model,
+                "service_name": summer_tts_service_name,
+                "speaker_id": ParameterValue(
+                    summer_tts_service_speaker_id, value_type=int
+                ),
+                "length_scale": ParameterValue(
+                    summer_tts_service_length_scale, value_type=float
+                ),
+            }],
+        ),
         DeclareLaunchArgument("hardware_backend", default_value="mock"),
         DeclareLaunchArgument("hardware_enabled", default_value="true"),
         DeclareLaunchArgument("wake_word_enabled", default_value="true"),
@@ -176,6 +203,16 @@ def generate_launch_description():
                 "summer_tts_model": summer_tts_model,
                 "summer_tts_timeout_s": ParameterValue(
                     summer_tts_timeout_s, value_type=float
+                ),
+                "summer_tts_service_name": summer_tts_service_name,
+                "summer_tts_service_timeout_s": ParameterValue(
+                    summer_tts_service_timeout_s, value_type=float
+                ),
+                "summer_tts_service_speaker_id": ParameterValue(
+                    summer_tts_service_speaker_id, value_type=int
+                ),
+                "summer_tts_service_length_scale": ParameterValue(
+                    summer_tts_service_length_scale, value_type=float
                 ),
             }],
         ),

@@ -207,6 +207,10 @@ class OfflineAgentNode(Node):
             "summer_tts_binary": "/home/ubuntu/embodied_agent_ws/third_party/SummerTTS/build/tts_test",
             "summer_tts_model": "/home/ubuntu/embodied_agent_ws/third_party/SummerTTS/models/single_speaker_fast.bin",
             "summer_tts_timeout_s": 30.0,
+            "summer_tts_service_name": "/tts/synthesize",
+            "summer_tts_service_timeout_s": 10.0,
+            "summer_tts_service_speaker_id": -1,
+            "summer_tts_service_length_scale": 0.0,
             "mock_token_delay_s": 0.0,
             "mock_asr_finals": "",
             "action_sequence_wait_timeout_s": 12.0,
@@ -285,7 +289,17 @@ class OfflineAgentNode(Node):
                 self._param("summer_tts_model"),
                 timeout_s=float(self._param("summer_tts_timeout_s")),
             )
-        raise ValueError("tts_provider must be 'sherpa' or 'summer'")
+        if provider == "summer_ros":
+            from .providers.summer_tts_ros import SummerTtsRosClient
+
+            return SummerTtsRosClient(
+                self,
+                service_name=self._param("summer_tts_service_name"),
+                timeout_s=float(self._param("summer_tts_service_timeout_s")),
+                speaker_id=int(self._param("summer_tts_service_speaker_id")),
+                length_scale=float(self._param("summer_tts_service_length_scale")),
+            )
+        raise ValueError("tts_provider must be 'sherpa', 'summer', or 'summer_ros'")
 
     def _tts_sample_rate(self):
         return int(getattr(self._tts, "sample_rate", self._param("tts_sample_rate")))

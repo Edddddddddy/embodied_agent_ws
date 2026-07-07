@@ -20,6 +20,7 @@ Automated modes:
   summer-tts-preflight Check SummerTTS source/binary/model runtime files
   summer-tts-smoke     Real SummerTTS synthesis verification
   summer-pseudo-tts    Real SummerTTS + pseudo-streaming double-buffer verification
+  summer-tts-service   Resident C++ ROS SummerTTS service smoke
   pseudo-tts          Dependency-free llama-style stream + pseudo TTS pipeline smoke
   sherpa-asr-preflight ASR-only check: sherpa_onnx import + ZipFormer model files
   sherpa-asr-smoke    ASR-only real decode on bundled ZipFormer test wav
@@ -206,6 +207,7 @@ case "$LEVEL" in
   summer-tts-preflight) check_summer_tts_runtime; python3 scripts/summer_tts_smoke.py --preflight-only ;;
   summer-tts-smoke) check_summer_tts_runtime; python3 scripts/summer_tts_smoke.py ;;
   summer-pseudo-tts) check_summer_tts_runtime; python3 scripts/smoke_test_summer_pseudo_tts.py ;;
+  summer-tts-service) bash scripts/smoke_test_summer_tts_service.sh ;;
   pseudo-tts) python3 scripts/smoke_test_pseudo_streaming_tts.py ;;
   sherpa-asr-preflight) run_sherpa_asr_preflight ;;
   sherpa-asr-smoke) run_sherpa_asr_smoke ;;
