@@ -4,6 +4,9 @@ set -euo pipefail
 WORKSPACE="${WORKSPACE:-/home/ubuntu/embodied_agent_ws}"
 MODEL_DIR="$WORKSPACE/models"
 THIRD_PARTY="$WORKSPACE/third_party"
+SHERPA_ONNX_VERSION="${SHERPA_ONNX_VERSION:-1.13.3}"
+LLAMA_CPP_REPO="${LLAMA_CPP_REPO:-https://github.com/ggml-org/llama.cpp.git}"
+LLAMA_CPP_REF="${LLAMA_CPP_REF:-0eca4d490e591d4e93058d07540cf47278a72577}"
 mkdir -p "$MODEL_DIR" "$THIRD_PARTY"
 touch "$THIRD_PARTY/COLCON_IGNORE"
 
@@ -11,7 +14,7 @@ sudo apt-get update
 sudo apt-get install -y aria2 build-essential cmake curl git ninja-build
 
 source "$WORKSPACE/.venv/bin/activate"
-python -m pip install "sherpa-onnx==1.13.3"
+python -m pip install "sherpa-onnx==$SHERPA_ONNX_VERSION"
 
 download_file() {
   local url="$1" output="$2" minimum_bytes="$3"
@@ -49,7 +52,15 @@ download_file "$TTS_REPO/phone.fst?download=true" "$TTS_DIR/phone.fst" 80000
 rm -f "$MODEL_DIR/zipformer.tar.bz2" "$MODEL_DIR/vits.tar.bz2"
 
 if [[ ! -d "$THIRD_PARTY/llama.cpp/.git" ]]; then
-  git clone --depth 1 https://github.com/ggml-org/llama.cpp.git "$THIRD_PARTY/llama.cpp"
+  git init "$THIRD_PARTY/llama.cpp"
+  git -C "$THIRD_PARTY/llama.cpp" remote add origin "$LLAMA_CPP_REPO"
+  git -C "$THIRD_PARTY/llama.cpp" fetch --depth 1 origin "$LLAMA_CPP_REF"
+  git -C "$THIRD_PARTY/llama.cpp" checkout --detach FETCH_HEAD
+else
+  CURRENT_LLAMA_REF="$(git -C "$THIRD_PARTY/llama.cpp" rev-parse HEAD)"
+  if [[ "$CURRENT_LLAMA_REF" != "$LLAMA_CPP_REF" ]]; then
+    echo "WARN: llama.cpp ref is $CURRENT_LLAMA_REF, expected $LLAMA_CPP_REF" >&2
+  fi
 fi
 cmake -S "$THIRD_PARTY/llama.cpp" -B "$THIRD_PARTY/llama.cpp/build" \
   -G Ninja -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=ON -DLLAMA_CURL=OFF

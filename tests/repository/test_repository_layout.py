@@ -216,6 +216,38 @@ def test_summer_tts_deployment_entrypoints_remain_available():
     assert "summer_tts_binary" in offline_launch
 
 
+def test_offline_runtime_versions_are_pinned_and_documented():
+    """离线运行时必须有固定版本，避免第三方 main 分支漂移破坏演示。"""
+
+    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
+        encoding="utf-8"
+    )
+    setup_offline = (ROOT / "scripts" / "setup_offline_runtime.sh").read_text(
+        encoding="utf-8"
+    )
+    setup_summer = (ROOT / "scripts" / "setup_summer_tts_runtime.sh").read_text(
+        encoding="utf-8"
+    )
+    version_probe = ROOT / "scripts" / "offline_runtime_versions.py"
+    version_doc = ROOT / "docs" / "OFFLINE_RUNTIME_VERSIONS.md"
+    version_text = version_probe.read_text(encoding="utf-8")
+    doc_text = version_doc.read_text(encoding="utf-8")
+
+    expected_llama = "0eca4d490e591d4e93058d07540cf47278a72577"
+    expected_summer = "c90e0e8d31e09c98199ab9b5a605af74c179f811"
+    expected_sherpa = "1.13.3"
+
+    assert "offline-runtime-versions" in acceptance
+    assert version_probe.is_file()
+    assert version_doc.is_file()
+    assert expected_llama in setup_offline
+    assert expected_summer in setup_summer
+    assert expected_sherpa in setup_offline
+    for expected in (expected_llama, expected_summer, expected_sherpa):
+        assert expected in version_text
+        assert expected in doc_text
+
+
 def test_nav2_live_evidence_script_keeps_control_and_scoring_together():
     """一键现场留证脚本必须同时启动控制链路与 live-check，并保存可复核报告。"""
 

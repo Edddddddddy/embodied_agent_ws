@@ -62,6 +62,7 @@ embodied_agent_ws/
 │   ├── ARCHITECTURE_AND_KNOWLEDGE.md
 │   ├── TESTING_AND_ACCEPTANCE.md
 │   ├── LEARNING_NOTES.md
+│   ├── OFFLINE_RUNTIME_VERSIONS.md
 │   └── CHANGELOG_AND_ROADMAP.md
 └── README.md
 ```
@@ -100,6 +101,7 @@ bash scripts/setup_offline_runtime.sh
 以及 `models/` 下的 Sherpa/Qwen 模型文件。SummerTTS 使用开源仓库
 [huakunyang/SummerTTS](https://github.com/huakunyang/SummerTTS)，本项目默认仍用
 Sherpa-TTS 作为稳定 fallback，需要时可通过 `tts_provider:=summer` 切换。
+当前离线运行时固定版本见 [docs/OFFLINE_RUNTIME_VERSIONS.md](docs/OFFLINE_RUNTIME_VERSIONS.md)。
 
 llama.cpp 推理层可以先单独验收，避免把 ASR、TTS、Gazebo 的问题混在一起排查：
 
@@ -107,6 +109,7 @@ llama.cpp 推理层可以先单独验收，避免把 ASR、TTS、Gazebo 的问�
 bash scripts/acceptance_test.sh llama-cpp-preflight
 bash scripts/acceptance_test.sh llama-cpp-smoke
 bash scripts/acceptance_test.sh pseudo-tts
+bash scripts/acceptance_test.sh offline-runtime-versions
 ```
 
 `llama-cpp-preflight` 会检查 `llama-server` binary、Q8 GGUF 模型、`/health` 和 `/v1/models`；

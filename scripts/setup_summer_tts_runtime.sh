@@ -4,7 +4,7 @@ set -euo pipefail
 WORKSPACE="${WORKSPACE:-/home/ubuntu/embodied_agent_ws}"
 THIRD_PARTY="${THIRD_PARTY:-$WORKSPACE/third_party}"
 SUMMER_TTS_REPO="${SUMMER_TTS_REPO:-https://github.com/huakunyang/SummerTTS.git}"
-SUMMER_TTS_REF="${SUMMER_TTS_REF:-main}"
+SUMMER_TTS_REF="${SUMMER_TTS_REF:-c90e0e8d31e09c98199ab9b5a605af74c179f811}"
 SUMMER_TTS_DIR="${SUMMER_TTS_DIR:-$THIRD_PARTY/SummerTTS}"
 SUMMER_TTS_BINARY="${SUMMER_TTS_BINARY:-$SUMMER_TTS_DIR/build/tts_test}"
 SUMMER_TTS_MODEL="${SUMMER_TTS_MODEL:-$SUMMER_TTS_DIR/models/single_speaker_fast.bin}"
@@ -16,9 +16,16 @@ sudo apt-get update
 sudo apt-get install -y build-essential cmake git
 
 if [[ ! -d "$SUMMER_TTS_DIR/.git" ]]; then
-  git clone --depth 1 --branch "$SUMMER_TTS_REF" "$SUMMER_TTS_REPO" "$SUMMER_TTS_DIR"
+  git init "$SUMMER_TTS_DIR"
+  git -C "$SUMMER_TTS_DIR" remote add origin "$SUMMER_TTS_REPO"
+  git -C "$SUMMER_TTS_DIR" fetch --depth 1 origin "$SUMMER_TTS_REF"
+  git -C "$SUMMER_TTS_DIR" checkout --detach FETCH_HEAD
 else
   echo "READY: $SUMMER_TTS_DIR"
+  CURRENT_SUMMER_REF="$(git -C "$SUMMER_TTS_DIR" rev-parse HEAD)"
+  if [[ "$CURRENT_SUMMER_REF" != "$SUMMER_TTS_REF" ]]; then
+    echo "WARN: SummerTTS ref is $CURRENT_SUMMER_REF, expected $SUMMER_TTS_REF" >&2
+  fi
 fi
 
 patch_missing_cstdint() {

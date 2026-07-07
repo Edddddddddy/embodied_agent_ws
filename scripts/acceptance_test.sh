@@ -15,6 +15,7 @@ Automated modes:
   offline             Real ZipFormer/llama.cpp/Sherpa-TTS verification
   llama-cpp-preflight Check llama.cpp binary/model plus llama-server health/models API
   llama-cpp-smoke     Low-token llama.cpp streaming chat verification
+  offline-runtime-versions Check pinned llama.cpp/SummerTTS/sherpa-onnx versions
   summer-tts-preflight Check SummerTTS source/binary/model runtime files
   summer-tts-smoke     Real SummerTTS synthesis verification
   summer-pseudo-tts    Real SummerTTS + pseudo-streaming double-buffer verification
@@ -197,6 +198,7 @@ case "$LEVEL" in
   mock) run_base ;;
   online) run_online ;;
   offline) run_offline ;;
+  offline-runtime-versions) python3 scripts/offline_runtime_versions.py --check ;;
   llama-cpp-preflight) check_llama_cpp_runtime; bash scripts/smoke_test_llama_cpp.sh preflight ;;
   llama-cpp-smoke) check_llama_cpp_runtime; bash scripts/smoke_test_llama_cpp.sh smoke ;;
   summer-tts-preflight) check_summer_tts_runtime; python3 scripts/summer_tts_smoke.py --preflight-only ;;
