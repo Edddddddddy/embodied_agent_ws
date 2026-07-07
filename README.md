@@ -417,9 +417,14 @@ bash scripts/acceptance_test.sh all
 先检查麦克风和 VAD：
 
 ```bash
+bash scripts/acceptance_test.sh wsl-microphone-preflight
 bash scripts/acceptance_test.sh voice-readiness
 python scripts/audio_frontend_calibration.py --duration 6
 ```
+
+如果 `wsl-microphone-preflight` 的 `rms` 接近 `0.0000`、`peak` 只有个位数，说明
+Windows/WSLg 没有把真实麦克风音频送进 WSL。此时优先检查 Windows 隐私设置里的麦克风权限、
+默认输入设备、WSLg 音频 source，而不是继续调低 VAD。
 
 如果环境噪声大，尝试：
 

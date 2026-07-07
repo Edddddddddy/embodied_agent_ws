@@ -43,6 +43,7 @@ Automated modes:
   kws-calibration     Dependency-free KWS score calibration smoke test
   voice-readiness     Dependency-free voice readiness smoke test
   provider-preflight  Dependency-free optional VAD/KWS provider preflight
+  wsl-microphone-preflight PulseAudio/WSLg microphone capture check before live demos
   gazebo              Typed Action physical motion verification
   gazebo-voice        Offline synthesized speech through typed Action to Gazebo
   gazebo-voice-online Online voice provider through typed Action to Gazebo
@@ -224,6 +225,7 @@ case "$LEVEL" in
   kws-calibration) bash scripts/smoke_test_kws_score_calibration.sh ;;
   voice-readiness) bash scripts/smoke_test_voice_readiness.sh ;;
   provider-preflight) pytest -q tests/integration/test_voice_provider_preflight.py ;;
+  wsl-microphone-preflight) bash scripts/wsl_microphone_preflight.sh ;;
   gazebo) run_gazebo ;;
   gazebo-voice) check_offline_runtime; USE_TYPED_ACTIONS=true bash scripts/smoke_test_gazebo_voice.sh ;;
   gazebo-voice-online) bash scripts/smoke_test_gazebo_voice_online.sh ;;

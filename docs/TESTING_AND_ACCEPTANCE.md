@@ -412,9 +412,14 @@ bash scripts/acceptance_test.sh continuous-nav2-live-report logs/nav2-live-check
 运行：
 
 ```bash
+bash scripts/acceptance_test.sh wsl-microphone-preflight
 bash scripts/acceptance_test.sh voice-readiness
 python scripts/audio_frontend_calibration.py --duration 6
 ```
+
+如果 `wsl-microphone-preflight` 录到的 `rms≈0.0000`、`peak` 只有个位数，说明
+WSLg/PulseAudio source 存在但没有真实麦克风音频。这个问题发生在 ROS 音频前端之前，
+需要先检查 Windows 麦克风权限、默认输入设备或 WSLg 音频转发。
 
 如果 speech ratio 很低，尝试：
 
