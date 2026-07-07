@@ -32,6 +32,7 @@ bash scripts/acceptance_test.sh --help
 | `online` | 自动/联网 | DashScope 在线 ASR/LLM/TTS 最小 token 验证 |
 | `offline` | 自动/本地模型 | Sherpa/llama.cpp/Sherpa-TTS 真实离线链路 |
 | `offline-runtime-versions` | 自动/本地版本 | 检查 llama.cpp、SummerTTS、sherpa-onnx 是否匹配阶段固定版本 |
+| `offline-latency` | 自动/本地模型 | 检查 llama.cpp 首 token ≤ 1s、默认 Sherpa-TTS 首音频 ≤ 300ms |
 | `summer-tts-preflight` | 自动/本地模型 | SummerTTS 源码、二进制和模型文件预检 |
 | `summer-tts-smoke` | 自动/本地模型 | 真实 SummerTTS C++ 二进制合成验证 |
 | `summer-pseudo-tts` | 自动/本地模型 | SummerTTS 与项目伪流式双缓冲 pipeline 集成验证 |
@@ -132,6 +133,7 @@ bash scripts/acceptance_test.sh llama-cpp-preflight
 bash scripts/acceptance_test.sh llama-cpp-smoke
 bash scripts/acceptance_test.sh pseudo-tts
 bash scripts/acceptance_test.sh offline-runtime-versions
+bash scripts/acceptance_test.sh offline-latency
 bash scripts/acceptance_test.sh summer-tts-preflight
 bash scripts/acceptance_test.sh summer-tts-smoke
 bash scripts/acceptance_test.sh summer-pseudo-tts
@@ -168,6 +170,25 @@ bash scripts/acceptance_test.sh summer-pseudo-tts
   24.04/GCC 13 自动补 `<cstdint>` 兼容 include。
 - `SummerTTS runtime preflight failed`：检查 `third_party/SummerTTS` 是否完整克隆、构建是否完成。
 - 完整离线 Agent 想切换 SummerTTS：启动时设置 `tts_provider:=summer`。
+- SummerTTS 当前是命令行 provider，每句会启动进程并加载模型，因此不作为 `<300ms`
+  低延迟默认 TTS；`offline-latency` 的 TTS 指标以默认 Sherpa-TTS provider 为准。
+
+### 2.1.3 离线低延迟指标验收
+
+```bash
+bash scripts/acceptance_test.sh offline-latency
+```
+
+通过标准：
+
+- `llm.first_token_ms <= 1000`。
+- `tts.provider == "sherpa"`。
+- `tts.first_audio_ms <= 300`。
+- `ok == true`。
+
+该模式会启动或复用 `llama-server`，发送一次极短流式请求，并在常驻 Sherpa-TTS
+provider 上合成短句。它验证的是当前离线 Agent 默认低延迟路径，而不是 SummerTTS
+命令行封装路径。
 
 ### 2.1.1 llama.cpp 推理层验收
 

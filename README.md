@@ -110,6 +110,7 @@ bash scripts/acceptance_test.sh llama-cpp-preflight
 bash scripts/acceptance_test.sh llama-cpp-smoke
 bash scripts/acceptance_test.sh pseudo-tts
 bash scripts/acceptance_test.sh offline-runtime-versions
+bash scripts/acceptance_test.sh offline-latency
 ```
 
 `llama-cpp-preflight` 会检查 `llama-server` binary、Q8 GGUF 模型、`/health` 和 `/v1/models`；
@@ -133,6 +134,16 @@ bash scripts/acceptance_test.sh summer-pseudo-tts
 
 `summer-pseudo-tts` 会使用真实 SummerTTS C++ 二进制合成短文本，再通过项目的
 `PseudoStreamingTtsPipeline` 分块发布，验证“开源 C++ TTS 后端 + 双缓冲伪流式”的嵌入链路。
+
+低延迟验收：
+
+```bash
+bash scripts/acceptance_test.sh offline-latency
+```
+
+当前低延迟默认路径为 `llama.cpp + Sherpa-TTS`：验收要求 LLM 首 token ≤ 1000ms、
+TTS 首音频 ≤ 300ms。SummerTTS 目前通过命令行二进制接入，每句会重新启动进程并加载模型，
+适合展示 C++ 离线 TTS runtime，但不作为 `<300ms` 低延迟默认 TTS；后续优化方向是常驻 C++ ROS 组件化。
 
 如果只想先部署和验证 Sherpa-ONNX ZipFormer ASR，可运行更轻量的 ASR-only 入口：
 

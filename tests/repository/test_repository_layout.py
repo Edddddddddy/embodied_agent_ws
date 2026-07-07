@@ -248,6 +248,33 @@ def test_offline_runtime_versions_are_pinned_and_documented():
         assert expected in doc_text
 
 
+def test_offline_latency_gate_remains_available_and_documented():
+    """LLM/TTS 延迟目标必须有可执行 gate，不能只停留在 README 声明。"""
+
+    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
+        encoding="utf-8"
+    )
+    latency_probe = ROOT / "scripts" / "offline_latency_targets.py"
+    latency_smoke = ROOT / "scripts" / "smoke_test_offline_latency.sh"
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    testing_doc = (ROOT / "docs" / "TESTING_AND_ACCEPTANCE.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "offline-latency" in acceptance
+    assert "smoke_test_offline_latency.sh" in acceptance
+    assert latency_probe.is_file()
+    assert latency_smoke.is_file()
+    probe_text = latency_probe.read_text(encoding="utf-8")
+    assert "LLM_FIRST_TOKEN_TARGET_MS = 1000.0" in probe_text
+    assert "TTS_FIRST_AUDIO_TARGET_MS = 300.0" in probe_text
+    assert "--tts-provider" in probe_text
+    assert "offline-latency" in readme
+    assert "≤ 1000ms" in readme
+    assert "≤ 300ms" in readme
+    assert "SummerTTS 当前是命令行 provider" in testing_doc
+
+
 def test_nav2_live_evidence_script_keeps_control_and_scoring_together():
     """一键现场留证脚本必须同时启动控制链路与 live-check，并保存可复核报告。"""
 

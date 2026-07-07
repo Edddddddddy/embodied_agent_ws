@@ -25,7 +25,7 @@ class PseudoStreamingTtsMetrics:
 class PseudoStreamingTtsPipeline:
     """Sentence-level pseudo streaming TTS with message/audio double buffers.
 
-    Sherpa/Sumer 类离线 TTS 通常一次生成一整句 PCM，不像云端 TTS 那样天然逐帧流式。
+    Sherpa/SummerTTS 类离线 TTS 通常一次生成一整句 PCM，不像云端 TTS 那样天然逐帧流式。
     这里把 LLM 增量文本切成短句，TTS worker 负责合成，audio worker 负责按 PCM 小块发布。
     这样 LLM、TTS、音频发布三段可以并行推进，避免“整段回复生成完才开始说话”。
     """
