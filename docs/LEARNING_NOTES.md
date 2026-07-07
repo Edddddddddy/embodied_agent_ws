@@ -293,26 +293,35 @@ bash scripts/acceptance_test.sh speaker-enroll
 - `src/embodied_offline_agent/embodied_offline_agent/providers/sherpa_tts.py`
 - `src/embodied_offline_agent/embodied_offline_agent/double_buffer.py`
 - `src/embodied_offline_agent/embodied_offline_agent/latency.py`
+- `scripts/start_llama_server.sh`
+- `scripts/llama_cpp_preflight.py`
 
 设计方式：
 
 - Sherpa ZipFormer 负责流式 ASR。
-- llama.cpp server 提供 OpenAI-compatible completion。
+- llama.cpp server 提供 OpenAI-compatible streaming completion，`LlamaCppLlm` 只暴露 `stream(messages)`，
+  让 Offline Agent 不关心底层是 llama.cpp、云 API 还是测试 fake client。
 - Sherpa-TTS 做本地语音合成。
 - 双缓冲把 LLM 文本生成与 TTS 音频输出解耦。
 - latency 模块记录离线端到端耗时。
+- llama.cpp provider 额外记录首 token、token 数、tokens/s、错误原因，并合并到 `/offline_agent/metrics`。
+- `llama_cpp_preflight.py` 把 binary、模型文件、`/health`、`/v1/models`、低 token 流式 chat 分层验证。
 
 为什么这样设计：
 
 - 端侧算力有限，离线链路必须控制模型体积和串行等待。
 - llama.cpp、Sherpa 都是轻量部署方案，适合 CPU/边缘端演示。
 - 双缓冲可以减少“LLM 等 TTS / TTS 等 LLM”的卡顿。
+- 推理层独立预检可以快速判断问题在模型服务、ASR、TTS 还是 ROS 控制链路，避免完整 demo 失败时只能猜。
+- 请求失败后只在“尚未吐出 token”时重试；如果流式回复已经输出一半，就不能静默重试，否则上游 parser 会收到拼接污染的回复。
 
 方案对比：
 
 - 全部云端：效果强，但不体现端侧部署能力。
 - Python 大模型框架直接推理：开发方便，但部署和性能压力更大。
 - llama.cpp + Sherpa：工程味更强，适合展示端侧推理思路。
+- 直接绑定 llama.cpp C API：可控性更强，但 Python/ROS2 集成和维护成本高；本项目选择 OpenAI-compatible server，
+  用网络 seam 换取更低耦合、更容易 mock 和更清晰的部署边界。
 
 ## 11. BehaviorTree.CPP 与 pluginlib 仿真执行
 

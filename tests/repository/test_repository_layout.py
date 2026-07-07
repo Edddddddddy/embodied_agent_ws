@@ -135,6 +135,40 @@ def test_sherpa_asr_deployment_entrypoints_remain_available():
     assert "RobotCommand.MOVE" in typed_text
 
 
+def test_llama_cpp_deployment_entrypoints_remain_available():
+    """llama.cpp 离线推理必须能独立预检，不能只能挂在完整离线验收里排查。"""
+
+    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
+        encoding="utf-8"
+    )
+    for mode in ("llama-cpp-preflight", "llama-cpp-smoke"):
+        assert mode in acceptance
+
+    start_script = ROOT / "scripts" / "start_llama_server.sh"
+    smoke_script = ROOT / "scripts" / "smoke_test_llama_cpp.sh"
+    preflight_script = ROOT / "scripts" / "llama_cpp_preflight.py"
+    provider = (
+        ROOT
+        / "src"
+        / "embodied_offline_agent"
+        / "embodied_offline_agent"
+        / "providers"
+        / "llama_cpp.py"
+    )
+    assert start_script.is_file()
+    assert smoke_script.is_file()
+    assert preflight_script.is_file()
+    assert provider.is_file()
+
+    start_text = start_script.read_text(encoding="utf-8")
+    preflight_text = preflight_script.read_text(encoding="utf-8")
+    provider_text = provider.read_text(encoding="utf-8")
+    assert "LLAMA_EXTRA_ARGS" in start_text
+    assert "/v1/chat/completions" in preflight_text
+    assert "LlamaCppMetrics" in provider_text
+    assert "timeout_s" in provider_text
+
+
 def test_nav2_live_evidence_script_keeps_control_and_scoring_together():
     """一键现场留证脚本必须同时启动控制链路与 live-check，并保存可复核报告。"""
 

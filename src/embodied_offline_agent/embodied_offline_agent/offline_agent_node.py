@@ -193,6 +193,9 @@ class OfflineAgentNode(Node):
             "llm_temperature": 0.7,
             "llm_max_tokens": 192,
             "llm_seed": 42,
+            "llm_timeout_s": 30.0,
+            "llm_max_retries": 1,
+            "llm_first_token_warn_ms": 1000.0,
             "tts_model_dir": "/home/ubuntu/embodied_agent_ws/models/vits-melo-tts-zh_en",
             "tts_num_threads": 2,
             "tts_speaker_id": 0,
@@ -253,6 +256,9 @@ class OfflineAgentNode(Node):
                 self._param("llm_base_url"), self._param("llm_model"),
                 self._param("llm_temperature"), self._param("llm_max_tokens"),
                 self._param("llm_seed"),
+                timeout_s=self._param("llm_timeout_s"),
+                max_retries=self._param("llm_max_retries"),
+                first_token_warn_ms=self._param("llm_first_token_warn_ms"),
             ),
             SherpaVitsTts(self._param("tts_model_dir"), self._param("tts_num_threads"), self._param("tts_speaker_id"), self._param("tts_speed")),
         )
@@ -757,6 +763,9 @@ class OfflineAgentNode(Node):
             )
             latency.finish()
             report = latency.report(message_buffer.stats.dropped, audio_buffer.stats.dropped)
+            # llama.cpp 的吞吐和首 token 指标与端到端延迟分开记录；
+            # 这样验收时能判断是 ASR、LLM 还是 TTS/动作链路导致慢。
+            report["llm_provider"] = getattr(self._llm, "last_metrics", {})
             self._metrics_pub.publish(String(data=json.dumps(report, ensure_ascii=False)))
             self.get_logger().info(f"offline latency: {report}")
         except Exception as exc:

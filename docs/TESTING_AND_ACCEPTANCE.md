@@ -124,8 +124,33 @@ bash scripts/acceptance_test.sh sherpa-asr-smoke
 
 ```bash
 bash scripts/setup_offline_runtime.sh
+bash scripts/acceptance_test.sh llama-cpp-preflight
+bash scripts/acceptance_test.sh llama-cpp-smoke
 bash scripts/acceptance_test.sh offline
 ```
+
+### 2.1.1 llama.cpp 推理层验收
+
+llama.cpp 现在有独立分层验收，建议在排查离线链路时先跑：
+
+```bash
+bash scripts/acceptance_test.sh llama-cpp-preflight
+bash scripts/acceptance_test.sh llama-cpp-smoke
+```
+
+通过标准：
+
+- `third_party/llama.cpp/build/bin/llama-server` 存在且可执行。
+- `models/Qwen3-0.6B-Q8_0.gguf` 存在。
+- `llama-server` 的 `/health`、`/v1/models` 可访问。
+- smoke 模式能从 `/v1/chat/completions` 收到流式 token，并打印 `first_token_ms`。
+
+常见失败定位：
+
+- `MISSING llama-server binary`：先运行 `bash scripts/setup_offline_runtime.sh`。
+- `MISSING GGUF model`：确认模型文件放在 `models/Qwen3-0.6B-Q8_0.gguf`，或设置 `LLAMA_MODEL`。
+- `cannot connect` / health 超时：查看 `scripts/start_llama_server.sh` 输出，降低 `LLAMA_THREADS` 或缩小 `LLAMA_CONTEXT`。
+- Offline Agent 已收到 ASR final 但无动作：查看 `/offline_agent/metrics` 的 `llm_provider` 字段和 Agent 日志。
 
 如果只想验证“Sherpa-ONNX 语音模型参与的 ROS2 typed Action 控制闭环”，运行：
 
