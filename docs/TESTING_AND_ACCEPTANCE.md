@@ -31,6 +31,9 @@ bash scripts/acceptance_test.sh --help
 | `mock` | 自动 | 构建、单测、无模型 ROS smoke 主链路 |
 | `online` | 自动/联网 | DashScope 在线 ASR/LLM/TTS 最小 token 验证 |
 | `offline` | 自动/本地模型 | Sherpa/llama.cpp/Sherpa-TTS 真实离线链路 |
+| `summer-tts-preflight` | 自动/本地模型 | SummerTTS 源码、二进制和模型文件预检 |
+| `summer-tts-smoke` | 自动/本地模型 | 真实 SummerTTS C++ 二进制合成验证 |
+| `summer-pseudo-tts` | 自动/本地模型 | SummerTTS 与项目伪流式双缓冲 pipeline 集成验证 |
 | `sherpa-asr-preflight` | 自动/本地模型 | ASR-only 预检：检查 `sherpa_onnx` 和 ZipFormer 模型文件 |
 | `sherpa-asr-smoke` | 自动/本地模型 | ASR-only 真实解码：用 ZipFormer test wav 验证 Sherpa provider |
 | `offline-sherpa-typed` | 自动/本地模型/ROS2 | Sherpa ASR/TTS + llama.cpp 经过 ActionGuard、typed Action 和仿真 `/cmd_vel` |
@@ -127,8 +130,42 @@ bash scripts/setup_offline_runtime.sh
 bash scripts/acceptance_test.sh llama-cpp-preflight
 bash scripts/acceptance_test.sh llama-cpp-smoke
 bash scripts/acceptance_test.sh pseudo-tts
+bash scripts/acceptance_test.sh summer-tts-preflight
+bash scripts/acceptance_test.sh summer-tts-smoke
+bash scripts/acceptance_test.sh summer-pseudo-tts
 bash scripts/acceptance_test.sh offline
 ```
+
+### 2.1.2 SummerTTS TTS-only 真实部署检查
+
+SummerTTS 是独立 C++ 离线语音合成项目，源码和模型部署在 `third_party/SummerTTS`。
+它和 Sherpa-TTS 的定位不同：Sherpa-TTS 通过 Python `sherpa_onnx` 包加载 ONNX/VITS
+模型；SummerTTS 通过本地 C++ `tts_test` 二进制读取文本文件和 `.bin` 模型，输出
+16kHz mono PCM wav。项目中的 `SummerTts` provider 会剥离 wav 头，返回 PCM16 bytes，
+再交给 `PseudoStreamingTtsPipeline` 做双缓冲伪流式发布。
+
+部署与验收：
+
+```bash
+bash scripts/setup_summer_tts_runtime.sh
+bash scripts/acceptance_test.sh summer-tts-preflight
+bash scripts/acceptance_test.sh summer-tts-smoke
+bash scripts/acceptance_test.sh summer-pseudo-tts
+```
+
+通过标准：
+
+- `third_party/SummerTTS/build/tts_test` 存在且可执行。
+- `third_party/SummerTTS/models/single_speaker_fast.bin` 存在。
+- `summer-tts-smoke` 能输出非空 PCM。
+- `summer-pseudo-tts` 的 `tts_pipeline.synth_calls` 为 2，且产生多个 audio chunks。
+
+常见失败定位：
+
+- `uint16_t was not declared`：直接运行 `setup_summer_tts_runtime.sh`，脚本会为 Ubuntu
+  24.04/GCC 13 自动补 `<cstdint>` 兼容 include。
+- `SummerTTS runtime preflight failed`：检查 `third_party/SummerTTS` 是否完整克隆、构建是否完成。
+- 完整离线 Agent 想切换 SummerTTS：启动时设置 `tts_provider:=summer`。
 
 ### 2.1.1 llama.cpp 推理层验收
 

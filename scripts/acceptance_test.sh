@@ -15,6 +15,9 @@ Automated modes:
   offline             Real ZipFormer/llama.cpp/Sherpa-TTS verification
   llama-cpp-preflight Check llama.cpp binary/model plus llama-server health/models API
   llama-cpp-smoke     Low-token llama.cpp streaming chat verification
+  summer-tts-preflight Check SummerTTS source/binary/model runtime files
+  summer-tts-smoke     Real SummerTTS synthesis verification
+  summer-pseudo-tts    Real SummerTTS + pseudo-streaming double-buffer verification
   pseudo-tts          Dependency-free llama-style stream + pseudo TTS pipeline smoke
   sherpa-asr-preflight ASR-only check: sherpa_onnx import + ZipFormer model files
   sherpa-asr-smoke    ASR-only real decode on bundled ZipFormer test wav
@@ -156,6 +159,13 @@ check_llama_cpp_runtime() {
   require_file third_party/llama.cpp/build/bin/llama-server
 }
 
+check_summer_tts_runtime() {
+  require_file third_party/SummerTTS/README.md
+  require_file third_party/SummerTTS/include/SynthesizerTrn.h
+  require_file third_party/SummerTTS/models/single_speaker_fast.bin
+  require_file third_party/SummerTTS/build/tts_test
+}
+
 run_sherpa_asr_preflight() {
   python3 scripts/sherpa_asr_smoke.py --preflight-only
 }
@@ -189,6 +199,9 @@ case "$LEVEL" in
   offline) run_offline ;;
   llama-cpp-preflight) check_llama_cpp_runtime; bash scripts/smoke_test_llama_cpp.sh preflight ;;
   llama-cpp-smoke) check_llama_cpp_runtime; bash scripts/smoke_test_llama_cpp.sh smoke ;;
+  summer-tts-preflight) check_summer_tts_runtime; python3 scripts/summer_tts_smoke.py --preflight-only ;;
+  summer-tts-smoke) check_summer_tts_runtime; python3 scripts/summer_tts_smoke.py ;;
+  summer-pseudo-tts) check_summer_tts_runtime; python3 scripts/smoke_test_summer_pseudo_tts.py ;;
   pseudo-tts) python3 scripts/smoke_test_pseudo_streaming_tts.py ;;
   sherpa-asr-preflight) run_sherpa_asr_preflight ;;
   sherpa-asr-smoke) run_sherpa_asr_smoke ;;

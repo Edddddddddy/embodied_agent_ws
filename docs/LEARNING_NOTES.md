@@ -283,7 +283,7 @@ bash scripts/acceptance_test.sh speaker-enroll
 
 该验收证明：speaker identity 进入 Agent、用户偏好落盘、动作执行后更新用户行为统计，并且声纹录入 seam 能采集样本文件。
 
-## 10. 离线 Agent：Sherpa、llama.cpp、Sherpa-TTS 与双缓冲
+## 10. 离线 Agent：Sherpa、llama.cpp、Sherpa-TTS/SummerTTS 与双缓冲
 
 关键代码：
 
@@ -291,19 +291,24 @@ bash scripts/acceptance_test.sh speaker-enroll
 - `src/embodied_offline_agent/embodied_offline_agent/providers/sherpa_asr.py`
 - `src/embodied_offline_agent/embodied_offline_agent/providers/llama_cpp.py`
 - `src/embodied_offline_agent/embodied_offline_agent/providers/sherpa_tts.py`
+- `src/embodied_offline_agent/embodied_offline_agent/providers/summer_tts.py`
 - `src/embodied_offline_agent/embodied_offline_agent/pseudo_streaming_tts.py`
 - `src/embodied_offline_agent/embodied_offline_agent/double_buffer.py`
 - `src/embodied_offline_agent/embodied_offline_agent/latency.py`
 - `scripts/start_llama_server.sh`
 - `scripts/llama_cpp_preflight.py`
+- `scripts/setup_summer_tts_runtime.sh`
+- `scripts/summer_tts_smoke.py`
+- `scripts/smoke_test_summer_pseudo_tts.py`
 
 设计方式：
 
 - Sherpa ZipFormer 负责流式 ASR。
 - llama.cpp server 提供 OpenAI-compatible streaming completion，`LlamaCppLlm` 只暴露 `stream(messages)`，
   让 Offline Agent 不关心底层是 llama.cpp、云 API 还是测试 fake client。
-- Sherpa-TTS 做本地语音合成。
-- `PseudoStreamingTtsPipeline` 把 Sherpa/SumerTTS 这种“整句生成”的本地 TTS 包装成伪流式：
+- Sherpa-TTS 是默认稳定 TTS provider；SummerTTS 是新增 C++ 独立编译 TTS provider，可通过 `tts_provider:=summer` 切换。
+- `SummerTts` provider 调用 `third_party/SummerTTS/build/tts_test`，输入文本文件和 `.bin` 模型，读取 16kHz mono wav 后返回 PCM16 bytes。
+- `PseudoStreamingTtsPipeline` 把 Sherpa/SummerTTS 这种“整句生成”的本地 TTS 包装成伪流式：
   LLM 文字增量先经 `SentenceChunker` 切成短句，TTS worker 合成 PCM，audio worker 再按小块发布。
 - 双缓冲把 LLM 文本生成、TTS 合成与音频输出解耦。
 - latency 模块记录离线端到端耗时。
@@ -311,14 +316,18 @@ bash scripts/acceptance_test.sh speaker-enroll
 - TTS pipeline 额外记录 `text_chunks`、`synth_calls`、`audio_chunks`、`first_text_to_first_audio_ms`，
   并合并到 `/offline_agent/metrics.tts_pipeline`。
 - `llama_cpp_preflight.py` 把 binary、模型文件、`/health`、`/v1/models`、低 token 流式 chat 分层验证。
+- `summer_tts_smoke.py` 把 SummerTTS 源码、二进制、模型和真实合成分层验证；`summer-pseudo-tts`
+  再验证真实 SummerTTS 能接入项目双缓冲伪流式 pipeline。
 
 为什么这样设计：
 
 - 端侧算力有限，离线链路必须控制模型体积和串行等待。
-- llama.cpp、Sherpa 都是轻量部署方案，适合 CPU/边缘端演示。
+- llama.cpp、Sherpa、SummerTTS 都是轻量本地部署方案，适合 CPU/边缘端演示。
 - 双缓冲可以减少“LLM 等 TTS / TTS 等 LLM”的卡顿。
 - 本地 TTS 通常不是天然流式；伪流式的关键是尽早切短句、尽早开始合成、音频按 PCM 小块发布。
 - 推理层独立预检可以快速判断问题在模型服务、ASR、TTS 还是 ROS 控制链路，避免完整 demo 失败时只能猜。
+- SummerTTS 是 C++ 项目，适合展示“端侧 C++ 运行时嵌入”；当前先用命令行 provider 保证部署简单，
+  后续可把 `include/SynthesizerTrn.h` 直接封成 ROS2 C++ 组件，减少每句加载模型的开销。
 - 请求失败后只在“尚未吐出 token”时重试；如果流式回复已经输出一半，就不能静默重试，否则上游 parser 会收到拼接污染的回复。
 
 方案对比：
@@ -326,6 +335,8 @@ bash scripts/acceptance_test.sh speaker-enroll
 - 全部云端：效果强，但不体现端侧部署能力。
 - Python 大模型框架直接推理：开发方便，但部署和性能压力更大。
 - llama.cpp + Sherpa：工程味更强，适合展示端侧推理思路。
+- SummerTTS 命令行封装：接入最快、易验收，但每句会启动进程并加载模型；适合先打通链路。
+- SummerTTS C++ 组件化封装：性能更好，可复用已加载模型，但需要维护 C++ wrapper 和 ROS2 组件生命周期。
 - 直接绑定 llama.cpp C API：可控性更强，但 Python/ROS2 集成和维护成本高；本项目选择 OpenAI-compatible server，
   用网络 seam 换取更低耦合、更容易 mock 和更清晰的部署边界。
 

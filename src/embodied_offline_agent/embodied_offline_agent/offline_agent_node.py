@@ -197,12 +197,16 @@ class OfflineAgentNode(Node):
             "llm_max_retries": 1,
             "llm_first_token_warn_ms": 1000.0,
             "tts_model_dir": "/home/ubuntu/embodied_agent_ws/models/vits-melo-tts-zh_en",
+            "tts_provider": "sherpa",
             "tts_num_threads": 2,
             "tts_speaker_id": 0,
             "tts_speed": 1.0,
             "tts_sample_rate": 44100,
             "tts_chunk_max_chars": 24,
             "tts_pcm_chunk_ms": 80,
+            "summer_tts_binary": "/home/ubuntu/embodied_agent_ws/third_party/SummerTTS/build/tts_test",
+            "summer_tts_model": "/home/ubuntu/embodied_agent_ws/third_party/SummerTTS/models/single_speaker_fast.bin",
+            "summer_tts_timeout_s": 30.0,
             "mock_token_delay_s": 0.0,
             "mock_asr_finals": "",
             "action_sequence_wait_timeout_s": 12.0,
@@ -239,7 +243,6 @@ class OfflineAgentNode(Node):
         # Native model wheels are intentionally optional in mock mode.
         from .providers.llama_cpp import LlamaCppLlm
         from .providers.sherpa_asr import SherpaZipformerAsr
-        from .providers.sherpa_tts import SherpaVitsTts
 
         return (
             SherpaZipformerAsr(
@@ -260,8 +263,32 @@ class OfflineAgentNode(Node):
                 max_retries=self._param("llm_max_retries"),
                 first_token_warn_ms=self._param("llm_first_token_warn_ms"),
             ),
-            SherpaVitsTts(self._param("tts_model_dir"), self._param("tts_num_threads"), self._param("tts_speaker_id"), self._param("tts_speed")),
+            self._create_tts_provider(),
         )
+
+    def _create_tts_provider(self):
+        provider = str(self._param("tts_provider") or "sherpa").lower()
+        if provider == "sherpa":
+            from .providers.sherpa_tts import SherpaVitsTts
+
+            return SherpaVitsTts(
+                self._param("tts_model_dir"),
+                self._param("tts_num_threads"),
+                self._param("tts_speaker_id"),
+                self._param("tts_speed"),
+            )
+        if provider == "summer":
+            from .providers.summer_tts import SummerTts
+
+            return SummerTts(
+                self._param("summer_tts_binary"),
+                self._param("summer_tts_model"),
+                timeout_s=float(self._param("summer_tts_timeout_s")),
+            )
+        raise ValueError("tts_provider must be 'sherpa' or 'summer'")
+
+    def _tts_sample_rate(self):
+        return int(getattr(self._tts, "sample_rate", self._param("tts_sample_rate")))
 
     def _mock_asr_finals(self):
         scripted = str(self._param("mock_asr_finals") or "")
@@ -664,7 +691,7 @@ class OfflineAgentNode(Node):
             publish_audio=lambda pcm: self._audio_pub.publish(
                 UInt8MultiArray(data=list(pcm))
             ),
-            sample_rate=int(self._param("tts_sample_rate")),
+            sample_rate=self._tts_sample_rate(),
             pcm_chunk_ms=int(self._param("tts_pcm_chunk_ms")),
             on_first_audio=latency.mark_first_audio,
         )

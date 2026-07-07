@@ -38,6 +38,9 @@ offline_agent:
     llm_timeout_s: 30.0
     llm_max_retries: 1
     llm_first_token_warn_ms: 1000.0
+    # tts_provider=sherpa 是当前稳定默认值；切到 summer 时会调用
+    # third_party/SummerTTS/build/tts_test，适合展示 C++ 离线 TTS runtime 接入。
+    tts_provider: sherpa
     tts_model_dir: "/home/ubuntu/embodied_agent_ws/models/vits-melo-tts-zh_en"
     tts_num_threads: 2
     tts_speaker_id: 0
@@ -45,6 +48,9 @@ offline_agent:
     tts_sample_rate: 44100
     tts_chunk_max_chars: 24
     tts_pcm_chunk_ms: 80
+    summer_tts_binary: "/home/ubuntu/embodied_agent_ws/third_party/SummerTTS/build/tts_test"
+    summer_tts_model: "/home/ubuntu/embodied_agent_ws/third_party/SummerTTS/models/single_speaker_fast.bin"
+    summer_tts_timeout_s: 30.0
     mock_token_delay_s: 0.0
 
 audio_frontend:

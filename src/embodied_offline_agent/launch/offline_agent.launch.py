@@ -57,6 +57,10 @@ def generate_launch_description():
     command_normalization_path = LaunchConfiguration("command_normalization_path")
     command_completion_enabled = LaunchConfiguration("command_completion_enabled")
     asr_commit_delay_ms = LaunchConfiguration("asr_commit_delay_ms")
+    tts_provider = LaunchConfiguration("tts_provider")
+    summer_tts_binary = LaunchConfiguration("summer_tts_binary")
+    summer_tts_model = LaunchConfiguration("summer_tts_model")
+    summer_tts_timeout_s = LaunchConfiguration("summer_tts_timeout_s")
     hardware_backend = LaunchConfiguration("hardware_backend")
     hardware_enabled = LaunchConfiguration("hardware_enabled")
     wake_word_enabled = LaunchConfiguration("wake_word_enabled")
@@ -111,6 +115,16 @@ def generate_launch_description():
         DeclareLaunchArgument("command_normalization_path", default_value=""),
         DeclareLaunchArgument("command_completion_enabled", default_value="true"),
         DeclareLaunchArgument("asr_commit_delay_ms", default_value="0"),
+        DeclareLaunchArgument("tts_provider", default_value="sherpa"),
+        DeclareLaunchArgument(
+            "summer_tts_binary",
+            default_value="/home/ubuntu/embodied_agent_ws/third_party/SummerTTS/build/tts_test",
+        ),
+        DeclareLaunchArgument(
+            "summer_tts_model",
+            default_value="/home/ubuntu/embodied_agent_ws/third_party/SummerTTS/models/single_speaker_fast.bin",
+        ),
+        DeclareLaunchArgument("summer_tts_timeout_s", default_value="30.0"),
         DeclareLaunchArgument("hardware_backend", default_value="mock"),
         DeclareLaunchArgument("hardware_enabled", default_value="true"),
         DeclareLaunchArgument("wake_word_enabled", default_value="true"),
@@ -156,6 +170,12 @@ def generate_launch_description():
                 ),
                 "asr_commit_delay_ms": ParameterValue(
                     asr_commit_delay_ms, value_type=int
+                ),
+                "tts_provider": tts_provider,
+                "summer_tts_binary": summer_tts_binary,
+                "summer_tts_model": summer_tts_model,
+                "summer_tts_timeout_s": ParameterValue(
+                    summer_tts_timeout_s, value_type=float
                 ),
             }],
         ),

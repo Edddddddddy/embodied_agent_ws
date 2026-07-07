@@ -13,7 +13,7 @@
 ## 当前能力
 
 - 在线 Agent：接入 DashScope/Qwen 兼容链路，支持在线 ASR、LLM、TTS 和流式响应。
-- 离线 Agent：预留 Sherpa-onnx ZipFormer ASR、llama.cpp、Sherpa-TTS 链路，支持 mock 和真实模型验收入口。
+- 离线 Agent：预留 Sherpa-onnx ZipFormer ASR、llama.cpp、Sherpa-TTS/SummerTTS 链路，支持 mock 和真实模型验收入口。
 - 连续语音控制：一次“小智”唤醒后，可连续说多条命令；命令排队执行，`停下/急停` 可抢占。
 - 识别鲁棒性：支持唤醒词别名、轻量 NLU 多命令识别、模糊命令归一化、短命令补全、重复 ASR final 过滤、语气词过滤、会话超时。
 - ROS 2 工程化：自定义 msg/action、C++ ActionGuard、typed action bridge、Lifecycle、BehaviorTree.CPP、pluginlib executor。
@@ -54,7 +54,7 @@ embodied_agent_ws/
 │   ├── embodied_agent_interfaces/   # RobotCommand.msg 与 ExecuteRobotCommand.action
 │   ├── embodied_agent_cpp/          # C++ 音频前端、ActionGuard、Action bridge、硬件 mock
 │   ├── embodied_online_agent/       # 在线 Agent、Qwen ASR/LLM/TTS、连续语音控制、用户记忆/声纹 sidecar
-│   ├── embodied_offline_agent/      # 离线 Agent、Sherpa/llama.cpp/Sherpa-TTS 适配
+│   ├── embodied_offline_agent/      # 离线 Agent、Sherpa/llama.cpp/Sherpa-TTS/SummerTTS 适配
 │   └── embodied_simulation/         # Gazebo/TurtleBot3 执行器、BehaviorTree、pluginlib
 ├── scripts/                         # 一键验收、连续语音、校准、smoke test
 ├── tests/                           # repository / integration 测试
@@ -90,11 +90,16 @@ cp .env.example .env
 # 编辑 .env，填入 DASHSCOPE_API_KEY
 ```
 
-离线真实模型模式需要额外准备 Sherpa-onnx、llama.cpp server、Sherpa-TTS 模型。无模型时仍可使用 mock/offline smoke 验证工程链路。
+离线真实模型模式需要额外准备 Sherpa-onnx、llama.cpp server、Sherpa-TTS 或 SummerTTS 模型。无模型时仍可使用 mock/offline smoke 验证工程链路。
 
 ```bash
 bash scripts/setup_offline_runtime.sh
 ```
+
+`setup_offline_runtime.sh` 会准备 `third_party/llama.cpp`、`third_party/SummerTTS`
+以及 `models/` 下的 Sherpa/Qwen 模型文件。SummerTTS 使用开源仓库
+[huakunyang/SummerTTS](https://github.com/huakunyang/SummerTTS)，本项目默认仍用
+Sherpa-TTS 作为稳定 fallback，需要时可通过 `tts_provider:=summer` 切换。
 
 llama.cpp 推理层可以先单独验收，避免把 ASR、TTS、Gazebo 的问题混在一起排查：
 
@@ -106,13 +111,25 @@ bash scripts/acceptance_test.sh pseudo-tts
 
 `llama-cpp-preflight` 会检查 `llama-server` binary、Q8 GGUF 模型、`/health` 和 `/v1/models`；
 `llama-cpp-smoke` 会额外发送一次低 token 流式 chat 请求；`pseudo-tts` 不依赖真实
-Sherpa/SumerTTS 模型，用假 PCM 验证“LLM token 流 -> 短句切分 -> 伪流式 TTS 双缓冲 -> 音频块发布”的工程链路。
+Sherpa/SummerTTS 模型，用假 PCM 验证“LLM token 流 -> 短句切分 -> 伪流式 TTS 双缓冲 -> 音频块发布”的工程链路。
 常用调参环境变量：
 
 ```bash
 LLAMA_THREADS=8 LLAMA_CONTEXT=2048 bash scripts/start_llama_server.sh
 LLAMA_EXTRA_ARGS="--parallel 1" bash scripts/acceptance_test.sh llama-cpp-smoke
 ```
+
+SummerTTS 可以单独部署和验收：
+
+```bash
+bash scripts/setup_summer_tts_runtime.sh
+bash scripts/acceptance_test.sh summer-tts-preflight
+bash scripts/acceptance_test.sh summer-tts-smoke
+bash scripts/acceptance_test.sh summer-pseudo-tts
+```
+
+`summer-pseudo-tts` 会使用真实 SummerTTS C++ 二进制合成短文本，再通过项目的
+`PseudoStreamingTtsPipeline` 分块发布，验证“开源 C++ TTS 后端 + 双缓冲伪流式”的嵌入链路。
 
 如果只想先部署和验证 Sherpa-ONNX ZipFormer ASR，可运行更轻量的 ASR-only 入口：
 

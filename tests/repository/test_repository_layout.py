@@ -169,6 +169,53 @@ def test_llama_cpp_deployment_entrypoints_remain_available():
     assert "timeout_s" in provider_text
 
 
+def test_summer_tts_deployment_entrypoints_remain_available():
+    """SummerTTS 是独立 C++ 离线 TTS 后端，必须能单独部署和验收。"""
+
+    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
+        encoding="utf-8"
+    )
+    for mode in ("summer-tts-preflight", "summer-tts-smoke", "summer-pseudo-tts"):
+        assert mode in acceptance
+
+    setup_script = ROOT / "scripts" / "setup_summer_tts_runtime.sh"
+    smoke_script = ROOT / "scripts" / "summer_tts_smoke.py"
+    pseudo_script = ROOT / "scripts" / "smoke_test_summer_pseudo_tts.py"
+    provider = (
+        ROOT
+        / "src"
+        / "embodied_offline_agent"
+        / "embodied_offline_agent"
+        / "providers"
+        / "summer_tts.py"
+    )
+    offline_node = (
+        ROOT
+        / "src"
+        / "embodied_offline_agent"
+        / "embodied_offline_agent"
+        / "offline_agent_node.py"
+    ).read_text(encoding="utf-8")
+    offline_launch = (
+        ROOT / "src" / "embodied_offline_agent" / "launch" / "offline_agent.launch.py"
+    ).read_text(encoding="utf-8")
+
+    assert setup_script.is_file()
+    assert smoke_script.is_file()
+    assert pseudo_script.is_file()
+    assert provider.is_file()
+
+    setup_text = setup_script.read_text(encoding="utf-8")
+    provider_text = provider.read_text(encoding="utf-8")
+    assert "huakunyang/SummerTTS" in setup_text
+    assert "patch_missing_cstdint" in setup_text
+    assert "tts_test" in provider_text
+    assert "SummerTts" in offline_node
+    assert "tts_provider" in offline_node
+    assert "tts_provider" in offline_launch
+    assert "summer_tts_binary" in offline_launch
+
+
 def test_nav2_live_evidence_script_keeps_control_and_scoring_together():
     """一键现场留证脚本必须同时启动控制链路与 live-check，并保存可复核报告。"""
 

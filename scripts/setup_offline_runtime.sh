@@ -60,4 +60,8 @@ download_file \
   "$HF_ENDPOINT/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf?download=true" \
   "$QWEN" 600000000
 
+if [[ "${SETUP_SUMMER_TTS:-true}" == "true" ]]; then
+  bash "$WORKSPACE/scripts/setup_summer_tts_runtime.sh"
+fi
+
 echo "Offline runtime ready under $WORKSPACE"
