@@ -18,6 +18,7 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
             "VOICE_SESSION_TIMEOUT": "44",
             "WAKE_WORD_ENABLED": "false",
             "SPEAKER_ENABLED": "true",
+            "PULSE_CAPTURE_BRIDGE": "false",
             "VAD_PROVIDER": "silero",
             "SPEECH_START_THRESHOLD": "0.021",
             "SPEECH_END_SILENCE_S": "0.38",
@@ -72,6 +73,7 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
     assert "VOICE_SESSION_TIMEOUT=44" in result.stdout
     assert "WAKE_WORD_ENABLED=false" in result.stdout
     assert "SPEAKER_ENABLED=true" in result.stdout
+    assert "PULSE_CAPTURE_BRIDGE=false" in result.stdout
     assert "VAD_PROVIDER=silero" in result.stdout
     assert "SPEECH_START_THRESHOLD=0.021" in result.stdout
     assert "SPEECH_END_SILENCE_S=0.38" in result.stdout
@@ -127,6 +129,31 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
     assert "livekit_wakeword_threshold:=0.63" in result.stdout
     assert "audio_enhancer:=webrtc" in result.stdout
     assert "noise_suppression_enabled:=true" in result.stdout
+
+
+def test_continuous_voice_control_can_use_wsl_pulse_capture_bridge():
+    env = os.environ.copy()
+    env.update(
+        {
+            "WORKSPACE": str(ROOT),
+            "CONTINUOUS_PRINT_CONFIG": "true",
+            "PULSE_CAPTURE_BRIDGE": "true",
+            "PULSE_CAPTURE_SOURCE": "RDPSource",
+        }
+    )
+
+    result = subprocess.run(
+        ["bash", str(ROOT / "scripts" / "continuous_voice_control.sh"), "offline"],
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+
+    assert "PULSE_CAPTURE_BRIDGE=true（active=true" in result.stdout
+    assert "PULSE_CAPTURE_SOURCE=RDPSource" in result.stdout
+    assert "capture_enabled:=false" in result.stdout
 
 
 def test_continuous_voice_control_profile_tunes_microphone_defaults():

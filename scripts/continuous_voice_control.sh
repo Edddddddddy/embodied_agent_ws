@@ -67,6 +67,8 @@ COMMAND_COMPLETION_ENABLED="${COMMAND_COMPLETION_ENABLED:-true}"
 ASR_COMMIT_DELAY_MS="${ASR_COMMIT_DELAY_MS:-$PROFILE_ASR_COMMIT_DELAY_MS}"
 WAKE_WORD_ENABLED="${WAKE_WORD_ENABLED:-true}"
 SPEAKER_ENABLED="${SPEAKER_ENABLED:-false}"
+PULSE_CAPTURE_BRIDGE="${PULSE_CAPTURE_BRIDGE:-auto}"
+PULSE_CAPTURE_SOURCE="${PULSE_CAPTURE_SOURCE:-@DEFAULT_SOURCE@}"
 VAD_PROVIDER="${VAD_PROVIDER:-energy}"
 SPEECH_START_THRESHOLD="${SPEECH_START_THRESHOLD:-$PROFILE_SPEECH_START_THRESHOLD}"
 SPEECH_END_SILENCE_S="${SPEECH_END_SILENCE_S:-$PROFILE_SPEECH_END_SILENCE_S}"
@@ -102,6 +104,18 @@ SIMULATION_READINESS_TIMEOUT="${SIMULATION_READINESS_TIMEOUT:-35.0}"
 SIMULATION_CLEANUP_STALE="${SIMULATION_CLEANUP_STALE:-false}"
 source "$WORKSPACE/scripts/activate.sh"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((140 + $$ % 80))}"
+
+PULSE_CAPTURE_BRIDGE_ACTIVE=false
+if [[ "$PULSE_CAPTURE_BRIDGE" == "true" ]]; then
+  PULSE_CAPTURE_BRIDGE_ACTIVE=true
+elif [[ "$PULSE_CAPTURE_BRIDGE" == "auto" ]]; then
+  if [[ -n "${PULSE_SERVER:-}" ]] && command -v parecord >/dev/null 2>&1; then
+    PULSE_CAPTURE_BRIDGE_ACTIVE=true
+  fi
+elif [[ "$PULSE_CAPTURE_BRIDGE" != "false" ]]; then
+  echo "unknown PULSE_CAPTURE_BRIDGE=$PULSE_CAPTURE_BRIDGE; expected auto, true, or false" >&2
+  exit 2
+fi
 
 if [[ "$MODE" != "offline" && "$MODE" != "online" ]]; then
   echo "Usage: $0 {offline|online}" >&2
@@ -139,6 +153,8 @@ COMMAND_COMPLETION_ENABLED=$COMMAND_COMPLETION_ENABLED
 ASR_COMMIT_DELAY_MS=$ASR_COMMIT_DELAY_MS
 WAKE_WORD_ENABLED=$WAKE_WORD_ENABLED
 SPEAKER_ENABLED=$SPEAKER_ENABLED
+PULSE_CAPTURE_BRIDGE=$PULSE_CAPTURE_BRIDGE（active=$PULSE_CAPTURE_BRIDGE_ACTIVE；WSLg 下用于绕过 PortAudio/ALSA 默认输入近静音问题）
+PULSE_CAPTURE_SOURCE=$PULSE_CAPTURE_SOURCE
 VAD_PROVIDER=$VAD_PROVIDER（默认 energy；安装 silero-vad 后可设为 silero）
 SPEECH_START_THRESHOLD=$SPEECH_START_THRESHOLD（energy VAD RMS 起始阈值）
 SPEECH_END_SILENCE_S=$SPEECH_END_SILENCE_S
@@ -190,13 +206,17 @@ add_optional_launch_arg() {
 
 build_launch_args() {
   LAUNCH_ARGS=(embodied_simulation voice_turtlebot3.launch.py)
+  local capture_enabled=true
+  if [[ "$PULSE_CAPTURE_BRIDGE_ACTIVE" == "true" ]]; then
+    capture_enabled=false
+  fi
   add_launch_arg gui "$GUI_ENABLED"
   add_launch_arg rviz false
   add_launch_arg launch_agent true
   add_launch_arg agent_type "$MODE"
   add_launch_arg provider_mode "$MODE"
   add_launch_arg microphone_enabled true
-  add_launch_arg capture_enabled true
+  add_launch_arg capture_enabled "$capture_enabled"
   add_launch_arg speaker_enabled "$SPEAKER_ENABLED"
   add_launch_arg vad_provider "$VAD_PROVIDER"
   add_launch_arg kws_provider "$KWS_PROVIDER"
@@ -286,11 +306,13 @@ fi
 SERVER_PID=""
 LAUNCH_PID=""
 MONITOR_PID=""
+PULSE_BRIDGE_PID=""
 cleanup() {
   [[ -z "$LAUNCH_PID" ]] || kill -TERM -- "-$LAUNCH_PID" 2>/dev/null || true
   [[ -z "$MONITOR_PID" ]] || kill -INT "$MONITOR_PID" 2>/dev/null || true
+  [[ -z "$PULSE_BRIDGE_PID" ]] || kill -INT "$PULSE_BRIDGE_PID" 2>/dev/null || true
   [[ -z "$SERVER_PID" ]] || kill "$SERVER_PID" 2>/dev/null || true
-  wait "$LAUNCH_PID" "$MONITOR_PID" "$SERVER_PID" 2>/dev/null || true
+  wait "$LAUNCH_PID" "$MONITOR_PID" "$PULSE_BRIDGE_PID" "$SERVER_PID" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
@@ -314,6 +336,17 @@ print_configuration
 build_launch_args
 setsid ros2 launch "${LAUNCH_ARGS[@]}" &
 LAUNCH_PID=$!
+if [[ "$PULSE_CAPTURE_BRIDGE_ACTIVE" == "true" ]]; then
+  python3 "$WORKSPACE/scripts/pulse_audio_capture_bridge.py" \
+    --source "$PULSE_CAPTURE_SOURCE" \
+    --sample-rate 16000 \
+    --frame-ms 20 \
+    --vad-rms-threshold "$SPEECH_START_THRESHOLD" \
+    --speech-end-silence-s "$SPEECH_END_SILENCE_S" \
+    --min-utterance-ms "$MIN_UTTERANCE_MS" \
+    --max-utterance-s "$MAX_UTTERANCE_S" &
+  PULSE_BRIDGE_PID=$!
+fi
 if [[ "$MONITOR_ENABLED" == "true" ]]; then
   python3 "$WORKSPACE/scripts/continuous_voice_monitor.py" \
     --audio-sample-limit "$MONITOR_AUDIO_SAMPLE_LIMIT" &

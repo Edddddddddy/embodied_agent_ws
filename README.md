@@ -426,6 +426,23 @@ python scripts/audio_frontend_calibration.py --duration 6
 Windows/WSLg 没有把真实麦克风音频送进 WSL。此时优先检查 Windows 隐私设置里的麦克风权限、
 默认输入设备、WSLg 音频 source，而不是继续调低 VAD。
 
+如果 `wsl-microphone-preflight` 已经 PASS，但 `continuous-offline` 里的 `[audio]`
+仍然长期接近 `rms=0.0000 peak=1`，说明 PortAudio/ALSA 默认输入没有路由到 WSLg
+PulseAudio。脚本会在检测到 `PULSE_SERVER` 和 `parecord` 时自动启用
+`pulse_audio_capture_bridge.py`，终端应显示：
+
+```text
+PULSE_CAPTURE_BRIDGE=auto（active=true）
+enhancer=pulse_bridge
+```
+
+如需手动控制：
+
+```bash
+PULSE_CAPTURE_BRIDGE=true bash scripts/acceptance_test.sh continuous-offline
+PULSE_CAPTURE_BRIDGE=false bash scripts/acceptance_test.sh continuous-offline
+```
+
 如果环境噪声大，尝试：
 
 ```bash

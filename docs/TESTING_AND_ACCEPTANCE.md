@@ -421,6 +421,18 @@ python scripts/audio_frontend_calibration.py --duration 6
 WSLg/PulseAudio source 存在但没有真实麦克风音频。这个问题发生在 ROS 音频前端之前，
 需要先检查 Windows 麦克风权限、默认输入设备或 WSLg 音频转发。
 
+如果 `wsl-microphone-preflight` 已 PASS，但 `continuous-offline` 中 C++ audio frontend
+长期只显示近静音，优先确认终端是否显示：
+
+```text
+PULSE_CAPTURE_BRIDGE=auto（active=true）
+enhancer=pulse_bridge
+```
+
+该 bridge 使用 `parecord` 从 WSLg PulseAudio 捕获 PCM，并发布项目既有
+`/audio/clean_pcm`、`/audio/frontend_metrics`、`/audio/speech_started`、
+`/audio/speech_ended`，用于绕过 WSL 中 PortAudio/ALSA 默认输入不可用的问题。
+
 如果 speech ratio 很低，尝试：
 
 ```bash
