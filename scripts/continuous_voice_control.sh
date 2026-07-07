@@ -3,7 +3,7 @@ set -euo pipefail
 WORKSPACE="${WORKSPACE:-/home/ubuntu/embodied_agent_ws}"
 MODE="${1:-offline}"
 VOICE_CONTROL_PROFILE="${VOICE_CONTROL_PROFILE:-normal}"
-# 真实麦克风现场通常没有时间逐项调 VAD/队列/纠错参数，因此提供三个预设档。
+# 真实麦克风现场通常没有时间逐项调 VAD/队列/纠错参数，因此提供几个预设档。
 # 下面的 PROFILE_* 只作为默认值；用户显式传入的环境变量会在 case 之后覆盖它们。
 PROFILE_SESSION_TIMEOUT=60
 PROFILE_COMMAND_QUEUE_SIZE=8
@@ -28,6 +28,17 @@ case "$VOICE_CONTROL_PROFILE" in
     PROFILE_MIN_UTTERANCE_MS=80
     PROFILE_MAX_UTTERANCE_S=12.0
     ;;
+  low_gain)
+    PROFILE_SESSION_TIMEOUT=75
+    PROFILE_COMMAND_QUEUE_SIZE=10
+    PROFILE_COMMAND_NORMALIZATION_FUZZY_THRESHOLD=0.82
+    PROFILE_SPEECH_START_THRESHOLD=0.0012
+    PROFILE_SPEECH_END_SILENCE_S=0.8
+    PROFILE_MIN_UTTERANCE_MS=120
+    PROFILE_MAX_UTTERANCE_S=12.0
+    PROFILE_ASR_COMMIT_DELAY_MS=450
+    PROFILE_AEC_ENABLED=false
+    ;;
   noisy_room)
     PROFILE_SESSION_TIMEOUT=45
     PROFILE_COMMAND_QUEUE_SIZE=5
@@ -39,7 +50,7 @@ case "$VOICE_CONTROL_PROFILE" in
     PROFILE_MAX_UTTERANCE_S=10.0
     ;;
   *)
-    echo "unknown VOICE_CONTROL_PROFILE=$VOICE_CONTROL_PROFILE; expected normal, quiet, or noisy_room" >&2
+    echo "unknown VOICE_CONTROL_PROFILE=$VOICE_CONTROL_PROFILE; expected normal, quiet, low_gain, or noisy_room" >&2
     exit 2
     ;;
 esac
@@ -75,7 +86,7 @@ OPENWAKEWORD_THRESHOLD="${OPENWAKEWORD_THRESHOLD:-0.5}"
 LIVEKIT_WAKEWORD_MODELS="${LIVEKIT_WAKEWORD_MODELS:-}"
 LIVEKIT_WAKEWORD_THRESHOLD="${LIVEKIT_WAKEWORD_THRESHOLD:-0.5}"
 AUDIO_ENHANCER="${AUDIO_ENHANCER:-nlms}"
-AEC_ENABLED="${AEC_ENABLED:-true}"
+AEC_ENABLED="${AEC_ENABLED:-${PROFILE_AEC_ENABLED:-true}}"
 NOISE_SUPPRESSION_ENABLED="${NOISE_SUPPRESSION_ENABLED:-false}"
 AUTO_GAIN_ENABLED="${AUTO_GAIN_ENABLED:-false}"
 GUI_ENABLED="${GUI_ENABLED:-true}"
@@ -117,7 +128,7 @@ EMBODIED_ALLOW_FASTDDS_SHM=${EMBODIED_ALLOW_FASTDDS_SHM:-false}
 终端会持续打印 [session] / [asr] / [queue] / [action] / [feedback] / [result] 链路事件。
 通过标准：至少识别 6 条 ASR final、产生 4 个以上动作、看到 [session] awake 与 sleeping，最后 /cmd_vel 归零。
 如需量化验收，请在第二终端运行：CONTINUOUS_LIVE_CHECK_DURATION=180 bash scripts/acceptance_test.sh continuous-live-check $MODE
-VOICE_CONTROL_PROFILE=$VOICE_CONTROL_PROFILE（normal/quiet/noisy_room；显式环境变量会覆盖 profile 默认值）
+VOICE_CONTROL_PROFILE=$VOICE_CONTROL_PROFILE（normal/quiet/low_gain/noisy_room；显式环境变量会覆盖 profile 默认值）
 VOICE_SESSION_TIMEOUT=$SESSION_TIMEOUT
 CONTINUOUS_COMMAND_QUEUE_SIZE=$COMMAND_QUEUE_SIZE
 COMMAND_NORMALIZATION_ENABLED=$COMMAND_NORMALIZATION_ENABLED
@@ -335,7 +346,7 @@ if [[ "$READINESS_ENABLED" == "true" ]]; then
   if python3 "$WORKSPACE/scripts/voice_control_readiness_check.py" "${readiness_args[@]}"; then
     echo "系统已就绪，可以开始说：小智"
   else
-    echo "WARN: readiness check 未完全通过；仍继续运行。建议按顺序检查：麦克风 source、SPEECH_START_THRESHOLD、VOICE_CONTROL_PROFILE=noisy_room/quiet，以及可选 KWS 模型路径。" >&2
+    echo "WARN: readiness check 未完全通过；仍继续运行。建议按顺序检查：麦克风 source、SPEECH_START_THRESHOLD、VOICE_CONTROL_PROFILE=low_gain/quiet/noisy_room，以及可选 KWS 模型路径。" >&2
   fi
 fi
 

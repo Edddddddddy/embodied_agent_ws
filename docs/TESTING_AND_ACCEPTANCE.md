@@ -397,6 +397,24 @@ python scripts/audio_frontend_calibration.py --duration 6
 VOICE_CONTROL_PROFILE=quiet bash scripts/acceptance_test.sh continuous-offline
 ```
 
+如果终端持续出现类似：
+
+```text
+[audio] rms=0.0023 peak=180 speech=False
+```
+
+这表示音频链路有输入，但输入增益低于默认 VAD 阈值。优先使用低增益 profile：
+
+```bash
+VOICE_CONTROL_PROFILE=low_gain bash scripts/acceptance_test.sh continuous-offline
+```
+
+也可以直接套用 calibration/readiness 给出的阈值，例如：
+
+```bash
+SPEECH_START_THRESHOLD=0.0012 AEC_ENABLED=false bash scripts/acceptance_test.sh continuous-offline
+```
+
 如果环境噪声持续触发，尝试：
 
 ```bash

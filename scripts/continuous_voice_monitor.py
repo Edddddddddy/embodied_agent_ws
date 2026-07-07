@@ -385,6 +385,10 @@ class MonitorStats:
                 advice.append(
                     "[advice] VAD 可能太保守：建议 VOICE_CONTROL_PROFILE=quiet，或降低 SPEECH_START_THRESHOLD。"
                 )
+            if "microphone_low_gain" in warning_set:
+                advice.append(
+                    "[advice] 麦克风输入增益偏低：建议 VOICE_CONTROL_PROFILE=low_gain，或按 suggested_vad_threshold 降低 SPEECH_START_THRESHOLD。"
+                )
             if "audio_capture_overrun" in warning_set:
                 advice.append(
                     "[advice] 麦克风输入有丢帧：关闭重负载程序，或降低 Gazebo/GUI 负载后重试。"

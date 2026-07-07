@@ -56,6 +56,36 @@ def test_continuous_nav2_voice_control_prints_nav2_launch_config():
     assert "asr_commit_delay_ms:=250" in result.stdout
 
 
+def test_continuous_nav2_voice_control_low_gain_profile_lowers_vad_and_disables_aec():
+    env = os.environ.copy()
+    env.update(
+        {
+            "WORKSPACE": str(ROOT),
+            "CONTINUOUS_PRINT_CONFIG": "true",
+            "VOICE_CONTROL_PROFILE": "low_gain",
+        }
+    )
+
+    result = subprocess.run(
+        ["bash", str(ROOT / "scripts" / "continuous_nav2_voice_control.sh"), "offline"],
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+
+    assert "VOICE_CONTROL_PROFILE=low_gain" in result.stdout
+    assert "SPEECH_START_THRESHOLD=0.0012" in result.stdout
+    assert "SPEECH_END_SILENCE_S=0.85" in result.stdout
+    assert "ASR_COMMIT_DELAY_MS=450" in result.stdout
+    assert "AEC_ENABLED=false" in result.stdout
+    assert "speech_start_threshold:=0.0012" in result.stdout
+    assert "speech_end_silence_s:=0.85" in result.stdout
+    assert "asr_commit_delay_ms:=450" in result.stdout
+    assert "aec_enabled:=false" in result.stdout
+
+
 def test_continuous_nav2_voice_control_rejects_unknown_mode():
     env = os.environ.copy()
     env.update({"WORKSPACE": str(ROOT), "CONTINUOUS_PRINT_CONFIG": "true"})

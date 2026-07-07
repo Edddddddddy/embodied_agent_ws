@@ -162,6 +162,36 @@ def test_continuous_voice_control_profile_tunes_microphone_defaults():
     assert "continuous_command_queue_size:=5" in result.stdout
 
 
+def test_continuous_voice_control_low_gain_profile_lowers_vad_and_disables_aec():
+    env = os.environ.copy()
+    env.update(
+        {
+            "WORKSPACE": str(ROOT),
+            "CONTINUOUS_PRINT_CONFIG": "true",
+            "VOICE_CONTROL_PROFILE": "low_gain",
+        }
+    )
+
+    result = subprocess.run(
+        ["bash", str(ROOT / "scripts" / "continuous_voice_control.sh"), "offline"],
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+
+    assert "VOICE_CONTROL_PROFILE=low_gain" in result.stdout
+    assert "SPEECH_START_THRESHOLD=0.0012" in result.stdout
+    assert "SPEECH_END_SILENCE_S=0.8" in result.stdout
+    assert "ASR_COMMIT_DELAY_MS=450" in result.stdout
+    assert "AEC_ENABLED=false" in result.stdout
+    assert "speech_start_threshold:=0.0012" in result.stdout
+    assert "speech_end_silence_s:=0.8" in result.stdout
+    assert "asr_commit_delay_ms:=450" in result.stdout
+    assert "aec_enabled:=false" in result.stdout
+
+
 def test_continuous_voice_control_omits_empty_optional_launch_arguments():
     env = os.environ.copy()
     env.update(
@@ -307,7 +337,7 @@ def test_continuous_voice_control_waits_for_readiness_after_launch():
     assert "--require-kws" in content
     assert "系统已就绪，可以开始说：小智" in content
     assert "麦克风 source" in content
-    assert "VOICE_CONTROL_PROFILE=noisy_room/quiet" in content
+    assert "VOICE_CONTROL_PROFILE=low_gain/quiet/noisy_room" in content
 
 
 def test_online_and_offline_publish_queue_rejected_feedback():

@@ -309,6 +309,35 @@ def test_monitor_stats_summarizes_audio_health_and_recommended_profile():
     assert "VOICE_CONTROL_PROFILE=noisy_room" in summary
 
 
+def test_monitor_stats_advises_low_gain_profile_for_low_peak_audio():
+    stats = monitor.MonitorStats()
+    for rms, peak in ((0.0003, 23), (0.0023, 180)):
+        stats.record_audio(
+            json.dumps(
+                {
+                    "rms": rms,
+                    "peak": peak,
+                    "speech": False,
+                    "dropped_input_frames": 0,
+                    "dropped_playback_chunks": 0,
+                    "vad_provider": "energy",
+                    "audio_enhancer_requested": "nlms",
+                    "audio_enhancer_active": "nlms",
+                    "aec_active": True,
+                    "noise_suppression_active": False,
+                    "auto_gain_active": False,
+                },
+                ensure_ascii=False,
+            )
+        )
+
+    summary = stats.format_summary()
+
+    assert "profile=low_gain" in summary
+    assert "warnings=microphone_low_gain" in summary
+    assert "VOICE_CONTROL_PROFILE=low_gain" in summary
+
+
 def test_monitor_stats_advises_when_no_asr_arrives():
     stats = monitor.MonitorStats()
 

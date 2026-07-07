@@ -332,12 +332,14 @@ bash scripts/acceptance_test.sh continuous-live-check online
 
 - `SPEECH_END_SILENCE_S`：VAD 判定一句话结束前等待的静音时长。
 - `ASR_COMMIT_DELAY_MS`：收到 `/audio/speech_ended` 后，Agent 再延迟提交 ASR final 的时间。
-- `VOICE_CONTROL_PROFILE`：`quiet`、`normal`、`noisy_room` 三种预设。
+- `VOICE_CONTROL_PROFILE`：`normal`、`quiet`、`low_gain`、`noisy_room` 四种预设。
+  - `low_gain` 用于 WSL/笔记本麦克风输入很低的场景，例如 `rms≈0.002`、`peak<300` 且 `speech=False`。
 
 示例：
 
 ```bash
 VOICE_CONTROL_PROFILE=noisy_room bash scripts/acceptance_test.sh continuous-offline
+VOICE_CONTROL_PROFILE=low_gain bash scripts/acceptance_test.sh continuous-offline
 ASR_COMMIT_DELAY_MS=500 bash scripts/acceptance_test.sh continuous-offline
 ```
 
@@ -402,6 +404,19 @@ python scripts/audio_frontend_calibration.py --duration 6
 
 ```bash
 VOICE_CONTROL_PROFILE=noisy_room bash scripts/acceptance_test.sh continuous-offline
+```
+
+如果能看到 `[audio] rms/peak` 打印，但始终 `speech=False`，并且数值类似
+`rms=0.0023 peak=180`，说明麦克风输入增益太低，默认 VAD 阈值过高。优先尝试：
+
+```bash
+VOICE_CONTROL_PROFILE=low_gain bash scripts/acceptance_test.sh continuous-offline
+```
+
+或按 readiness/calibration 输出的建议手动套阈值：
+
+```bash
+SPEECH_START_THRESHOLD=0.0012 AEC_ENABLED=false bash scripts/acceptance_test.sh continuous-offline
 ```
 
 ### 识别到“左转/前进”但漏掉数字

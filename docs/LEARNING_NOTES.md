@@ -137,7 +137,7 @@
 - C++ audio frontend 发布 `/audio/clean_pcm`、`/audio/speech_started`、`/audio/speech_ended`、`/audio/silence_timeout`。
 - Agent 收到 endpoint 后调用 ASR commit。
 - `asr_commit_delay_ms` 允许在 endpoint 后等待少量时间，再提交 final。
-- `VOICE_CONTROL_PROFILE` 提供 quiet、normal、noisy_room 三种参数预设。
+- `VOICE_CONTROL_PROFILE` 提供 normal、quiet、low_gain、noisy_room 四种参数预设。
 
 为什么这样设计：
 
