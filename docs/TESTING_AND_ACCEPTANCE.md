@@ -126,6 +126,7 @@ bash scripts/acceptance_test.sh sherpa-asr-smoke
 bash scripts/setup_offline_runtime.sh
 bash scripts/acceptance_test.sh llama-cpp-preflight
 bash scripts/acceptance_test.sh llama-cpp-smoke
+bash scripts/acceptance_test.sh pseudo-tts
 bash scripts/acceptance_test.sh offline
 ```
 
@@ -136,6 +137,7 @@ llama.cpp 现在有独立分层验收，建议在排查离线链路时先跑：
 ```bash
 bash scripts/acceptance_test.sh llama-cpp-preflight
 bash scripts/acceptance_test.sh llama-cpp-smoke
+bash scripts/acceptance_test.sh pseudo-tts
 ```
 
 通过标准：
@@ -144,6 +146,7 @@ bash scripts/acceptance_test.sh llama-cpp-smoke
 - `models/Qwen3-0.6B-Q8_0.gguf` 存在。
 - `llama-server` 的 `/health`、`/v1/models` 可访问。
 - smoke 模式能从 `/v1/chat/completions` 收到流式 token，并打印 `first_token_ms`。
+- `pseudo-tts` 能证明 token 流产生的短句被伪流式 TTS pipeline 异步合成并发布音频块。
 
 常见失败定位：
 

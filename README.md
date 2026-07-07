@@ -101,10 +101,13 @@ llama.cpp 推理层可以先单独验收，避免把 ASR、TTS、Gazebo 的问�
 ```bash
 bash scripts/acceptance_test.sh llama-cpp-preflight
 bash scripts/acceptance_test.sh llama-cpp-smoke
+bash scripts/acceptance_test.sh pseudo-tts
 ```
 
 `llama-cpp-preflight` 会检查 `llama-server` binary、Q8 GGUF 模型、`/health` 和 `/v1/models`；
-`llama-cpp-smoke` 会额外发送一次低 token 流式 chat 请求。常用调参环境变量：
+`llama-cpp-smoke` 会额外发送一次低 token 流式 chat 请求；`pseudo-tts` 不依赖真实
+Sherpa/SumerTTS 模型，用假 PCM 验证“LLM token 流 -> 短句切分 -> 伪流式 TTS 双缓冲 -> 音频块发布”的工程链路。
+常用调参环境变量：
 
 ```bash
 LLAMA_THREADS=8 LLAMA_CONTEXT=2048 bash scripts/start_llama_server.sh
@@ -215,11 +218,13 @@ bash scripts/acceptance_test.sh online
 ```bash
 bash scripts/acceptance_test.sh llama-cpp-preflight
 bash scripts/acceptance_test.sh llama-cpp-smoke
+bash scripts/acceptance_test.sh pseudo-tts
 bash scripts/acceptance_test.sh offline
 ```
 
 离线 Agent 的 `/offline_agent/metrics` 会包含 `llm_provider` 字段，用于查看 llama.cpp
-首 token 延迟、token 数和 tokens/s。如果失败信息指向 `cannot connect to llama-server`，
+首 token 延迟、token 数和 tokens/s；同时包含 `tts_pipeline` 字段，用于查看伪流式
+TTS 的文本块数、合成调用次数、音频块数和首文本到首音频耗时。如果失败信息指向 `cannot connect to llama-server`，
 先单独运行上面的 `llama-cpp-preflight/smoke`。
 
 Sherpa-ONNX 语音模型参与的 typed Action 仿真控制闭环：

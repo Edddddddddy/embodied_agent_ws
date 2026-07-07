@@ -30,8 +30,8 @@ from embodied_online_agent.user_memory import (
 from embodied_online_agent.wake_event_input import parse_external_wake_event
 from embodied_online_agent.wakeword import WakeWordGate
 
-from .double_buffer import DoubleBuffer
 from .latency import OfflineLatency
+from .pseudo_streaming_tts import PseudoStreamingTtsPipeline
 from .providers.mock import MockOfflineAsr, MockOfflineLlm, MockOfflineTts
 
 
@@ -659,39 +659,16 @@ class OfflineAgentNode(Node):
         )
 
     def _run_turn(self, user_text, latency):
-        message_buffer = DoubleBuffer[str](drop_oldest=False)
-        audio_buffer = DoubleBuffer[bytes](drop_oldest=False)
-        errors = []
-
-        def tts_worker():
-            try:
-                while True:
-                    text = message_buffer.get()
-                    pcm = self._tts.synthesize(text)
-                    bytes_per_chunk = max(2, int(self._param("tts_sample_rate") * self._param("tts_pcm_chunk_ms") / 1000) * 2)
-                    for offset in range(0, len(pcm), bytes_per_chunk):
-                        if not audio_buffer.put(pcm[offset : offset + bytes_per_chunk], timeout=5.0):
-                            raise TimeoutError("audio double buffer remained full")
-            except StopIteration:
-                pass
-            except Exception as exc:
-                errors.append(exc)
-            finally:
-                audio_buffer.close()
-
-        def audio_worker():
-            try:
-                while True:
-                    pcm = audio_buffer.get()
-                    latency.mark_first_audio()
-                    self._audio_pub.publish(UInt8MultiArray(data=list(pcm)))
-            except StopIteration:
-                return
-
-        tts_thread = threading.Thread(target=tts_worker, daemon=True)
-        audio_thread = threading.Thread(target=audio_worker, daemon=True)
-        tts_thread.start()
-        audio_thread.start()
+        tts_pipeline = PseudoStreamingTtsPipeline(
+            synthesize=self._tts.synthesize,
+            publish_audio=lambda pcm: self._audio_pub.publish(
+                UInt8MultiArray(data=list(pcm))
+            ),
+            sample_rate=int(self._param("tts_sample_rate")),
+            pcm_chunk_ms=int(self._param("tts_pcm_chunk_ms")),
+            on_first_audio=latency.mark_first_audio,
+        )
+        tts_pipeline.start()
         parser = TaggedStreamParser()
         chunker = SentenceChunker(self._param("tts_chunk_max_chars"))
         speech_parts = []
@@ -719,7 +696,7 @@ class OfflineAgentNode(Node):
                     self._response_delta_pub.publish(String(data=delta))
                     for sentence in chunker.feed(delta):
                         self._publish_state("speaking")
-                        if not message_buffer.put(sentence, timeout=5.0):
+                        if not tts_pipeline.put_text(sentence):
                             raise TimeoutError("message double buffer remained full")
                 model_actions.extend(events.actions)
             final = parser.finish()
@@ -737,20 +714,14 @@ class OfflineAgentNode(Node):
                 speech_parts.append(fallback)
                 self._response_delta_pub.publish(String(data=fallback))
                 for sentence in chunker.feed(fallback):
-                    if not message_buffer.put(sentence, timeout=5.0):
+                    if not tts_pipeline.put_text(sentence):
                         raise TimeoutError("message double buffer remained full")
             for sentence in chunker.finish():
-                if not message_buffer.put(sentence, timeout=5.0):
+                if not tts_pipeline.put_text(sentence):
                     raise TimeoutError("message double buffer remained full")
             for error in final.errors:
                 self.get_logger().warning(error)
-            message_buffer.close()
-            tts_thread.join(timeout=60.0)
-            audio_thread.join(timeout=60.0)
-            if tts_thread.is_alive() or audio_thread.is_alive():
-                raise TimeoutError("offline TTS pipeline did not drain")
-            if errors:
-                raise errors[0]
+            tts_metrics = tts_pipeline.close_and_wait(timeout_s=60.0)
             assistant_text = "".join(speech_parts).strip()
             self._response_pub.publish(String(data=assistant_text))
             self._memory.append_turn(user_text, assistant_text)
@@ -762,15 +733,18 @@ class OfflineAgentNode(Node):
                 success=True,
             )
             latency.finish()
-            report = latency.report(message_buffer.stats.dropped, audio_buffer.stats.dropped)
+            report = latency.report(
+                tts_metrics.message_buffer_dropped,
+                tts_metrics.audio_buffer_dropped,
+            )
             # llama.cpp 的吞吐和首 token 指标与端到端延迟分开记录；
             # 这样验收时能判断是 ASR、LLM 还是 TTS/动作链路导致慢。
             report["llm_provider"] = getattr(self._llm, "last_metrics", {})
+            report["tts_pipeline"] = tts_metrics.as_dict()
             self._metrics_pub.publish(String(data=json.dumps(report, ensure_ascii=False)))
             self.get_logger().info(f"offline latency: {report}")
         except Exception as exc:
-            message_buffer.abort()
-            audio_buffer.abort()
+            tts_pipeline.abort()
             self.get_logger().error(f"offline turn failed: {exc}")
             self._publish_state("error")
         finally:

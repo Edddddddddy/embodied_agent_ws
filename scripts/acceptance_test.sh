@@ -15,6 +15,7 @@ Automated modes:
   offline             Real ZipFormer/llama.cpp/Sherpa-TTS verification
   llama-cpp-preflight Check llama.cpp binary/model plus llama-server health/models API
   llama-cpp-smoke     Low-token llama.cpp streaming chat verification
+  pseudo-tts          Dependency-free llama-style stream + pseudo TTS pipeline smoke
   sherpa-asr-preflight ASR-only check: sherpa_onnx import + ZipFormer model files
   sherpa-asr-smoke    ASR-only real decode on bundled ZipFormer test wav
   offline-sherpa-typed Real Sherpa ASR/TTS + llama.cpp through typed Action simulation
@@ -188,6 +189,7 @@ case "$LEVEL" in
   offline) run_offline ;;
   llama-cpp-preflight) check_llama_cpp_runtime; bash scripts/smoke_test_llama_cpp.sh preflight ;;
   llama-cpp-smoke) check_llama_cpp_runtime; bash scripts/smoke_test_llama_cpp.sh smoke ;;
+  pseudo-tts) python3 scripts/smoke_test_pseudo_streaming_tts.py ;;
   sherpa-asr-preflight) run_sherpa_asr_preflight ;;
   sherpa-asr-smoke) run_sherpa_asr_smoke ;;
   offline-sherpa-typed) check_offline_runtime; bash scripts/smoke_test_offline_sherpa_typed_simulation.sh ;;

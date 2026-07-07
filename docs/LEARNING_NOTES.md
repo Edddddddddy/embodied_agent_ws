@@ -291,6 +291,7 @@ bash scripts/acceptance_test.sh speaker-enroll
 - `src/embodied_offline_agent/embodied_offline_agent/providers/sherpa_asr.py`
 - `src/embodied_offline_agent/embodied_offline_agent/providers/llama_cpp.py`
 - `src/embodied_offline_agent/embodied_offline_agent/providers/sherpa_tts.py`
+- `src/embodied_offline_agent/embodied_offline_agent/pseudo_streaming_tts.py`
 - `src/embodied_offline_agent/embodied_offline_agent/double_buffer.py`
 - `src/embodied_offline_agent/embodied_offline_agent/latency.py`
 - `scripts/start_llama_server.sh`
@@ -302,9 +303,13 @@ bash scripts/acceptance_test.sh speaker-enroll
 - llama.cpp server 提供 OpenAI-compatible streaming completion，`LlamaCppLlm` 只暴露 `stream(messages)`，
   让 Offline Agent 不关心底层是 llama.cpp、云 API 还是测试 fake client。
 - Sherpa-TTS 做本地语音合成。
-- 双缓冲把 LLM 文本生成与 TTS 音频输出解耦。
+- `PseudoStreamingTtsPipeline` 把 Sherpa/SumerTTS 这种“整句生成”的本地 TTS 包装成伪流式：
+  LLM 文字增量先经 `SentenceChunker` 切成短句，TTS worker 合成 PCM，audio worker 再按小块发布。
+- 双缓冲把 LLM 文本生成、TTS 合成与音频输出解耦。
 - latency 模块记录离线端到端耗时。
 - llama.cpp provider 额外记录首 token、token 数、tokens/s、错误原因，并合并到 `/offline_agent/metrics`。
+- TTS pipeline 额外记录 `text_chunks`、`synth_calls`、`audio_chunks`、`first_text_to_first_audio_ms`，
+  并合并到 `/offline_agent/metrics.tts_pipeline`。
 - `llama_cpp_preflight.py` 把 binary、模型文件、`/health`、`/v1/models`、低 token 流式 chat 分层验证。
 
 为什么这样设计：
@@ -312,6 +317,7 @@ bash scripts/acceptance_test.sh speaker-enroll
 - 端侧算力有限，离线链路必须控制模型体积和串行等待。
 - llama.cpp、Sherpa 都是轻量部署方案，适合 CPU/边缘端演示。
 - 双缓冲可以减少“LLM 等 TTS / TTS 等 LLM”的卡顿。
+- 本地 TTS 通常不是天然流式；伪流式的关键是尽早切短句、尽早开始合成、音频按 PCM 小块发布。
 - 推理层独立预检可以快速判断问题在模型服务、ASR、TTS 还是 ROS 控制链路，避免完整 demo 失败时只能猜。
 - 请求失败后只在“尚未吐出 token”时重试；如果流式回复已经输出一半，就不能静默重试，否则上游 parser 会收到拼接污染的回复。
 
