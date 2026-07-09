@@ -153,6 +153,8 @@
 - `voice_calibration_report.py` 把 provider preflight、audio calibration、KWS score calibration
   汇总成 `logs/voice_calibration_report.json/.md`，并额外生成可 `source` 的
   `logs/voice_calibration.env`，用于真实麦克风演示前保存和复用调参证据。
+- `continuous_voice_control.sh` 支持 `APPLY_VOICE_CALIBRATION=true`，会在 profile 默认值计算前
+  加载 `logs/voice_calibration.env`，避免推荐阈值被 normal/quiet/noisy_room 预设覆盖。
 
 为什么这样设计：
 

@@ -524,6 +524,12 @@ source logs/voice_calibration.env
 bash scripts/acceptance_test.sh continuous-offline
 ```
 
+也可以让连续语音脚本启动时自动加载这份校准文件：
+
+```bash
+APPLY_VOICE_CALIBRATION=true bash scripts/acceptance_test.sh continuous-offline
+```
+
 `audio_frontend_calibration.py` 会输出更细的 `recommended_environment` 和 `next_command`。
 如果它建议 `VOICE_CONTROL_PROFILE=low_gain` 或更低 `SPEECH_START_THRESHOLD`，
 可以直接复制 `next_command` 重新启动连续语音验收。

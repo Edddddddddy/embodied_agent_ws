@@ -247,6 +247,46 @@ def test_continuous_voice_control_low_gain_profile_lowers_vad_and_disables_aec()
     assert "aec_enabled:=false" in result.stdout
 
 
+def test_continuous_voice_control_can_apply_calibration_env(tmp_path):
+    calibration_env = tmp_path / "voice_calibration.env"
+    calibration_env.write_text(
+        "\n".join(
+            [
+                "export VOICE_CONTROL_PROFILE=low_gain",
+                "export SPEECH_START_THRESHOLD=0.0016",
+                "export VAD_PROVIDER=energy",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env.update(
+        {
+            "WORKSPACE": str(ROOT),
+            "CONTINUOUS_PRINT_CONFIG": "true",
+            "APPLY_VOICE_CALIBRATION": "true",
+            "VOICE_CALIBRATION_ENV": str(calibration_env),
+        }
+    )
+
+    result = subprocess.run(
+        ["bash", str(ROOT / "scripts" / "continuous_voice_control.sh"), "offline"],
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+
+    assert "APPLY_VOICE_CALIBRATION=true" in result.stdout
+    assert f"VOICE_CALIBRATION_ENV={calibration_env}（applied=true）" in result.stdout
+    assert "VOICE_CONTROL_PROFILE=low_gain" in result.stdout
+    assert "SPEECH_START_THRESHOLD=0.0016" in result.stdout
+    assert "VAD_PROVIDER=energy" in result.stdout
+    assert "speech_start_threshold:=0.0016" in result.stdout
+
+
 def test_continuous_voice_control_omits_empty_optional_launch_arguments():
     env = os.environ.copy()
     env.update(

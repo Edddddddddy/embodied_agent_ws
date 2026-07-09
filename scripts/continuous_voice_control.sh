@@ -2,6 +2,23 @@
 set -euo pipefail
 WORKSPACE="${WORKSPACE:-/home/ubuntu/embodied_agent_ws}"
 MODE="${1:-offline}"
+APPLY_VOICE_CALIBRATION="${APPLY_VOICE_CALIBRATION:-false}"
+VOICE_CALIBRATION_ENV="${VOICE_CALIBRATION_ENV:-$WORKSPACE/logs/voice_calibration.env}"
+VOICE_CALIBRATION_ENV_APPLIED=false
+if [[ "$APPLY_VOICE_CALIBRATION" == "true" ]]; then
+  if [[ -f "$VOICE_CALIBRATION_ENV" ]]; then
+    # 该文件由 voice_calibration_report.py 生成，只包含 export KEY=value。
+    # 在 profile 计算前加载，才能让推荐的 VOICE_CONTROL_PROFILE/SPEECH_START_THRESHOLD 生效。
+    # shellcheck source=/dev/null
+    source "$VOICE_CALIBRATION_ENV"
+    VOICE_CALIBRATION_ENV_APPLIED=true
+  else
+    echo "WARN: APPLY_VOICE_CALIBRATION=true but VOICE_CALIBRATION_ENV not found: $VOICE_CALIBRATION_ENV" >&2
+  fi
+elif [[ "$APPLY_VOICE_CALIBRATION" != "false" ]]; then
+  echo "unknown APPLY_VOICE_CALIBRATION=$APPLY_VOICE_CALIBRATION; expected true or false" >&2
+  exit 2
+fi
 VOICE_CONTROL_PROFILE="${VOICE_CONTROL_PROFILE:-normal}"
 # 真实麦克风现场通常没有时间逐项调 VAD/队列/纠错参数，因此提供几个预设档。
 # 下面的 PROFILE_* 只作为默认值；用户显式传入的环境变量会在 case 之后覆盖它们。
@@ -179,6 +196,8 @@ EMBODIED_ALLOW_FASTDDS_SHM=${EMBODIED_ALLOW_FASTDDS_SHM:-false}
 通过标准：至少识别 6 条 ASR final、产生 4 个以上动作、看到 [session] awake 与 sleeping，最后 /cmd_vel 归零。
 如需量化验收，请在第二终端运行：CONTINUOUS_LIVE_CHECK_DURATION=180 bash scripts/acceptance_test.sh continuous-live-check $MODE
 VOICE_CONTROL_PROFILE=$VOICE_CONTROL_PROFILE（normal/quiet/low_gain/noisy_room；显式环境变量会覆盖 profile 默认值）
+APPLY_VOICE_CALIBRATION=$APPLY_VOICE_CALIBRATION（true 时启动前 source 校准 env 文件）
+VOICE_CALIBRATION_ENV=$VOICE_CALIBRATION_ENV（applied=$VOICE_CALIBRATION_ENV_APPLIED）
 VOICE_SESSION_TIMEOUT=$SESSION_TIMEOUT
 CONTINUOUS_COMMAND_QUEUE_SIZE=$COMMAND_QUEUE_SIZE
 COMMAND_NORMALIZATION_ENABLED=$COMMAND_NORMALIZATION_ENABLED

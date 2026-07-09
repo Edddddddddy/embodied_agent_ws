@@ -741,6 +741,9 @@ def test_audio_calibration_outputs_copyable_live_demo_advice():
     readiness = (ROOT / "scripts" / "voice_control_readiness_check.py").read_text(
         encoding="utf-8"
     )
+    continuous = (ROOT / "scripts" / "continuous_voice_control.sh").read_text(
+        encoding="utf-8"
+    )
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     acceptance_doc = (ROOT / "docs" / "TESTING_AND_ACCEPTANCE.md").read_text(
         encoding="utf-8"
@@ -762,6 +765,9 @@ def test_audio_calibration_outputs_copyable_live_demo_advice():
     assert "recommended_environment" in bundle
     assert "logs/audio_calibration.json" in readme
     assert "voice-calibration-report" in readme
+    assert "APPLY_VOICE_CALIBRATION" in readme
+    assert "APPLY_VOICE_CALIBRATION" in continuous
+    assert "VOICE_CALIBRATION_ENV_APPLIED" in continuous
     assert "recommended_environment" in acceptance_doc
 
 

@@ -588,6 +588,12 @@ source logs/voice_calibration.env
 bash scripts/acceptance_test.sh continuous-offline
 ```
 
+如果不想手动 `source`，也可以让连续语音脚本启动时自动加载默认校准文件：
+
+```bash
+APPLY_VOICE_CALIBRATION=true bash scripts/acceptance_test.sh continuous-offline
+```
+
 `audio_frontend_calibration.py` 的文本输出会给出更底层的 `recommended environment` 和 `next command`；
 JSON 输出会保留 `recommended_environment`、`suggested_vad_threshold`、`next_command`，
 可作为真实麦克风演示前的校准证据。
