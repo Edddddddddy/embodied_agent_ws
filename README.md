@@ -393,7 +393,16 @@ CONTINUOUS_SAMPLE_LOG=logs/asr_nlu_samples.jsonl \
 ```
 
 该文件会记录 `/agent/asr_final`、归一化/补全/NLU feedback、动作候选和 result。
-演示后可以挑选失败样本补进 `training/robot_instruction_eval.jsonl`。
+演示后先转成待审核候选集，再挑选失败样本补进 `training/robot_instruction_eval.jsonl`：
+
+```bash
+ASR_NLU_SAMPLES_SYNTHETIC=false \
+  ASR_NLU_SAMPLE_LOG=logs/asr_nlu_samples.jsonl \
+  bash scripts/acceptance_test.sh asr-nlu-samples-to-eval
+```
+
+输出 `logs/asr_nlu_eval_candidates.jsonl`。其中的 `suggested_eval_case` 已接近
+`training/robot_instruction_eval.jsonl` schema，但仍建议人工检查动作是否符合真实意图后再合入。
 
 另开一个终端做人工验收统计：
 

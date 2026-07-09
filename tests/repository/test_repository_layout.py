@@ -45,6 +45,7 @@ def test_critical_full_chain_probes_remain_discoverable():
         "test_continuous_voice_control_script.py",
         "test_continuous_nav2_voice_control_script.py",
         "test_continuous_voice_monitor.py",
+        "test_asr_nlu_samples_to_eval_candidates.py",
         "test_continuous_kws_sidecar.py",
         "test_voice_provider_preflight.py",
         "test_audio_frontend_calibration.py",
@@ -96,6 +97,17 @@ def test_voice_navigation_acceptance_entrypoints_remain_available():
         ROOT / "src" / "embodied_simulation" / "launch" / "voice_nav2_turtlebot3.launch.py"
     ).is_file()
     assert (ROOT / "src" / "embodied_simulation" / "config" / "places.yaml").is_file()
+
+
+def test_real_asr_sample_eval_loop_entrypoints_remain_available():
+    """真实 ASR 错词/多命令样本要能从现场日志沉淀为评估候选集。"""
+
+    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
+        encoding="utf-8"
+    )
+    assert "asr-nlu-samples-to-eval" in acceptance
+    assert (ROOT / "scripts" / "asr_nlu_samples_to_eval_candidates.py").is_file()
+    assert (ROOT / "training" / "robot_instruction_eval.jsonl").is_file()
 
 
 def test_sherpa_asr_deployment_entrypoints_remain_available():

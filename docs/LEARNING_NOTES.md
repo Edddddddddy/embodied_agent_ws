@@ -251,12 +251,17 @@
 - 每个动作候选带 `request_id`，ActionGuard 映射成 `RobotCommand.command_id`，用于 result 关联。
 - monitor 支持 `CONTINUOUS_SAMPLE_LOG=logs/asr_nlu_samples.jsonl`，把真实 ASR final、
   NLU/补全/归一化 feedback、动作候选和 result 写成 JSONL，方便把现场错词沉淀成回归集。
+- `scripts/asr_nlu_samples_to_eval_candidates.py` 会把这些运行时事件按 `asr_final`
+  分组，生成 `logs/asr_nlu_eval_candidates.jsonl`；候选样本带 `suggested_eval_case`，
+  人工确认后即可补进 `training/robot_instruction_eval.jsonl`。
 
 为什么这样设计：
 
 - 纯字符串 split 对无标点语音不稳，例如“向右转向前走一秒”。
 - 大模型理解更强，但慢、不可预测、在线成本高。
 - 轻量 NLU 覆盖固定机器人动作域，速度快、可测试、可解释。
+- 真实 ASR 的错词分布很依赖麦克风和环境，靠人工凭记忆补测试很容易漏；采样日志转候选集
+  可以把现场失败直接变成可回归的数据资产。
 
 方案对比：
 

@@ -54,6 +54,7 @@ Automated modes:
   voice-calibration-report Generate voice profile/threshold calibration report
   instruction-eval-dataset Validate lightweight robot instruction eval dataset
   instruction-parser-eval Evaluate deterministic command parser on instruction eval set
+  asr-nlu-samples-to-eval Convert live ASR/NLU sample JSONL into reviewable eval candidates
   release-gate        Job-showcase core 5-command gate with logs/acceptance_report.json
   demo-gate           Pre-demo automatic evidence gate with logs/demo_acceptance_report.json
   wsl-microphone-preflight PulseAudio/WSLg microphone capture check before live demos
@@ -287,6 +288,18 @@ case "$LEVEL" in
     ;;
   instruction-eval-dataset) python3 scripts/validate_instruction_eval_dataset.py ;;
   instruction-parser-eval) python3 scripts/evaluate_instruction_parser.py --minimum "${INSTRUCTION_PARSER_MINIMUM:-1.0}" ;;
+  asr-nlu-samples-to-eval)
+    ASR_NLU_EVAL_OUTPUT="${ASR_NLU_EVAL_OUTPUT:-logs/asr_nlu_eval_candidates.jsonl}"
+    if [[ "${ASR_NLU_SAMPLES_SYNTHETIC:-true}" == "true" ]]; then
+      python3 scripts/asr_nlu_samples_to_eval_candidates.py \
+        --synthetic-demo \
+        --output "$ASR_NLU_EVAL_OUTPUT"
+    else
+      python3 scripts/asr_nlu_samples_to_eval_candidates.py \
+        --input "${ASR_NLU_SAMPLE_LOG:-logs/asr_nlu_samples.jsonl}" \
+        --output "$ASR_NLU_EVAL_OUTPUT"
+    fi
+    ;;
   release-gate) python3 scripts/showcase_release_gate.py ;;
   demo-gate) python3 scripts/showcase_release_gate.py --profile demo ;;
   wsl-microphone-preflight) bash scripts/wsl_microphone_preflight.sh ;;
