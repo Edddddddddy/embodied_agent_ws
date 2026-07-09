@@ -539,7 +539,12 @@ bash scripts/acceptance_test.sh continuous-nav2-live-report logs/nav2-live-check
 bash scripts/acceptance_test.sh wsl-microphone-preflight
 bash scripts/acceptance_test.sh voice-readiness
 python scripts/audio_frontend_calibration.py --duration 6
+python scripts/audio_frontend_calibration.py --duration 6 --json > logs/audio_calibration.json
 ```
+
+`audio_frontend_calibration.py` 的文本输出会给出 `recommended environment` 和 `next command`；
+JSON 输出会保留 `recommended_environment`、`suggested_vad_threshold`、`next_command`，
+可作为真实麦克风演示前的校准证据。
 
 如果 `wsl-microphone-preflight` 录到的 `rms≈0.0000`、`peak` 只有个位数，说明
 WSLg/PulseAudio source 存在但没有真实麦克风音频。这个问题发生在 ROS 音频前端之前，

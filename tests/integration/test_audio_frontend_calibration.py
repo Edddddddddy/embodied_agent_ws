@@ -64,6 +64,12 @@ def test_low_gain_microphone_recommends_low_gain_profile_and_low_threshold():
     assert report.recommended_voice_profile == "low_gain"
     assert report.profile_reason == "low_gain_input_detected_but_below_default_vad"
     assert 0.0008 <= report.suggested_vad_threshold <= 0.002
+    assert "VOICE_CONTROL_PROFILE=low_gain" in report.recommended_environment
+    assert any(
+        item.startswith("SPEECH_START_THRESHOLD=")
+        for item in report.recommended_environment
+    )
+    assert "continuous-offline" in report.next_command
 
 
 def test_loud_audio_without_speech_suggests_vad_threshold_is_high():
@@ -171,3 +177,20 @@ def test_format_report_explains_warnings_in_chinese():
     assert "没有收到 /audio/frontend_metrics" in rendered
     assert "recommended VOICE_CONTROL_PROFILE: normal" in rendered
     assert "export VOICE_CONTROL_PROFILE=normal" in rendered
+    assert "recommended environment:" in rendered
+    assert "next command:" in rendered
+
+
+def test_json_ready_report_preserves_environment_and_next_command():
+    report = audio_calibration.analyze_audio_health(
+        [
+            audio_calibration.AudioMetricSample(rms=0.0003, peak=23, speech=False),
+            audio_calibration.AudioMetricSample(rms=0.0023, peak=180, speech=False),
+        ]
+    )
+
+    payload = audio_calibration.asdict(report)
+
+    assert payload["recommended_voice_profile"] == "low_gain"
+    assert "VOICE_CONTROL_PROFILE=low_gain" in payload["recommended_environment"]
+    assert payload["next_command"].startswith("VOICE_CONTROL_PROFILE=low_gain")

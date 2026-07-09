@@ -86,6 +86,8 @@ def test_format_readiness_report_summarizes_next_actions():
     assert "recommended_voice_profile: normal" in rendered
     assert "quick_apply: export VOICE_CONTROL_PROFILE=normal" in rendered
     assert "quick_apply_threshold: export SPEECH_START_THRESHOLD=0.0180" in rendered
+    assert "recommended_environment:" in rendered
+    assert "next_command: VOICE_CONTROL_PROFILE=normal" in rendered
 
 
 def test_readiness_recommends_low_gain_for_user_reported_low_peak_audio():
@@ -106,6 +108,7 @@ def test_readiness_recommends_low_gain_for_user_reported_low_peak_audio():
     assert "audio:microphone_low_gain" in report.warnings
     assert "quick_apply: export VOICE_CONTROL_PROFILE=low_gain" in rendered
     assert "quick_apply_threshold: export SPEECH_START_THRESHOLD=" in rendered
+    assert "next_command: VOICE_CONTROL_PROFILE=low_gain" in rendered
 
 
 def test_readiness_report_preserves_audio_profile_advice_for_json_output():

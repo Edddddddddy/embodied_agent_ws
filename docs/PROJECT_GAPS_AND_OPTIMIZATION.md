@@ -18,7 +18,8 @@
 
 - 继续把 Silero/WebRTC VAD 依赖安装、模型缓存和真实麦克风证据做成更稳定的默认演示路径。
 - 引入声学 KWS 默认方案，优先选择部署成本低、可离线运行的方案。
-- 把 `wsl-microphone-preflight`、`audio_frontend_calibration.py` 和 profile 推荐做成更闭环的一键诊断。
+- 继续把 `wsl-microphone-preflight`、`audio_frontend_calibration.py --json`、
+  `recommended_environment/next_command` 和真实连续语音报告串成更闭环的一键诊断。
 - 保存真实演示报告，避免“现场听起来能跑”但缺少可复查证据。
 
 ## 2. 离线端侧模型效果证据还不够硬

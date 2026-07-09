@@ -493,7 +493,12 @@ python3 scripts/showcase_release_gate.py --profile full --dry-run
 bash scripts/acceptance_test.sh wsl-microphone-preflight
 bash scripts/acceptance_test.sh voice-readiness
 python scripts/audio_frontend_calibration.py --duration 6
+python scripts/audio_frontend_calibration.py --duration 6 --json > logs/audio_calibration.json
 ```
+
+`audio_frontend_calibration.py` 会输出 `recommended_environment` 和 `next_command`。
+如果它建议 `VOICE_CONTROL_PROFILE=low_gain` 或更低 `SPEECH_START_THRESHOLD`，
+可以直接复制 `next_command` 重新启动连续语音验收。
 
 如果 `wsl-microphone-preflight` 的 `rms` 接近 `0.0000`、`peak` 只有个位数，说明
 Windows/WSLg 没有把真实麦克风音频送进 WSL。此时优先检查 Windows 隐私设置里的麦克风权限、

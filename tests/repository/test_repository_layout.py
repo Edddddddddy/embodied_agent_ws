@@ -711,3 +711,30 @@ def test_webrtc_vad_sidecar_remains_integrated_as_optional_voice_provider():
     assert "webrtcvad_package_missing" in preflight
     assert "auto 会优先 Silero，其次 WebRTC，最后降级 energy" in continuous
     assert "pip install webrtcvad" in acceptance_doc
+
+
+def test_audio_calibration_outputs_copyable_live_demo_advice():
+    """真实麦克风校准必须产出可复制的下一步命令。"""
+
+    calibration = (ROOT / "scripts" / "audio_frontend_calibration.py").read_text(
+        encoding="utf-8"
+    )
+    readiness = (ROOT / "scripts" / "voice_control_readiness_check.py").read_text(
+        encoding="utf-8"
+    )
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    acceptance_doc = (ROOT / "docs" / "TESTING_AND_ACCEPTANCE.md").read_text(
+        encoding="utf-8"
+    )
+
+    for token in (
+        "recommended_environment",
+        "next_command",
+        "SPEECH_START_THRESHOLD",
+        "continuous-{mode}",
+    ):
+        assert token in calibration
+    assert "recommended_environment:" in readiness
+    assert "next_command:" in readiness
+    assert "logs/audio_calibration.json" in readme
+    assert "recommended_environment" in acceptance_doc
