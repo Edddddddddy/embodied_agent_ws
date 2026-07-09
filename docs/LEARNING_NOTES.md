@@ -153,13 +153,16 @@
 - `voice_calibration_report.py` 把 provider preflight、audio calibration、KWS score calibration
   汇总成 `logs/voice_calibration_report.json/.md`，并额外生成可 `source` 的
   `logs/voice_calibration.env`，用于真实麦克风演示前保存和复用调参证据。
-- `continuous_voice_control.sh` 支持 `APPLY_VOICE_CALIBRATION=true`，会在 profile 默认值计算前
-  加载 `logs/voice_calibration.env`，避免推荐阈值被 normal/quiet/noisy_room 预设覆盖。
+- `continuous_voice_control.sh` 默认 `APPLY_VOICE_CALIBRATION=auto`：如果
+  `logs/voice_calibration.env` 存在，会在 profile 默认值计算前加载；如果用户显式传入
+  `VOICE_CONTROL_PROFILE/SPEECH_START_THRESHOLD/VAD_PROVIDER` 等关键变量，则显式值优先。
 
 为什么这样设计：
 
 - 真实 ASR 容易漏掉尾部数字和量词，例如“左转90度”只 final 成“左转”。
 - 适当延迟 300～500ms 可以换取更完整的识别结果。
+- 校准文件默认自动复用，可以减少演示前忘记 `source logs/voice_calibration.env` 的概率；
+  但显式环境变量优先，避免旧校准文件覆盖现场临时调参。
 - VAD 和 commit 分离，便于定位“音频没听到”和“ASR final 太早”两类问题。
 - 成熟 VAD 做成 sidecar，而不是塞进 PortAudio 回调线程，是为了避免模型推理阻塞音频采集。
 

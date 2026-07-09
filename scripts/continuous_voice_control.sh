@@ -2,21 +2,66 @@
 set -euo pipefail
 WORKSPACE="${WORKSPACE:-/home/ubuntu/embodied_agent_ws}"
 MODE="${1:-offline}"
-APPLY_VOICE_CALIBRATION="${APPLY_VOICE_CALIBRATION:-false}"
+APPLY_VOICE_CALIBRATION="${APPLY_VOICE_CALIBRATION:-auto}"
 VOICE_CALIBRATION_ENV="${VOICE_CALIBRATION_ENV:-$WORKSPACE/logs/voice_calibration.env}"
 VOICE_CALIBRATION_ENV_APPLIED=false
-if [[ "$APPLY_VOICE_CALIBRATION" == "true" ]]; then
+
+CALIBRATION_PROTECTED_KEYS=(
+  VOICE_CONTROL_PROFILE
+  SPEECH_START_THRESHOLD
+  SPEECH_END_SILENCE_S
+  MIN_UTTERANCE_MS
+  MAX_UTTERANCE_S
+  ASR_COMMIT_DELAY_MS
+  VAD_PROVIDER
+  AEC_ENABLED
+)
+CALIBRATION_EXPLICIT_KEYS=()
+
+remember_explicit_calibration_env() {
+  local key
+  for key in "${CALIBRATION_PROTECTED_KEYS[@]}"; do
+    if [[ -v "$key" ]]; then
+      CALIBRATION_EXPLICIT_KEYS+=("$key")
+      printf -v "CALIBRATION_EXPLICIT_${key}" '%s' "${!key}"
+    fi
+  done
+}
+
+restore_explicit_calibration_env() {
+  local key value_var
+  for key in "${CALIBRATION_EXPLICIT_KEYS[@]}"; do
+    value_var="CALIBRATION_EXPLICIT_${key}"
+    printf -v "$key" '%s' "${!value_var}"
+    export "$key"
+  done
+}
+
+apply_voice_calibration_env() {
   if [[ -f "$VOICE_CALIBRATION_ENV" ]]; then
     # 该文件由 voice_calibration_report.py 生成，只包含 export KEY=value。
     # 在 profile 计算前加载，才能让推荐的 VOICE_CONTROL_PROFILE/SPEECH_START_THRESHOLD 生效。
+    # auto 模式下仍保留用户显式传入的关键环境变量，避免旧校准文件覆盖现场手工调参。
+    remember_explicit_calibration_env
     # shellcheck source=/dev/null
     source "$VOICE_CALIBRATION_ENV"
+    restore_explicit_calibration_env
     VOICE_CALIBRATION_ENV_APPLIED=true
+  fi
+}
+
+if [[ "$APPLY_VOICE_CALIBRATION" == "true" ]]; then
+  if [[ -f "$VOICE_CALIBRATION_ENV" ]]; then
+    apply_voice_calibration_env
   else
     echo "WARN: APPLY_VOICE_CALIBRATION=true but VOICE_CALIBRATION_ENV not found: $VOICE_CALIBRATION_ENV" >&2
   fi
+elif [[ "$APPLY_VOICE_CALIBRATION" == "auto" ]]; then
+  if [[ -f "$VOICE_CALIBRATION_ENV" ]]; then
+    apply_voice_calibration_env
+  fi
 elif [[ "$APPLY_VOICE_CALIBRATION" != "false" ]]; then
-  echo "unknown APPLY_VOICE_CALIBRATION=$APPLY_VOICE_CALIBRATION; expected true or false" >&2
+  echo "unknown APPLY_VOICE_CALIBRATION=$APPLY_VOICE_CALIBRATION; expected auto, true, or false" >&2
   exit 2
 fi
 VOICE_CONTROL_PROFILE="${VOICE_CONTROL_PROFILE:-normal}"
@@ -197,7 +242,7 @@ EMBODIED_ALLOW_FASTDDS_SHM=${EMBODIED_ALLOW_FASTDDS_SHM:-false}
 通过标准：至少识别 6 条 ASR final、产生 4 个以上动作、看到 [session] awake 与 sleeping，最后 /cmd_vel 归零。
 如需量化验收，请在第二终端运行：CONTINUOUS_LIVE_CHECK_DURATION=180 bash scripts/acceptance_test.sh continuous-live-check $MODE
 VOICE_CONTROL_PROFILE=$VOICE_CONTROL_PROFILE（normal/quiet/low_gain/noisy_room；显式环境变量会覆盖 profile 默认值）
-APPLY_VOICE_CALIBRATION=$APPLY_VOICE_CALIBRATION（true 时启动前 source 校准 env 文件）
+APPLY_VOICE_CALIBRATION=$APPLY_VOICE_CALIBRATION（auto/true/false；auto 会在校准 env 存在时加载，且不覆盖显式环境变量）
 VOICE_CALIBRATION_ENV=$VOICE_CALIBRATION_ENV（applied=$VOICE_CALIBRATION_ENV_APPLIED）
 VOICE_SESSION_TIMEOUT=$SESSION_TIMEOUT
 CONTINUOUS_COMMAND_QUEUE_SIZE=$COMMAND_QUEUE_SIZE

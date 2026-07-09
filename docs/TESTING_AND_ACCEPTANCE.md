@@ -626,10 +626,14 @@ source logs/voice_calibration.env
 bash scripts/acceptance_test.sh continuous-offline
 ```
 
-如果不想手动 `source`，也可以让连续语音脚本启动时自动加载默认校准文件：
+如果不想手动 `source`，连续语音脚本默认 `APPLY_VOICE_CALIBRATION=auto`：当
+`logs/voice_calibration.env` 存在时会自动加载；当你显式传入
+`VOICE_CONTROL_PROFILE/SPEECH_START_THRESHOLD/VAD_PROVIDER` 等关键环境变量时，显式值优先。
+也可以强制加载或关闭自动加载：
 
 ```bash
 APPLY_VOICE_CALIBRATION=true bash scripts/acceptance_test.sh continuous-offline
+APPLY_VOICE_CALIBRATION=false bash scripts/acceptance_test.sh continuous-offline
 ```
 
 `audio_frontend_calibration.py` 的文本输出会给出更底层的 `recommended environment` 和 `next command`；
