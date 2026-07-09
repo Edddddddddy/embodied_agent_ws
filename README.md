@@ -593,6 +593,7 @@ bash scripts/acceptance_test.sh voice-vad-runtime-dry-run
 ```bash
 bash scripts/setup_voice_vad_runtime.sh webrtc
 VAD_PROVIDER=auto bash scripts/acceptance_test.sh provider-preflight
+bash scripts/acceptance_test.sh webrtc-vad-sidecar
 ```
 
 如需同时准备 Silero 和 WebRTC：

@@ -702,7 +702,13 @@ WebRTC VAD 的可选安装命令：
 bash scripts/acceptance_test.sh voice-vad-runtime-dry-run
 bash scripts/setup_voice_vad_runtime.sh webrtc
 VAD_PROVIDER=auto bash scripts/acceptance_test.sh provider-preflight
+bash scripts/acceptance_test.sh webrtc-vad-sidecar
 ```
+
+`webrtc-vad-sidecar` 会启动 C++ audio frontend 和 WebRTC VAD sidecar，要求当前环境已经安装
+`webrtcvad`。它比 `vad-sidecar` 更接近真实运行时：`vad-sidecar` 只验证 Silero sidecar
+的无依赖 seam，`webrtc-vad-sidecar` 则验证轻量成熟 VAD runtime 可以真正启动并接管
+`/audio/speech_started` / `/audio/speech_ended` 端点事件。
 
 如果要同时准备 Silero 和 WebRTC：
 

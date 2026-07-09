@@ -153,6 +153,8 @@
 - `voice_provider_preflight.py` 不只判断 PASS/BLOCKED，还会在 auto 降级或显式 provider
   缺依赖时输出 `recommendations`。这样真实麦克风演示前可以从“缺什么包”直接走到
   “运行哪个 setup 脚本”，减少现场排障成本。
+- `webrtc-vad-sidecar` 是安装 WebRTC runtime 后的显式验收入口：它启动 C++ audio frontend
+  和 `webrtc_vad` sidecar，确认端点事件由成熟 VAD 接管，而不只是检查 Python 包是否存在。
 - `scripts/setup_voice_kws_runtime.sh` 提供 openWakeWord、sherpa-onnx KWS、LiveKit WakeWord
   的可选运行时入口；sherpa profile 会复用 ZipFormer ASR 模型路径并生成默认关键词文件。
 - Agent 收到 endpoint 后调用 ASR commit。

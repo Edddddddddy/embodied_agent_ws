@@ -737,6 +737,9 @@ def test_webrtc_vad_sidecar_remains_integrated_as_optional_voice_provider():
     preflight = (ROOT / "scripts" / "voice_provider_preflight.py").read_text(
         encoding="utf-8"
     )
+    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
+        encoding="utf-8"
+    )
     continuous = (ROOT / "scripts" / "continuous_voice_control.sh").read_text(
         encoding="utf-8"
     )
@@ -758,10 +761,11 @@ def test_webrtc_vad_sidecar_remains_integrated_as_optional_voice_provider():
     assert "webrtcvad_package_missing" in preflight
     assert "auto 会优先 Silero，其次 WebRTC，最后降级 energy" in continuous
     assert (ROOT / "scripts" / "setup_voice_vad_runtime.sh").is_file()
-    assert "voice-vad-runtime-dry-run" in (
-        ROOT / "scripts" / "acceptance_test.sh"
-    ).read_text(encoding="utf-8")
+    assert (ROOT / "scripts" / "smoke_test_webrtc_vad_sidecar.sh").is_file()
+    assert "voice-vad-runtime-dry-run" in acceptance
+    assert "webrtc-vad-sidecar" in acceptance
     assert "setup_voice_vad_runtime.sh webrtc" in acceptance_doc
+    assert "webrtc-vad-sidecar" in acceptance_doc
     assert "embodied_online_agent[webrtc-vad]" in acceptance_doc
 
 

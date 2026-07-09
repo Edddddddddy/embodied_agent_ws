@@ -47,6 +47,7 @@ Automated modes:
   speaker-memory-mock Speaker identity and per-user memory smoke test
   speaker-enroll     Speaker enrollment request saves wav samples and speakers.txt
   vad-sidecar         Dependency-free Silero VAD sidecar seam smoke test
+  webrtc-vad-sidecar  Installed WebRTC VAD sidecar runtime smoke test
   kws-sidecar         Dependency-free keyword wake sidecar seam smoke test
   openwakeword-sidecar Dependency-free openWakeWord adapter runtime smoke test
   livekit-sidecar     Dependency-free LiveKit WakeWord adapter runtime smoke test
@@ -265,6 +266,7 @@ case "$LEVEL" in
   speaker-memory-mock) bash scripts/smoke_test_speaker_memory.sh online; bash scripts/smoke_test_speaker_memory.sh offline ;;
   speaker-enroll) bash scripts/smoke_test_speaker_enrollment.sh ;;
   vad-sidecar) bash scripts/smoke_test_silero_vad_sidecar.sh ;;
+  webrtc-vad-sidecar) bash scripts/smoke_test_webrtc_vad_sidecar.sh ;;
   kws-sidecar) bash scripts/smoke_test_keyword_wake_sidecar.sh ;;
   openwakeword-sidecar) bash scripts/smoke_test_openwakeword_sidecar.sh ;;
   livekit-sidecar) bash scripts/smoke_test_livekit_wakeword_sidecar.sh ;;
