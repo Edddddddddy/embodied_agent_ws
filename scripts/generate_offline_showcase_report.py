@@ -237,6 +237,25 @@ def collect_llama_decode_benchmark(
     return _run_json_command(command, timeout_s=timeout_s)
 
 
+def collect_instruction_following(
+    run_instruction_following: bool,
+    timeout_s: float,
+    input_report: str | None,
+    output_report: str,
+) -> dict[str, Any]:
+    if not run_instruction_following:
+        return {
+            "status": "not_run",
+            "reason": "pass --run-instruction-following to evaluate offline LLM instruction following",
+        }
+    command = [sys.executable, "scripts/evaluate_instruction_following.py"]
+    if input_report:
+        command.extend(["--input-report", input_report])
+    if output_report:
+        command.extend(["--output", output_report])
+    return _run_json_command(command, timeout_s=timeout_s)
+
+
 def _inventory_item(models: dict[str, Any], key: str) -> dict[str, Any] | None:
     for item in models.get("items", []):
         if item.get("key") == key:
@@ -295,6 +314,7 @@ def build_claim_evidence(report: dict[str, Any]) -> dict[str, Any]:
     latency = report["latency"]
     asr_tts = report["asr_tts_benchmark"]
     llama_bench = report["llama_decode_benchmark"]
+    instruction_following = report["instruction_following"]
     q8_model = _inventory_item(models, "llm_qwen3_0_6b_q8")
     tts_model = _inventory_item(models, "tts_sherpa_vits")
 
@@ -307,6 +327,15 @@ def build_claim_evidence(report: dict[str, Any]) -> dict[str, Any]:
     asr_tts_ok = _executed_ok(asr_tts)
     llama_bench_payload = _command_payload(llama_bench)
     llama_bench_ok = _executed_ok(llama_bench)
+    instruction_payload = _command_payload(instruction_following)
+    instruction_ok = _executed_ok(instruction_following)
+    instruction_failed_cases = instruction_payload.get("failed_cases")
+    if isinstance(instruction_failed_cases, list):
+        instruction_failed_count = len(instruction_failed_cases)
+    elif isinstance(instruction_failed_cases, int):
+        instruction_failed_count = instruction_failed_cases
+    else:
+        instruction_failed_count = 0
 
     parser_ok = parser.get("accuracy", 0.0) >= 0.95 and not parser.get("failed_cases")
 
@@ -410,10 +439,24 @@ def build_claim_evidence(report: dict[str, Any]) -> dict[str, Any]:
         _claim(
             "offline_llm_instruction_following",
             "离线 LLM 指令遵循准确率",
-            "missing",
-            "not_measured",
-            caveat="需要真实调用 llama.cpp 生成动作并与 eval 集对齐，不能用 deterministic parser 准确率替代。",
-            next_step="运行 evaluate_instruction_following.sh 并把结果归档到报告。",
+            "proven"
+            if instruction_ok and instruction_payload.get("model_score") is not None
+            else "missing",
+            "evaluate_instruction_following"
+            if instruction_ok
+            else "not_measured",
+            metric={
+                "model_score": instruction_payload.get("model_score"),
+                "effective_score": instruction_payload.get("effective_score"),
+                "model_passed": instruction_payload.get("model_passed"),
+                "effective_passed": instruction_payload.get("effective_passed"),
+                "total": instruction_payload.get("total"),
+                "failed_cases": instruction_failed_count,
+            }
+            if instruction_payload
+            else None,
+            caveat="model_score 只看离线 LLM 原始协议输出；effective_score 允许确定性 fallback/安全层兜底。",
+            next_step="运行 bash scripts/acceptance_test.sh instruction-following-eval 或 --run-instruction-following。",
         ),
         _claim(
             "summertts_low_latency",
@@ -453,6 +496,12 @@ def build_claim_evidence(report: dict[str, Any]) -> dict[str, Any]:
         )
     if asr_tts_ok:
         allowed_claims.append("可以说：Sherpa ASR/TTS realtime factor 已在本机测量。")
+    if instruction_ok and instruction_payload.get("model_score") is not None:
+        allowed_claims.append(
+            "可以说：离线 LLM 指令遵循已有本机评估报告，"
+            f"model_score={instruction_payload.get('model_score')}，"
+            f"effective_score={instruction_payload.get('effective_score')}。"
+        )
 
     restricted_claims = [
         "不要说：LoRA 微调训练、checkpoint 和训练后准确率已经复现；当前报告没有这类证据。",
@@ -463,6 +512,11 @@ def build_claim_evidence(report: dict[str, Any]) -> dict[str, Any]:
         restricted_claims.insert(
             2,
             "不要说：llama.cpp CPU decode 已达到某个 tokens/s；除非报告中出现真实 llama-bench benchmark。",
+        )
+    if not instruction_ok:
+        restricted_claims.insert(
+            2,
+            "不要说：离线 LLM 指令遵循准确率已经复现；除非报告中出现 instruction-following eval。",
         )
 
     return {
@@ -493,6 +547,12 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             args.timeout_s,
             args.llama_bench_input,
             args.llama_bench_output,
+        ),
+        "instruction_following": collect_instruction_following(
+            args.run_instruction_following,
+            args.timeout_s,
+            args.instruction_following_input,
+            args.instruction_following_output,
         ),
     }
     report["claim_evidence"] = build_claim_evidence(report)
@@ -560,12 +620,13 @@ def render_markdown(report: dict[str, Any]) -> str:
             "",
             f"- 延迟测量：`{report['latency'].get('status', 'executed')}`",
             f"- llama.cpp decode benchmark：`{report['llama_decode_benchmark'].get('status', 'executed')}`",
+            f"- 离线 LLM 指令遵循评估：`{report['instruction_following'].get('status', 'executed')}`",
             f"- ASR/TTS benchmark：`{report['asr_tts_benchmark'].get('status', 'executed')}`",
             "",
             "说明：默认报告不启动 llama.cpp 或真实 ASR/TTS benchmark。演示前可运行：",
             "",
             "```bash",
-            "python3 scripts/generate_offline_showcase_report.py --run-latency --run-llama-bench --run-asr-tts",
+            "python3 scripts/generate_offline_showcase_report.py --run-latency --run-llama-bench --run-instruction-following --run-asr-tts",
             "```",
         ]
     )
@@ -613,6 +674,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-llama-bench", action="store_true")
     parser.add_argument("--llama-bench-input", help="parse saved llama-bench JSON instead of running it")
     parser.add_argument("--llama-bench-output", default="logs/llama_decode_benchmark.json")
+    parser.add_argument("--run-instruction-following", action="store_true")
+    parser.add_argument("--instruction-following-input", help="reuse saved instruction-following report")
+    parser.add_argument(
+        "--instruction-following-output",
+        default="logs/instruction_following_report.json",
+    )
     parser.add_argument("--run-asr-tts", action="store_true")
     return parser.parse_args()
 

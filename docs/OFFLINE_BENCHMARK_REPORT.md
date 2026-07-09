@@ -58,7 +58,7 @@ bash scripts/acceptance_test.sh llama-decode-benchmark
 bash scripts/acceptance_test.sh offline-latency
 bash scripts/benchmark_offline.sh
 bash scripts/acceptance_test.sh instruction-parser-eval
-bash scripts/evaluate_instruction_following.sh --minimum 0.70
+bash scripts/acceptance_test.sh instruction-following-eval
 ```
 
 ## 3. 指标记录
@@ -74,7 +74,15 @@ bash scripts/evaluate_instruction_following.sh --minimum 0.70
 | ASR realtime factor | < 1.0 更好 | 见真实 benchmark | `benchmark_offline.sh` 或 `--run-asr-tts` |
 | TTS realtime factor | < 1.0 更好 | 见真实 benchmark | `benchmark_offline.sh` 或 `--run-asr-tts` |
 | deterministic parser 动作准确率 | ≥ 95% | 当前代表集 39/39（100%） | `instruction-parser-eval` |
-| 离线 LLM 指令动作准确率 | ≥ 70% 起步 | TODO | `evaluate_instruction_following.sh` |
+| 离线 LLM 指令动作准确率 | ≥ 70% 起步 | 见 `logs/instruction_following_report.json` 或 `claim_evidence` | `instruction-following-eval` 或 `--run-instruction-following` |
+
+`instruction-following-eval` 输出两个分数：
+
+- `model_score`：只看离线 LLM 原始 `<speech>/<action>` 协议输出是否正确，适合判断模型本身是否需要 LoRA/提示词优化。
+- `effective_score`：允许确定性 fallback 和安全层兜底后的有效动作结果，适合判断工程链路在演示动作域内的可用性。
+
+如果 `model_score` 低但 `effective_score` 高，应如实表述为“离线 LLM 原始指令遵循仍弱，
+当前靠轻量 NLU/fallback/ActionGuard 保证演示动作稳定”，不要把 effective score 说成模型训练后准确率。
 
 ## 4. 错误样例回归
 
@@ -102,6 +110,8 @@ Nav2 目标点/巡航、附件/模式命令，以及否定、疑问和危险速�
 本轮离线链路可以支撑工程演示：Q8 GGUF、Sherpa-ONNX、Sherpa-TTS/SummerTTS
 模型资产和运行时版本可复查，deterministic parser 在当前代表集上通过评估。
 如果已额外运行 offline-latency，则可以引用本机首 token/首音频实测值；否则不应宣称
-这些低延迟指标已复现。SummerTTS 已完成服务化封装，但当前不作为默认低延迟 TTS。
-主要不足是 LoRA 微调、llama.cpp tokens/s 和离线 LLM 指令遵循准确率仍需补 benchmark。
+这些低延迟指标已复现。如果已运行 llama-decode-benchmark 和 instruction-following-eval，
+则可以引用本机 decode tokens/s、model_score 和 effective_score；否则仍只能说已有评估入口。
+SummerTTS 已完成服务化封装，但当前不作为默认低延迟 TTS。主要不足是 LoRA 微调和训练后
+大规模指令遵循精度仍需补完整训练日志与更大评估集。
 ```

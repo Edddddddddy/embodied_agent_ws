@@ -114,6 +114,7 @@ llama.cpp 推理层可以先单独验收，避免把 ASR、TTS、Gazebo 的问�
 bash scripts/acceptance_test.sh llama-cpp-preflight
 bash scripts/acceptance_test.sh llama-cpp-smoke
 bash scripts/acceptance_test.sh llama-decode-benchmark
+bash scripts/acceptance_test.sh instruction-following-eval
 bash scripts/acceptance_test.sh pseudo-tts
 bash scripts/acceptance_test.sh offline-runtime-versions
 bash scripts/acceptance_test.sh offline-showcase-report
@@ -124,7 +125,9 @@ bash scripts/acceptance_test.sh offline-latency
 `llama-cpp-preflight` 会检查 `llama-server` binary、Q8 GGUF 模型、`/health` 和 `/v1/models`；
 `llama-cpp-smoke` 会额外发送一次低 token 流式 chat 请求；`llama-decode-benchmark`
 调用 llama.cpp 自带 `llama-bench`，把 CPU decode tokens/s 写入
-`logs/llama_decode_benchmark.json`；`pseudo-tts` 不依赖真实 Sherpa/SummerTTS 模型，
+`logs/llama_decode_benchmark.json`；`instruction-following-eval` 会真实调用 llama.cpp，
+评估离线 LLM 是否按 `<speech>/<action>` 协议输出动作，报告写入
+`logs/instruction_following_report.json`；`pseudo-tts` 不依赖真实 Sherpa/SummerTTS 模型，
 用假 PCM 验证“LLM token 流 -> 短句切分 -> 伪流式 TTS 双缓冲 -> 音频块发布”的工程链路。
 `offline-evidence-audit` 会读取 `logs/offline_showcase_report.json`，输出
 `logs/offline_evidence_audit.json`。报告中的 `claim_evidence` 会逐项标记 Q8 模型资产、
@@ -137,12 +140,21 @@ OFFLINE_SHOWCASE_RUN_LLAMA_BENCH=true bash scripts/acceptance_test.sh offline-sh
 OFFLINE_EVIDENCE_REQUIRE_LLAMA_BENCH=1 bash scripts/acceptance_test.sh offline-evidence-audit
 ```
 
+演示前如需把离线 LLM 指令遵循准确率也写进离线展示报告，可运行：
+
+```bash
+bash scripts/acceptance_test.sh instruction-following-eval
+OFFLINE_SHOWCASE_RUN_INSTRUCTION_FOLLOWING=true OFFLINE_SHOWCASE_INSTRUCTION_FOLLOWING_INPUT=logs/instruction_following_report.json bash scripts/acceptance_test.sh offline-showcase-report
+OFFLINE_EVIDENCE_REQUIRE_INSTRUCTION_FOLLOWING=1 bash scripts/acceptance_test.sh offline-evidence-audit
+```
+
 常用调参环境变量：
 
 ```bash
 LLAMA_THREADS=8 LLAMA_CONTEXT=2048 bash scripts/start_llama_server.sh
 LLAMA_EXTRA_ARGS="--parallel 1" bash scripts/acceptance_test.sh llama-cpp-smoke
 LLAMA_DECODE_MIN_TOKENS_PER_S=8.0 LLAMA_BENCH_NO_WARMUP=1 bash scripts/acceptance_test.sh llama-decode-benchmark
+INSTRUCTION_FOLLOWING_MINIMUM=0.70 INSTRUCTION_FOLLOWING_EFFECTIVE_MINIMUM=0.85 bash scripts/acceptance_test.sh instruction-following-eval
 ```
 
 SummerTTS 可以单独部署和验收：

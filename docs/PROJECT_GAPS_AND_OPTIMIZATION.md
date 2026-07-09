@@ -30,13 +30,16 @@
 现状：
 
 - llama.cpp、Sherpa-ONNX、Sherpa-TTS、SummerTTS 的工程接口已经具备。
-- LoRA 微调、Q8 指令准确率、tokens/s、动作解析准确率还需要系统 benchmark 支撑。
+- 模型资产、运行时版本、deterministic parser、llama.cpp decode tokens/s 和离线 LLM
+  instruction-following 已有可运行报告入口；但 LoRA 微调、训练后准确率和更大规模真实 ASR
+  错误集评估仍不够硬。
 
 优化：
 
 - 使用 `training/robot_instruction_eval.jsonl` 固化动作解析评估样例；当前已有 39 条代表集，
   覆盖 ASR 错词、多命令、Nav2 目标点/巡航和安全拒绝。
-- 用 `docs/OFFLINE_BENCHMARK_REPORT.md` 记录模型大小、首 token、tokens/s、ASR/TTS realtime factor。
+- 用 `docs/OFFLINE_BENCHMARK_REPORT.md` 记录模型大小、首 token、tokens/s、ASR/TTS
+  realtime factor、`model_score/effective_score` 和未复现边界。
 - 后续再补 LLaMA-Factory LoRA 训练复现实验，不把未复现指标写成已完成能力。
 
 ## 3. SummerTTS 服务化完成，但不应作为低延迟默认方案

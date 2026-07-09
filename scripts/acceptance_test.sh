@@ -61,6 +61,7 @@ Automated modes:
   voice-calibration-report Generate voice profile/threshold calibration report
   instruction-eval-dataset Validate lightweight robot instruction eval dataset
   instruction-parser-eval Evaluate deterministic command parser on instruction eval set
+  instruction-following-eval Evaluate offline LLM instruction following with llama.cpp
   asr-nlu-samples-to-eval Convert live ASR/NLU sample JSONL into reviewable eval candidates
   asr-nlu-candidate-eval Evaluate parser accuracy on reviewable ASR/NLU eval candidates
   release-gate        Job-showcase core 5-command gate with logs/acceptance_report.json
@@ -231,6 +232,15 @@ case "$LEVEL" in
     if [[ -n "${OFFLINE_SHOWCASE_LLAMA_BENCH_OUTPUT:-}" ]]; then
       REPORT_ARGS+=(--llama-bench-output "$OFFLINE_SHOWCASE_LLAMA_BENCH_OUTPUT")
     fi
+    if [[ "${OFFLINE_SHOWCASE_RUN_INSTRUCTION_FOLLOWING:-false}" == "true" ]]; then
+      REPORT_ARGS+=(--run-instruction-following)
+    fi
+    if [[ -n "${OFFLINE_SHOWCASE_INSTRUCTION_FOLLOWING_INPUT:-}" ]]; then
+      REPORT_ARGS+=(--instruction-following-input "$OFFLINE_SHOWCASE_INSTRUCTION_FOLLOWING_INPUT")
+    fi
+    if [[ -n "${OFFLINE_SHOWCASE_INSTRUCTION_FOLLOWING_OUTPUT:-}" ]]; then
+      REPORT_ARGS+=(--instruction-following-output "$OFFLINE_SHOWCASE_INSTRUCTION_FOLLOWING_OUTPUT")
+    fi
     if [[ "${OFFLINE_SHOWCASE_RUN_ASR_TTS:-false}" == "true" ]]; then
       REPORT_ARGS+=(--run-asr-tts)
     fi
@@ -245,6 +255,7 @@ case "$LEVEL" in
       --output "${OFFLINE_EVIDENCE_AUDIT_OUTPUT:-logs/offline_evidence_audit.json}" \
       ${OFFLINE_EVIDENCE_REQUIRE_LATENCY:+--require-latency} \
       ${OFFLINE_EVIDENCE_REQUIRE_LLAMA_BENCH:+--require-llama-bench} \
+      ${OFFLINE_EVIDENCE_REQUIRE_INSTRUCTION_FOLLOWING:+--require-instruction-following} \
       ${OFFLINE_EVIDENCE_REQUIRE_ASR_TTS:+--require-asr-tts}
     ;;
   offline-latency) check_llama_cpp_runtime; bash scripts/smoke_test_offline_latency.sh ;;
@@ -341,6 +352,12 @@ case "$LEVEL" in
     ;;
   instruction-eval-dataset) python3 scripts/validate_instruction_eval_dataset.py ;;
   instruction-parser-eval) python3 scripts/evaluate_instruction_parser.py --minimum "${INSTRUCTION_PARSER_MINIMUM:-1.0}" ;;
+  instruction-following-eval)
+    check_llama_cpp_runtime
+    bash scripts/evaluate_instruction_following.sh \
+      --minimum "${INSTRUCTION_FOLLOWING_MINIMUM:-0.0}" \
+      --minimum-effective "${INSTRUCTION_FOLLOWING_EFFECTIVE_MINIMUM:-0.0}"
+    ;;
   asr-nlu-samples-to-eval)
     ASR_NLU_EVAL_OUTPUT="${ASR_NLU_EVAL_OUTPUT:-logs/asr_nlu_eval_candidates.jsonl}"
     if [[ "${ASR_NLU_SAMPLES_SYNTHETIC:-true}" == "true" ]]; then

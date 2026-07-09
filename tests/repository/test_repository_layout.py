@@ -422,6 +422,9 @@ def test_showcase_hardening_artifacts_remain_discoverable():
     assert "offline-evidence-audit" in acceptance
     assert "instruction-eval-dataset" in acceptance
     assert "instruction-parser-eval" in acceptance
+    assert "instruction-following-eval" in acceptance
+    assert "OFFLINE_SHOWCASE_RUN_INSTRUCTION_FOLLOWING" in acceptance
+    assert "OFFLINE_EVIDENCE_REQUIRE_INSTRUCTION_FOLLOWING" in acceptance
     assert "logs/acceptance_report.json" in readme
     assert "logs/demo_acceptance_report.json" in readme
     assert "离线模型 Benchmark 与展示报告" in readme
@@ -449,9 +452,14 @@ def test_showcase_hardening_artifacts_remain_discoverable():
     assert "tag_accuracy" in parser_eval.read_text(encoding="utf-8")
     assert "source_counts" in parser_eval.read_text(encoding="utf-8")
     assert "failed_cases" in parser_eval.read_text(encoding="utf-8")
+    following_eval = (ROOT / "scripts" / "evaluate_instruction_following.py").read_text(
+        encoding="utf-8"
+    )
+    assert "offline_llm_instruction_following_eval" in following_eval
+    assert "minimum_effective" in following_eval
     assert "ActionGuard" in interview_doc.read_text(encoding="utf-8")
     assert "真实语音稳定性" in gaps_doc.read_text(encoding="utf-8")
-    assert "evaluate_instruction_following.sh" in benchmark_doc.read_text(encoding="utf-8")
+    assert "instruction-following-eval" in benchmark_doc.read_text(encoding="utf-8")
     dataset_lines = [
         line
         for line in eval_dataset.read_text(encoding="utf-8").splitlines()

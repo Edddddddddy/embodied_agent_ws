@@ -13,7 +13,16 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "audit_offline_showcase_evidence.py"
 
 
-def _write_report(path: Path, *, latency_status: str = "not_run") -> None:
+def _write_report(
+    path: Path,
+    *,
+    latency_status: str = "not_run",
+    instruction_following: dict | None = None,
+) -> None:
+    instruction_block = instruction_following or {
+        "status": "not_run",
+        "reason": "not measured in default report",
+    }
     report = {
         "schema_version": 1,
         "scenario": "offline_deployment_showcase",
@@ -41,6 +50,7 @@ def _write_report(path: Path, *, latency_status: str = "not_run") -> None:
             "status": "not_run",
             "reason": "not measured in default report",
         },
+        "instruction_following": instruction_block,
         "asr_tts_benchmark": {"status": "not_run", "reason": "not measured in default report"},
         "claim_evidence": {
             "schema_version": 1,
@@ -50,6 +60,7 @@ def _write_report(path: Path, *, latency_status: str = "not_run") -> None:
                 {"key": "deterministic_parser_accuracy", "status": "proven"},
                 {"key": "llama_decode_speed", "status": "missing"},
                 {"key": "llm_first_token_latency", "status": "missing"},
+                {"key": "offline_llm_instruction_following", "status": "missing"},
                 {"key": "lora_training", "status": "not_reproduced"},
                 {"key": "summertts_low_latency", "status": "not_default"},
             ],
@@ -87,9 +98,11 @@ def test_offline_evidence_audit_warns_when_latency_is_not_measured(tmp_path):
     assert audit["ok"] is True
     assert "latency:not_measured" in audit["warnings"]
     assert "llama_decode_benchmark:not_measured" in audit["warnings"]
+    assert "instruction_following:not_measured" in audit["warnings"]
     assert audit["evidence"]["instruction_parser"]["status"] == "proven"
     assert audit["evidence"]["latency"]["status"] == "missing"
     assert audit["evidence"]["llama_decode_benchmark"]["status"] == "missing"
+    assert audit["evidence"]["instruction_following"]["status"] == "missing"
     assert audit["evidence"]["claim_evidence"]["status"] == "proven"
     assert audit["evidence"]["claim_evidence"]["items"]["lora_training"] == "not_reproduced"
     assert "claim_evidence:llama_decode_speed:missing" in audit["warnings"]
@@ -142,3 +155,68 @@ def test_offline_evidence_audit_can_require_llama_decode_benchmark(tmp_path):
     assert result.returncode == 1
     assert summary["status"] == "FAIL"
     assert "llama_decode_benchmark:required_but_not_measured" in summary["blockers"]
+
+
+def test_offline_evidence_audit_can_require_instruction_following(tmp_path):
+    report = tmp_path / "offline_showcase_report.json"
+    _write_report(report)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--input",
+            str(report),
+            "--require-instruction-following",
+        ],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    summary = json.loads(result.stdout)
+    assert result.returncode == 1
+    assert summary["status"] == "FAIL"
+    assert "instruction_following:required_but_not_measured" in summary["blockers"]
+
+
+def test_offline_evidence_audit_warns_when_instruction_following_score_is_low(tmp_path):
+    report = tmp_path / "offline_showcase_report.json"
+    output = tmp_path / "offline_evidence_audit.json"
+    _write_report(
+        report,
+        instruction_following={
+            "returncode": 0,
+            "ok": True,
+            "payload": {
+                "model_score": 0.25,
+                "effective_score": 0.875,
+                "model_passed": 2,
+                "effective_passed": 7,
+                "total": 8,
+            },
+        },
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--input",
+            str(report),
+            "--output",
+            str(output),
+        ],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+
+    audit = json.loads(output.read_text(encoding="utf-8"))
+    assert json.loads(result.stdout)["status"] == "PASS"
+    assert audit["evidence"]["instruction_following"]["status"] == "proven"
+    assert audit["evidence"]["instruction_following"]["model_score"] == 0.25
+    assert "instruction_following:model_score_below_0.70" in audit["warnings"]

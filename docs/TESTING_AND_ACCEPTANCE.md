@@ -38,6 +38,7 @@ bash scripts/acceptance_test.sh --help
 | `offline-latency` | 自动/本地模型 | 检查 llama.cpp 首 token ≤ 1s、默认 Sherpa-TTS 首音频 ≤ 300ms |
 | `instruction-eval-dataset` | 自动/数据集 | 校验轻量机器人指令评估集 schema、动作名和标签 |
 | `instruction-parser-eval` | 自动/数据集 | 在评估集上计算 deterministic parser 动作准确率和 tag 维度分数 |
+| `instruction-following-eval` | 自动/本地模型 | 真实调用 llama.cpp，评估离线 LLM 对 `<speech>/<action>` 协议和动作输出的遵循度 |
 | `release-gate` | 自动/报告 | 求职展示版发布门禁，默认输出 `logs/acceptance_report.json` |
 | `demo-gate` | 自动/报告 | 演示前自动证据门禁，默认输出 `logs/demo_acceptance_report.json` |
 | `summer-tts-preflight` | 自动/本地模型 | SummerTTS 源码、二进制和模型文件预检 |

@@ -35,6 +35,36 @@ def _write_llama_bench_json(path: Path) -> None:
     )
 
 
+def _write_instruction_following_report(path: Path) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "scenario": "offline_llm_instruction_following_eval",
+                "dataset": "training/robot_dialogue_seed.jsonl",
+                "model": "Qwen3-0.6B-Q8_0.gguf",
+                "base_url": "http://127.0.0.1:8080/v1",
+                "model_passed": 7,
+                "effective_passed": 8,
+                "total": 8,
+                "model_score": 0.875,
+                "effective_score": 1.0,
+                "failure_counts": {"model_action_mismatch": 1},
+                "failed_cases": [
+                    {
+                        "id": "case_0004",
+                        "input": "左转九十度",
+                        "failure_type": "model_action_mismatch",
+                    }
+                ],
+                "cases": [],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_offline_showcase_report_generates_json_and_markdown(tmp_path):
     json_output = tmp_path / "offline_showcase_report.json"
     md_output = tmp_path / "offline_showcase_report.md"
@@ -146,3 +176,46 @@ def test_offline_showcase_report_can_include_llama_decode_benchmark(tmp_path):
     assert by_key["llama_decode_speed"]["metric"]["decode_tokens_per_s"] == 8.6
     assert "llama.cpp decode benchmark" in markdown
     assert "8.6" in markdown
+
+
+def test_offline_showcase_report_can_include_llm_instruction_following(tmp_path):
+    json_output = tmp_path / "offline_showcase_report.json"
+    md_output = tmp_path / "offline_showcase_report.md"
+    following_report = tmp_path / "instruction_following_report.json"
+    following_output = tmp_path / "instruction_following_report.reused.json"
+    _write_instruction_following_report(following_report)
+
+    completed = subprocess.run(
+        [
+            "python3",
+            str(ROOT / "scripts" / "generate_offline_showcase_report.py"),
+            "--json-output",
+            str(json_output),
+            "--md-output",
+            str(md_output),
+            "--run-instruction-following",
+            "--instruction-following-input",
+            str(following_report),
+            "--instruction-following-output",
+            str(following_output),
+        ],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stdout
+    report = json.loads(json_output.read_text(encoding="utf-8"))
+    markdown = md_output.read_text(encoding="utf-8")
+    by_key = {item["key"]: item for item in report["claim_evidence"]["items"]}
+
+    assert report["instruction_following"]["ok"] is True
+    payload = report["instruction_following"]["payload"]
+    assert payload["model_score"] == 0.875
+    assert payload["effective_score"] == 1.0
+    assert by_key["offline_llm_instruction_following"]["status"] == "proven"
+    assert by_key["offline_llm_instruction_following"]["metric"]["model_score"] == 0.875
+    assert following_output.is_file()
+    assert "离线 LLM 指令遵循评估" in markdown

@@ -36,6 +36,11 @@ def _latency_payload_ok(block: dict[str, Any]) -> bool:
     return isinstance(payload, dict) and payload.get("ok") is True
 
 
+def _payload(block: dict[str, Any]) -> dict[str, Any]:
+    payload = block.get("payload")
+    return payload if isinstance(payload, dict) else {}
+
+
 def _claim_statuses(report: dict[str, Any]) -> dict[str, str]:
     claim_evidence = report.get("claim_evidence")
     if not isinstance(claim_evidence, dict):
@@ -53,6 +58,7 @@ def audit_report(
     parser_minimum: float = 0.95,
     require_latency: bool = False,
     require_llama_bench: bool = False,
+    require_instruction_following: bool = False,
     require_asr_tts: bool = False,
 ) -> dict[str, Any]:
     blockers: list[str] = []
@@ -63,6 +69,7 @@ def audit_report(
     parser = report.get("instruction_parser") or {}
     latency = report.get("latency") or {}
     llama_bench = report.get("llama_decode_benchmark") or {}
+    instruction_following = report.get("instruction_following") or {}
     asr_tts = report.get("asr_tts_benchmark") or {}
     claim_statuses = _claim_statuses(report)
 
@@ -94,6 +101,21 @@ def audit_report(
             warnings.append("llama_decode_benchmark:not_measured")
     elif llama_bench_status != "proven":
         blockers.append("llama_decode_benchmark:measured_but_failed")
+
+    instruction_following_status = _status_from_executed_block(instruction_following)
+    if instruction_following_status == "missing":
+        if require_instruction_following:
+            blockers.append("instruction_following:required_but_not_measured")
+        else:
+            warnings.append("instruction_following:not_measured")
+    elif instruction_following_status != "proven":
+        blockers.append("instruction_following:measured_but_failed")
+    instruction_payload = _payload(instruction_following)
+    instruction_model_score = instruction_payload.get("model_score")
+    instruction_effective_score = instruction_payload.get("effective_score")
+    if instruction_following_status == "proven" and instruction_model_score is not None:
+        if float(instruction_model_score) < 0.70:
+            warnings.append("instruction_following:model_score_below_0.70")
 
     asr_tts_status = _status_from_executed_block(asr_tts)
     if asr_tts_status == "missing":
@@ -137,6 +159,15 @@ def audit_report(
             "status": llama_bench_status,
             "raw_status": llama_bench.get("status", "executed"),
         },
+        "instruction_following": {
+            "status": instruction_following_status,
+            "raw_status": instruction_following.get("status", "executed"),
+            "model_score": instruction_model_score,
+            "effective_score": instruction_effective_score,
+            "model_passed": instruction_payload.get("model_passed"),
+            "effective_passed": instruction_payload.get("effective_passed"),
+            "total": instruction_payload.get("total"),
+        },
         "asr_tts_benchmark": {
             "status": asr_tts_status,
             "raw_status": asr_tts.get("status", "executed"),
@@ -172,6 +203,10 @@ def audit_report(
         claim_guidance.append("可以说：llama.cpp decode tokens/s 已有 llama-bench 证据。")
     else:
         claim_guidance.append("不要说：llama.cpp CPU decode tokens/s 已复现；除非先运行 llama-decode-benchmark 或 --run-llama-bench。")
+    if instruction_following_status == "proven":
+        claim_guidance.append("可以说：离线 LLM 指令遵循准确率已有 evaluate_instruction_following 证据。")
+    else:
+        claim_guidance.append("不要说：离线 LLM 指令遵循准确率已复现；除非先运行 instruction-following-eval 或 --run-instruction-following。")
     claim_guidance.append("不要说：LoRA 微调、Q8 指令遵循 85% 等训练指标已经复现；当前证据只支撑工程接口与评估闭环。")
     claim_guidance.append("不要说：SummerTTS 是默认 <300ms 低延迟 TTS；当前低延迟默认仍以 Sherpa-TTS 为准。")
 
@@ -193,6 +228,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--parser-minimum", type=float, default=0.95)
     parser.add_argument("--require-latency", action="store_true")
     parser.add_argument("--require-llama-bench", action="store_true")
+    parser.add_argument("--require-instruction-following", action="store_true")
     parser.add_argument("--require-asr-tts", action="store_true")
     return parser.parse_args()
 
@@ -211,6 +247,7 @@ def main() -> None:
         parser_minimum=args.parser_minimum,
         require_latency=args.require_latency,
         require_llama_bench=args.require_llama_bench,
+        require_instruction_following=args.require_instruction_following,
         require_asr_tts=args.require_asr_tts,
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
