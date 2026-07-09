@@ -236,6 +236,8 @@ def test_summer_tts_deployment_entrypoints_remain_available():
     setup_script = ROOT / "scripts" / "setup_summer_tts_runtime.sh"
     smoke_script = ROOT / "scripts" / "summer_tts_smoke.py"
     pseudo_script = ROOT / "scripts" / "smoke_test_summer_pseudo_tts.py"
+    service_probe = ROOT / "scripts" / "summer_tts_service_probe.py"
+    service_smoke = ROOT / "scripts" / "smoke_test_summer_tts_service.sh"
     provider = (
         ROOT
         / "src"
@@ -258,13 +260,19 @@ def test_summer_tts_deployment_entrypoints_remain_available():
     assert setup_script.is_file()
     assert smoke_script.is_file()
     assert pseudo_script.is_file()
+    assert service_probe.is_file()
+    assert service_smoke.is_file()
     assert provider.is_file()
 
     setup_text = setup_script.read_text(encoding="utf-8")
     provider_text = provider.read_text(encoding="utf-8")
+    service_probe_text = service_probe.read_text(encoding="utf-8")
+    service_smoke_text = service_smoke.read_text(encoding="utf-8")
     assert "huakunyang/SummerTTS" in setup_text
     assert "patch_missing_cstdint" in setup_text
     assert "tts_test" in provider_text
+    assert "--require-cache-hit" in service_probe_text
+    assert "--require-cache-hit" in service_smoke_text
     assert "SummerTts" in offline_node
     assert "tts_provider" in offline_node
     assert "tts_provider" in offline_launch

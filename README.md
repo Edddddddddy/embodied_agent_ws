@@ -171,7 +171,8 @@ bash scripts/acceptance_test.sh summer-tts-service
 `PseudoStreamingTtsPipeline` 分块发布，验证“开源 C++ TTS 后端 + 双缓冲伪流式”的嵌入链路。
 `summer-tts-service` 会启动常驻 C++ ROS service，模型在节点启动时加载，后续请求通过
 `/tts/synthesize` 合成，不再每句启动命令行进程；短文本反馈默认启用缓存，重复请求会在
-probe 输出中显示 `cache_hit=true`。
+probe 输出中显示 `cache_hit=true`。该验收会强制要求重复短文本命中缓存，避免只验证
+“能合成”而没有证明缓存优化真正生效。
 
 使用常驻 SummerTTS ROS 后端：
 

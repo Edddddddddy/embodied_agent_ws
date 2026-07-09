@@ -7,9 +7,6 @@ import argparse
 import json
 import time
 
-import rclpy
-from embodied_agent_interfaces.srv import SynthesizeSpeech
-
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -23,7 +20,15 @@ def main() -> int:
         default=2,
         help="call the same request repeatedly; repeat>=2 verifies short-text cache hits",
     )
+    parser.add_argument(
+        "--require-cache-hit",
+        action="store_true",
+        help="fail when repeated short text does not report a service-side cache hit",
+    )
     args = parser.parse_args()
+
+    import rclpy
+    from embodied_agent_interfaces.srv import SynthesizeSpeech
 
     rclpy.init()
     node = rclpy.create_node("summer_tts_service_probe")
@@ -77,7 +82,11 @@ def main() -> int:
         if not report["ok"] or any(item["pcm_bytes"] < args.min_pcm_bytes for item in responses):
             return 1
         if args.repeat >= 2 and not report["cache_hit"]:
-            print("WARN: repeated short text did not hit cache; check cache parameters or text length")
+            message = "repeated short text did not hit cache; check cache parameters or text length"
+            if args.require_cache_hit:
+                print(f"FAIL: {message}")
+                return 1
+            print(f"WARN: {message}")
         return 0
     finally:
         node.destroy_node()

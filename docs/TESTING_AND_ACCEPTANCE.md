@@ -285,7 +285,8 @@ bash scripts/acceptance_test.sh summer-tts-service
 - `summer-pseudo-tts` 的 `tts_pipeline.synth_calls` 为 2，且产生多个 audio chunks。
 - `summer-tts-service` 能启动 `embodied_agent_cpp/summer_tts_service`，通过 `/tts/synthesize`
   返回 `sample_rate=16000` 和非空 PCM；probe 默认重复请求同一短文本，第二次应出现
-  `cache_hit=true`，用于证明常驻服务的短反馈缓存生效。
+  `cache_hit=true`。当前 smoke 会通过 `--require-cache-hit` 把缓存未命中视为失败，
+  用于证明常驻服务的短反馈缓存生效。
 
 常见失败定位：
 
