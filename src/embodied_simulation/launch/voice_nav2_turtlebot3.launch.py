@@ -27,8 +27,11 @@ def as_python_bool(value):
 def generate_launch_description():
     simulation_share = get_package_share_directory("embodied_simulation")
     nav2_share = get_package_share_directory("nav2_bringup")
+    tb3_sim_share = get_package_share_directory("nav2_minimal_tb3_sim")
     nav2_params = os.path.join(nav2_share, "params", "nav2_params.yaml")
     nav2_map = os.path.join(nav2_share, "maps", "tb3_sandbox.yaml")
+    default_world = os.path.join(tb3_sim_share, "worlds", "tb3_sandbox.sdf.xacro")
+    default_rviz = os.path.join(simulation_share, "rviz", "voice_nav2_demo.rviz")
     control_config = os.path.join(
         simulation_share, "config", "simulation_control.yaml"
     )
@@ -81,7 +84,9 @@ def generate_launch_description():
     nav_action_timeout_s = LaunchConfiguration("nav_action_timeout_s")
     slam = LaunchConfiguration("slam")
     use_rviz = LaunchConfiguration("use_rviz")
+    rviz_config_file = LaunchConfiguration("rviz_config_file")
     headless = LaunchConfiguration("headless")
+    world = LaunchConfiguration("world")
     use_composition = LaunchConfiguration("use_composition")
 
     online_condition = IfCondition(
@@ -144,6 +149,8 @@ def generate_launch_description():
         DeclareLaunchArgument("slam", default_value="false"),
         DeclareLaunchArgument("map", default_value=nav2_map),
         DeclareLaunchArgument("params_file", default_value=nav2_params),
+        DeclareLaunchArgument("rviz_config_file", default_value=default_rviz),
+        DeclareLaunchArgument("world", default_value=default_world),
         DeclareLaunchArgument("use_composition", default_value="true"),
         DeclareLaunchArgument("nav_action_timeout_s", default_value="180.0"),
         DeclareLaunchArgument("x_pose", default_value="-2.0"),
@@ -161,8 +168,10 @@ def generate_launch_description():
                 "slam": as_python_bool(slam),
                 "map": LaunchConfiguration("map"),
                 "params_file": LaunchConfiguration("params_file"),
+                "rviz_config_file": rviz_config_file,
                 "use_rviz": as_python_bool(use_rviz),
                 "headless": as_python_bool(headless),
+                "world": world,
                 "autostart": "true",
                 "use_sim_time": "true",
                 "use_composition": as_python_bool(use_composition),

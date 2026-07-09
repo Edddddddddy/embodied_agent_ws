@@ -70,6 +70,7 @@ def test_voice_navigation_acceptance_entrypoints_remain_available():
         "navigation-demo",
         "nav2-bridge",
         "nav2-preflight",
+        "nav2-assets",
         "nav2-stage",
         "nav2-turtlebot3",
         "continuous-nav2-offline",
@@ -88,6 +89,7 @@ def test_voice_navigation_acceptance_entrypoints_remain_available():
         "smoke_test_nav2_bridge.sh",
         "smoke_test_nav2_preflight.sh",
         "smoke_test_nav2_turtlebot3_voice.sh",
+        "audit_nav2_demo_assets.py",
         "continuous_nav2_voice_control.sh",
         "continuous_nav2_voice_evidence.sh",
         "publish_nav2_initial_pose.py",
@@ -98,6 +100,7 @@ def test_voice_navigation_acceptance_entrypoints_remain_available():
         ROOT / "src" / "embodied_simulation" / "launch" / "voice_nav2_turtlebot3.launch.py"
     ).is_file()
     assert (ROOT / "src" / "embodied_simulation" / "config" / "places.yaml").is_file()
+    assert (ROOT / "src" / "embodied_simulation" / "rviz" / "voice_nav2_demo.rviz").is_file()
 
 
 def test_real_asr_sample_eval_loop_entrypoints_remain_available():

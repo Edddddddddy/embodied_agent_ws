@@ -31,6 +31,7 @@ Automated modes:
   navigation-demo     Voice-style target navigation and multi-waypoint patrol smoke
   nav2-bridge         Voice navigation commands are converted to Nav2 action goals
   nav2-preflight      Check Nav2/TurtleBot3 voice launch dependencies and arguments
+  nav2-assets         Audit Nav2 voice demo places/RViz/launch assets
   nav2-stage          Stage gate for voice navigation/patrol; excludes heavy Gazebo/Nav2
   nav2-turtlebot3     Heavy Gazebo/Nav2 run: voice text drives target navigation/patrol
   continuous-mock     One wake word, several queued commands, and sleep gate
@@ -239,6 +240,7 @@ case "$LEVEL" in
   navigation-demo) bash scripts/smoke_test_navigation_sequence.sh online; bash scripts/smoke_test_navigation_sequence.sh offline ;;
   nav2-bridge) bash scripts/smoke_test_nav2_bridge.sh ;;
   nav2-preflight) bash scripts/smoke_test_nav2_preflight.sh ;;
+  nav2-assets) python3 scripts/audit_nav2_demo_assets.py ;;
   nav2-stage)
     run_isolated_ros_smoke 181 bash scripts/smoke_test_navigation_sequence.sh online
     run_isolated_ros_smoke 182 bash scripts/smoke_test_navigation_sequence.sh offline

@@ -484,10 +484,12 @@ bash scripts/acceptance_test.sh speaker-enroll
 - `src/embodied_agent_cpp/src/robot_command_adapter.cpp`
 - `src/embodied_simulation/include/embodied_simulation/nav2_places.hpp`
 - `src/embodied_simulation/config/places.yaml`
+- `src/embodied_simulation/rviz/voice_nav2_demo.rviz`
 - `src/embodied_simulation/src/simulation_control_node.cpp`
 - `src/embodied_simulation/src/robot_executor_plugins.cpp`
 - `src/embodied_simulation/launch/voice_nav2_turtlebot3.launch.py`
 - `scripts/continuous_nav2_voice_control.sh`
+- `scripts/audit_nav2_demo_assets.py`
 - `scripts/publish_nav2_initial_pose.py`
 - `tests/integration/test_navigation_sequence.py`
 - `tests/integration/test_continuous_navigation_queue.py`
@@ -516,6 +518,11 @@ bash scripts/acceptance_test.sh speaker-enroll
   和“目标执行失败”，而不是只看到笼统的 `blocked`。
 - `voice_nav2_turtlebot3.launch.py` 复用官方 `nav2_bringup/tb3_simulation_launch.py`，
   再叠加本项目的 Agent、ActionGuard、typed action bridge 和 Nav2 executor。
+- launch 暴露 `rviz_config_file/world/map/params_file`，默认 RViz 使用本项目的
+  `voice_nav2_demo.rviz`，方便面试时稳定展示 TF、map、scan、odom、global plan。
+- `audit_nav2_demo_assets.py` 审计语义地点、Nav2 launch、RViz 配置和验收脚本；默认允许
+  复用 Nav2 官方 `tb3_sandbox` map/world，但输出 warning。加 `--require-local-assets` 时，
+  可以把“项目自带固定 map/world”变成严格发布条件。
 - `nav2-turtlebot3` 重型验收会启动真实 TurtleBot3/Nav2 仿真，注入语音文本命令，
   等待目标点导航/巡航 result，并检查 `/odom` 运动证据。
 - `test_continuous_navigation_queue.py` 是介于普通连续队列测试和真实 Nav2 重型测试之间的
