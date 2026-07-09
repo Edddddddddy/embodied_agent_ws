@@ -34,6 +34,17 @@ def _latency_payload_ok(block: dict[str, Any]) -> bool:
     return isinstance(payload, dict) and payload.get("ok") is True
 
 
+def _claim_statuses(report: dict[str, Any]) -> dict[str, str]:
+    claim_evidence = report.get("claim_evidence")
+    if not isinstance(claim_evidence, dict):
+        return {}
+    statuses: dict[str, str] = {}
+    for item in claim_evidence.get("items", []):
+        if isinstance(item, dict) and item.get("key"):
+            statuses[str(item["key"])] = str(item.get("status", "unknown"))
+    return statuses
+
+
 def audit_report(
     report: dict[str, Any],
     *,
@@ -49,6 +60,7 @@ def audit_report(
     parser = report.get("instruction_parser") or {}
     latency = report.get("latency") or {}
     asr_tts = report.get("asr_tts_benchmark") or {}
+    claim_statuses = _claim_statuses(report)
 
     if not models.get("ok"):
         blockers.append("model_inventory:missing_required_assets")
@@ -81,6 +93,13 @@ def audit_report(
 
     warnings.append("lora_training:not_reproduced_in_current_evidence")
     warnings.append("summertts:not_default_low_latency_provider")
+    if not claim_statuses:
+        warnings.append("claim_evidence:missing")
+    else:
+        # 将报告中的“不可宣称/未实测”状态透传到审计结果，方便发布前逐项检查。
+        for key, status in sorted(claim_statuses.items()):
+            if status in {"missing", "not_reproduced", "not_default", "failed"}:
+                warnings.append(f"claim_evidence:{key}:{status}")
 
     evidence = {
         "model_inventory": {
@@ -110,6 +129,10 @@ def audit_report(
         },
         "summertts_low_latency": {
             "status": "not_default",
+        },
+        "claim_evidence": {
+            "status": "proven" if claim_statuses else "missing",
+            "items": claim_statuses,
         },
     }
 

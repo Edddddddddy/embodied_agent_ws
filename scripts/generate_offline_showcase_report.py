@@ -218,11 +218,223 @@ def collect_asr_tts_benchmark(run_asr_tts: bool, timeout_s: float) -> dict[str, 
     return _run_json_command([sys.executable, "scripts/benchmark_offline.py"], timeout_s=timeout_s)
 
 
+def _inventory_item(models: dict[str, Any], key: str) -> dict[str, Any] | None:
+    for item in models.get("items", []):
+        if item.get("key") == key:
+            return item
+    return None
+
+
+def _command_payload(block: dict[str, Any]) -> dict[str, Any]:
+    payload = block.get("payload")
+    return payload if isinstance(payload, dict) else {}
+
+
+def _executed_ok(block: dict[str, Any]) -> bool:
+    if block.get("status") == "not_run":
+        return False
+    if block.get("ok") is True:
+        return True
+    payload = _command_payload(block)
+    return block.get("returncode") == 0 and payload.get("ok") is True
+
+
+def _claim(
+    key: str,
+    title: str,
+    status: str,
+    evidence: str,
+    *,
+    metric: Any = None,
+    caveat: str = "",
+    next_step: str = "",
+) -> dict[str, Any]:
+    item = {
+        "key": key,
+        "title": title,
+        "status": status,
+        "evidence": evidence,
+    }
+    if metric is not None:
+        item["metric"] = metric
+    if caveat:
+        item["caveat"] = caveat
+    if next_step:
+        item["next_step"] = next_step
+    return item
+
+
+def build_claim_evidence(report: dict[str, Any]) -> dict[str, Any]:
+    """把“可宣称能力”按证据强度分级，避免汇报时把接口接入误说成实测指标。
+
+    离线端侧项目最容易被追问的是：模型是否真的在本机部署、速度是否实测、
+    LoRA/量化/准确率是否复现。这里不改变任何功能链路，只把证据边界结构化输出。
+    """
+
+    models = report["model_inventory"]
+    parser = report["instruction_parser"]
+    latency = report["latency"]
+    asr_tts = report["asr_tts_benchmark"]
+    q8_model = _inventory_item(models, "llm_qwen3_0_6b_q8")
+    tts_model = _inventory_item(models, "tts_sherpa_vits")
+
+    latency_payload = _command_payload(latency)
+    latency_ok = _executed_ok(latency)
+    llm_latency = latency_payload.get("llm") if isinstance(latency_payload.get("llm"), dict) else {}
+    tts_latency = latency_payload.get("tts") if isinstance(latency_payload.get("tts"), dict) else {}
+
+    asr_tts_payload = _command_payload(asr_tts)
+    asr_tts_ok = _executed_ok(asr_tts)
+
+    parser_ok = parser.get("accuracy", 0.0) >= 0.95 and not parser.get("failed_cases")
+
+    items = [
+        _claim(
+            "q8_gguf_model",
+            "Qwen3-0.6B Q8 GGUF 模型资产",
+            "proven" if q8_model and q8_model.get("exists") else "missing",
+            "model_inventory",
+            metric={
+                "path": (q8_model or {}).get("path", "models/Qwen3-0.6B-Q8_0.gguf"),
+                "size_mb": (q8_model or {}).get("size_mb", 0),
+            },
+            caveat="证明当前仓库/机器具备 Q8 GGUF 离线推理资产，不等同于 LoRA 训练效果已复现。",
+        ),
+        _claim(
+            "lora_training",
+            "LLaMA-Factory LoRA 微调复现",
+            "not_reproduced",
+            "no_training_run_attached",
+            caveat="当前报告没有训练日志、checkpoint、eval result，因此不能宣称 LoRA 训练指标已完成复现。",
+            next_step="运行 LLaMA-Factory 训练并归档 config、checkpoint、eval JSON 和训练日志。",
+        ),
+        _claim(
+            "llama_decode_speed",
+            "llama.cpp CPU decode tokens/s",
+            "missing",
+            "latency_report_does_not_include_decode_speed",
+            caveat="当前快速报告只检查资产/版本/parser；tokens/s 需要独立从 llama.cpp metrics 或 benchmark 采集。",
+            next_step="补充 llama.cpp benchmark 输出解析，把 tokens/s 写入 logs/offline_showcase_report.json。",
+        ),
+        _claim(
+            "llm_first_token_latency",
+            "LLM 首 token 延迟",
+            "proven" if latency_ok and llm_latency.get("first_token_ms") is not None else "missing",
+            "offline_latency_targets" if latency_ok else "not_measured",
+            metric={
+                "first_token_ms": llm_latency.get("first_token_ms"),
+                "target_ms": llm_latency.get("target_ms"),
+            }
+            if llm_latency
+            else None,
+            next_step="运行 python3 scripts/generate_offline_showcase_report.py --run-latency。",
+        ),
+        _claim(
+            "sherpa_tts_first_audio",
+            "Sherpa-TTS 首音频延迟",
+            "proven"
+            if latency_ok
+            and tts_latency.get("provider") == "sherpa"
+            and tts_latency.get("first_audio_ms") is not None
+            else "missing",
+            "offline_latency_targets" if latency_ok else "not_measured",
+            metric={
+                "provider": tts_latency.get("provider"),
+                "first_audio_ms": tts_latency.get("first_audio_ms"),
+                "target_ms": tts_latency.get("target_ms"),
+            }
+            if tts_latency
+            else None,
+            next_step="运行 offline-latency，并保持默认 tts-provider=sherpa。",
+        ),
+        _claim(
+            "asr_tts_realtime_factor",
+            "Sherpa ASR/TTS realtime factor",
+            "proven" if asr_tts_ok else "missing",
+            "benchmark_offline" if asr_tts_ok else "not_measured",
+            metric={
+                "asr_realtime_factor": asr_tts_payload.get("asr_realtime_factor"),
+                "tts_realtime_factor": asr_tts_payload.get("tts_realtime_factor"),
+            }
+            if asr_tts_payload
+            else None,
+            next_step="运行 python3 scripts/generate_offline_showcase_report.py --run-asr-tts。",
+        ),
+        _claim(
+            "deterministic_parser_accuracy",
+            "确定性动作解析评估准确率",
+            "proven" if parser_ok else "failed",
+            "training/robot_instruction_eval.jsonl",
+            metric={
+                "passed": parser.get("passed", 0),
+                "total": parser.get("total", 0),
+                "accuracy": parser.get("accuracy", 0.0),
+            },
+            caveat="证明当前确定性 parser/轻量 NLU 在代表集上的能力，不等同于离线 LLM 指令遵循准确率。",
+        ),
+        _claim(
+            "offline_llm_instruction_following",
+            "离线 LLM 指令遵循准确率",
+            "missing",
+            "not_measured",
+            caveat="需要真实调用 llama.cpp 生成动作并与 eval 集对齐，不能用 deterministic parser 准确率替代。",
+            next_step="运行 evaluate_instruction_following.sh 并把结果归档到报告。",
+        ),
+        _claim(
+            "summertts_low_latency",
+            "SummerTTS 默认低延迟能力",
+            "not_default",
+            "summertts_service_smoke",
+            metric={
+                "model_present": bool(_inventory_item(models, "tts_summer_fast") or {}),
+                "sherpa_tts_model_present": bool(tts_model and tts_model.get("exists")),
+            },
+            caveat="SummerTTS 已完成服务化接入，但当前低延迟默认链路仍以 Sherpa-TTS 为主。",
+        ),
+    ]
+
+    summary: dict[str, int] = {}
+    for item in items:
+        status = item["status"]
+        summary[status] = summary.get(status, 0) + 1
+
+    allowed_claims = [
+        "可以说：当前离线链路具备模型资产清单、运行时版本和确定性指令解析评估证据。",
+        (
+            "可以说：确定性 parser 在当前代表集上达到 "
+            f"{parser.get('passed', 0)}/{parser.get('total', 0)}，准确率 {parser.get('accuracy', 0.0):.4f}。"
+        ),
+    ]
+    if q8_model and q8_model.get("exists"):
+        allowed_claims.append(
+            f"可以说：Q8 GGUF 模型资产已就绪，大小约 {q8_model.get('size_mb', 0)} MB。"
+        )
+    if latency_ok:
+        allowed_claims.append("可以说：LLM/TTS 延迟已有本机真实测量证据。")
+    if asr_tts_ok:
+        allowed_claims.append("可以说：Sherpa ASR/TTS realtime factor 已在本机测量。")
+
+    restricted_claims = [
+        "不要说：LoRA 微调训练、checkpoint 和训练后准确率已经复现；当前报告没有这类证据。",
+        "不要说：Q8 指令遵循精度约 85% 已复现；除非补充离线 LLM 指令评估报告。",
+        "不要说：llama.cpp CPU decode 已达到某个 tokens/s；除非报告中出现真实 decode benchmark。",
+        "不要说：SummerTTS 是默认 <300ms TTS；当前低延迟默认仍以 Sherpa-TTS 为主。",
+    ]
+
+    return {
+        "schema_version": 1,
+        "summary": summary,
+        "items": items,
+        "allowed_claims": allowed_claims,
+        "restricted_claims": restricted_claims,
+    }
+
+
 def build_report(args: argparse.Namespace) -> dict[str, Any]:
     dataset = Path(args.dataset).expanduser()
     if not dataset.is_absolute():
         dataset = WORKSPACE / dataset
-    return {
+    report = {
         "schema_version": 1,
         "scenario": "offline_deployment_showcase",
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
@@ -233,6 +445,8 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "latency": collect_latency(args.run_latency, args.timeout_s),
         "asr_tts_benchmark": collect_asr_tts_benchmark(args.run_asr_tts, args.timeout_s),
     }
+    report["claim_evidence"] = build_claim_evidence(report)
+    return report
 
 
 def _ok_badge(ok: bool) -> str:
@@ -304,6 +518,37 @@ def render_markdown(report: dict[str, Any]) -> str:
             "```",
         ]
     )
+    claims = report["claim_evidence"]
+    lines.extend(
+        [
+            "",
+            "## 5. 指标证据矩阵",
+            "",
+            "这部分用于区分“已经有证据支撑的说法”和“暂时不能过度宣称的指标”。",
+            "",
+            "| Key | 指标/能力 | 状态 | 证据来源 | 备注 |",
+            "| --- | --- | --- | --- | --- |",
+        ]
+    )
+    for item in claims["items"]:
+        metric = item.get("metric")
+        if metric is None:
+            note = item.get("caveat", "")
+        else:
+            note = json.dumps(metric, ensure_ascii=False)
+            if item.get("caveat"):
+                note = f"{note}；{item['caveat']}"
+        lines.append(
+            f"| `{item['key']}` | {item['title']} | `{item['status']}` | "
+            f"`{item['evidence']}` | {note} |"
+        )
+
+    lines.extend(["", "### 可宣称", ""])
+    for claim in claims["allowed_claims"]:
+        lines.append(f"- {claim}")
+    lines.extend(["", "### 不应过度宣称", ""])
+    for claim in claims["restricted_claims"]:
+        lines.append(f"- {claim}")
     return "\n".join(lines) + "\n"
 
 

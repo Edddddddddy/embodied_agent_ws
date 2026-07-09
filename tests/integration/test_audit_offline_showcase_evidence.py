@@ -38,6 +38,20 @@ def _write_report(path: Path, *, latency_status: str = "not_run") -> None:
         },
         "latency": {"status": latency_status, "reason": "not measured in default report"},
         "asr_tts_benchmark": {"status": "not_run", "reason": "not measured in default report"},
+        "claim_evidence": {
+            "schema_version": 1,
+            "summary": {"proven": 2, "missing": 3, "not_reproduced": 1, "not_default": 1},
+            "items": [
+                {"key": "q8_gguf_model", "status": "proven"},
+                {"key": "deterministic_parser_accuracy", "status": "proven"},
+                {"key": "llama_decode_speed", "status": "missing"},
+                {"key": "llm_first_token_latency", "status": "missing"},
+                {"key": "lora_training", "status": "not_reproduced"},
+                {"key": "summertts_low_latency", "status": "not_default"},
+            ],
+            "allowed_claims": ["可以说：当前离线链路具备可复查证据。"],
+            "restricted_claims": ["不要说：LoRA 微调训练已经复现。"],
+        },
     }
     path.write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
 
@@ -70,6 +84,9 @@ def test_offline_evidence_audit_warns_when_latency_is_not_measured(tmp_path):
     assert "latency:not_measured" in audit["warnings"]
     assert audit["evidence"]["instruction_parser"]["status"] == "proven"
     assert audit["evidence"]["latency"]["status"] == "missing"
+    assert audit["evidence"]["claim_evidence"]["status"] == "proven"
+    assert audit["evidence"]["claim_evidence"]["items"]["lora_training"] == "not_reproduced"
+    assert "claim_evidence:llama_decode_speed:missing" in audit["warnings"]
     assert any("不要说" in item and "首 token" in item for item in audit["claim_guidance"])
 
 

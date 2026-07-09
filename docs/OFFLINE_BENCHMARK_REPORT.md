@@ -22,6 +22,11 @@ logs/offline_evidence_audit.json
 默认报告可以证明模型资产、运行时版本和 deterministic parser 评估；如果没有运行
 `offline-latency` 或 `--run-latency`，它会提示不要宣称首 token / 首音频指标已在当前机器复现。
 
+`offline_showcase_report.json` 还包含 `claim_evidence` 指标证据矩阵，用于把每项能力标成
+`proven`、`missing`、`not_reproduced` 或 `not_default`。汇报时优先引用这张矩阵：
+它能清楚说明 Q8 GGUF 模型资产和 deterministic parser 评估已经有证据，而 LoRA 训练、
+llama.cpp tokens/s、离线 LLM 指令遵循准确率等仍需要单独 benchmark 或训练日志支撑。
+
 演示前如果要补充真实延迟和 Sherpa ASR/TTS benchmark：
 
 ```bash
@@ -60,6 +65,7 @@ bash scripts/evaluate_instruction_following.sh --minimum 0.70
 | --- | --- | --- | --- |
 | 模型资产大小 | 记录即可 | 见 `logs/offline_showcase_report.md` | `offline-showcase-report` |
 | 运行时版本 | 固定版本匹配 | 见 `logs/offline_showcase_report.md` | `offline-showcase-report` |
+| 指标证据矩阵 | 区分可宣称/不可宣称 | 见 `claim_evidence` | `offline-showcase-report` + `offline-evidence-audit` |
 | LLM 首 token | ≤ 1000ms | 见真实延迟报告 | `offline-latency` 或 `--run-latency` |
 | 默认 TTS 首音频 | ≤ 300ms | 见真实延迟报告 | `offline-latency` 或 `--run-latency` |
 | llama.cpp tokens/s | 记录即可 | 见 llama.cpp 日志/metrics | `/offline_agent/metrics` 或 `llama-cpp-smoke` |
@@ -91,7 +97,9 @@ Nav2 目标点/巡航、附件/模式命令，以及否定、疑问和危险速�
 ## 5. 当前结论模板
 
 ```text
-本轮离线链路可以支撑演示：llama.cpp 首 token 达到目标，Sherpa-TTS 首音频达到目标；
-SummerTTS 已完成服务化封装，但 CPU 合成仍慢，不作为默认低延迟 TTS。
-主要不足是 LoRA 微调和更大规模动作准确率评估尚未完成。
+本轮离线链路可以支撑工程演示：Q8 GGUF、Sherpa-ONNX、Sherpa-TTS/SummerTTS
+模型资产和运行时版本可复查，deterministic parser 在当前代表集上通过评估。
+如果已额外运行 offline-latency，则可以引用本机首 token/首音频实测值；否则不应宣称
+这些低延迟指标已复现。SummerTTS 已完成服务化封装，但当前不作为默认低延迟 TTS。
+主要不足是 LoRA 微调、llama.cpp tokens/s 和离线 LLM 指令遵循准确率仍需补 benchmark。
 ```
