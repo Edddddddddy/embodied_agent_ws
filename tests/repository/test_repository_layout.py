@@ -656,3 +656,58 @@ def test_nav2_executor_failure_details_are_preserved():
     assert "executor_->external_action_detail()" in control_node
     assert "detail.empty() ? \"executor_rejected\" : detail" in control_node
     assert "Nav2 这类外部 action 的失败原因" in control_node
+
+
+def test_webrtc_vad_sidecar_remains_integrated_as_optional_voice_provider():
+    """真实麦克风稳定性不能只依赖 energy VAD。
+
+    WebRTC VAD 是本项目的轻量成熟 provider：依赖比 Silero 小，适合 WSL/笔记本演示；
+    这里锁住 entry point、launch 条件、preflight auto fallback 和文档入口。
+    """
+
+    setup_py = (ROOT / "src" / "embodied_online_agent" / "setup.py").read_text(
+        encoding="utf-8"
+    )
+    sidecar = (
+        ROOT
+        / "src"
+        / "embodied_online_agent"
+        / "embodied_online_agent"
+        / "silero_vad_sidecar.py"
+    ).read_text(encoding="utf-8")
+    node_path = (
+        ROOT
+        / "src"
+        / "embodied_online_agent"
+        / "embodied_online_agent"
+        / "webrtc_vad_node.py"
+    )
+    online_launch = (
+        ROOT / "src" / "embodied_online_agent" / "launch" / "online_agent.launch.py"
+    ).read_text(encoding="utf-8")
+    offline_launch = (
+        ROOT / "src" / "embodied_offline_agent" / "launch" / "offline_agent.launch.py"
+    ).read_text(encoding="utf-8")
+    preflight = (ROOT / "scripts" / "voice_provider_preflight.py").read_text(
+        encoding="utf-8"
+    )
+    continuous = (ROOT / "scripts" / "continuous_voice_control.sh").read_text(
+        encoding="utf-8"
+    )
+    acceptance_doc = (ROOT / "docs" / "TESTING_AND_ACCEPTANCE.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert node_path.is_file()
+    assert "webrtc-vad" in setup_py
+    assert "webrtc_vad = embodied_online_agent.webrtc_vad_node:main" in setup_py
+    assert "class WebRtcVadProvider" in sidecar
+    assert "WebRTC VAD frame_ms must be one of [10, 20, 30]" in sidecar
+    assert "executable=\"webrtc_vad\"" in online_launch
+    assert "executable=\"webrtc_vad\"" in offline_launch
+    assert "' != 'silero' and '" in online_launch
+    assert "' != 'silero' and '" in offline_launch
+    assert "vad:auto_fallback:webrtc" in preflight
+    assert "webrtcvad_package_missing" in preflight
+    assert "auto 会优先 Silero，其次 WebRTC，最后降级 energy" in continuous
+    assert "pip install webrtcvad" in acceptance_doc

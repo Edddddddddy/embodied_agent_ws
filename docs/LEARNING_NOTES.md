@@ -136,7 +136,8 @@
 
 - C++ audio frontend 发布 `/audio/clean_pcm`、`/audio/speech_started`、`/audio/speech_ended`、`/audio/silence_timeout`。
 - `VAD_PROVIDER=auto` 会在启动脚本里先跑 `voice_provider_preflight.py`：Silero VAD 依赖可用时，
-  AudioFrontend 只发布 clean PCM，`silero_vad` sidecar 负责 endpoint；依赖不可用时降级 energy VAD。
+  AudioFrontend 只发布 clean PCM，`silero_vad` sidecar 负责 endpoint；Silero 不可用但
+  `webrtcvad` 可用时，`webrtc_vad` sidecar 接管 endpoint；都不可用时降级 energy VAD。
 - Agent 收到 endpoint 后调用 ASR commit。
 - `asr_commit_delay_ms` 允许在 endpoint 后等待少量时间，再提交 final。
 - `VOICE_CONTROL_PROFILE` 提供 normal、quiet、low_gain、noisy_room 四种参数预设。
@@ -153,7 +154,8 @@
 - 极短静音阈值：响应快，但尾部漏识别多。
 - 很长静音阈值：完整但交互迟钝。
 - profile + commit delay：保留可调空间，适合不同环境。
-- auto Silero sidecar：端点判断更稳，但需要额外 Python/ONNXRuntime 依赖；降级 energy VAD 保证基础演示不被可选依赖卡死。
+- auto Silero/WebRTC sidecar：Silero 判断更稳但依赖较重，WebRTC VAD 更轻、更易部署但只有二分类；
+  降级 energy VAD 保证基础演示不被可选依赖卡死。
 
 ## 6. 短命令补全与模糊归一化
 

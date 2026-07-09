@@ -576,12 +576,23 @@ VOICE_CONTROL_PROFILE=low_gain bash scripts/acceptance_test.sh continuous-offlin
 ```
 
 连续语音脚本默认 `VAD_PROVIDER=auto`：如果本机安装了 `silero-vad` 和 `onnxruntime`，
-会启动 Silero sidecar；否则会在终端打印 `vad:auto_fallback:energy:...` 并降级到
-energy VAD。想强制验证 Silero 配置，可运行：
+会启动 Silero sidecar；如果 Silero 不可用但安装了 `webrtcvad`，会启动更轻量的
+WebRTC sidecar；两者都不可用时才打印 `vad:auto_fallback:energy:...` 并降级到
+energy VAD。想强制验证某个 provider，可运行：
 
 ```bash
 VAD_PROVIDER=silero bash scripts/acceptance_test.sh provider-preflight
 VAD_PROVIDER=silero bash scripts/acceptance_test.sh continuous-offline
+VAD_PROVIDER=webrtc bash scripts/acceptance_test.sh provider-preflight
+VAD_PROVIDER=webrtc bash scripts/acceptance_test.sh continuous-offline
+```
+
+WebRTC VAD 的可选安装命令：
+
+```bash
+pip install 'embodied-online-agent[webrtc-vad]'
+# 或只安装底层包：
+pip install webrtcvad
 ```
 
 也可以直接套用 calibration/readiness 给出的阈值，例如：

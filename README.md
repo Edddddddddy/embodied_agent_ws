@@ -406,8 +406,8 @@ bash scripts/acceptance_test.sh continuous-live-check online
 
 连续语音默认偏向“完整优先”，减少“左转90度”只识别成“左转”的尾部漏识别：
 
-- `VAD_PROVIDER`：默认 `auto`，启动前优先检测 `silero-vad + onnxruntime`；可用时使用 Silero
-  sidecar 接管 endpoint，不可用时自动降级到 energy VAD 并打印原因。
+- `VAD_PROVIDER`：默认 `auto`，启动前优先检测 Silero VAD；不可用时尝试轻量 WebRTC VAD；
+  两者都不可用时自动降级到 energy VAD 并打印原因。
 - `SPEECH_END_SILENCE_S`：VAD 判定一句话结束前等待的静音时长。
 - `ASR_COMMIT_DELAY_MS`：收到 `/audio/speech_ended` 后，Agent 再延迟提交 ASR final 的时间。
 - `VOICE_CONTROL_PROFILE`：`normal`、`quiet`、`low_gain`、`noisy_room` 四种预设。
@@ -630,6 +630,7 @@ bash scripts/acceptance_test.sh online
 
 - 当前验收平台是 Gazebo/TurtleBot3 仿真，不是实体机器人。
 - 离线 LoRA 训练数据集和真实训练流程有接口与说明，训练本身不是当前主线交付内容。
-- 连续语音默认 `VAD_PROVIDER=auto`：Silero VAD 可用时优先使用成熟声学 VAD，不可用时降级 energy VAD；
+- 连续语音默认 `VAD_PROVIDER=auto`：Silero VAD 可用时优先使用成熟声学 VAD，
+  不可用时尝试轻量 WebRTC VAD，最后才降级 energy VAD；
   openWakeWord、LiveKit WakeWord、Sherpa KWS 仍是可选 seam/preflight/smoke，不是默认强依赖。
 - 复杂导航、地图构建、目标点规划不是本阶段目标；当前重点是语音到动作到仿真控制的端到端链路。

@@ -17,6 +17,7 @@ setup(
     install_requires=["setuptools"],
     extras_require={
         "fuzzy": ["rapidfuzz>=3.0.0"],
+        "webrtc-vad": ["webrtcvad>=2.0.10"],
         "kws": ["openwakeword>=0.6.0"],
         "livekit-kws": ["livekit-wakeword>=0.1.0"],
     },
@@ -30,6 +31,7 @@ setup(
         "console_scripts": [
             "online_agent = embodied_online_agent.online_agent_node:main",
             "silero_vad = embodied_online_agent.silero_vad_node:main",
+            "webrtc_vad = embodied_online_agent.webrtc_vad_node:main",
             "keyword_wake = embodied_online_agent.keyword_wake_node:main",
             "speaker_identity = embodied_online_agent.speaker_identity_node:main",
         ],

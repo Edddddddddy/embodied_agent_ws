@@ -39,6 +39,10 @@ class SileroVadUnavailableError(RuntimeError):
     pass
 
 
+class WebRtcVadUnavailableError(RuntimeError):
+    pass
+
+
 class StreamingVadEndpoint:
     """把帧级 VAD 概率转换成稳定的端点事件。
 
@@ -175,3 +179,38 @@ class SileroVadProvider:
         if hasattr(probability, "item"):
             return float(probability.item())
         return float(probability)
+
+
+class WebRtcVadProvider:
+    """py-webrtcvad adapter。
+
+    WebRTC VAD 是传统工程里非常常见的轻量端点检测方案：CPU 开销低、依赖小，
+    但只能输出二分类 speech/non-speech，并要求输入帧必须是 10/20/30ms PCM16。
+    因此这里把 True/False 映射成 1.0/0.0，复用 StreamingVadEndpoint 的滞回和
+    silence timeout 逻辑。
+    """
+
+    _SUPPORTED_SAMPLE_RATES = {8000, 16000, 32000, 48000}
+    _SUPPORTED_FRAME_MS = {10, 20, 30}
+
+    def __init__(self, *, aggressiveness: int = 2):
+        if aggressiveness < 0 or aggressiveness > 3:
+            raise ValueError("WebRTC VAD aggressiveness must be in [0, 3]")
+        try:
+            import webrtcvad
+        except Exception as error:  # pragma: no cover - 依赖缺失时只在真实节点启动路径触发
+            raise WebRtcVadUnavailableError(
+                "WebRTC VAD 依赖未安装。可执行：pip install webrtcvad。"
+            ) from error
+        self._vad = webrtcvad.Vad(int(aggressiveness))
+
+    def speech_probability(self, pcm_frame: bytes, sample_rate: int) -> float:
+        if sample_rate not in self._SUPPORTED_SAMPLE_RATES:
+            raise ValueError(
+                "WebRTC VAD sample_rate must be one of "
+                f"{sorted(self._SUPPORTED_SAMPLE_RATES)}"
+            )
+        frame_ms = round(len(pcm_frame) / 2 / sample_rate * 1000)
+        if frame_ms not in self._SUPPORTED_FRAME_MS:
+            raise ValueError("WebRTC VAD frame_ms must be one of [10, 20, 30]")
+        return 1.0 if self._vad.is_speech(pcm_frame, sample_rate) else 0.0

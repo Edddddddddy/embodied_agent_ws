@@ -219,8 +219,34 @@ def generate_launch_description():
                             auto_gain_enabled, value_type=bool
                         ),
                         "endpoint_events_enabled": ParameterValue(
-                            PythonExpression(["'", vad_provider, "' != 'silero'"]),
+                            PythonExpression([
+                                "'", vad_provider,
+                                "' != 'silero' and '", vad_provider, "' != 'webrtc'",
+                            ]),
                             value_type=bool,
+                        ),
+                    },
+                ],
+            ),
+            Node(
+                package="embodied_online_agent",
+                executable="webrtc_vad",
+                name="webrtc_vad",
+                output="screen",
+                condition=IfCondition(
+                    PythonExpression(["'", vad_provider, "' == 'webrtc'"])
+                ),
+                parameters=[
+                    config,
+                    {
+                        "speech_end_silence_s": ParameterValue(
+                            speech_end_silence_s, value_type=float
+                        ),
+                        "min_utterance_ms": ParameterValue(
+                            min_utterance_ms, value_type=float
+                        ),
+                        "max_utterance_s": ParameterValue(
+                            max_utterance_s, value_type=float
                         ),
                     },
                 ],

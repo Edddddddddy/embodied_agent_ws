@@ -65,6 +65,20 @@ def test_auto_vad_falls_back_to_energy_when_silero_dependencies_are_missing(tmp_
     assert any(item.startswith("vad:auto_fallback:energy:") for item in report.warnings)
 
 
+def test_auto_vad_falls_back_to_webrtc_when_silero_missing_but_webrtc_available(tmp_path):
+    report = preflight.check_voice_providers(
+        mode="offline",
+        vad_provider="auto",
+        kws_provider="none",
+        config_path=write_config(tmp_path / "agent.yaml"),
+        module_finder=finder("webrtcvad"),
+    )
+
+    assert report.ok
+    assert report.vad_provider == "webrtc"
+    assert any(item.startswith("vad:auto_fallback:webrtc:") for item in report.warnings)
+
+
 def test_auto_vad_selects_silero_when_dependencies_are_available(tmp_path):
     report = preflight.check_voice_providers(
         mode="offline",
@@ -77,6 +91,19 @@ def test_auto_vad_selects_silero_when_dependencies_are_available(tmp_path):
     assert report.ok
     assert report.vad_provider == "silero"
     assert "vad:auto_selected:silero" in report.warnings
+
+
+def test_webrtc_vad_requires_python_package(tmp_path):
+    report = preflight.check_voice_providers(
+        mode="online",
+        vad_provider="webrtc",
+        kws_provider="none",
+        config_path=write_config(tmp_path / "agent.yaml"),
+        module_finder=finder(),
+    )
+
+    assert not report.ok
+    assert "vad:webrtcvad_package_missing" in report.blockers
 
 
 def test_silero_requires_python_and_onnxruntime_packages(tmp_path):

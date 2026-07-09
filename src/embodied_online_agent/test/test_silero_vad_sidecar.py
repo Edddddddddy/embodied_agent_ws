@@ -3,6 +3,7 @@ import pytest
 from embodied_online_agent.silero_vad_sidecar import (
     StreamingVadEndpoint,
     VadEventName,
+    WebRtcVadProvider,
 )
 
 
@@ -87,3 +88,39 @@ def test_streaming_endpoint_rejects_invalid_frame_configuration():
             min_utterance_ms=100.0,
             max_utterance_s=12.0,
         )
+
+
+def test_webrtc_vad_provider_maps_binary_decision_to_probability(monkeypatch):
+    class FakeVad:
+        def __init__(self, aggressiveness):
+            self.aggressiveness = aggressiveness
+
+        def is_speech(self, pcm_frame, sample_rate):
+            return sample_rate == 16000 and any(pcm_frame)
+
+    class FakeWebRtcVadModule:
+        Vad = FakeVad
+
+    monkeypatch.setitem(__import__("sys").modules, "webrtcvad", FakeWebRtcVadModule())
+    provider = WebRtcVadProvider(aggressiveness=2)
+
+    assert provider.speech_probability(frame(sample_count=320), 16000) == 1.0
+    assert provider.speech_probability(b"\x00\x00" * 320, 16000) == 0.0
+
+
+def test_webrtc_vad_provider_requires_supported_frame_duration(monkeypatch):
+    class FakeVad:
+        def __init__(self, _aggressiveness):
+            pass
+
+        def is_speech(self, _pcm_frame, _sample_rate):
+            return False
+
+    class FakeWebRtcVadModule:
+        Vad = FakeVad
+
+    monkeypatch.setitem(__import__("sys").modules, "webrtcvad", FakeWebRtcVadModule())
+    provider = WebRtcVadProvider()
+
+    with pytest.raises(ValueError, match="frame_ms"):
+        provider.speech_probability(frame(sample_count=240), 16000)

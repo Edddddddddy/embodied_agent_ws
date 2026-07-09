@@ -133,6 +133,16 @@ def _silero_blockers(
     return tuple(blockers)
 
 
+def _webrtc_blockers(
+    *,
+    module_finder: Callable[[str], object | None],
+) -> tuple[str, ...]:
+    blockers: list[str] = []
+    if not _has_module("webrtcvad", module_finder):
+        blockers.append("vad:webrtcvad_package_missing")
+    return tuple(blockers)
+
+
 def check_voice_providers(
     *,
     mode: str,
@@ -156,17 +166,30 @@ def check_voice_providers(
 
     if vad == "auto":
         silero_blockers = _silero_blockers(silero, module_finder=module_finder)
-        if silero_blockers:
-            vad = "energy"
-            warnings.append("vad:auto_fallback:energy:" + ",".join(silero_blockers))
-        else:
+        if not silero_blockers:
             vad = "silero"
             warnings.append("vad:auto_selected:silero")
+        else:
+            webrtc_blockers = _webrtc_blockers(module_finder=module_finder)
+            if not webrtc_blockers:
+                vad = "webrtc"
+                warnings.append(
+                    "vad:auto_fallback:webrtc:"
+                    + ",".join(silero_blockers)
+                )
+            else:
+                vad = "energy"
+                warnings.append(
+                    "vad:auto_fallback:energy:"
+                    + ",".join((*silero_blockers, *webrtc_blockers))
+                )
 
-    if vad not in {"energy", "silero"}:
+    if vad not in {"energy", "silero", "webrtc"}:
         warnings.append(f"vad:unknown_provider:{vad}")
     if vad == "silero":
         blockers.extend(_silero_blockers(silero, module_finder=module_finder))
+    if vad == "webrtc":
+        blockers.extend(_webrtc_blockers(module_finder=module_finder))
 
     if kws in {"none", "disabled", "mock_text"}:
         return ProviderPreflightReport(vad, kws, str(config), tuple(blockers), tuple(warnings))
