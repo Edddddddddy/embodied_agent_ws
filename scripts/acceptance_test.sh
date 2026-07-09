@@ -49,6 +49,7 @@ Automated modes:
   vad-sidecar         Dependency-free Silero VAD sidecar seam smoke test
   webrtc-vad-sidecar  Installed WebRTC VAD sidecar runtime smoke test
   kws-sidecar         Dependency-free keyword wake sidecar seam smoke test
+  sherpa-kws-sidecar  Installed Sherpa-ONNX KWS runtime startup smoke test
   openwakeword-sidecar Dependency-free openWakeWord adapter runtime smoke test
   livekit-sidecar     Dependency-free LiveKit WakeWord adapter runtime smoke test
   kws-calibration     Dependency-free KWS score calibration smoke test
@@ -268,6 +269,7 @@ case "$LEVEL" in
   vad-sidecar) bash scripts/smoke_test_silero_vad_sidecar.sh ;;
   webrtc-vad-sidecar) bash scripts/smoke_test_webrtc_vad_sidecar.sh ;;
   kws-sidecar) bash scripts/smoke_test_keyword_wake_sidecar.sh ;;
+  sherpa-kws-sidecar) bash scripts/smoke_test_sherpa_kws_sidecar.sh ;;
   openwakeword-sidecar) bash scripts/smoke_test_openwakeword_sidecar.sh ;;
   livekit-sidecar) bash scripts/smoke_test_livekit_wakeword_sidecar.sh ;;
   kws-calibration) bash scripts/smoke_test_kws_score_calibration.sh ;;

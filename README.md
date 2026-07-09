@@ -619,6 +619,9 @@ KWS_PROVIDER=openwakeword bash scripts/acceptance_test.sh provider-preflight
 
 ```bash
 bash scripts/setup_voice_kws_runtime.sh sherpa
+source logs/sherpa_kws.env
+KWS_PROVIDER=sherpa bash scripts/acceptance_test.sh provider-preflight
+bash scripts/acceptance_test.sh sherpa-kws-sidecar
 ```
 
 如果 `wsl-microphone-preflight` 的 `rms` 接近 `0.0000`、`peak` 只有个位数，说明

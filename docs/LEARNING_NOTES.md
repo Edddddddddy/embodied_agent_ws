@@ -156,7 +156,11 @@
 - `webrtc-vad-sidecar` 是安装 WebRTC runtime 后的显式验收入口：它启动 C++ audio frontend
   和 `webrtc_vad` sidecar，确认端点事件由成熟 VAD 接管，而不只是检查 Python 包是否存在。
 - `scripts/setup_voice_kws_runtime.sh` 提供 openWakeWord、sherpa-onnx KWS、LiveKit WakeWord
-  的可选运行时入口；sherpa profile 会复用 ZipFormer ASR 模型路径并生成默认关键词文件。
+  的可选运行时入口；sherpa profile 会复用 ZipFormer ASR 模型路径，生成默认关键词文件，
+  并写出 `logs/sherpa_kws.env`，方便后续 `source` 后直接跑 `provider-preflight`。
+- `sherpa-kws-sidecar` 会实际启动 `sherpa_onnx.KeywordSpotter`，证明声学 KWS 不只是
+  参数 seam；默认关键词文件使用 `小 智` / `你 好 小 智` 这种 tokenized 写法，
+  避免 sherpa 无法从 tokens.txt 编码整句中文。
 - Agent 收到 endpoint 后调用 ASR commit。
 - `asr_commit_delay_ms` 允许在 endpoint 后等待少量时间，再提交 final。
 - `VOICE_CONTROL_PROFILE` 提供 normal、quiet、low_gain、noisy_room 四种参数预设。

@@ -29,6 +29,7 @@ def test_setup_voice_kws_runtime_dry_run_openwakeword_profile():
 
 
 def test_setup_voice_kws_runtime_dry_run_sherpa_profile_reuses_asr_assets():
+    script_text = SCRIPT.read_text(encoding="utf-8")
     result = subprocess.run(
         ["bash", str(SCRIPT), "sherpa", "--dry-run"],
         cwd=ROOT,
@@ -41,7 +42,14 @@ def test_setup_voice_kws_runtime_dry_run_sherpa_profile_reuses_asr_assets():
     assert "profile=sherpa" in result.stdout
     assert "setup_sherpa_asr_runtime.sh" in result.stdout
     assert "SHERPA_KWS_KEYWORDS_FILE" in result.stdout
+    assert "SHERPA_KWS_ENV" in result.stdout
     assert "KWS_PROVIDER=sherpa" in result.stdout
+    assert "--sherpa-tokens" in result.stdout
+    assert "--sherpa-encoder" in result.stdout
+    assert "--sherpa-keywords-file" in result.stdout
+    assert "source logs/sherpa_kws.env" in result.stdout
+    assert "小 智" in script_text
+    assert "你 好 小 智" in script_text
 
 
 def test_setup_voice_kws_runtime_dry_run_all_profile_includes_openwakeword_and_sherpa():

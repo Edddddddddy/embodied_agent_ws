@@ -6,6 +6,7 @@ MODEL_DIR="${MODEL_DIR:-$WORKSPACE/models}"
 PROFILE="openwakeword"
 DRY_RUN="${VOICE_KWS_SETUP_DRY_RUN:-false}"
 KWS_DIR="${KWS_DIR:-$MODEL_DIR/kws}"
+SHERPA_KWS_ENV="${SHERPA_KWS_ENV:-$WORKSPACE/logs/sherpa_kws.env}"
 SHERPA_ASR_DIR="${SHERPA_ASR_DIR:-$MODEL_DIR/sherpa-onnx-streaming-zipformer-small-bilingual-zh-en-2023-02-16}"
 SHERPA_KWS_KEYWORDS_FILE="${SHERPA_KWS_KEYWORDS_FILE:-$KWS_DIR/xiaozhi_keywords.txt}"
 
@@ -69,8 +70,8 @@ write_sherpa_keywords() {
   fi
   mkdir -p "$KWS_DIR"
   cat >"$SHERPA_KWS_KEYWORDS_FILE" <<'EOF'
-小智
-你好小智
+小 智
+你 好 小 智
 EOF
 }
 
@@ -84,6 +85,15 @@ export SHERPA_KWS_KEYWORDS_FILE=$SHERPA_KWS_KEYWORDS_FILE
 EOF
 }
 
+write_sherpa_env() {
+  if [[ "$DRY_RUN" == "true" ]]; then
+    echo "DRY RUN: write SHERPA_KWS_ENV=$SHERPA_KWS_ENV"
+    return
+  fi
+  mkdir -p "$(dirname "$SHERPA_KWS_ENV")"
+  print_sherpa_exports >"$SHERPA_KWS_ENV"
+}
+
 install_openwakeword() {
   run_or_print "$PYTHON_BIN" -m pip install -e "$WORKSPACE/src/embodied_online_agent[kws]"
 }
@@ -95,6 +105,7 @@ install_livekit() {
 prepare_sherpa() {
   run_or_print bash "$WORKSPACE/scripts/setup_sherpa_asr_runtime.sh"
   write_sherpa_keywords
+  write_sherpa_env
 }
 
 echo "Voice KWS runtime setup: profile=$PROFILE workspace=$WORKSPACE"
@@ -129,27 +140,39 @@ if [[ "$PROFILE" == "sherpa" || "$PROFILE" == "all" ]]; then
 fi
 
 if [[ "$DRY_RUN" == "true" ]]; then
-  echo "DRY RUN: $PYTHON_BIN $WORKSPACE/scripts/voice_provider_preflight.py --mode offline --vad-provider auto --kws-provider $KWS_PROVIDER_TO_CHECK"
+  if [[ "$KWS_PROVIDER_TO_CHECK" == "sherpa" ]]; then
+    echo "DRY RUN: $PYTHON_BIN $WORKSPACE/scripts/voice_provider_preflight.py --mode offline --vad-provider auto --kws-provider sherpa --sherpa-tokens $SHERPA_ASR_DIR/tokens.txt --sherpa-encoder $SHERPA_ASR_DIR/encoder-epoch-99-avg-1.int8.onnx --sherpa-decoder $SHERPA_ASR_DIR/decoder-epoch-99-avg-1.int8.onnx --sherpa-joiner $SHERPA_ASR_DIR/joiner-epoch-99-avg-1.int8.onnx --sherpa-keywords-file $SHERPA_KWS_KEYWORDS_FILE"
+  else
+    echo "DRY RUN: $PYTHON_BIN $WORKSPACE/scripts/voice_provider_preflight.py --mode offline --vad-provider auto --kws-provider $KWS_PROVIDER_TO_CHECK"
+  fi
   echo "DRY RUN: KWS_PROVIDER=$KWS_PROVIDER_TO_CHECK bash scripts/acceptance_test.sh provider-preflight"
   echo "DRY RUN: KWS_PROVIDER=$KWS_PROVIDER_TO_CHECK bash scripts/acceptance_test.sh continuous-offline"
+  if [[ "$KWS_PROVIDER_TO_CHECK" == "sherpa" ]]; then
+    echo "DRY RUN: source logs/sherpa_kws.env before running the checks above"
+  fi
   exit 0
 fi
 
 if [[ "$KWS_PROVIDER_TO_CHECK" == "sherpa" ]]; then
-  SHERPA_KWS_TOKENS="$SHERPA_ASR_DIR/tokens.txt" \
-  SHERPA_KWS_ENCODER="$SHERPA_ASR_DIR/encoder-epoch-99-avg-1.int8.onnx" \
-  SHERPA_KWS_DECODER="$SHERPA_ASR_DIR/decoder-epoch-99-avg-1.int8.onnx" \
-  SHERPA_KWS_JOINER="$SHERPA_ASR_DIR/joiner-epoch-99-avg-1.int8.onnx" \
-  SHERPA_KWS_KEYWORDS_FILE="$SHERPA_KWS_KEYWORDS_FILE" \
   "$PYTHON_BIN" "$WORKSPACE/scripts/voice_provider_preflight.py" \
     --mode offline \
     --vad-provider auto \
-    --kws-provider sherpa
+    --kws-provider sherpa \
+    --sherpa-tokens "$SHERPA_ASR_DIR/tokens.txt" \
+    --sherpa-encoder "$SHERPA_ASR_DIR/encoder-epoch-99-avg-1.int8.onnx" \
+    --sherpa-decoder "$SHERPA_ASR_DIR/decoder-epoch-99-avg-1.int8.onnx" \
+    --sherpa-joiner "$SHERPA_ASR_DIR/joiner-epoch-99-avg-1.int8.onnx" \
+    --sherpa-keywords-file "$SHERPA_KWS_KEYWORDS_FILE"
 else
   "$PYTHON_BIN" "$WORKSPACE/scripts/voice_provider_preflight.py" \
     --mode offline \
     --vad-provider auto \
     --kws-provider "$KWS_PROVIDER_TO_CHECK"
+fi
+
+SHERPA_SOURCE_HINT=""
+if [[ "$PROFILE" == "sherpa" || "$PROFILE" == "all" ]]; then
+  SHERPA_SOURCE_HINT="  source logs/sherpa_kws.env"
 fi
 
 cat <<EOF
@@ -158,6 +181,7 @@ Voice KWS runtime prepared.
 
 Recommended checks:
   source scripts/activate.sh
+$SHERPA_SOURCE_HINT
   KWS_PROVIDER=$KWS_PROVIDER_TO_CHECK bash scripts/acceptance_test.sh provider-preflight
   KWS_PROVIDER=$KWS_PROVIDER_TO_CHECK bash scripts/acceptance_test.sh continuous-offline
 

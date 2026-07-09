@@ -211,6 +211,26 @@ def test_openwakeword_cli_override_reports_missing_model_path(tmp_path):
     assert "kws:openwakeword_using_default_models" not in report.warnings
 
 
+def test_openwakeword_missing_parent_package_reports_blocker_without_crashing(tmp_path):
+    def raising_finder(module: str):
+        if module == "openwakeword.model":
+            raise ModuleNotFoundError("No module named 'openwakeword'")
+        return None
+
+    report = preflight.check_voice_providers(
+        mode="online",
+        vad_provider="energy",
+        kws_provider="openwakeword",
+        config_path=write_config(tmp_path / "agent.yaml"),
+        module_finder=raising_finder,
+    )
+
+    assert not report.ok
+    assert "kws:openwakeword_package_missing" in report.blockers
+    assert "bash scripts/setup_voice_kws_runtime.sh openwakeword" in report.recommendations
+    assert "kws:openwakeword_using_default_models" not in report.warnings
+
+
 def test_sherpa_kws_can_be_configured_by_cli_overrides(tmp_path):
     for name in ["tokens.txt", "encoder.onnx", "decoder.onnx", "joiner.onnx", "keywords.txt"]:
         (tmp_path / name).write_text("stub", encoding="utf-8")

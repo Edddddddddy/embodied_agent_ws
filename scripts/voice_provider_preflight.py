@@ -113,7 +113,12 @@ def _missing_paths(paths: Iterable[str]) -> list[str]:
 
 
 def _has_module(module: str, finder: Callable[[str], object | None]) -> bool:
-    return finder(module) is not None
+    try:
+        return finder(module) is not None
+    except ModuleNotFoundError:
+        # importlib.util.find_spec("pkg.submodule") 会在父包不存在时抛异常，而不是返回 None。
+        # preflight 面向现场排障，缺依赖应该变成可读 blocker，不能直接 traceback。
+        return False
 
 
 def _append_once(items: list[str], item: str) -> None:
@@ -248,7 +253,8 @@ def check_voice_providers(
         if any(blocker.startswith("kws:") for blocker in blockers):
             _append_once(recommendations, "bash scripts/setup_voice_kws_runtime.sh sherpa")
     elif kws == "openwakeword":
-        if not _has_module("openwakeword.model", module_finder):
+        openwakeword_available = _has_module("openwakeword.model", module_finder)
+        if not openwakeword_available:
             blockers.append("kws:openwakeword_package_missing")
             _append_once(
                 recommendations,
@@ -258,7 +264,7 @@ def check_voice_providers(
         missing = _missing_paths(models)
         for path in missing:
             blockers.append(f"kws:openwakeword_model_missing:{path}")
-        if not models:
+        if not models and openwakeword_available:
             warnings.append("kws:openwakeword_using_default_models")
     elif kws == "livekit":
         if not _has_module("livekit.wakeword", module_finder):

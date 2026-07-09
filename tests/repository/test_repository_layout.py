@@ -799,9 +799,13 @@ def test_acoustic_keyword_wake_runtime_entrypoints_remain_available():
     assert "kws:openwakeword_package_missing" in preflight
     assert "kws:sherpa_onnx_package_missing" in preflight
     assert (ROOT / "scripts" / "setup_voice_kws_runtime.sh").is_file()
+    assert (ROOT / "scripts" / "smoke_test_sherpa_kws_sidecar.sh").is_file()
     assert "voice-kws-runtime-dry-run" in acceptance
+    assert "sherpa-kws-sidecar" in acceptance
     assert "setup_voice_kws_runtime.sh openwakeword" in acceptance_doc
     assert "setup_voice_kws_runtime.sh sherpa" in acceptance_doc
+    assert "source logs/sherpa_kws.env" in acceptance_doc
+    assert "sherpa-kws-sidecar" in acceptance_doc
 
 
 def test_audio_calibration_outputs_copyable_live_demo_advice():

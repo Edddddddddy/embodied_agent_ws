@@ -736,7 +736,14 @@ KWS_PROVIDER=openwakeword bash scripts/acceptance_test.sh provider-preflight
 
 ```bash
 bash scripts/setup_voice_kws_runtime.sh sherpa
+source logs/sherpa_kws.env
+KWS_PROVIDER=sherpa bash scripts/acceptance_test.sh provider-preflight
+bash scripts/acceptance_test.sh sherpa-kws-sidecar
 ```
+
+`sherpa-kws-sidecar` 会用 `logs/sherpa_kws.env` 中的模型路径启动真实
+`sherpa_onnx.KeywordSpotter`，验证声学 KWS runtime 至少可以完成模型加载和节点启动；
+真实唤醒词召回率仍需要在麦克风现场通过 `/agent/kws_score` 和连续语音验收继续采样。
 
 也可以直接套用 calibration/readiness 给出的阈值，例如：
 
