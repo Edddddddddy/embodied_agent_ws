@@ -49,7 +49,7 @@ Automated modes:
   livekit-sidecar     Dependency-free LiveKit WakeWord adapter runtime smoke test
   kws-calibration     Dependency-free KWS score calibration smoke test
   voice-readiness     Dependency-free voice readiness smoke test
-  provider-preflight  Dependency-free optional VAD/KWS provider preflight
+  provider-preflight  Optional VAD/KWS provider unit tests plus current-env preflight
   instruction-eval-dataset Validate lightweight robot instruction eval dataset
   instruction-parser-eval Evaluate deterministic command parser on instruction eval set
   release-gate        Job-showcase release gate with logs/acceptance_report.json
@@ -248,7 +248,22 @@ case "$LEVEL" in
   livekit-sidecar) bash scripts/smoke_test_livekit_wakeword_sidecar.sh ;;
   kws-calibration) bash scripts/smoke_test_kws_score_calibration.sh ;;
   voice-readiness) bash scripts/smoke_test_voice_readiness.sh ;;
-  provider-preflight) pytest -q tests/integration/test_voice_provider_preflight.py ;;
+  provider-preflight)
+    pytest -q tests/integration/test_voice_provider_preflight.py
+    python3 scripts/voice_provider_preflight.py \
+      --mode "${PROVIDER_PREFLIGHT_MODE:-offline}" \
+      --vad-provider "${VAD_PROVIDER:-auto}" \
+      --kws-provider "${KWS_PROVIDER:-none}" \
+      --silero-model-path "${SILERO_VAD_MODEL_PATH:-}" \
+      --silero-use-onnx "${SILERO_VAD_USE_ONNX:-true}" \
+      --sherpa-tokens "${SHERPA_KWS_TOKENS:-}" \
+      --sherpa-encoder "${SHERPA_KWS_ENCODER:-}" \
+      --sherpa-decoder "${SHERPA_KWS_DECODER:-}" \
+      --sherpa-joiner "${SHERPA_KWS_JOINER:-}" \
+      --sherpa-keywords-file "${SHERPA_KWS_KEYWORDS_FILE:-}" \
+      --openwakeword-models "${OPENWAKEWORD_MODELS:-}" \
+      --livekit-wakeword-models "${LIVEKIT_WAKEWORD_MODELS:-}"
+    ;;
   instruction-eval-dataset) python3 scripts/validate_instruction_eval_dataset.py ;;
   instruction-parser-eval) python3 scripts/evaluate_instruction_parser.py --minimum "${INSTRUCTION_PARSER_MINIMUM:-1.0}" ;;
   release-gate) python3 scripts/showcase_release_gate.py ;;

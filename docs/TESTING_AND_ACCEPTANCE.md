@@ -556,6 +556,15 @@ VOICE_CONTROL_PROFILE=quiet bash scripts/acceptance_test.sh continuous-offline
 VOICE_CONTROL_PROFILE=low_gain bash scripts/acceptance_test.sh continuous-offline
 ```
 
+连续语音脚本默认 `VAD_PROVIDER=auto`：如果本机安装了 `silero-vad` 和 `onnxruntime`，
+会启动 Silero sidecar；否则会在终端打印 `vad:auto_fallback:energy:...` 并降级到
+energy VAD。想强制验证 Silero 配置，可运行：
+
+```bash
+VAD_PROVIDER=silero bash scripts/acceptance_test.sh provider-preflight
+VAD_PROVIDER=silero bash scripts/acceptance_test.sh continuous-offline
+```
+
 也可以直接套用 calibration/readiness 给出的阈值，例如：
 
 ```bash

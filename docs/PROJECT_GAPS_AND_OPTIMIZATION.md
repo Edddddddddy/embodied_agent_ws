@@ -9,12 +9,14 @@
 现状：
 
 - `continuous-offline/online` 已能跑通，但 WSL 麦克风、PulseAudio/WSLg、VAD 阈值仍受环境影响。
-- 默认链路主要依赖 energy VAD、ASR commit delay、短命令补全和 monitor 兜底。
-- WebRTC VAD/AEC/NS、Silero VAD、openWakeWord/sherpa KWS 仍是 seam 或可选项，不是默认强依赖。
+- 连续语音脚本已默认 `VAD_PROVIDER=auto`：Silero VAD 依赖可用时优先使用成熟声学 VAD，
+  不可用时清晰降级到 energy VAD。
+- WebRTC VAD/AEC/NS、openWakeWord/sherpa KWS 仍是 seam 或可选项，不是默认强依赖。
 
 优化：
 
-- 引入一个成熟默认 VAD/KWS 方案，优先选择部署成本低、可离线运行的方案。
+- 继续把 Silero VAD 依赖安装、模型缓存和真实麦克风证据做成更稳定的默认演示路径。
+- 引入声学 KWS 默认方案，优先选择部署成本低、可离线运行的方案。
 - 把 `wsl-microphone-preflight`、`audio_frontend_calibration.py` 和 profile 推荐做成更闭环的一键诊断。
 - 保存真实演示报告，避免“现场听起来能跑”但缺少可复查证据。
 

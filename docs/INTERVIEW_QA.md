@@ -81,16 +81,16 @@ ROS service，其中 service 避免每句重新启动进程和加载模型，并
 ## 11. 真实语音为什么仍是最大风险？
 
 真实麦克风受 WSLg/PulseAudio、环境噪声、回声、多人说话和 ASR 抖动影响。项目当前用
-energy VAD、commit delay、短命令补全、profile 推荐和 monitor 兜底，但还没有把 WebRTC VAD、
-Silero VAD 或声学 KWS 作为默认强依赖。因此演示前必须跑 `wsl-microphone-preflight` 和
-`continuous-offline`。
+`VAD_PROVIDER=auto` 优先选择 Silero VAD，依赖不可用时降级 energy VAD；再结合 commit delay、
+短命令补全、profile 推荐和 monitor 兜底。但 WebRTC AEC/NS 和声学 KWS 仍不是默认强依赖。
+因此演示前必须跑 `wsl-microphone-preflight` 和 `continuous-offline`。
 
 ## 12. 你会如何继续优化？
 
 优先级从高到低：
 
 1. 固定 demo world、录制演示脚本和一键 evidence 报告。
-2. 接入成熟 VAD/KWS 默认方案，降低真实语音环境敏感性。
+2. 固化 Silero VAD 安装和真实麦克风证据，并接入成熟 KWS 默认方案，降低真实语音环境敏感性。
 3. 建立离线 benchmark 报告：模型大小、tokens/s、首 token、动作准确率。
 4. 增加 Nav2 地图/waypoint assets 和 RViz 展示。
 5. 把更多诊断和执行编排 C++ 化，补 launch test。

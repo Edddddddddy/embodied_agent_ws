@@ -69,7 +69,8 @@ WAKE_WORD_ENABLED="${WAKE_WORD_ENABLED:-true}"
 SPEAKER_ENABLED="${SPEAKER_ENABLED:-false}"
 PULSE_CAPTURE_BRIDGE="${PULSE_CAPTURE_BRIDGE:-auto}"
 PULSE_CAPTURE_SOURCE="${PULSE_CAPTURE_SOURCE:-@DEFAULT_SOURCE@}"
-VAD_PROVIDER="${VAD_PROVIDER:-energy}"
+VAD_PROVIDER_REQUESTED="${VAD_PROVIDER:-auto}"
+VAD_PROVIDER="$VAD_PROVIDER_REQUESTED"
 SPEECH_START_THRESHOLD="${SPEECH_START_THRESHOLD:-$PROFILE_SPEECH_START_THRESHOLD}"
 SPEECH_END_SILENCE_S="${SPEECH_END_SILENCE_S:-$PROFILE_SPEECH_END_SILENCE_S}"
 MIN_UTTERANCE_MS="${MIN_UTTERANCE_MS:-$PROFILE_MIN_UTTERANCE_MS}"
@@ -105,6 +106,35 @@ SIMULATION_CLEANUP_STALE="${SIMULATION_CLEANUP_STALE:-false}"
 source "$WORKSPACE/scripts/activate.sh"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((140 + $$ % 80))}"
 
+resolve_vad_provider() {
+  if [[ "$VAD_PROVIDER_REQUESTED" != "auto" ]]; then
+    VAD_PROVIDER="$VAD_PROVIDER_REQUESTED"
+    return
+  fi
+
+  local report
+  if ! report=$(python3 "$WORKSPACE/scripts/voice_provider_preflight.py" \
+    --mode "$MODE" \
+    --vad-provider auto \
+    --kws-provider none \
+    --silero-model-path "$SILERO_VAD_MODEL_PATH" \
+    --silero-use-onnx "$SILERO_VAD_USE_ONNX" \
+    --json 2>/dev/null); then
+    echo "WARN: VAD_PROVIDER=auto 预检失败，降级为 energy VAD。" >&2
+    VAD_PROVIDER="energy"
+    return
+  fi
+
+  VAD_PROVIDER=$(printf '%s\n' "$report" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("vad_provider", "energy"))')
+  local vad_warnings
+  vad_warnings=$(printf '%s\n' "$report" | python3 -c 'import json,sys; print("; ".join(json.load(sys.stdin).get("warnings", [])))')
+  if [[ -n "$vad_warnings" ]]; then
+    echo "INFO: VAD_PROVIDER=auto -> $VAD_PROVIDER ($vad_warnings)" >&2
+  else
+    echo "INFO: VAD_PROVIDER=auto -> $VAD_PROVIDER" >&2
+  fi
+}
+
 PULSE_CAPTURE_BRIDGE_ACTIVE=false
 if [[ "$PULSE_CAPTURE_BRIDGE" == "true" ]]; then
   PULSE_CAPTURE_BRIDGE_ACTIVE=true
@@ -120,6 +150,12 @@ fi
 if [[ "$MODE" != "offline" && "$MODE" != "online" ]]; then
   echo "Usage: $0 {offline|online}" >&2
   exit 2
+fi
+
+resolve_vad_provider
+PULSE_ENDPOINT_EVENTS_ENABLED=true
+if [[ "$VAD_PROVIDER" == "silero" ]]; then
+  PULSE_ENDPOINT_EVENTS_ENABLED=false
 fi
 
 print_configuration() {
@@ -155,7 +191,8 @@ WAKE_WORD_ENABLED=$WAKE_WORD_ENABLED
 SPEAKER_ENABLED=$SPEAKER_ENABLED
 PULSE_CAPTURE_BRIDGE=$PULSE_CAPTURE_BRIDGE（active=$PULSE_CAPTURE_BRIDGE_ACTIVE；WSLg 下用于绕过 PortAudio/ALSA 默认输入近静音问题）
 PULSE_CAPTURE_SOURCE=$PULSE_CAPTURE_SOURCE
-VAD_PROVIDER=$VAD_PROVIDER（默认 energy；安装 silero-vad 后可设为 silero）
+PULSE_ENDPOINT_EVENTS_ENABLED=$PULSE_ENDPOINT_EVENTS_ENABLED（Silero VAD 接管 endpoint 时自动为 false）
+VAD_PROVIDER=$VAD_PROVIDER（requested=$VAD_PROVIDER_REQUESTED；auto 会优先使用可用的 Silero VAD，否则降级 energy）
 SPEECH_START_THRESHOLD=$SPEECH_START_THRESHOLD（energy VAD RMS 起始阈值）
 SPEECH_END_SILENCE_S=$SPEECH_END_SILENCE_S
 MIN_UTTERANCE_MS=$MIN_UTTERANCE_MS
@@ -344,7 +381,8 @@ if [[ "$PULSE_CAPTURE_BRIDGE_ACTIVE" == "true" ]]; then
     --vad-rms-threshold "$SPEECH_START_THRESHOLD" \
     --speech-end-silence-s "$SPEECH_END_SILENCE_S" \
     --min-utterance-ms "$MIN_UTTERANCE_MS" \
-    --max-utterance-s "$MAX_UTTERANCE_S" &
+    --max-utterance-s "$MAX_UTTERANCE_S" \
+    --endpoint-events-enabled "$PULSE_ENDPOINT_EVENTS_ENABLED" &
   PULSE_BRIDGE_PID=$!
 fi
 if [[ "$MONITOR_ENABLED" == "true" ]]; then

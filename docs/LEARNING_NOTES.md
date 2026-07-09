@@ -135,6 +135,8 @@
 设计方式：
 
 - C++ audio frontend 发布 `/audio/clean_pcm`、`/audio/speech_started`、`/audio/speech_ended`、`/audio/silence_timeout`。
+- `VAD_PROVIDER=auto` 会在启动脚本里先跑 `voice_provider_preflight.py`：Silero VAD 依赖可用时，
+  AudioFrontend 只发布 clean PCM，`silero_vad` sidecar 负责 endpoint；依赖不可用时降级 energy VAD。
 - Agent 收到 endpoint 后调用 ASR commit。
 - `asr_commit_delay_ms` 允许在 endpoint 后等待少量时间，再提交 final。
 - `VOICE_CONTROL_PROFILE` 提供 normal、quiet、low_gain、noisy_room 四种参数预设。
@@ -144,12 +146,14 @@
 - 真实 ASR 容易漏掉尾部数字和量词，例如“左转90度”只 final 成“左转”。
 - 适当延迟 300～500ms 可以换取更完整的识别结果。
 - VAD 和 commit 分离，便于定位“音频没听到”和“ASR final 太早”两类问题。
+- 成熟 VAD 做成 sidecar，而不是塞进 PortAudio 回调线程，是为了避免模型推理阻塞音频采集。
 
 方案对比：
 
 - 极短静音阈值：响应快，但尾部漏识别多。
 - 很长静音阈值：完整但交互迟钝。
 - profile + commit delay：保留可调空间，适合不同环境。
+- auto Silero sidecar：端点判断更稳，但需要额外 Python/ONNXRuntime 依赖；降级 energy VAD 保证基础演示不被可选依赖卡死。
 
 ## 6. 短命令补全与模糊归一化
 

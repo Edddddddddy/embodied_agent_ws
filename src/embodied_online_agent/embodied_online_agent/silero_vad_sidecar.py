@@ -136,8 +136,9 @@ class StreamingVadEndpoint:
 class SileroVadProvider:
     """silero-vad Python 包 adapter。
 
-    依赖是可选的：默认工程和 CI 不安装 torch/onnxruntime/silero-vad；只有用户显式
-    启动 vad_provider:=silero 时才加载模型。如果依赖缺失，节点会给出可执行的安装提示。
+    依赖是可选的：默认工程和 CI 不安装 torch/onnxruntime/silero-vad；连续语音脚本的
+    VAD_PROVIDER=auto 会在依赖可用时才切到 silero。如果用户显式启动 vad_provider:=silero
+    但依赖缺失，节点会给出可执行的安装提示。
     """
 
     def __init__(self, *, use_onnx: bool = True, model_path: str = ""):

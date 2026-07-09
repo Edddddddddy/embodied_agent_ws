@@ -61,11 +61,15 @@ COMMAND_COMPLETION_ENABLED="${COMMAND_COMPLETION_ENABLED:-true}"
 ASR_COMMIT_DELAY_MS="${ASR_COMMIT_DELAY_MS:-$PROFILE_ASR_COMMIT_DELAY_MS}"
 WAKE_WORD_ENABLED="${WAKE_WORD_ENABLED:-true}"
 SPEAKER_ENABLED="${SPEAKER_ENABLED:-false}"
-VAD_PROVIDER="${VAD_PROVIDER:-energy}"
+VAD_PROVIDER_REQUESTED="${VAD_PROVIDER:-auto}"
+VAD_PROVIDER="$VAD_PROVIDER_REQUESTED"
 SPEECH_START_THRESHOLD="${SPEECH_START_THRESHOLD:-$PROFILE_SPEECH_START_THRESHOLD}"
 SPEECH_END_SILENCE_S="${SPEECH_END_SILENCE_S:-$PROFILE_SPEECH_END_SILENCE_S}"
 MIN_UTTERANCE_MS="${MIN_UTTERANCE_MS:-$PROFILE_MIN_UTTERANCE_MS}"
 MAX_UTTERANCE_S="${MAX_UTTERANCE_S:-$PROFILE_MAX_UTTERANCE_S}"
+SILERO_VAD_MODEL_PATH="${SILERO_VAD_MODEL_PATH:-}"
+SILERO_VAD_USE_ONNX="${SILERO_VAD_USE_ONNX:-true}"
+SILERO_VAD_THRESHOLD="${SILERO_VAD_THRESHOLD:-0.5}"
 KWS_PROVIDER="${KWS_PROVIDER:-none}"
 AUDIO_ENHANCER="${AUDIO_ENHANCER:-nlms}"
 AEC_ENABLED="${AEC_ENABLED:-${PROFILE_AEC_ENABLED:-true}}"
@@ -91,6 +95,37 @@ if [[ "$MODE" != "offline" && "$MODE" != "online" ]]; then
   echo "Usage: $0 {offline|online}" >&2
   exit 2
 fi
+
+resolve_vad_provider() {
+  if [[ "$VAD_PROVIDER_REQUESTED" != "auto" ]]; then
+    VAD_PROVIDER="$VAD_PROVIDER_REQUESTED"
+    return
+  fi
+
+  local report
+  if ! report=$(python3 "$WORKSPACE/scripts/voice_provider_preflight.py" \
+    --mode "$MODE" \
+    --vad-provider auto \
+    --kws-provider none \
+    --silero-model-path "$SILERO_VAD_MODEL_PATH" \
+    --silero-use-onnx "$SILERO_VAD_USE_ONNX" \
+    --json 2>/dev/null); then
+    echo "WARN: VAD_PROVIDER=auto 预检失败，降级为 energy VAD。" >&2
+    VAD_PROVIDER="energy"
+    return
+  fi
+
+  VAD_PROVIDER=$(printf '%s\n' "$report" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("vad_provider", "energy"))')
+  local vad_warnings
+  vad_warnings=$(printf '%s\n' "$report" | python3 -c 'import json,sys; print("; ".join(json.load(sys.stdin).get("warnings", [])))')
+  if [[ -n "$vad_warnings" ]]; then
+    echo "INFO: VAD_PROVIDER=auto -> $VAD_PROVIDER ($vad_warnings)" >&2
+  else
+    echo "INFO: VAD_PROVIDER=auto -> $VAD_PROVIDER" >&2
+  fi
+}
+
+resolve_vad_provider
 
 add_launch_arg() {
   LAUNCH_ARGS+=("$1:=$2")
@@ -125,6 +160,9 @@ build_launch_args() {
   add_launch_arg speech_end_silence_s "$SPEECH_END_SILENCE_S"
   add_launch_arg min_utterance_ms "$MIN_UTTERANCE_MS"
   add_launch_arg max_utterance_s "$MAX_UTTERANCE_S"
+  add_optional_launch_arg silero_model_path "$SILERO_VAD_MODEL_PATH"
+  add_launch_arg silero_use_onnx "$SILERO_VAD_USE_ONNX"
+  add_launch_arg silero_threshold "$SILERO_VAD_THRESHOLD"
   add_launch_arg kws_provider "$KWS_PROVIDER"
   add_launch_arg audio_enhancer "$AUDIO_ENHANCER"
   add_launch_arg aec_enabled "$AEC_ENABLED"
@@ -166,6 +204,10 @@ CONTINUOUS_COMMAND_QUEUE_SIZE=$COMMAND_QUEUE_SIZE
 CONTINUOUS_COMMAND_MAX_AGE=$COMMAND_MAX_AGE
 SPEECH_START_THRESHOLD=$SPEECH_START_THRESHOLD
 SPEECH_END_SILENCE_S=$SPEECH_END_SILENCE_S
+VAD_PROVIDER=$VAD_PROVIDER（requested=$VAD_PROVIDER_REQUESTED；auto 会优先使用可用的 Silero VAD，否则降级 energy）
+SILERO_VAD_MODEL_PATH=$SILERO_VAD_MODEL_PATH
+SILERO_VAD_USE_ONNX=$SILERO_VAD_USE_ONNX
+SILERO_VAD_THRESHOLD=$SILERO_VAD_THRESHOLD
 ASR_COMMIT_DELAY_MS=$ASR_COMMIT_DELAY_MS
 AEC_ENABLED=$AEC_ENABLED
 NAV_ACTION_TIMEOUT_S=$NAV_ACTION_TIMEOUT_S

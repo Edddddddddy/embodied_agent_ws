@@ -73,6 +73,7 @@ class PulseAudioCaptureBridge(Node):
         self.started_pub = self.create_publisher(Empty, "/audio/speech_started", 10)
         self.ended_pub = self.create_publisher(Empty, "/audio/speech_ended", 10)
         self.silence_pub = self.create_publisher(Empty, "/audio/silence_timeout", 10)
+        self.endpoint_events_enabled = bool(args.endpoint_events_enabled)
         self.endpoint = EndpointDetector(
             args.speech_end_silence_s,
             args.min_utterance_ms / 1000.0,
@@ -131,11 +132,12 @@ class PulseAudioCaptureBridge(Node):
         speech = rms >= self.args.vad_rms_threshold
         frame_s = len(samples) / float(self.args.sample_rate)
         started, ended = self.endpoint.update(speech, frame_s)
-        if started:
-            self.started_pub.publish(Empty())
-        if ended:
-            self.ended_pub.publish(Empty())
-            self.silence_pub.publish(Empty())
+        if self.endpoint_events_enabled:
+            if started:
+                self.started_pub.publish(Empty())
+            if ended:
+                self.ended_pub.publish(Empty())
+                self.silence_pub.publish(Empty())
 
         now = time.monotonic()
         if now - self.last_metrics_at >= self.args.metrics_period_s:
@@ -145,6 +147,7 @@ class PulseAudioCaptureBridge(Node):
                 "peak": peak,
                 "speech": speech,
                 "vad_provider": "energy",
+                "endpoint_events_enabled": self.endpoint_events_enabled,
                 "audio_enhancer_requested": "pulse_bridge",
                 "audio_enhancer_active": "pulse_bridge",
                 "aec_active": False,
@@ -168,7 +171,14 @@ def main() -> None:
     parser.add_argument("--min-utterance-ms", type=float, default=100.0)
     parser.add_argument("--max-utterance-s", type=float, default=12.0)
     parser.add_argument("--metrics-period-s", type=float, default=0.5)
+    parser.add_argument(
+        "--endpoint-events-enabled",
+        choices=("true", "false"),
+        default="true",
+        help="publish speech_started/speech_ended events; set false when a VAD sidecar owns endpoints",
+    )
     args = parser.parse_args()
+    args.endpoint_events_enabled = args.endpoint_events_enabled == "true"
 
     rclpy.init()
     node = PulseAudioCaptureBridge(args)

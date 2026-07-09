@@ -115,6 +115,24 @@ def _has_module(module: str, finder: Callable[[str], object | None]) -> bool:
     return finder(module) is not None
 
 
+def _silero_blockers(
+    silero: Mapping[str, object],
+    *,
+    module_finder: Callable[[str], object | None],
+) -> tuple[str, ...]:
+    blockers: list[str] = []
+    if not _has_module("silero_vad", module_finder):
+        blockers.append("vad:silero_vad_package_missing")
+    if _bool_value(silero.get("use_onnx", True), True) and not _has_module(
+        "onnxruntime", module_finder
+    ):
+        blockers.append("vad:onnxruntime_package_missing")
+    model_path = str(silero.get("model_path", "") or "").strip()
+    if model_path and _missing_paths([model_path]):
+        blockers.append(f"vad:silero_model_missing:{model_path}")
+    return tuple(blockers)
+
+
 def check_voice_providers(
     *,
     mode: str,
@@ -126,7 +144,8 @@ def check_voice_providers(
     module_finder: Callable[[str], object | None] = importlib.util.find_spec,
 ) -> ProviderPreflightReport:
     config = config_path or _default_config(mode)
-    vad = (vad_provider or "energy").strip().lower()
+    requested_vad = (vad_provider or "auto").strip().lower()
+    vad = requested_vad
     kws = (kws_provider or "none").strip().lower()
     silero = _merged_params(_load_section(config, "silero_vad"), vad_overrides)
     keyword = _merged_params(
@@ -135,18 +154,19 @@ def check_voice_providers(
     blockers: list[str] = []
     warnings: list[str] = []
 
+    if vad == "auto":
+        silero_blockers = _silero_blockers(silero, module_finder=module_finder)
+        if silero_blockers:
+            vad = "energy"
+            warnings.append("vad:auto_fallback:energy:" + ",".join(silero_blockers))
+        else:
+            vad = "silero"
+            warnings.append("vad:auto_selected:silero")
+
     if vad not in {"energy", "silero"}:
         warnings.append(f"vad:unknown_provider:{vad}")
     if vad == "silero":
-        if not _has_module("silero_vad", module_finder):
-            blockers.append("vad:silero_vad_package_missing")
-        if _bool_value(silero.get("use_onnx", True), True) and not _has_module(
-            "onnxruntime", module_finder
-        ):
-            blockers.append("vad:onnxruntime_package_missing")
-        model_path = str(silero.get("model_path", "") or "").strip()
-        if model_path and _missing_paths([model_path]):
-            blockers.append(f"vad:silero_model_missing:{model_path}")
+        blockers.extend(_silero_blockers(silero, module_finder=module_finder))
 
     if kws in {"none", "disabled", "mock_text"}:
         return ProviderPreflightReport(vad, kws, str(config), tuple(blockers), tuple(warnings))
@@ -216,7 +236,7 @@ def format_report(report: ProviderPreflightReport) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("online", "offline"), default="offline")
-    parser.add_argument("--vad-provider", default="energy")
+    parser.add_argument("--vad-provider", default="auto")
     parser.add_argument("--kws-provider", default="none")
     parser.add_argument("--config", type=Path, default=None)
     parser.add_argument("--silero-model-path", default="")

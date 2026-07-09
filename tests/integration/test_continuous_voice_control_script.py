@@ -139,6 +139,7 @@ def test_continuous_voice_control_can_use_wsl_pulse_capture_bridge():
             "CONTINUOUS_PRINT_CONFIG": "true",
             "PULSE_CAPTURE_BRIDGE": "true",
             "PULSE_CAPTURE_SOURCE": "RDPSource",
+            "VAD_PROVIDER": "energy",
         }
     )
 
@@ -153,7 +154,34 @@ def test_continuous_voice_control_can_use_wsl_pulse_capture_bridge():
 
     assert "PULSE_CAPTURE_BRIDGE=true（active=true" in result.stdout
     assert "PULSE_CAPTURE_SOURCE=RDPSource" in result.stdout
+    assert "PULSE_ENDPOINT_EVENTS_ENABLED=true" in result.stdout
     assert "capture_enabled:=false" in result.stdout
+
+
+def test_continuous_voice_control_disables_pulse_endpoint_events_when_silero_owns_vad():
+    env = os.environ.copy()
+    env.update(
+        {
+            "WORKSPACE": str(ROOT),
+            "CONTINUOUS_PRINT_CONFIG": "true",
+            "PULSE_CAPTURE_BRIDGE": "true",
+            "PULSE_CAPTURE_SOURCE": "RDPSource",
+            "VAD_PROVIDER": "silero",
+        }
+    )
+
+    result = subprocess.run(
+        ["bash", str(ROOT / "scripts" / "continuous_voice_control.sh"), "offline"],
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+
+    assert "VAD_PROVIDER=silero" in result.stdout
+    assert "PULSE_ENDPOINT_EVENTS_ENABLED=false" in result.stdout
+    assert "vad_provider:=silero" in result.stdout
 
 
 def test_continuous_voice_control_profile_tunes_microphone_defaults():
