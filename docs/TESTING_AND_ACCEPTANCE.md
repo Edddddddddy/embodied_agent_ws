@@ -33,6 +33,8 @@ bash scripts/acceptance_test.sh --help
 | `offline` | 自动/本地模型 | Sherpa/llama.cpp/Sherpa-TTS 真实离线链路 |
 | `offline-runtime-versions` | 自动/本地版本 | 检查 llama.cpp、SummerTTS、sherpa-onnx 是否匹配阶段固定版本 |
 | `offline-latency` | 自动/本地模型 | 检查 llama.cpp 首 token ≤ 1s、默认 Sherpa-TTS 首音频 ≤ 300ms |
+| `instruction-eval-dataset` | 自动/数据集 | 校验轻量机器人指令评估集 schema、动作名和标签 |
+| `release-gate` | 自动/报告 | 求职展示版发布门禁，默认输出 `logs/acceptance_report.json` |
 | `summer-tts-preflight` | 自动/本地模型 | SummerTTS 源码、二进制和模型文件预检 |
 | `summer-tts-smoke` | 自动/本地模型 | 真实 SummerTTS C++ 二进制合成验证 |
 | `summer-pseudo-tts` | 自动/本地模型 | SummerTTS 与项目伪流式双缓冲 pipeline 集成验证 |
@@ -69,9 +71,31 @@ bash scripts/acceptance_test.sh --help
 | `continuous-nav2-evidence` | 人工辅助/Nav2 | 一终端启动 Nav2 语音控制、现场计分并保存报告 |
 | `continuous-nav2-live-check` | 人工辅助/Nav2 | 订阅 topic 并统计现场 Nav2 连续导航演示证据 |
 | `continuous-nav2-live-report` | 自动/复盘/Nav2 | 读取已保存的 Nav2 连续语音验收报告并重新判定 |
-| `all` | 自动 | release gate，不包含人工 microphone 模式 |
+| `all` | 自动/重型 | 全量自动 gate，不包含人工 microphone 模式 |
 
 ## 2. 推荐测试顺序
+
+### 2.0 求职展示版 release gate
+
+提交 PR 或录制演示前，优先运行聚焦版发布门禁：
+
+```bash
+bash scripts/acceptance_test.sh release-gate
+```
+
+该入口会运行仓库/Agent 单测、CLI 入口、连续语音 mock、多命令队列、导航 demo、
+离线延迟、SummerTTS service 和 C++/ROS2 单测，并把每个步骤的命令、耗时、
+退出码和尾部日志写入：
+
+```text
+logs/acceptance_report.json
+```
+
+如果只想检查 gate 列表而不运行重型命令：
+
+```bash
+python3 scripts/showcase_release_gate.py --dry-run
+```
 
 ### 2.1 无外部依赖基础验收
 

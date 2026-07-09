@@ -62,7 +62,10 @@ embodied_agent_ws/
 │   ├── ARCHITECTURE_AND_KNOWLEDGE.md
 │   ├── TESTING_AND_ACCEPTANCE.md
 │   ├── PROJECT_PRESENTATION_15MIN.md
+│   ├── INTERVIEW_QA.md
 │   ├── LEARNING_NOTES.md
+│   ├── PROJECT_GAPS_AND_OPTIMIZATION.md
+│   ├── OFFLINE_BENCHMARK_REPORT.md
 │   ├── OFFLINE_RUNTIME_VERSIONS.md
 │   └── CHANGELOG_AND_ROADMAP.md
 └── README.md
@@ -460,6 +463,13 @@ bash scripts/acceptance_test.sh all
 
 `all` 不包含需要人工说话的 microphone/continuous interactive 模式。
 
+求职展示版推荐 release gate 会运行一组更聚焦的本地验收，并输出统一报告：
+
+```bash
+bash scripts/acceptance_test.sh release-gate
+# 默认报告：logs/acceptance_report.json
+```
+
 阶段版本发布前建议额外执行：
 
 ```bash
@@ -608,8 +618,11 @@ bash scripts/acceptance_test.sh online
 - [架构与模块说明](docs/ARCHITECTURE_AND_KNOWLEDGE.md)
 - [测试与验收手册](docs/TESTING_AND_ACCEPTANCE.md)
 - [15 分钟汇报与代码走读稿](docs/PROJECT_PRESENTATION_15MIN.md)
+- [面试问答：ROS 2 / C++ 项目追问](docs/INTERVIEW_QA.md)
+- [项目不足与优化路线](docs/PROJECT_GAPS_AND_OPTIMIZATION.md)
 - [Nav2 语音导航/巡航验收审计](docs/NAV2_VOICE_ACCEPTANCE_AUDIT.md)
 - [学习笔记：关键技术点与设计取舍](docs/LEARNING_NOTES.md)
+- [离线模型 Benchmark 报告模板](docs/OFFLINE_BENCHMARK_REPORT.md)
 - [版本记录与路线图](docs/CHANGELOG_AND_ROADMAP.md)
 - [Codex WSL + PowerShell 开发 Skill](docs/CODEX_WSL_POWERSHELL_SKILL.md)
 

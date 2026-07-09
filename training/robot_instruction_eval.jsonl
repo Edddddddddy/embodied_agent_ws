@@ -1,0 +1,6 @@
+{"id":"move_forward_001","text":"向前走一秒","expected_actions":[{"name":"move","arguments":{"linear_x":0.2,"duration_s":1.0}}],"tags":["move","duration"]}
+{"id":"turn_then_move_001","text":"向右转然后向前走一秒","expected_actions":[{"name":"turn","arguments":{"angular_z":-0.6,"duration_s":2.6}},{"name":"move","arguments":{"linear_x":0.2,"duration_s":1.0}}],"tags":["multi_command","turn","move"]}
+{"id":"nav_patrol_001","text":"先去门口再去书桌最后回起点","expected_actions":[{"name":"follow_waypoints","arguments":{"waypoints":["door","desk","home"],"number_of_loops":1}}],"tags":["navigation","waypoints"]}
+{"id":"asr_tail_001","text":"左转九十度","expected_actions":[{"name":"turn","arguments":{"angular_z":0.6,"duration_s":2.6}}],"tags":["turn","tail_number"]}
+{"id":"short_completion_001","text":"前进","expected_actions":[{"name":"move","arguments":{"linear_x":0.2,"duration_s":1.0}}],"tags":["short_command","completion"]}
+{"id":"unsafe_001","text":"一边前进一边高速旋转","expected_actions":[],"tags":["unsafe","blocked"]}

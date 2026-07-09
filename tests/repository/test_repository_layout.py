@@ -338,6 +338,33 @@ def test_job_presentation_doc_remains_discoverable():
         assert required in presentation_text
 
 
+def test_showcase_hardening_artifacts_remain_discoverable():
+    """缺点收口阶段的展示硬化产物不能在后续整理中丢失。"""
+
+    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
+        encoding="utf-8"
+    )
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    release_gate = ROOT / "scripts" / "showcase_release_gate.py"
+    eval_validator = ROOT / "scripts" / "validate_instruction_eval_dataset.py"
+    eval_dataset = ROOT / "training" / "robot_instruction_eval.jsonl"
+    interview_doc = ROOT / "docs" / "INTERVIEW_QA.md"
+    gaps_doc = ROOT / "docs" / "PROJECT_GAPS_AND_OPTIMIZATION.md"
+    benchmark_doc = ROOT / "docs" / "OFFLINE_BENCHMARK_REPORT.md"
+
+    for path in (release_gate, eval_validator, eval_dataset, interview_doc, gaps_doc, benchmark_doc):
+        assert path.is_file()
+
+    assert "release-gate" in acceptance
+    assert "instruction-eval-dataset" in acceptance
+    assert "logs/acceptance_report.json" in readme
+    assert "job_showcase_release_gate" in release_gate.read_text(encoding="utf-8")
+    assert "ActionGuard" in interview_doc.read_text(encoding="utf-8")
+    assert "真实语音稳定性" in gaps_doc.read_text(encoding="utf-8")
+    assert "evaluate_instruction_following.sh" in benchmark_doc.read_text(encoding="utf-8")
+    assert "expected_actions" in eval_dataset.read_text(encoding="utf-8")
+
+
 def test_nav2_live_evidence_script_keeps_control_and_scoring_together():
     """一键现场留证脚本必须同时启动控制链路与 live-check，并保存可复核报告。"""
 
