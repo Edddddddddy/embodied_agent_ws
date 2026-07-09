@@ -33,11 +33,15 @@ def test_low_gain_bundle_recommends_copyable_environment():
     )
     assert "continuous-offline" in report["next_command"]
     assert "audio:microphone_low_gain" in report["warnings"]
+    env_text = voice_report.render_env(report)
+    assert "export VOICE_CONTROL_PROFILE=low_gain" in env_text
+    assert "export SPEECH_START_THRESHOLD=" in env_text
 
 
 def test_voice_calibration_report_cli_writes_json_and_markdown(tmp_path):
     json_output = tmp_path / "voice_calibration_report.json"
     md_output = tmp_path / "voice_calibration_report.md"
+    env_output = tmp_path / "voice_calibration.env"
     completed = subprocess.run(
         [
             "python3",
@@ -50,6 +54,8 @@ def test_voice_calibration_report_cli_writes_json_and_markdown(tmp_path):
             str(json_output),
             "--md-output",
             str(md_output),
+            "--env-output",
+            str(env_output),
         ],
         cwd=ROOT,
         text=True,
@@ -66,3 +72,7 @@ def test_voice_calibration_report_cli_writes_json_and_markdown(tmp_path):
     markdown = md_output.read_text(encoding="utf-8")
     assert "真实语音控制校准报告" in markdown
     assert "下一条建议命令" in markdown
+    assert "source logs/voice_calibration.env" in markdown
+    env_text = env_output.read_text(encoding="utf-8")
+    assert "export VOICE_CONTROL_PROFILE=normal" in env_text
+    assert "export VAD_PROVIDER=energy" in env_text

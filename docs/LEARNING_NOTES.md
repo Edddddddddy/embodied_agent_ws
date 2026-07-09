@@ -151,7 +151,8 @@
 - `asr_commit_delay_ms` 允许在 endpoint 后等待少量时间，再提交 final。
 - `VOICE_CONTROL_PROFILE` 提供 normal、quiet、low_gain、noisy_room 四种参数预设。
 - `voice_calibration_report.py` 把 provider preflight、audio calibration、KWS score calibration
-  汇总成 `logs/voice_calibration_report.json/.md`，用于真实麦克风演示前保存调参证据。
+  汇总成 `logs/voice_calibration_report.json/.md`，并额外生成可 `source` 的
+  `logs/voice_calibration.env`，用于真实麦克风演示前保存和复用调参证据。
 
 为什么这样设计：
 

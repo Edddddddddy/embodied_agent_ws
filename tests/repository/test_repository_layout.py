@@ -757,6 +757,8 @@ def test_audio_calibration_outputs_copyable_live_demo_advice():
     assert "next_command:" in readiness
     assert "voice_calibration_report" in bundle
     assert "logs/voice_calibration_report.json" in bundle
+    assert "logs/voice_calibration.env" in bundle
+    assert "render_env" in bundle
     assert "recommended_environment" in bundle
     assert "logs/audio_calibration.json" in readme
     assert "voice-calibration-report" in readme

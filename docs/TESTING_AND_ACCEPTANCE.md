@@ -65,7 +65,7 @@ bash scripts/acceptance_test.sh --help
 | `continuous-ttl` | 自动 | 过期命令丢弃 |
 | `continuous-timeout` | 自动 | 会话超时后重新要求唤醒 |
 | `voice-readiness` | 自动 | 麦克风/音频前端 readiness 检查 |
-| `voice-calibration-report` | 自动/报告 | 汇总 provider/audio/KWS 校准，输出 `logs/voice_calibration_report.json/.md` |
+| `voice-calibration-report` | 自动/报告 | 汇总 provider/audio/KWS 校准，输出 `logs/voice_calibration_report.json/.md` 和可 `source` 的 env 文件 |
 | `continuous-offline` | 人工 | 真实麦克风离线连续控制 |
 | `continuous-online` | 人工/联网 | 真实麦克风在线连续控制 |
 | `continuous-live-check` | 人工辅助 | 订阅 topic 并统计现场演示证据 |
@@ -578,11 +578,14 @@ python scripts/audio_frontend_calibration.py --duration 6
 python scripts/audio_frontend_calibration.py --duration 6 --json > logs/audio_calibration.json
 ```
 
-`voice-calibration-report` 会输出 `logs/voice_calibration_report.json/.md`，把 provider preflight、
-音频指标、KWS 阈值和下一条建议命令合并到同一份报告。真实 topic 采集方式：
+`voice-calibration-report` 会输出 `logs/voice_calibration_report.json/.md` 和
+`logs/voice_calibration.env`，把 provider preflight、音频指标、KWS 阈值和下一条建议命令合并到同一份报告。
+真实 topic 采集方式：
 
 ```bash
 VOICE_CALIBRATION_COLLECT=true bash scripts/acceptance_test.sh voice-calibration-report
+source logs/voice_calibration.env
+bash scripts/acceptance_test.sh continuous-offline
 ```
 
 `audio_frontend_calibration.py` 的文本输出会给出更底层的 `recommended environment` 和 `next command`；

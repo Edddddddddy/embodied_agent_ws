@@ -513,12 +513,15 @@ python scripts/audio_frontend_calibration.py --duration 6
 python scripts/audio_frontend_calibration.py --duration 6 --json > logs/audio_calibration.json
 ```
 
-`voice-calibration-report` 默认生成 `logs/voice_calibration_report.json/.md`，汇总 provider preflight、
+`voice-calibration-report` 默认生成 `logs/voice_calibration_report.json/.md` 和
+`logs/voice_calibration.env`，汇总 provider preflight、
 audio calibration、KWS calibration 和下一条建议命令。真实现场如果已经启动连续语音或 audio frontend，
 可采集实时 topic：
 
 ```bash
 VOICE_CALIBRATION_COLLECT=true bash scripts/acceptance_test.sh voice-calibration-report
+source logs/voice_calibration.env
+bash scripts/acceptance_test.sh continuous-offline
 ```
 
 `audio_frontend_calibration.py` 会输出更细的 `recommended_environment` 和 `next_command`。
