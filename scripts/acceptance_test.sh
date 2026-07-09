@@ -51,6 +51,7 @@ Automated modes:
   kws-calibration     Dependency-free KWS score calibration smoke test
   voice-readiness     Dependency-free voice readiness smoke test
   provider-preflight  Optional VAD/KWS provider unit tests plus current-env preflight
+  voice-calibration-report Generate voice profile/threshold calibration report
   instruction-eval-dataset Validate lightweight robot instruction eval dataset
   instruction-parser-eval Evaluate deterministic command parser on instruction eval set
   release-gate        Job-showcase core 5-command gate with logs/acceptance_report.json
@@ -267,6 +268,22 @@ case "$LEVEL" in
       --sherpa-keywords-file "${SHERPA_KWS_KEYWORDS_FILE:-}" \
       --openwakeword-models "${OPENWAKEWORD_MODELS:-}" \
       --livekit-wakeword-models "${LIVEKIT_WAKEWORD_MODELS:-}"
+    ;;
+  voice-calibration-report)
+    if [[ "${VOICE_CALIBRATION_COLLECT:-false}" == "true" ]]; then
+      python3 scripts/voice_calibration_report.py \
+        --collect \
+        --duration "${VOICE_CALIBRATION_DURATION:-6}" \
+        --mode "${VOICE_CALIBRATION_MODE:-offline}" \
+        --vad-provider "${VAD_PROVIDER:-auto}" \
+        --kws-provider "${KWS_PROVIDER:-none}"
+    else
+      python3 scripts/voice_calibration_report.py \
+        --synthetic-profile "${VOICE_CALIBRATION_SYNTHETIC_PROFILE:-low_gain}" \
+        --mode "${VOICE_CALIBRATION_MODE:-offline}" \
+        --vad-provider "${VAD_PROVIDER:-auto}" \
+        --kws-provider "${KWS_PROVIDER:-none}"
+    fi
     ;;
   instruction-eval-dataset) python3 scripts/validate_instruction_eval_dataset.py ;;
   instruction-parser-eval) python3 scripts/evaluate_instruction_parser.py --minimum "${INSTRUCTION_PARSER_MINIMUM:-1.0}" ;;

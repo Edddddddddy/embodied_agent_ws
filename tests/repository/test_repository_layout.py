@@ -735,6 +735,9 @@ def test_audio_calibration_outputs_copyable_live_demo_advice():
     calibration = (ROOT / "scripts" / "audio_frontend_calibration.py").read_text(
         encoding="utf-8"
     )
+    bundle = (ROOT / "scripts" / "voice_calibration_report.py").read_text(
+        encoding="utf-8"
+    )
     readiness = (ROOT / "scripts" / "voice_control_readiness_check.py").read_text(
         encoding="utf-8"
     )
@@ -752,7 +755,11 @@ def test_audio_calibration_outputs_copyable_live_demo_advice():
         assert token in calibration
     assert "recommended_environment:" in readiness
     assert "next_command:" in readiness
+    assert "voice_calibration_report" in bundle
+    assert "logs/voice_calibration_report.json" in bundle
+    assert "recommended_environment" in bundle
     assert "logs/audio_calibration.json" in readme
+    assert "voice-calibration-report" in readme
     assert "recommended_environment" in acceptance_doc
 
 

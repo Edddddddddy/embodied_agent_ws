@@ -508,11 +508,20 @@ python3 scripts/showcase_release_gate.py --profile demo --dry-run
 ```bash
 bash scripts/acceptance_test.sh wsl-microphone-preflight
 bash scripts/acceptance_test.sh voice-readiness
+bash scripts/acceptance_test.sh voice-calibration-report
 python scripts/audio_frontend_calibration.py --duration 6
 python scripts/audio_frontend_calibration.py --duration 6 --json > logs/audio_calibration.json
 ```
 
-`audio_frontend_calibration.py` 会输出 `recommended_environment` 和 `next_command`。
+`voice-calibration-report` 默认生成 `logs/voice_calibration_report.json/.md`，汇总 provider preflight、
+audio calibration、KWS calibration 和下一条建议命令。真实现场如果已经启动连续语音或 audio frontend，
+可采集实时 topic：
+
+```bash
+VOICE_CALIBRATION_COLLECT=true bash scripts/acceptance_test.sh voice-calibration-report
+```
+
+`audio_frontend_calibration.py` 会输出更细的 `recommended_environment` 和 `next_command`。
 如果它建议 `VOICE_CONTROL_PROFILE=low_gain` 或更低 `SPEECH_START_THRESHOLD`，
 可以直接复制 `next_command` 重新启动连续语音验收。
 

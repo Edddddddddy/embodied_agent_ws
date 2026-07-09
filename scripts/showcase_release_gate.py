@@ -78,7 +78,8 @@ DEMO_COMMANDS: tuple[tuple[str, str], ...] = (
     (
         "voice_provider_readiness",
         "bash scripts/acceptance_test.sh provider-preflight && "
-        "bash scripts/acceptance_test.sh voice-readiness",
+        "bash scripts/acceptance_test.sh voice-readiness && "
+        "bash scripts/acceptance_test.sh voice-calibration-report",
     ),
     (
         "speaker_memory_preferences",

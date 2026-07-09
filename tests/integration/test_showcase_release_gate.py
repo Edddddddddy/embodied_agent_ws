@@ -108,5 +108,6 @@ def test_showcase_release_gate_demo_profile_targets_pre_demo_evidence(tmp_path):
     } == command_names
     commands = "\n".join(item["command"] for item in report["commands"])
     assert "provider-preflight" in commands
+    assert "voice-calibration-report" in commands
     assert "speaker-memory-mock" in commands
     assert "offline-showcase-report" in commands

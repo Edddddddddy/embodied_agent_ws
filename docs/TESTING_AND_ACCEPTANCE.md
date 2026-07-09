@@ -65,6 +65,7 @@ bash scripts/acceptance_test.sh --help
 | `continuous-ttl` | 自动 | 过期命令丢弃 |
 | `continuous-timeout` | 自动 | 会话超时后重新要求唤醒 |
 | `voice-readiness` | 自动 | 麦克风/音频前端 readiness 检查 |
+| `voice-calibration-report` | 自动/报告 | 汇总 provider/audio/KWS 校准，输出 `logs/voice_calibration_report.json/.md` |
 | `continuous-offline` | 人工 | 真实麦克风离线连续控制 |
 | `continuous-online` | 人工/联网 | 真实麦克风在线连续控制 |
 | `continuous-live-check` | 人工辅助 | 订阅 topic 并统计现场演示证据 |
@@ -109,7 +110,7 @@ bash scripts/acceptance_test.sh demo-gate
 该入口使用 `demo` profile，固定 5 条偏展示的自动证据：
 
 1. CLI 入口可发现；
-2. VAD/KWS provider preflight 与语音 readiness；
+2. VAD/KWS provider preflight、语音 readiness 与 voice calibration report；
 3. speaker identity、用户记忆和偏好影响动作参数；
 4. 连续语音 session、多命令队列；
 5. 语音导航 mock 与离线展示报告。
@@ -572,11 +573,19 @@ bash scripts/acceptance_test.sh continuous-nav2-live-report logs/nav2-live-check
 ```bash
 bash scripts/acceptance_test.sh wsl-microphone-preflight
 bash scripts/acceptance_test.sh voice-readiness
+bash scripts/acceptance_test.sh voice-calibration-report
 python scripts/audio_frontend_calibration.py --duration 6
 python scripts/audio_frontend_calibration.py --duration 6 --json > logs/audio_calibration.json
 ```
 
-`audio_frontend_calibration.py` 的文本输出会给出 `recommended environment` 和 `next command`；
+`voice-calibration-report` 会输出 `logs/voice_calibration_report.json/.md`，把 provider preflight、
+音频指标、KWS 阈值和下一条建议命令合并到同一份报告。真实 topic 采集方式：
+
+```bash
+VOICE_CALIBRATION_COLLECT=true bash scripts/acceptance_test.sh voice-calibration-report
+```
+
+`audio_frontend_calibration.py` 的文本输出会给出更底层的 `recommended environment` 和 `next command`；
 JSON 输出会保留 `recommended_environment`、`suggested_vad_threshold`、`next_command`，
 可作为真实麦克风演示前的校准证据。
 
