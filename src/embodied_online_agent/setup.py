@@ -18,6 +18,7 @@ setup(
     extras_require={
         "fuzzy": ["rapidfuzz>=3.0.0"],
         "webrtc-vad": ["webrtcvad>=2.0.10"],
+        "silero-vad": ["silero-vad", "onnxruntime"],
         "kws": ["openwakeword>=0.6.0"],
         "livekit-kws": ["livekit-wakeword>=0.1.0"],
     },

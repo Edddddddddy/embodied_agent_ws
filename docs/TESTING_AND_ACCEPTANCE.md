@@ -689,10 +689,19 @@ VAD_PROVIDER=webrtc bash scripts/acceptance_test.sh continuous-offline
 WebRTC VAD 的可选安装命令：
 
 ```bash
-pip install 'embodied-online-agent[webrtc-vad]'
-# 或只安装底层包：
-pip install webrtcvad
+bash scripts/acceptance_test.sh voice-vad-runtime-dry-run
+bash scripts/setup_voice_vad_runtime.sh webrtc
+VAD_PROVIDER=auto bash scripts/acceptance_test.sh provider-preflight
 ```
+
+如果要同时准备 Silero 和 WebRTC：
+
+```bash
+bash scripts/setup_voice_vad_runtime.sh all
+```
+
+底层等价方式是安装 `embodied_online_agent[webrtc-vad]` 或
+`embodied_online_agent[silero-vad]` extra；项目脚本会在安装后自动跑 provider preflight。
 
 也可以直接套用 calibration/readiness 给出的阈值，例如：
 

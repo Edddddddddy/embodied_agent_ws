@@ -147,6 +147,9 @@
 - `VAD_PROVIDER=auto` 会在启动脚本里先跑 `voice_provider_preflight.py`：Silero VAD 依赖可用时，
   AudioFrontend 只发布 clean PCM，`silero_vad` sidecar 负责 endpoint；Silero 不可用但
   `webrtcvad` 可用时，`webrtc_vad` sidecar 接管 endpoint；都不可用时降级 energy VAD。
+- `scripts/setup_voice_vad_runtime.sh` 提供 WebRTC/Silero 可选依赖安装入口，支持 dry-run；
+  它会安装 `embodied_online_agent[webrtc-vad]`、`embodied_online_agent[silero-vad]`
+  对应 extra，并在安装后跑 provider preflight。
 - Agent 收到 endpoint 后调用 ASR commit。
 - `asr_commit_delay_ms` 允许在 endpoint 后等待少量时间，再提交 final。
 - `VOICE_CONTROL_PROFILE` 提供 normal、quiet、low_gain、noisy_room 四种参数预设。
@@ -163,6 +166,8 @@
 - 适当延迟 300～500ms 可以换取更完整的识别结果。
 - 校准文件默认自动复用，可以减少演示前忘记 `source logs/voice_calibration.env` 的概率；
   但显式环境变量优先，避免旧校准文件覆盖现场临时调参。
+- 把 VAD 依赖安装封装成项目脚本，是为了让“成熟 VAD sidecar”不只是代码 seam；
+  演示环境可以通过 dry-run、install、preflight 三步确认真的没有降级到 energy VAD。
 - VAD 和 commit 分离，便于定位“音频没听到”和“ASR final 太早”两类问题。
 - 成熟 VAD 做成 sidecar，而不是塞进 PortAudio 回调线程，是为了避免模型推理阻塞音频采集。
 

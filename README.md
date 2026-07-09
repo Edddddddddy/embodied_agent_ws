@@ -564,6 +564,26 @@ APPLY_VOICE_CALIBRATION=false bash scripts/acceptance_test.sh continuous-offline
 如果它建议 `VOICE_CONTROL_PROFILE=low_gain` 或更低 `SPEECH_START_THRESHOLD`，
 可以直接复制 `next_command` 重新启动连续语音验收。
 
+如果希望 `VAD_PROVIDER=auto` 尽量使用成熟声学 VAD，而不是降级到 energy VAD，可以先安装
+WebRTC/Silero 可选依赖。先 dry-run 看将执行的命令：
+
+```bash
+bash scripts/acceptance_test.sh voice-vad-runtime-dry-run
+```
+
+实际安装轻量 WebRTC VAD：
+
+```bash
+bash scripts/setup_voice_vad_runtime.sh webrtc
+VAD_PROVIDER=auto bash scripts/acceptance_test.sh provider-preflight
+```
+
+如需同时准备 Silero 和 WebRTC：
+
+```bash
+bash scripts/setup_voice_vad_runtime.sh all
+```
+
 如果 `wsl-microphone-preflight` 的 `rms` 接近 `0.0000`、`peak` 只有个位数，说明
 Windows/WSLg 没有把真实麦克风音频送进 WSL。此时优先检查 Windows 隐私设置里的麦克风权限、
 默认输入设备、WSLg 音频 source，而不是继续调低 VAD。
