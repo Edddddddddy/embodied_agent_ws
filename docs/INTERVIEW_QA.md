@@ -59,8 +59,9 @@ Python。这个分工更接近工程上的成本收益平衡。
 ## 9. SummerTTS 的定位是什么？
 
 SummerTTS 是 C++ 离线 TTS runtime 接入展示点。项目已经提供命令行 provider 和常驻 C++
-ROS service，其中 service 避免每句重新启动进程和加载模型。但当前 CPU 合成仍是秒级，
-不能把它宣称为 `<300ms` 默认低延迟 TTS。低延迟 gate 仍以 Sherpa-TTS 路径为准。
+ROS service，其中 service 避免每句重新启动进程和加载模型，并对短文本反馈做缓存。
+但未命中的 CPU 合成仍是秒级，不能把它宣称为 `<300ms` 默认低延迟 TTS。
+低延迟 gate 仍以 Sherpa-TTS 路径为准。
 
 ## 10. Nav2 做到了什么，没做到什么？
 

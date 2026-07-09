@@ -313,6 +313,7 @@ bash scripts/acceptance_test.sh speaker-enroll
 - `SummerTts` provider 调用 `third_party/SummerTTS/build/tts_test`，输入文本文件和 `.bin` 模型，读取 16kHz mono wav 后返回 PCM16 bytes。
 - `SummerTtsServiceNode` 是常驻 C++ ROS component：节点启动时加载 `single_speaker_fast.bin`，
   对外提供 `/tts/synthesize` service，Python 侧 `SummerTtsRosClient` 通过 `tts_provider:=summer_ros` 调用。
+  service 内部对短文本做 LRU 缓存，缓存 key 包含文本、speaker_id 和 length_scale，避免不同音色或语速误复用。
 - `PseudoStreamingTtsPipeline` 把 Sherpa/SummerTTS 这种“整句生成”的本地 TTS 包装成伪流式：
   LLM 文字增量先经 `SentenceChunker` 切成短句，TTS worker 合成 PCM，audio worker 再按小块发布。
 - 双缓冲把 LLM 文本生成、TTS 合成与音频输出解耦。
@@ -333,6 +334,8 @@ bash scripts/acceptance_test.sh speaker-enroll
 - 推理层独立预检可以快速判断问题在模型服务、ASR、TTS 还是 ROS 控制链路，避免完整 demo 失败时只能猜。
 - SummerTTS 是 C++ 项目，适合展示“端侧 C++ 运行时嵌入”；命令行 provider 保证部署简单，
   常驻 ROS component 则展示了更工程化的低耦合封装，并减少每句进程启动和模型加载开销。
+- 短文本缓存只覆盖“收到/好的/正在执行”等反馈语，长句不缓存，避免内存被长音频占满；这属于工程优化，
+  不是模型推理加速，因此文档仍把 Sherpa-TTS 作为默认低延迟 gate。
 - 请求失败后只在“尚未吐出 token”时重试；如果流式回复已经输出一半，就不能静默重试，否则上游 parser 会收到拼接污染的回复。
 
 方案对比：
@@ -342,7 +345,7 @@ bash scripts/acceptance_test.sh speaker-enroll
 - llama.cpp + Sherpa：工程味更强，适合展示端侧推理思路。
 - SummerTTS 命令行封装：接入最快、易验收，但每句会启动进程并加载模型；适合先打通链路。
 - SummerTTS C++ 组件化封装：可复用已加载模型，服务接口清晰，但需要维护 C++ wrapper、ROS2 service
-  和组件生命周期；当前实测仍受 SummerTTS CPU infer 本身限制。
+  和组件生命周期；短文本缓存能显著优化重复反馈，未命中时仍受 SummerTTS CPU infer 本身限制。
 - 直接绑定 llama.cpp C API：可控性更强，但 Python/ROS2 集成和维护成本高；本项目选择 OpenAI-compatible server，
   用网络 seam 换取更低耦合、更容易 mock 和更清晰的部署边界。
 

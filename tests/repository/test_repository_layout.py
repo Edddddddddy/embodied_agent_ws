@@ -237,6 +237,9 @@ def test_summer_tts_resident_ros_component_entrypoints_remain_available():
     ).read_text(encoding="utf-8")
 
     assert (ROOT / "src" / "embodied_agent_interfaces" / "srv" / "SynthesizeSpeech.srv").is_file()
+    srv_text = (
+        ROOT / "src" / "embodied_agent_interfaces" / "srv" / "SynthesizeSpeech.srv"
+    ).read_text(encoding="utf-8")
     assert (
         ROOT
         / "src"
@@ -251,6 +254,13 @@ def test_summer_tts_resident_ros_component_entrypoints_remain_available():
     assert "summer_tts_component" in cpp_cmake
     assert "rclcpp_components_register_nodes" in cpp_cmake
     assert "summer_tts_service" in cpp_cmake
+    assert "bool cache_hit" in srv_text
+    assert "cache_enabled" in (
+        ROOT / "src" / "embodied_agent_cpp" / "src" / "summer_tts_service_node.cpp"
+    ).read_text(encoding="utf-8")
+    assert "cache_hit" in (ROOT / "scripts" / "summer_tts_service_probe.py").read_text(
+        encoding="utf-8"
+    )
     assert "summer-tts-service" in acceptance
     assert "summer_tts_service_probe.py" in acceptance or "smoke_test_summer_tts_service.sh" in acceptance
     assert "summer_ros" in offline_node

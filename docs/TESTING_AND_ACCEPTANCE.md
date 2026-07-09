@@ -201,7 +201,8 @@ bash scripts/acceptance_test.sh summer-tts-service
 - `summer-tts-smoke` 能输出非空 PCM。
 - `summer-pseudo-tts` 的 `tts_pipeline.synth_calls` 为 2，且产生多个 audio chunks。
 - `summer-tts-service` 能启动 `embodied_agent_cpp/summer_tts_service`，通过 `/tts/synthesize`
-  返回 `sample_rate=16000` 和非空 PCM。
+  返回 `sample_rate=16000` 和非空 PCM；probe 默认重复请求同一短文本，第二次应出现
+  `cache_hit=true`，用于证明常驻服务的短反馈缓存生效。
 
 常见失败定位：
 
@@ -211,8 +212,8 @@ bash scripts/acceptance_test.sh summer-tts-service
 - 完整离线 Agent 想切换 SummerTTS：启动时设置 `tts_provider:=summer`。
 - 完整离线 Agent 想切换常驻 C++ service：启动时设置 `tts_provider:=summer_ros`。
 - SummerTTS 命令行 provider 每句会启动进程并加载模型；`summer_ros` 已消除这部分开销，
-  但当前 CPU infer 仍明显高于 Sherpa-TTS，因此 `offline-latency` 的 `<300ms`
-  TTS 指标仍以默认 Sherpa-TTS provider 为准。
+  并缓存短文本反馈；但未命中的 SummerTTS CPU infer 仍明显高于 Sherpa-TTS，因此
+  `offline-latency` 的 `<300ms` TTS 指标仍以默认 Sherpa-TTS provider 为准。
 
 ### 2.1.3 离线低延迟指标验收
 

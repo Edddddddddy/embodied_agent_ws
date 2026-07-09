@@ -65,6 +65,9 @@ def generate_launch_description():
     summer_tts_service_timeout_s = LaunchConfiguration("summer_tts_service_timeout_s")
     summer_tts_service_speaker_id = LaunchConfiguration("summer_tts_service_speaker_id")
     summer_tts_service_length_scale = LaunchConfiguration("summer_tts_service_length_scale")
+    summer_tts_cache_enabled = LaunchConfiguration("summer_tts_cache_enabled")
+    summer_tts_cache_max_entries = LaunchConfiguration("summer_tts_cache_max_entries")
+    summer_tts_cache_max_text_chars = LaunchConfiguration("summer_tts_cache_max_text_chars")
     hardware_backend = LaunchConfiguration("hardware_backend")
     hardware_enabled = LaunchConfiguration("hardware_enabled")
     wake_word_enabled = LaunchConfiguration("wake_word_enabled")
@@ -133,6 +136,9 @@ def generate_launch_description():
         DeclareLaunchArgument("summer_tts_service_timeout_s", default_value="10.0"),
         DeclareLaunchArgument("summer_tts_service_speaker_id", default_value="-1"),
         DeclareLaunchArgument("summer_tts_service_length_scale", default_value="0.0"),
+        DeclareLaunchArgument("summer_tts_cache_enabled", default_value="true"),
+        DeclareLaunchArgument("summer_tts_cache_max_entries", default_value="64"),
+        DeclareLaunchArgument("summer_tts_cache_max_text_chars", default_value="24"),
         Node(
             package="embodied_agent_cpp",
             executable="summer_tts_service",
@@ -149,6 +155,15 @@ def generate_launch_description():
                 ),
                 "length_scale": ParameterValue(
                     summer_tts_service_length_scale, value_type=float
+                ),
+                "cache_enabled": ParameterValue(
+                    summer_tts_cache_enabled, value_type=bool
+                ),
+                "cache_max_entries": ParameterValue(
+                    summer_tts_cache_max_entries, value_type=int
+                ),
+                "cache_max_text_chars": ParameterValue(
+                    summer_tts_cache_max_text_chars, value_type=int
                 ),
             }],
         ),
