@@ -27,6 +27,7 @@ from embodied_online_agent.user_memory import (
     UserMemoryStore,
     parse_memory_command,
 )
+from embodied_online_agent.user_preferences import apply_user_preferences
 from embodied_online_agent.wake_event_input import parse_external_wake_event
 from embodied_online_agent.wakeword import WakeWordGate
 
@@ -902,7 +903,7 @@ class OfflineAgentNode(Node):
         )
 
     def _publish_actions(self, actions):
-        action_list = list(actions)
+        action_list = apply_user_preferences(actions, self._current_user_preferences())
 
         def publish_payload(payload):
             self._action_pub.publish(String(data=payload))
@@ -917,6 +918,12 @@ class OfflineAgentNode(Node):
                 f"action sequence stopped after {report.completed} completed step(s): {report.reason}"
             )
         return report
+
+    def _current_user_preferences(self):
+        # 与在线链路保持同一策略：只有可信 speaker identity 才能读取并应用个人偏好。
+        if not self._current_speaker.usable:
+            return {}
+        return dict(self._user_memory.profile(self._current_speaker).preferences)
 
     def _should_wait_for_action_results(self, action_list):
         if len(action_list) > 1:

@@ -73,6 +73,11 @@ def main():
 
     text_pub.publish(String(data="向前走"))
     assert _spin_until(node, lambda: any('"name": "move"' in item for item in actions))
+    assert any(
+        payload.get("name") == "move"
+        and payload.get("arguments", {}).get("linear_x") == 0.15
+        for payload in (json.loads(item) for item in actions)
+    ), "slow movement preference did not affect the next move command"
     profile_path = memory_dir / "lcy.json"
     assert _spin_until(
         node,
@@ -90,7 +95,7 @@ def main():
 
     node.destroy_node()
     rclpy.shutdown()
-    print("PASS: speaker identity -> user memory -> prompt/action record")
+    print("PASS: speaker identity -> user memory -> preference-adjusted action record")
 
 
 if __name__ == "__main__":

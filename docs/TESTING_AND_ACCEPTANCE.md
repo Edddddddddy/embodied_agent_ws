@@ -155,6 +155,7 @@ bash scripts/acceptance_test.sh speaker-enroll
 
 - `/agent/speaker_identity` 能驱动 Agent 绑定当前用户。
 - “记住我，我是小李”“我喜欢慢一点”“我是谁”等管理命令能写入/读取本地用户画像。
+- “我喜欢慢一点”会影响后续 `move` 动作候选参数，证明记忆不只是 prompt 上下文。
 - 普通动作执行后会把动作统计写入当前用户 profile。
 - `/agent/speaker_enroll_request` 能触发 sidecar 收集 3 段 wav 样本并维护 speaker-file。
 - 该验收不依赖真实声纹模型；真实 sherpa-onnx 声纹需要另行准备 speaker embedding 模型和注册 wav。

@@ -25,6 +25,7 @@ from .metrics import LatencyTracker
 from .protocol import SentenceChunker, TaggedStreamParser
 from .recognition_retry import RecognitionRetryTracker
 from .types import ActionCommand
+from .user_preferences import apply_user_preferences
 from .wake_event_input import parse_external_wake_event
 from .providers.mock import MockAsr, MockLlm, MockTts
 from .providers.openai_compatible_llm import OpenAiCompatibleLlm
@@ -829,7 +830,7 @@ class OnlineAgentNode(Node):
         )
 
     def _publish_actions(self, actions):
-        action_list = list(actions)
+        action_list = apply_user_preferences(actions, self._current_user_preferences())
 
         def publish_payload(payload: str):
             self.action_candidate_pub.publish(String(data=payload))
@@ -845,6 +846,12 @@ class OnlineAgentNode(Node):
                 f"action sequence stopped after {report.completed} completed step(s): {report.reason}"
             )
         return report
+
+    def _current_user_preferences(self) -> dict:
+        # 偏好只有在说话人身份可靠时才参与动作策略；未知用户继续使用系统默认参数。
+        if not self._current_speaker.usable:
+            return {}
+        return dict(self.user_memory.profile(self._current_speaker).preferences)
 
     def _should_wait_for_action_results(self, action_list):
         if len(action_list) > 1:

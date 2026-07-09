@@ -262,6 +262,7 @@
 
 - `src/embodied_online_agent/embodied_online_agent/speaker_identity_node.py`
 - `src/embodied_online_agent/embodied_online_agent/user_memory.py`
+- `src/embodied_online_agent/embodied_online_agent/user_preferences.py`
 - `src/embodied_online_agent/embodied_online_agent/online_agent_node.py`
 - `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py`
 - `tests/integration/test_speaker_memory_mock.py`
@@ -273,6 +274,9 @@
 - Agent 只消费稳定 JSON identity，不直接绑定某个模型库。
 - `UserMemoryStore` 按 `speaker_id` 保存本地 profile，包括用户名、偏好、常用动作、最近交互。
 - Agent 推理前把当前用户画像追加进 system prompt，但动作仍必须经过 ActionGuard。
+- `user_preferences.py` 在动作发布出口统一应用确定性偏好，例如 `movement_speed=slow/fast`、
+  `default_move_duration_s`、`default_turn_degrees`；这样 fallback、轻量 NLU、多命令队列和 LLM 输出
+  都能得到一致的参数调整。
 - 管理命令直接在 Agent 层处理，例如“记住我，我是小李”“我喜欢慢一点”“我是谁”“清除我的记忆”。
 
 为什么这样设计：
@@ -281,6 +285,8 @@
 - 用户画像是长期稳定信息，不适合无限追加到普通对话历史里。
 - 记忆写入必须可控，不能完全交给 LLM 自行决定，否则容易把误识别或幻觉写入本地 profile。
 - 低置信度声纹返回 `unknown`，避免把 A 用户偏好误写到 B 用户。
+- 偏好只改写低层运动参数，且只在 speaker identity 可信时生效；真正的速度/时长边界继续由
+  C++ ActionGuard 兜底，避免“记忆”绕过安全策略。
 
 方案对比：
 
@@ -295,7 +301,7 @@ bash scripts/acceptance_test.sh speaker-memory-mock
 bash scripts/acceptance_test.sh speaker-enroll
 ```
 
-该验收证明：speaker identity 进入 Agent、用户偏好落盘、动作执行后更新用户行为统计，并且声纹录入 seam 能采集样本文件。
+该验收证明：speaker identity 进入 Agent、用户偏好落盘、偏好能影响后续动作参数、动作执行后更新用户行为统计，并且声纹录入 seam 能采集样本文件。
 
 ## 10. 离线 Agent：Sherpa、llama.cpp、Sherpa-TTS/SummerTTS 与双缓冲
 

@@ -296,11 +296,22 @@ def _extract_preference(compact: str) -> Optional[dict]:
         return {"movement_speed": "slow"}
     if "喜欢快一点" in compact or "速度快一点" in compact or compact == "快一点":
         return {"movement_speed": "fast"}
-    match = re.search(r"以后前进默认([0-9一二两三四五六七八九十]+)秒", compact)
+    match = re.search(
+        r"(?:以后)?(?:前进|向前走|向前)?默认(?:前进|向前走|向前)?([0-9一二两三四五六七八九十]+)秒",
+        compact,
+    )
     if match:
         duration = _parse_small_number(match.group(1))
         if duration is not None:
             return {"default_move_duration_s": duration}
+    match = re.search(
+        r"(?:以后)?(?:左转|右转|转弯|转向)?默认(?:左转|右转|转弯|转向)?([0-9一二两三四五六七八九十百]+)度",
+        compact,
+    )
+    if match:
+        degrees = _parse_degree_number(match.group(1))
+        if degrees is not None:
+            return {"default_turn_degrees": degrees}
     return None
 
 
@@ -327,6 +338,60 @@ def _parse_small_number(value: str) -> Optional[float]:
     }
     if value in mapping:
         return float(mapping[value])
+    return None
+
+
+def _parse_degree_number(value: str) -> Optional[float]:
+    if value.isdigit():
+        number = int(value)
+        return float(number) if 15 <= number <= 360 else None
+    aliases = {
+        "十五": 15,
+        "三十": 30,
+        "四十五": 45,
+        "六十": 60,
+        "九十": 90,
+        "一百八十": 180,
+        "三百六十": 360,
+    }
+    if value in aliases:
+        return float(aliases[value])
+    parsed = _parse_chinese_integer(value)
+    return float(parsed) if parsed is not None and 15 <= parsed <= 360 else None
+
+
+def _parse_chinese_integer(value: str) -> Optional[int]:
+    digits = {
+        "零": 0,
+        "一": 1,
+        "二": 2,
+        "两": 2,
+        "三": 3,
+        "四": 4,
+        "五": 5,
+        "六": 6,
+        "七": 7,
+        "八": 8,
+        "九": 9,
+    }
+    if not value:
+        return None
+    if value in digits:
+        return digits[value]
+    if "百" in value:
+        left, right = value.split("百", 1)
+        hundreds = digits.get(left, 1 if not left else None)
+        if hundreds is None:
+            return None
+        remainder = _parse_chinese_integer(right) if right else 0
+        return hundreds * 100 + remainder if remainder is not None else None
+    if "十" in value:
+        left, right = value.split("十", 1)
+        tens = digits.get(left, 1 if not left else None)
+        ones = digits.get(right, 0 if not right else None)
+        if tens is None or ones is None:
+            return None
+        return tens * 10 + ones
     return None
 
 

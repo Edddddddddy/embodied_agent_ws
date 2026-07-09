@@ -69,3 +69,9 @@ def test_parse_memory_management_commands():
     assert parse_memory_command("以后前进默认两秒").value == {
         "default_move_duration_s": 2.0
     }
+    assert parse_memory_command("以后默认左转四十五度").value == {
+        "default_turn_degrees": 45.0
+    }
+    assert parse_memory_command("以后转弯默认90度").value == {
+        "default_turn_degrees": 90.0
+    }
