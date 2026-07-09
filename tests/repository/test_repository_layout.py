@@ -317,6 +317,27 @@ def test_offline_latency_gate_remains_available_and_documented():
     assert "tts_provider:=summer_ros" in testing_doc
 
 
+def test_job_presentation_doc_remains_discoverable():
+    """求职展示版必须有稳定的汇报入口，方便按代码讲完整链路。"""
+
+    presentation = ROOT / "docs" / "PROJECT_PRESENTATION_15MIN.md"
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    presentation_text = presentation.read_text(encoding="utf-8")
+
+    assert presentation.is_file()
+    assert "PROJECT_PRESENTATION_15MIN.md" in readme
+    assert "15 分钟项目汇报" in presentation_text
+    assert "从语音输入到仿真执行的代码走读地图" in presentation_text
+    for required in (
+        "continuous-offline",
+        "continuous-multi-command",
+        "ActionGuard",
+        "BehaviorTree",
+        "SummerTTS",
+    ):
+        assert required in presentation_text
+
+
 def test_nav2_live_evidence_script_keeps_control_and_scoring_together():
     """一键现场留证脚本必须同时启动控制链路与 live-check，并保存可复核报告。"""
 

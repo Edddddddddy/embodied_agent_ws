@@ -32,6 +32,9 @@
 | 自然导航验收入口 | 将自然多目标话术纳入 ROS pipeline 回归 | 新增 `continuous-navigation-natural`，覆盖自然话术到 `follow_waypoints` 队列执行 |
 | Sherpa-ONNX ASR-only 部署 | 开始真实部署离线 ASR 推理框架，先隔离验证 ASR 层 | 新增 `setup_sherpa_asr_runtime.sh`、`sherpa_asr_smoke.py`、`sherpa-asr-preflight/smoke` 验收入口 |
 | Sherpa-ONNX 离线完整链路验证 | 验证真实 Sherpa 语音模型进入 ROS2 typed Action 控制闭环 | 新增 `offline-sherpa-typed`，覆盖 Sherpa-TTS 音频、ZipFormer ASR、Offline Agent、ActionGuard、ExecuteRobotCommand、`/cmd_vel` |
+| 离线 TTS 版本收口 | 固定 llama.cpp / SummerTTS / sherpa-onnx 版本并补充低延迟 gate | 新增 `OFFLINE_RUNTIME_VERSIONS.md`、`offline-runtime-versions`、`offline-latency` |
+| SummerTTS 服务化 | 将 SummerTTS 从命令行 provider 升级为常驻 C++ ROS service | 新增 `SynthesizeSpeech.srv`、`summer_tts_service`、`tts_provider:=summer_ros`、`summer-tts-service` |
+| 求职展示版收口 | 固定演示路径、汇报稿、代码走读地图和发布门禁 | 新增 `PROJECT_PRESENTATION_15MIN.md`，README 指向阶段发布 gate |
 
 ## 2. 当前完成度结论
 
@@ -46,6 +49,7 @@
 - 多命令能力：一条 ASR final 可被轻量 NLU 解析为多个队列项，并按 ROS 2 Action result 顺序执行。
 - 导航演示能力：支持“去门口”“前往书桌”“依次去门口、书桌、起点”等语音目标点/多点巡航命令，并通过 typed Action 驱动仿真 executor、Nav2 action bridge 或完整 TurtleBot3/Nav2 bringup。
 - 测试体系：单元测试、集成 smoke、Gazebo 验收、真实麦克风辅助统计。
+- 汇报材料：已补充 15 分钟项目汇报与代码走读稿，便于按链路讲解关键文件和技术取舍。
 
 需要谨慎表述的边界：
 
@@ -121,6 +125,7 @@ bash scripts/acceptance_test.sh continuous-live-check offline
 - 优先保证 `continuous-nav2-offline` 能支撑 3～5 分钟真实麦克风目标点导航/巡航演示。
 - 继续完善 monitor 输出，让失败原因能直接定位到 ASR、session、queue、Action、Gazebo。
 - 为常见麦克风和噪声环境补充 profile 建议。
+- 阶段发布前固定运行 README 中的 release gate，并把真实麦克风/Gazebo/Nav2 结果留成可复查证据。
 
 ### P1：增强 ROS 2/C++ 求职展示价值
 
@@ -132,6 +137,7 @@ bash scripts/acceptance_test.sh continuous-live-check offline
 
 - 固化离线模型下载、量化、启动 llama.cpp server 的流程。
 - 增加离线 benchmark 报告模板。
+- 继续评估 SummerTTS 量化、缓存或更快声码器；当前 `summer_ros` 证明服务化封装，不作为低延迟默认路径。
 
 ### P3：增强真实 Nav2 导航栈
 

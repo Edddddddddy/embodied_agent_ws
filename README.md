@@ -61,6 +61,7 @@ embodied_agent_ws/
 ├── docs/
 │   ├── ARCHITECTURE_AND_KNOWLEDGE.md
 │   ├── TESTING_AND_ACCEPTANCE.md
+│   ├── PROJECT_PRESENTATION_15MIN.md
 │   ├── LEARNING_NOTES.md
 │   ├── OFFLINE_RUNTIME_VERSIONS.md
 │   └── CHANGELOG_AND_ROADMAP.md
@@ -459,6 +460,19 @@ bash scripts/acceptance_test.sh all
 
 `all` 不包含需要人工说话的 microphone/continuous interactive 模式。
 
+阶段版本发布前建议额外执行：
+
+```bash
+pytest -q tests/repository src/embodied_offline_agent/test
+bash tests/integration/test_acceptance_cli.sh
+bash scripts/acceptance_test.sh continuous-multi-command
+bash scripts/acceptance_test.sh navigation-demo
+bash scripts/acceptance_test.sh offline-latency
+bash scripts/acceptance_test.sh summer-tts-service
+colcon test --packages-select embodied_agent_cpp embodied_simulation --event-handlers console_direct+
+colcon test-result --verbose
+```
+
 ## 常见问题
 
 ### ASR 没输出
@@ -593,6 +607,7 @@ bash scripts/acceptance_test.sh online
 
 - [架构与模块说明](docs/ARCHITECTURE_AND_KNOWLEDGE.md)
 - [测试与验收手册](docs/TESTING_AND_ACCEPTANCE.md)
+- [15 分钟汇报与代码走读稿](docs/PROJECT_PRESENTATION_15MIN.md)
 - [Nav2 语音导航/巡航验收审计](docs/NAV2_VOICE_ACCEPTANCE_AUDIT.md)
 - [学习笔记：关键技术点与设计取舍](docs/LEARNING_NOTES.md)
 - [版本记录与路线图](docs/CHANGELOG_AND_ROADMAP.md)

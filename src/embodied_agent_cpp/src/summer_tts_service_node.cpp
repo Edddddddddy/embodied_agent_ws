@@ -57,6 +57,8 @@ SummerTtsServiceNode::~SummerTtsServiceNode()
 
 void SummerTtsServiceNode::load_model()
 {
+  // 服务化的核心收益在这里：模型只在节点启动阶段加载一次，
+  // 后续每句 TTS 请求复用同一个 SynthesizerTrn，避免命令行 provider 的重复进程启动和模型加载。
   model_size_ = ttsLoadModel(const_cast<char *>(model_path_.c_str()), &model_data_);
   if (model_size_ <= 0 || model_data_ == nullptr) {
     throw std::runtime_error("failed to load SummerTTS model: " + model_path_);
