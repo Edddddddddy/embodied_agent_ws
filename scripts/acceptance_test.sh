@@ -52,7 +52,7 @@ Automated modes:
   provider-preflight  Optional VAD/KWS provider unit tests plus current-env preflight
   instruction-eval-dataset Validate lightweight robot instruction eval dataset
   instruction-parser-eval Evaluate deterministic command parser on instruction eval set
-  release-gate        Job-showcase release gate with logs/acceptance_report.json
+  release-gate        Job-showcase core 5-command gate with logs/acceptance_report.json
   wsl-microphone-preflight PulseAudio/WSLg microphone capture check before live demos
   gazebo              Typed Action physical motion verification
   gazebo-voice        Offline synthesized speech through typed Action to Gazebo

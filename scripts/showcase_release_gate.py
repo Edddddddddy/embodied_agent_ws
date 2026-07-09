@@ -21,7 +21,37 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-DEFAULT_COMMANDS: tuple[tuple[str, str], ...] = (
+CORE_COMMANDS: tuple[tuple[str, str], ...] = (
+    (
+        "python_repository_and_agent_units",
+        "pytest -q tests/repository src/embodied_online_agent/test src/embodied_offline_agent/test",
+    ),
+    (
+        "cli_and_instruction_parser",
+        "bash tests/integration/test_acceptance_cli.sh && "
+        "bash scripts/acceptance_test.sh instruction-eval-dataset && "
+        "bash scripts/acceptance_test.sh instruction-parser-eval",
+    ),
+    (
+        "continuous_voice_queue",
+        "bash scripts/acceptance_test.sh continuous-mock && "
+        "bash scripts/acceptance_test.sh continuous-multi-command",
+    ),
+    (
+        "voice_navigation_demo",
+        "bash scripts/acceptance_test.sh navigation-demo && "
+        "bash scripts/acceptance_test.sh nav2-bridge",
+    ),
+    (
+        "offline_runtime_and_cpp_ros",
+        "bash scripts/acceptance_test.sh offline-latency && "
+        "bash scripts/acceptance_test.sh summer-tts-service && "
+        "colcon test --packages-select embodied_agent_cpp embodied_simulation "
+        "--event-handlers console_direct+ && colcon test-result --verbose",
+    ),
+)
+
+FULL_COMMANDS: tuple[tuple[str, str], ...] = (
     (
         "repository_and_offline_unit",
         "pytest -q tests/repository src/embodied_offline_agent/test",
@@ -39,6 +69,12 @@ DEFAULT_COMMANDS: tuple[tuple[str, str], ...] = (
         "--event-handlers console_direct+ && colcon test-result --verbose",
     ),
 )
+
+
+PROFILE_COMMANDS = {
+    "core": CORE_COMMANDS,
+    "full": FULL_COMMANDS,
+}
 
 
 @dataclass(frozen=True)
@@ -86,6 +122,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeout-s", type=float, default=900.0)
     parser.add_argument("--tail-lines", type=int, default=80)
     parser.add_argument(
+        "--profile",
+        choices=sorted(PROFILE_COMMANDS),
+        default="core",
+        help="core 固定 5 条求职展示门禁；full 保留更完整但更慢的本地验收。",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Only print/write the command plan; do not execute gate commands.",
@@ -97,17 +139,19 @@ def main() -> None:
     args = parse_args()
     root = Path(args.workspace).expanduser().resolve()
     output_path = Path(args.output).expanduser() if args.output else _default_report_path(root)
-    commands = [GateCommand(name, command) for name, command in DEFAULT_COMMANDS]
+    commands = [GateCommand(name, command) for name, command in PROFILE_COMMANDS[args.profile]]
     started = time.strftime("%Y-%m-%dT%H:%M:%S%z")
 
     if args.dry_run:
         report = {
             "schema_version": 1,
             "scenario": "job_showcase_release_gate",
+            "profile": args.profile,
             "workspace": str(root),
             "started_at": started,
             "dry_run": True,
             "ok": True,
+            "command_count": len(commands),
             "commands": [
                 {
                     "name": command.name,
@@ -139,11 +183,15 @@ def main() -> None:
         report = {
             "schema_version": 1,
             "scenario": "job_showcase_release_gate",
+            "profile": args.profile,
             "workspace": str(root),
             "started_at": started,
             "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
             "dry_run": False,
             "ok": all(item["ok"] for item in results) and len(results) == len(commands),
+            "command_count": len(commands),
+            "passed_count": sum(1 for item in results if item["ok"]),
+            "failed_count": sum(1 for item in results if not item["ok"]),
             "commands": results,
         }
 

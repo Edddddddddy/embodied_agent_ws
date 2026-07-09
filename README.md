@@ -468,26 +468,19 @@ bash scripts/acceptance_test.sh all
 
 `all` 不包含需要人工说话的 microphone/continuous interactive 模式。
 
-求职展示版推荐 release gate 会运行一组更聚焦的本地验收，并输出统一报告：
+求职展示版推荐 release gate 默认固定为 5 条聚合命令，覆盖 Python/Agent 单测、CLI/指令解析、
+连续语音队列、语音导航 demo、离线延迟/SummerTTS/C++ ROS 单测，并输出统一报告：
 
 ```bash
 bash scripts/acceptance_test.sh release-gate
 # 默认报告：logs/acceptance_report.json
 ```
 
-阶段版本发布前建议额外执行：
+如果要查看或运行更完整的本地门禁，可直接调用 full profile：
 
 ```bash
-pytest -q tests/repository src/embodied_offline_agent/test
-bash tests/integration/test_acceptance_cli.sh
-bash scripts/acceptance_test.sh continuous-multi-command
-bash scripts/acceptance_test.sh navigation-demo
-bash scripts/acceptance_test.sh instruction-eval-dataset
-bash scripts/acceptance_test.sh instruction-parser-eval
-bash scripts/acceptance_test.sh offline-latency
-bash scripts/acceptance_test.sh summer-tts-service
-colcon test --packages-select embodied_agent_cpp embodied_simulation --event-handlers console_direct+
-colcon test-result --verbose
+python3 scripts/showcase_release_gate.py --profile full
+python3 scripts/showcase_release_gate.py --profile full --dry-run
 ```
 
 ## 常见问题

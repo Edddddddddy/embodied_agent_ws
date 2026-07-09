@@ -26,8 +26,43 @@ def test_showcase_release_gate_dry_run_writes_report(tmp_path):
     assert completed.returncode == 0, completed.stdout
     report = json.loads(output.read_text(encoding="utf-8"))
     assert report["scenario"] == "job_showcase_release_gate"
+    assert report["profile"] == "core"
     assert report["dry_run"] is True
     assert report["ok"] is True
+    assert report["command_count"] == 5
+    command_names = {item["name"] for item in report["commands"]}
+    assert {
+        "python_repository_and_agent_units",
+        "cli_and_instruction_parser",
+        "continuous_voice_queue",
+        "voice_navigation_demo",
+        "offline_runtime_and_cpp_ros",
+    } == command_names
+
+
+def test_showcase_release_gate_full_profile_keeps_expanded_checks(tmp_path):
+    output = tmp_path / "acceptance_report_full.json"
+    completed = subprocess.run(
+        [
+            "python3",
+            str(ROOT / "scripts" / "showcase_release_gate.py"),
+            "--workspace",
+            str(ROOT),
+            "--dry-run",
+            "--profile",
+            "full",
+            "--output",
+            str(output),
+        ],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stdout
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["profile"] == "full"
+    assert report["command_count"] >= 9
     command_names = {item["name"] for item in report["commands"]}
     assert {
         "repository_and_offline_unit",

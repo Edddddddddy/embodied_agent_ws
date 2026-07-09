@@ -394,6 +394,7 @@ bash scripts/acceptance_test.sh speaker-enroll
 - `src/embodied_agent_cpp/test/`
 - `src/embodied_simulation/test/`
 - `scripts/acceptance_test.sh`
+- `scripts/showcase_release_gate.py`
 
 设计方式：
 
@@ -401,6 +402,8 @@ bash scripts/acceptance_test.sh speaker-enroll
 - Python 单测覆盖 Agent 侧规则、会话、队列、补全。
 - C++ 单测覆盖 validator、adapter、仿真执行器。
 - smoke script 覆盖 ROS 2 topic/action/launch 组合。
+- `release-gate` 默认固定 5 条聚合命令，并输出 `logs/acceptance_report.json`；
+  这样演示前有一份可复查报告，而不是在大量 smoke 脚本中临时挑命令。
 - 真实麦克风用 `continuous-live-check` 做人工辅助证据统计。
 
 为什么这样设计：

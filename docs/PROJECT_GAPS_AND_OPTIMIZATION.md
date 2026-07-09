@@ -86,7 +86,8 @@
 
 优化：
 
-- 使用 `bash scripts/acceptance_test.sh release-gate` 输出统一报告。
+- 使用 `bash scripts/acceptance_test.sh release-gate` 运行默认 5 条核心门禁并输出统一报告；
+  需要更完整的本地门禁时再运行 `python3 scripts/showcase_release_gate.py --profile full`。
 - 演示前再跑真实麦克风和 Nav2 evidence。
 - 后续可增加录屏、截图、RViz 状态导出。
 

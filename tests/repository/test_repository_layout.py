@@ -378,8 +378,13 @@ def test_showcase_hardening_artifacts_remain_discoverable():
     assert "instruction-eval-dataset" in acceptance
     assert "instruction-parser-eval" in acceptance
     assert "logs/acceptance_report.json" in readme
-    assert "job_showcase_release_gate" in release_gate.read_text(encoding="utf-8")
-    assert "instruction_parser_eval" in release_gate.read_text(encoding="utf-8")
+    release_gate_text = release_gate.read_text(encoding="utf-8")
+    assert "job_showcase_release_gate" in release_gate_text
+    assert "CORE_COMMANDS" in release_gate_text
+    assert "FULL_COMMANDS" in release_gate_text
+    assert "\"core\": CORE_COMMANDS" in release_gate_text
+    assert "command_count" in release_gate_text
+    assert "instruction_parser_eval" in release_gate_text
     assert "tag_accuracy" in parser_eval.read_text(encoding="utf-8")
     assert "source_counts" in parser_eval.read_text(encoding="utf-8")
     assert "failed_cases" in parser_eval.read_text(encoding="utf-8")

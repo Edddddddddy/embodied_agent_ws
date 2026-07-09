@@ -84,18 +84,31 @@ bash scripts/acceptance_test.sh --help
 bash scripts/acceptance_test.sh release-gate
 ```
 
-该入口会运行仓库/Agent 单测、CLI 入口、指令解析准确率、连续语音 mock、多命令队列、
-导航 demo、离线延迟、SummerTTS service 和 C++/ROS2 单测，并把每个步骤的命令、耗时、
-退出码和尾部日志写入：
+该入口默认是 `core` profile，固定 5 条聚合命令：
+
+1. Python repository/online/offline Agent 单测；
+2. CLI 入口、指令数据集校验和指令解析准确率；
+3. 连续语音 session、队列和多命令拆分；
+4. 语音导航 demo 与 Nav2 bridge；
+5. 离线延迟、SummerTTS service 和 C++/ROS2 单测。
+
+脚本会把每个步骤的命令、耗时、退出码和尾部日志写入：
 
 ```text
 logs/acceptance_report.json
 ```
 
-如果只想检查 gate 列表而不运行重型命令：
+如果只想检查 gate 列表而不运行命令：
 
 ```bash
 python3 scripts/showcase_release_gate.py --dry-run
+```
+
+如果需要更完整但更慢的本地门禁：
+
+```bash
+python3 scripts/showcase_release_gate.py --profile full
+python3 scripts/showcase_release_gate.py --profile full --dry-run
 ```
 
 动作解析评估可以单独运行：
