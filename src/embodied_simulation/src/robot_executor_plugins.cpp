@@ -6,6 +6,8 @@
 #include <cstdlib>
 #include <limits>
 #include <memory>
+#include <mutex>
+#include <sstream>
 #include <string>
 #include <thread>
 
@@ -301,7 +303,7 @@ public:
     }
     active_.store(false);
     if (canceled) {
-      set_external_state(ActionExecutionState::kCanceled);
+      set_external_state(ActionExecutionState::kCanceled, "nav2:cancel_requested");
     }
   }
 
@@ -326,6 +328,12 @@ public:
       active_.load() ? 0.5 : 1.0};
   }
 
+  std::string external_action_detail() const override
+  {
+    std::lock_guard<std::mutex> lock(detail_mutex_);
+    return external_detail_;
+  }
+
   std::string mode_name() const override
   {
     return active_.load() ? "nav2_navigation" : "manual";
@@ -337,30 +345,48 @@ private:
   bool send_navigate_goal(const std::string & target)
   {
     if (!navigate_client_->wait_for_action_server(std::chrono::milliseconds(500))) {
+      set_external_state(
+        ActionExecutionState::kBlocked,
+        "nav2:navigate_to_pose:server_unavailable target=" + target);
       return false;
     }
-    set_external_state(ActionExecutionState::kRunning);
+    set_external_state(
+      ActionExecutionState::kRunning,
+      "nav2:navigate_to_pose:sending target=" + target);
     NavigateToPose::Goal goal;
     goal.pose = places_.to_pose_stamped(target);
     goal.pose.header.stamp = node_->now();
     rclcpp_action::Client<NavigateToPose>::SendGoalOptions options;
     options.goal_response_callback =
-      [this](const NavigateGoalHandle::SharedPtr & handle) {
+      [this, target](const NavigateGoalHandle::SharedPtr & handle) {
         navigate_goal_handle_ = handle;
         active_.store(handle != nullptr);
+        if (handle) {
+          set_external_state(
+            ActionExecutionState::kRunning,
+            "nav2:navigate_to_pose:accepted target=" + target);
+        } else {
+          set_external_state(
+            ActionExecutionState::kBlocked,
+            "nav2:navigate_to_pose:goal_rejected target=" + target);
+        }
       };
     options.result_callback =
-      [this](const NavigateGoalHandle::WrappedResult & result) {
+      [this, target](const NavigateGoalHandle::WrappedResult & result) {
         navigate_goal_handle_.reset();
         active_.store(false);
-        set_external_state(state_from_result_code(result.code));
+        set_external_state(
+          state_from_result_code(result.code),
+          navigate_result_detail(target, result));
       };
     auto future = navigate_client_->async_send_goal(goal, options);
     const bool accepted =
       future.wait_for(std::chrono::seconds(1)) == std::future_status::ready &&
       future.get() != nullptr;
     if (!accepted) {
-      set_external_state(ActionExecutionState::kBlocked);
+      set_external_state(
+        ActionExecutionState::kBlocked,
+        "nav2:navigate_to_pose:goal_response_timeout_or_rejected target=" + target);
       active_.store(false);
     }
     return accepted;
@@ -371,9 +397,14 @@ private:
     std::uint32_t loops)
   {
     if (!follow_client_->wait_for_action_server(std::chrono::milliseconds(500))) {
+      set_external_state(
+        ActionExecutionState::kBlocked,
+        "nav2:follow_waypoints:server_unavailable waypoints=" + join(waypoints, ","));
       return false;
     }
-    set_external_state(ActionExecutionState::kRunning);
+    set_external_state(
+      ActionExecutionState::kRunning,
+      "nav2:follow_waypoints:sending waypoints=" + join(waypoints, ","));
     FollowWaypoints::Goal goal;
     goal.number_of_loops = std::max<std::uint32_t>(1U, loops);
     for (const auto & waypoint : waypoints) {
@@ -383,22 +414,36 @@ private:
     }
     rclcpp_action::Client<FollowWaypoints>::SendGoalOptions options;
     options.goal_response_callback =
-      [this](const FollowGoalHandle::SharedPtr & handle) {
+      [this, waypoints](const FollowGoalHandle::SharedPtr & handle) {
         follow_goal_handle_ = handle;
         active_.store(handle != nullptr);
+        if (handle) {
+          set_external_state(
+            ActionExecutionState::kRunning,
+            "nav2:follow_waypoints:accepted waypoints=" + join(waypoints, ","));
+        } else {
+          set_external_state(
+            ActionExecutionState::kBlocked,
+            "nav2:follow_waypoints:goal_rejected waypoints=" + join(waypoints, ","));
+        }
       };
     options.result_callback =
-      [this](const FollowGoalHandle::WrappedResult & result) {
+      [this, waypoints](const FollowGoalHandle::WrappedResult & result) {
         follow_goal_handle_.reset();
         active_.store(false);
-        set_external_state(state_from_result_code(result.code));
+        set_external_state(
+          state_from_result_code(result.code),
+          follow_result_detail(waypoints, result));
       };
     auto future = follow_client_->async_send_goal(goal, options);
     const bool accepted =
       future.wait_for(std::chrono::seconds(1)) == std::future_status::ready &&
       future.get() != nullptr;
     if (!accepted) {
-      set_external_state(ActionExecutionState::kBlocked);
+      set_external_state(
+        ActionExecutionState::kBlocked,
+        "nav2:follow_waypoints:goal_response_timeout_or_rejected waypoints=" +
+        join(waypoints, ","));
       active_.store(false);
     }
     return accepted;
@@ -415,9 +460,70 @@ private:
     return ActionExecutionState::kBlocked;
   }
 
-  void set_external_state(ActionExecutionState state)
+  static std::string result_code_name(rclcpp_action::ResultCode code)
+  {
+    if (code == rclcpp_action::ResultCode::SUCCEEDED) {
+      return "succeeded";
+    }
+    if (code == rclcpp_action::ResultCode::CANCELED) {
+      return "canceled";
+    }
+    if (code == rclcpp_action::ResultCode::ABORTED) {
+      return "aborted";
+    }
+    return "unknown";
+  }
+
+  static std::string join(const std::vector<std::string> & values, const std::string & separator)
+  {
+    std::ostringstream stream;
+    for (std::size_t index = 0; index < values.size(); ++index) {
+      if (index > 0) {
+        stream << separator;
+      }
+      stream << values[index];
+    }
+    return stream.str();
+  }
+
+  static std::string navigate_result_detail(
+    const std::string & target,
+    const NavigateGoalHandle::WrappedResult & result)
+  {
+    std::ostringstream stream;
+    stream << "nav2:navigate_to_pose:" << result_code_name(result.code)
+           << " target=" << target;
+    if (result.result) {
+      stream << " error_code=" << result.result->error_code;
+      if (!result.result->error_msg.empty()) {
+        stream << " error_msg=" << result.result->error_msg;
+      }
+    }
+    return stream.str();
+  }
+
+  static std::string follow_result_detail(
+    const std::vector<std::string> & waypoints,
+    const FollowGoalHandle::WrappedResult & result)
+  {
+    std::ostringstream stream;
+    stream << "nav2:follow_waypoints:" << result_code_name(result.code)
+           << " waypoints=" << join(waypoints, ",");
+    if (result.result) {
+      stream << " error_code=" << result.result->error_code
+             << " missed_waypoints=" << result.result->missed_waypoints.size();
+      if (!result.result->error_msg.empty()) {
+        stream << " error_msg=" << result.result->error_msg;
+      }
+    }
+    return stream.str();
+  }
+
+  void set_external_state(ActionExecutionState state, const std::string & detail)
   {
     external_state_.store(static_cast<int>(state));
+    std::lock_guard<std::mutex> lock(detail_mutex_);
+    external_detail_ = detail;
   }
 
   Nav2Places places_;
@@ -431,6 +537,8 @@ private:
   std::atomic_bool active_{false};
   std::atomic<int> external_state_{
     static_cast<int>(ActionExecutionState::kSucceeded)};
+  mutable std::mutex detail_mutex_;
+  std::string external_detail_{"nav2:idle"};
 };
 
 }  // namespace embodied_simulation

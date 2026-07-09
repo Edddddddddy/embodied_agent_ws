@@ -41,6 +41,9 @@ public:
   {
     return std::nullopt;
   }
+  // 外部 action server（如 Nav2）可以把 server unavailable、goal rejected、
+  // planner/controller aborted 等原因放在这里，SimulationControl 再透传到 feedback/result。
+  virtual std::string external_action_detail() const {return "";}
   // 名称会进入 ACK 与 diagnostics，必须稳定，不能包含一次运行的随机信息。
   virtual std::string mode_name() const = 0;
   virtual std::string backend_name() const = 0;

@@ -429,14 +429,18 @@ private:
       active_action_name_ = "turn";
     } else if (command.action_type == Command::NAVIGATE_TO) {
       if (!executor_->execute(command, now)) {
-        finish_immediate_action(goal_handle, false, "executor_rejected");
+        const auto detail = executor_->external_action_detail();
+        finish_immediate_action(
+          goal_handle, false, detail.empty() ? "executor_rejected" : detail);
         active_goal_.reset();
         return;
       }
       active_action_name_ = "navigate_to";
     } else if (command.action_type == Command::FOLLOW_WAYPOINTS) {
       if (!executor_->execute(command, now)) {
-        finish_immediate_action(goal_handle, false, "executor_rejected");
+        const auto detail = executor_->external_action_detail();
+        finish_immediate_action(
+          goal_handle, false, detail.empty() ? "executor_rejected" : detail);
         active_goal_.reset();
         return;
       }
@@ -545,12 +549,17 @@ private:
         update.progress = std::max(update.progress, timed_update.progress);
       }
     }
+    const auto external_detail = active_action_uses_external_result_ ?
+      executor_->external_action_detail() : "";
+    // Nav2 这类外部 action 的失败原因不应该被压平成 “blocked/succeeded”；
+    // 优先把 action server 返回的 goal rejected、aborted、missed_waypoints 等细节透传给反馈和最终结果。
+    const std::string detail =
+      update.state == ActionExecutionState::kTimedOut ? "timed_out" :
+      !external_detail.empty() ? external_detail :
+      update.state == ActionExecutionState::kSucceeded ? "succeeded" :
+      update.state == ActionExecutionState::kCanceled ? "canceled" :
+      output.reason;
     if (behavior_tree_) {
-      const std::string detail =
-        update.state == ActionExecutionState::kSucceeded ? "succeeded" :
-        update.state == ActionExecutionState::kCanceled ? "canceled" :
-        update.state == ActionExecutionState::kTimedOut ? "timed_out" :
-        output.reason;
       const auto tree_result = behavior_tree_->tick(
         output.safety_stopped, update.state, detail);
       publish_bt_status(tree_result);
@@ -574,18 +583,18 @@ private:
     if (update.state == ActionExecutionState::kRunning) {
       publish_action_feedback(
         ExecuteRobotCommand::Feedback::PHASE_EXECUTING,
-        static_cast<float>(update.progress), output.reason);
+        static_cast<float>(update.progress), detail);
       return false;
     }
     switch (update.state) {
       case ActionExecutionState::kSucceeded:
-        finish_active_action(update.state, "succeeded");
+        finish_active_action(update.state, detail);
         break;
       case ActionExecutionState::kCanceled:
-        finish_active_action(update.state, "canceled");
+        finish_active_action(update.state, detail);
         break;
       case ActionExecutionState::kBlocked:
-        finish_active_action(update.state, output.reason);
+        finish_active_action(update.state, detail);
         break;
       case ActionExecutionState::kTimedOut:
         finish_active_action(update.state, "timed_out");

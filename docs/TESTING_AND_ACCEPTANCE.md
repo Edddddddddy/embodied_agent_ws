@@ -440,7 +440,10 @@ action server，证明 `Nav2RobotExecutor` 已能把语义地点转换成真正�
 不是本地固定 duration 假完成。`nav2-preflight` 用于在启动重型 Gazebo/Nav2 前
 确认依赖包、`voice_nav2_turtlebot3.launch.py`、`nav_action_timeout_s` 和关键参数可用；
 `nav2-turtlebot3` 用于真实 TurtleBot3/Nav2 bringup，验证目标点导航/多目标点巡航
-result 和 `/odom` 运动证据。该模式会给 AMCL 发布 `/initialpose`，并把 Nav2 长动作
+result 和 `/odom` 运动证据。Nav2 executor 会把 `server_unavailable`、`goal_rejected`、
+`aborted/canceled`、`error_code/error_msg`、`missed_waypoints` 等 detail 透传到本项目
+typed action feedback/result，便于现场判断是 action server 没起来、目标被拒绝、规划/控制失败
+还是巡航点未到达。该模式会给 AMCL 发布 `/initialpose`，并把 Nav2 长动作
 超时提高到演示级窗口，避免按普通短动作提前取消真实导航 goal。该模式耗时较长，
 通常不放入 CI。
 

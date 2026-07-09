@@ -452,6 +452,11 @@ bash scripts/acceptance_test.sh speaker-enroll
   `nav2-bridge` 用 fake Nav2 action server 自动验证 goal 内容。
 - `RobotExecutor::external_action_update()` 让 Nav2 action result 反向驱动本项目
   `ExecuteRobotCommand` 的 result，避免只按本地 `duration_s` 假完成。
+- `RobotExecutor::external_action_detail()` 是配套的可观测性 seam：Nav2 插件记录
+  `server_unavailable`、`goal_rejected`、`aborted/canceled`、`error_code/error_msg`、
+  `missed_waypoints` 等原因，`simulation_control_node` 再把这些 detail 写入
+  Action feedback/result。这样现场演示失败时可以从终端直接区分“Nav2 没启动”
+  和“目标执行失败”，而不是只看到笼统的 `blocked`。
 - `voice_nav2_turtlebot3.launch.py` 复用官方 `nav2_bringup/tb3_simulation_launch.py`，
   再叠加本项目的 Agent、ActionGuard、typed action bridge 和 Nav2 executor。
 - `nav2-turtlebot3` 重型验收会启动真实 TurtleBot3/Nav2 仿真，注入语音文本命令，
@@ -473,6 +478,8 @@ bash scripts/acceptance_test.sh speaker-enroll
 - 把真实 Nav2 作为 executor 插件，避免把导航细节侵入 Agent、ActionGuard 和测试。
 - 用 external result seam 连接 Nav2 与本项目 Action，能体现“长动作可反馈、可取消、可等待结果”，
   而不是仅发布一个 topic 后马上认为成功。
+- 失败 detail 由 executor 层产生，而不是让 Agent 猜测，是因为 planner/controller/localization
+  的真实状态属于导航运行时；语音层只负责把自然语言变成目标，不能把底层故障伪装成语义错误。
 - AMCL 初始位姿和长动作超时放在验收/launch 层处理，而不是塞进 Agent，保持“语音语义层”和
   “导航运行时状态层”职责分离。
 - 连续麦克风 Nav2 演示脚本保留 `VOICE_CONTROL_PROFILE`、VAD endpoint、ASR commit delay、

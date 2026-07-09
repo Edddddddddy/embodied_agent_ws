@@ -596,3 +596,49 @@ def test_ros_dds_env_disables_fastdds_shm_by_default_for_wsl_demos():
     assert "UDPv4" in dds_env
     assert "EMBODIED_ALLOW_FASTDDS_SHM" in dds_env
     assert "FASTDDS_BUILTIN_TRANSPORTS" in continuous
+
+
+def test_nav2_executor_failure_details_are_preserved():
+    """Nav2 失败原因必须从 executor 透传到本项目 typed action。
+
+    语音目标点导航现场排障最怕只看到 `blocked` 或 `executor_rejected`。这个结构测试锁住
+    external detail seam：Nav2 插件负责记录 server unavailable、goal rejected、missed
+    waypoints 等细节，simulation_control_node 负责把细节写进 feedback/result。
+    """
+
+    executor_header = (
+        ROOT
+        / "src"
+        / "embodied_simulation"
+        / "include"
+        / "embodied_simulation"
+        / "robot_executor.hpp"
+    ).read_text(encoding="utf-8")
+    executor_plugin = (
+        ROOT
+        / "src"
+        / "embodied_simulation"
+        / "src"
+        / "robot_executor_plugins.cpp"
+    ).read_text(encoding="utf-8")
+    control_node = (
+        ROOT
+        / "src"
+        / "embodied_simulation"
+        / "src"
+        / "simulation_control_node.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "external_action_detail()" in executor_header
+    for detail_token in (
+        "server_unavailable",
+        "goal_rejected",
+        "goal_response_timeout_or_rejected",
+        "missed_waypoints",
+        "error_msg",
+        "nav2:cancel_requested",
+    ):
+        assert detail_token in executor_plugin
+    assert "executor_->external_action_detail()" in control_node
+    assert "detail.empty() ? \"executor_rejected\" : detail" in control_node
+    assert "Nav2 这类外部 action 的失败原因" in control_node
