@@ -86,6 +86,15 @@ bash scripts/acceptance_test.sh instruction-following-eval
 如果 `model_score` 低但 `effective_score` 高，应如实表述为“离线 LLM 原始指令遵循仍弱，
 当前靠轻量 NLU/fallback/ActionGuard 保证演示动作稳定”，不要把 effective score 说成模型训练后准确率。
 
+当 `model_score` 低于目标时，把失败样例导出成 LoRA 候选集：
+
+```bash
+bash scripts/acceptance_test.sh instruction-following-lora-candidates
+```
+
+导出的 `training/robot_dialogue_lora_candidates.jsonl` 仍需人工审核；它用于准备下一轮
+LLaMA-Factory SFT/LoRA 数据，不代表训练已经完成。
+
 ## 4. 错误样例回归
 
 错误样例应补进 `training/robot_instruction_eval.jsonl`，字段建议：

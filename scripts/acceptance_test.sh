@@ -62,6 +62,7 @@ Automated modes:
   instruction-eval-dataset Validate lightweight robot instruction eval dataset
   instruction-parser-eval Evaluate deterministic command parser on instruction eval set
   instruction-following-eval Evaluate offline LLM instruction following with llama.cpp
+  instruction-following-lora-candidates Export failed instruction-following cases for LoRA review
   asr-nlu-samples-to-eval Convert live ASR/NLU sample JSONL into reviewable eval candidates
   asr-nlu-candidate-eval Evaluate parser accuracy on reviewable ASR/NLU eval candidates
   release-gate        Job-showcase core 5-command gate with logs/acceptance_report.json
@@ -357,6 +358,18 @@ case "$LEVEL" in
     bash scripts/evaluate_instruction_following.sh \
       --minimum "${INSTRUCTION_FOLLOWING_MINIMUM:-0.0}" \
       --minimum-effective "${INSTRUCTION_FOLLOWING_EFFECTIVE_MINIMUM:-0.0}"
+    ;;
+  instruction-following-lora-candidates)
+    if [[ ! -s "${INSTRUCTION_FOLLOWING_REPORT:-logs/instruction_following_report.json}" ]]; then
+      echo "Missing instruction following report; run: bash scripts/acceptance_test.sh instruction-following-eval" >&2
+      exit 1
+    fi
+    python3 scripts/export_instruction_following_lora_candidates.py \
+      --report "${INSTRUCTION_FOLLOWING_REPORT:-logs/instruction_following_report.json}" \
+      --dataset "${INSTRUCTION_FOLLOWING_DATASET:-training/robot_dialogue_seed.jsonl}" \
+      --output "${INSTRUCTION_FOLLOWING_LORA_CANDIDATES:-training/robot_dialogue_lora_candidates.jsonl}" \
+      --metadata-output "${INSTRUCTION_FOLLOWING_LORA_CANDIDATES_META:-training/robot_dialogue_lora_candidates.meta.json}" \
+      ${INSTRUCTION_FOLLOWING_LORA_FAIL_IF_EMPTY:+--fail-if-empty}
     ;;
   asr-nlu-samples-to-eval)
     ASR_NLU_EVAL_OUTPUT="${ASR_NLU_EVAL_OUTPUT:-logs/asr_nlu_eval_candidates.jsonl}"

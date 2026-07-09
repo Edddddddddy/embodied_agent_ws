@@ -2,6 +2,22 @@
 
 当前只提供格式可检查的种子数据和 LLaMA-Factory LoRA 配置，不执行训练。8 条样本仅用于打通格式，不能支撑“85% 指令遵循率”。正式训练前应扩充为训练/验证/测试互斥的数据集，并单独构建动作 schema、拒绝危险动作、多轮对话和无动作闲聊的评测集。
 
+离线 LLM 评估失败样例可以先导出成候选集：
+
+```bash
+bash scripts/acceptance_test.sh instruction-following-eval
+bash scripts/acceptance_test.sh instruction-following-lora-candidates
+```
+
+这会生成：
+
+- `training/robot_dialogue_lora_candidates.jsonl`
+- `training/robot_dialogue_lora_candidates.meta.json`
+
+候选集是 LLaMA-Factory ShareGPT 格式，但它只是“待审核数据”。请先检查
+`meta.json` 中的 `skipped_cases`、`failure_type_counts` 和每条样本的 `metadata.raw_output`，
+再决定是否合并到正式训练集。不要把候选集生成当作“已经完成 LoRA 训练”的证据。
+
 运行训练前，将本目录的 `dataset_info.json` 合并到 LLaMA-Factory 的数据目录，然后执行：
 
 ```bash

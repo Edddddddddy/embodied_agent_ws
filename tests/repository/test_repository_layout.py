@@ -423,6 +423,7 @@ def test_showcase_hardening_artifacts_remain_discoverable():
     assert "instruction-eval-dataset" in acceptance
     assert "instruction-parser-eval" in acceptance
     assert "instruction-following-eval" in acceptance
+    assert "instruction-following-lora-candidates" in acceptance
     assert "OFFLINE_SHOWCASE_RUN_INSTRUCTION_FOLLOWING" in acceptance
     assert "OFFLINE_EVIDENCE_REQUIRE_INSTRUCTION_FOLLOWING" in acceptance
     assert "logs/acceptance_report.json" in readme
@@ -455,8 +456,13 @@ def test_showcase_hardening_artifacts_remain_discoverable():
     following_eval = (ROOT / "scripts" / "evaluate_instruction_following.py").read_text(
         encoding="utf-8"
     )
+    lora_export = (
+        ROOT / "scripts" / "export_instruction_following_lora_candidates.py"
+    ).read_text(encoding="utf-8")
     assert "offline_llm_instruction_following_eval" in following_eval
     assert "minimum_effective" in following_eval
+    assert "instruction_following_lora_candidate_export" in lora_export
+    assert "review_required" in lora_export
     assert "ActionGuard" in interview_doc.read_text(encoding="utf-8")
     assert "真实语音稳定性" in gaps_doc.read_text(encoding="utf-8")
     assert "instruction-following-eval" in benchmark_doc.read_text(encoding="utf-8")

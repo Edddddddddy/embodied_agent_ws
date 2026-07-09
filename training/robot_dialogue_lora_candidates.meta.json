@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "scenario": "instruction_following_lora_candidate_export",
+  "source_report": "logs/instruction_following_report.json",
+  "source_dataset": "training/robot_dialogue_seed.jsonl",
+  "output": "training/robot_dialogue_lora_candidates.jsonl",
+  "exported": 5,
+  "skipped": 0,
+  "source_model_score": 0.375,
+  "source_effective_score": 1.0,
+  "failure_type_counts": {
+    "model_parse_error": 5
+  },
+  "skipped_cases": [],
+  "review_required": true,
+  "review_note": "人工审核后再合并进正式 LoRA 训练集；不要直接把候选集当作已训练证据。"
+}
