@@ -150,6 +150,8 @@
 - `scripts/setup_voice_vad_runtime.sh` 提供 WebRTC/Silero 可选依赖安装入口，支持 dry-run；
   它会安装 `embodied_online_agent[webrtc-vad]`、`embodied_online_agent[silero-vad]`
   对应 extra，并在安装后跑 provider preflight。
+- `scripts/setup_voice_kws_runtime.sh` 提供 openWakeWord、sherpa-onnx KWS、LiveKit WakeWord
+  的可选运行时入口；sherpa profile 会复用 ZipFormer ASR 模型路径并生成默认关键词文件。
 - Agent 收到 endpoint 后调用 ASR commit。
 - `asr_commit_delay_ms` 允许在 endpoint 后等待少量时间，再提交 final。
 - `VOICE_CONTROL_PROFILE` 提供 normal、quiet、low_gain、noisy_room 四种参数预设。
@@ -168,6 +170,8 @@
   但显式环境变量优先，避免旧校准文件覆盖现场临时调参。
 - 把 VAD 依赖安装封装成项目脚本，是为了让“成熟 VAD sidecar”不只是代码 seam；
   演示环境可以通过 dry-run、install、preflight 三步确认真的没有降级到 energy VAD。
+- KWS 单独做 runtime setup，是因为“唤醒词检测”比文本触发更接近真实机器人交互；openWakeWord
+  适合快速准备 Python runtime，sherpa KWS 则能复用离线 ASR 运行时资产。
 - VAD 和 commit 分离，便于定位“音频没听到”和“ASR final 太早”两类问题。
 - 成熟 VAD 做成 sidecar，而不是塞进 PortAudio 回调线程，是为了避免模型推理阻塞音频采集。
 

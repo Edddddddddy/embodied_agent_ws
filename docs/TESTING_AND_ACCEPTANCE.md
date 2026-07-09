@@ -703,6 +703,25 @@ bash scripts/setup_voice_vad_runtime.sh all
 底层等价方式是安装 `embodied_online_agent[webrtc-vad]` 或
 `embodied_online_agent[silero-vad]` extra；项目脚本会在安装后自动跑 provider preflight。
 
+声学唤醒 KWS 也有独立运行时准备入口。先 dry-run：
+
+```bash
+bash scripts/acceptance_test.sh voice-kws-runtime-dry-run
+```
+
+准备 openWakeWord：
+
+```bash
+bash scripts/setup_voice_kws_runtime.sh openwakeword
+KWS_PROVIDER=openwakeword bash scripts/acceptance_test.sh provider-preflight
+```
+
+准备 sherpa-onnx KWS；脚本会复用 ASR ZipFormer 模型并生成默认关键词文件：
+
+```bash
+bash scripts/setup_voice_kws_runtime.sh sherpa
+```
+
 也可以直接套用 calibration/readiness 给出的阈值，例如：
 
 ```bash

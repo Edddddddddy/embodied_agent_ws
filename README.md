@@ -584,6 +584,25 @@ VAD_PROVIDER=auto bash scripts/acceptance_test.sh provider-preflight
 bash scripts/setup_voice_vad_runtime.sh all
 ```
 
+如果希望唤醒不只依赖文本/模拟触发，可以准备声学 KWS 运行时。先 dry-run：
+
+```bash
+bash scripts/acceptance_test.sh voice-kws-runtime-dry-run
+```
+
+准备 openWakeWord：
+
+```bash
+bash scripts/setup_voice_kws_runtime.sh openwakeword
+KWS_PROVIDER=openwakeword bash scripts/acceptance_test.sh provider-preflight
+```
+
+准备 sherpa-onnx KWS 路径和默认关键词文件：
+
+```bash
+bash scripts/setup_voice_kws_runtime.sh sherpa
+```
+
 如果 `wsl-microphone-preflight` 的 `rms` 接近 `0.0000`、`peak` 只有个位数，说明
 Windows/WSLg 没有把真实麦克风音频送进 WSL。此时优先检查 Windows 隐私设置里的麦克风权限、
 默认输入设备、WSLg 音频 source，而不是继续调低 VAD。

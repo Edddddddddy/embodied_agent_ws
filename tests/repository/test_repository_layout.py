@@ -750,6 +750,41 @@ def test_webrtc_vad_sidecar_remains_integrated_as_optional_voice_provider():
     assert "embodied_online_agent[webrtc-vad]" in acceptance_doc
 
 
+def test_acoustic_keyword_wake_runtime_entrypoints_remain_available():
+    """声学唤醒不能只停留在 mock_text seam，需要有可部署的 provider/runtime 入口。"""
+
+    setup_py = (ROOT / "src" / "embodied_online_agent" / "setup.py").read_text(
+        encoding="utf-8"
+    )
+    keyword_wake = (
+        ROOT
+        / "src"
+        / "embodied_online_agent"
+        / "embodied_online_agent"
+        / "keyword_wake.py"
+    ).read_text(encoding="utf-8")
+    preflight = (ROOT / "scripts" / "voice_provider_preflight.py").read_text(
+        encoding="utf-8"
+    )
+    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
+        encoding="utf-8"
+    )
+    acceptance_doc = (ROOT / "docs" / "TESTING_AND_ACCEPTANCE.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "kws" in setup_py
+    assert "livekit-kws" in setup_py
+    assert "from openwakeword.model import Model" in keyword_wake
+    assert "from livekit.wakeword import WakeWordModel" in keyword_wake
+    assert "kws:openwakeword_package_missing" in preflight
+    assert "kws:sherpa_onnx_package_missing" in preflight
+    assert (ROOT / "scripts" / "setup_voice_kws_runtime.sh").is_file()
+    assert "voice-kws-runtime-dry-run" in acceptance
+    assert "setup_voice_kws_runtime.sh openwakeword" in acceptance_doc
+    assert "setup_voice_kws_runtime.sh sherpa" in acceptance_doc
+
+
 def test_audio_calibration_outputs_copyable_live_demo_advice():
     """真实麦克风校准必须产出可复制的下一步命令。"""
 

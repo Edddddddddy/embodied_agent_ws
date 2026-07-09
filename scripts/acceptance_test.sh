@@ -52,6 +52,7 @@ Automated modes:
   voice-readiness     Dependency-free voice readiness smoke test
   provider-preflight  Optional VAD/KWS provider unit tests plus current-env preflight
   voice-vad-runtime-dry-run Show optional WebRTC/Silero VAD install commands without installing
+  voice-kws-runtime-dry-run Show optional openWakeWord/sherpa KWS install commands without installing
   voice-calibration-report Generate voice profile/threshold calibration report
   instruction-eval-dataset Validate lightweight robot instruction eval dataset
   instruction-parser-eval Evaluate deterministic command parser on instruction eval set
@@ -274,6 +275,9 @@ case "$LEVEL" in
     ;;
   voice-vad-runtime-dry-run)
     bash scripts/setup_voice_vad_runtime.sh "${VOICE_VAD_PROFILE:-all}" --dry-run
+    ;;
+  voice-kws-runtime-dry-run)
+    bash scripts/setup_voice_kws_runtime.sh "${VOICE_KWS_PROFILE:-all}" --dry-run
     ;;
   voice-calibration-report)
     if [[ "${VOICE_CALIBRATION_COLLECT:-false}" == "true" ]]; then
