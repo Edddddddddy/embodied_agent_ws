@@ -21,7 +21,7 @@ import sys
 import time
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 ROOT = SCRIPT_DIR.parent
@@ -107,12 +107,17 @@ def build_calibration_report(
     vad_provider: str,
     kws_provider: str,
     config_path: Path | None = None,
+    module_finder: Callable[[str], object | None] | None = None,
 ) -> dict[str, Any]:
+    provider_kwargs: dict[str, Any] = {}
+    if module_finder is not None:
+        provider_kwargs["module_finder"] = module_finder
     provider = check_voice_providers(
         mode=mode,
         vad_provider=vad_provider,
         kws_provider=kws_provider,
         config_path=config_path,
+        **provider_kwargs,
     )
     audio = analyze_audio_health(audio_samples)
     kws = analyze_kws_scores(kws_samples)
@@ -149,6 +154,7 @@ def build_calibration_report(
         "ok": ok,
         "decision": decision,
         "provider": {**asdict(provider), "ok": provider.ok},
+        "provider_setup_commands": list(provider.recommendations),
         "audio": {**asdict(audio), "ok": audio.ok},
         "kws": {**asdict(kws), "ok": kws.ok},
         "readiness": {**asdict(readiness), "ok": readiness.ok},
@@ -198,6 +204,19 @@ def render_markdown(report: dict[str, Any]) -> str:
             "",
             "```bash",
             report["next_command"],
+            "```",
+            "",
+            "## Provider setup",
+            "",
+            "```bash",
+        ]
+    )
+    if report["provider_setup_commands"]:
+        lines.extend(report["provider_setup_commands"])
+    else:
+        lines.append("# 当前 provider 依赖满足；无需额外安装命令。")
+    lines.extend(
+        [
             "```",
             "",
             "## Audio",
@@ -316,6 +335,7 @@ def main() -> None:
         "md_output": str(md_output),
         "env_output": str(env_output),
         "recommended_environment": report["recommended_environment"],
+        "provider_setup_commands": report["provider_setup_commands"],
         "next_command": report["next_command"],
         "blockers": report["blockers"],
         "warnings": report["warnings"],

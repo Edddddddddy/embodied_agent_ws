@@ -38,6 +38,31 @@ def test_low_gain_bundle_recommends_copyable_environment():
     assert "export SPEECH_START_THRESHOLD=" in env_text
 
 
+def test_auto_vad_energy_fallback_includes_provider_setup_advice():
+    report = voice_report.build_calibration_report(
+        mode="offline",
+        audio_samples=voice_report._synthetic_audio_samples("ready"),
+        kws_samples=[],
+        require_kws=False,
+        vad_provider="auto",
+        kws_provider="none",
+        module_finder=lambda _module: None,
+    )
+
+    assert report["provider"]["vad_provider"] == "energy"
+    assert "VAD_PROVIDER=energy" in report["recommended_environment"]
+    assert "bash scripts/setup_voice_vad_runtime.sh webrtc" in report[
+        "provider_setup_commands"
+    ]
+    assert any(
+        item.startswith("provider:vad:auto_fallback:energy:")
+        for item in report["warnings"]
+    )
+    markdown = voice_report.render_markdown(report)
+    assert "Provider setup" in markdown
+    assert "setup_voice_vad_runtime.sh webrtc" in markdown
+
+
 def test_kws_samples_add_copyable_threshold_environment():
     report = voice_report.build_calibration_report(
         mode="offline",

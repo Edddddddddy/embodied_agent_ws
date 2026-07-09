@@ -629,6 +629,8 @@ python scripts/audio_frontend_calibration.py --duration 6 --json > logs/audio_ca
 
 `voice-calibration-report` 会输出 `logs/voice_calibration_report.json/.md` 和
 `logs/voice_calibration.env`，把 provider preflight、音频指标、KWS 阈值和下一条建议命令合并到同一份报告。
+如果 `VAD_PROVIDER=auto` 降级到 energy，报告会在 `provider_setup_commands` / Markdown
+`Provider setup` 中给出可复制安装命令，例如 `bash scripts/setup_voice_vad_runtime.sh webrtc`。
 使用 `openwakeword/livekit` 时，如果采集到了 `/agent/kws_score`，
 env 文件会额外写入 `OPENWAKEWORD_THRESHOLD` 或 `LIVEKIT_WAKEWORD_THRESHOLD`，
 用于下一轮真实唤醒词阈值复测。

@@ -586,6 +586,11 @@ source logs/voice_calibration.env
 bash scripts/acceptance_test.sh continuous-offline
 ```
 
+如果 `VAD_PROVIDER=auto` 因缺少 Silero/WebRTC 依赖降级到 energy，报告里的
+`provider_setup_commands` 和 Markdown 的 `Provider setup` 会直接给出安装命令，例如
+`bash scripts/setup_voice_vad_runtime.sh webrtc`。这一步的目的，是把“真实语音不稳定”
+从凭经验调阈值，推进到“先确认成熟 VAD 是否可用，再决定是否回退 energy”。
+
 如果当前使用 `KWS_PROVIDER=openwakeword` 或 `KWS_PROVIDER=livekit`，并且采集到了
 `/agent/kws_score`，`logs/voice_calibration.env` 还会写入推荐的
 `OPENWAKEWORD_THRESHOLD` 或 `LIVEKIT_WAKEWORD_THRESHOLD`，用于下一轮唤醒词阈值复测。
