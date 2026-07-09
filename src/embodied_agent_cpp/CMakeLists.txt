@@ -54,6 +54,10 @@ target_link_libraries(typed_action_bridge nlohmann_json::nlohmann_json)
 ament_target_dependencies(
   typed_action_bridge embodied_agent_interfaces rclcpp rclcpp_action std_msgs)
 
+add_executable(typed_action_demo_client src/typed_action_demo_client.cpp)
+ament_target_dependencies(
+  typed_action_demo_client embodied_agent_interfaces rclcpp rclcpp_action)
+
 add_executable(robot_action_stub src/robot_action_stub_node.cpp)
 target_link_libraries(robot_action_stub nlohmann_json::nlohmann_json)
 ament_target_dependencies(robot_action_stub rclcpp std_msgs embodied_agent_interfaces)
@@ -173,6 +177,7 @@ install(TARGETS
   audio_frontend
   action_guard
   typed_action_bridge
+  typed_action_demo_client
   robot_action_stub
   hardware_controller
   ARCHIVE DESTINATION lib

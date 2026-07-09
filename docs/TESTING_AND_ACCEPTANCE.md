@@ -311,6 +311,17 @@ colcon test-result --verbose
 - ActionGuard 限幅与 RobotCommandAdapter。
 - BehaviorTree、executor、仿真控制逻辑。
 
+### 2.2.1 C++ ROS 2 Action client 示例
+
+```bash
+bash scripts/acceptance_test.sh cpp-action-client
+```
+
+该模式启动 mock `simulation_control` action server，然后运行
+`ros2 run embodied_agent_cpp typed_action_demo_client move 0.10 0.20`。
+它专门用于展示 C++ `rclcpp_action` client 如何构造 `RobotCommand`、发送
+`ExecuteRobotCommand` goal、接收 feedback/result，并根据 result 退出。
+
 ### 2.3 Gazebo 仿真验收
 
 ```bash

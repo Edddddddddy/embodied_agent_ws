@@ -56,6 +56,7 @@ Automated modes:
   release-gate        Job-showcase core 5-command gate with logs/acceptance_report.json
   wsl-microphone-preflight PulseAudio/WSLg microphone capture check before live demos
   gazebo              Typed Action physical motion verification
+  cpp-action-client   C++ rclcpp_action demo client sends typed command to simulation server
   gazebo-voice        Offline synthesized speech through typed Action to Gazebo
   gazebo-voice-online Online voice provider through typed Action to Gazebo
   all                 Run all automated release gates; excludes interactive microphone
@@ -271,6 +272,7 @@ case "$LEVEL" in
   release-gate) python3 scripts/showcase_release_gate.py ;;
   wsl-microphone-preflight) bash scripts/wsl_microphone_preflight.sh ;;
   gazebo) run_gazebo ;;
+  cpp-action-client) bash scripts/smoke_test_cpp_action_client.sh ;;
   gazebo-voice) check_offline_runtime; USE_TYPED_ACTIONS=true bash scripts/smoke_test_gazebo_voice.sh ;;
   gazebo-voice-online) bash scripts/smoke_test_gazebo_voice_online.sh ;;
   microphone-offline) bash scripts/accept_voice_simulation_microphone.sh offline ;;

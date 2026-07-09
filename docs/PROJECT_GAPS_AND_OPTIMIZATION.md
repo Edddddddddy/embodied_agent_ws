@@ -103,7 +103,8 @@
 优化：
 
 - 优先把诊断、执行状态追踪、部分队列监控 C++ 化。
-- 增加 launch test、rclcpp_action 示例和组件化节点展示。
+- 已补充 `typed_action_demo_client` 作为最小 C++ `rclcpp_action` client 示例；
+  后续继续增加 launch test 和组件化节点展示。
 - 保留 Python 在模型编排层的灵活性，不为“全 C++”牺牲迭代速度。
 
 ## 8. 用户记忆和声纹仍偏 seam

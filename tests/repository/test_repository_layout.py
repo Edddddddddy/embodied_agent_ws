@@ -738,3 +738,39 @@ def test_audio_calibration_outputs_copyable_live_demo_advice():
     assert "next_command:" in readiness
     assert "logs/audio_calibration.json" in readme
     assert "recommended_environment" in acceptance_doc
+
+
+def test_cpp_typed_action_demo_client_remains_available():
+    """ROS2/C++ 求职展示必须保留独立 rclcpp_action client 示例。"""
+
+    cmake = (ROOT / "src" / "embodied_agent_cpp" / "CMakeLists.txt").read_text(
+        encoding="utf-8"
+    )
+    demo_client_path = (
+        ROOT
+        / "src"
+        / "embodied_agent_cpp"
+        / "src"
+        / "typed_action_demo_client.cpp"
+    )
+    demo_client = demo_client_path.read_text(encoding="utf-8")
+    smoke_script = ROOT / "scripts" / "smoke_test_cpp_action_client.sh"
+    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
+        encoding="utf-8"
+    )
+    learning = (ROOT / "docs" / "LEARNING_NOTES.md").read_text(encoding="utf-8")
+    presentation = (ROOT / "docs" / "PROJECT_PRESENTATION_15MIN.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert demo_client_path.is_file()
+    assert smoke_script.is_file()
+    assert "add_executable(typed_action_demo_client" in cmake
+    assert "typed_action_demo_client" in cmake
+    assert "rclcpp_action::create_client<ExecuteRobotCommand>" in demo_client
+    assert "feedback_callback" in demo_client
+    assert "result_callback" in demo_client
+    assert "cpp-action-client" in acceptance
+    assert "typed_action_demo_client" in smoke_script.read_text(encoding="utf-8")
+    assert "typed_action_demo_client.cpp" in learning
+    assert "typed_action_demo_client.cpp" in presentation
