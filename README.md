@@ -403,6 +403,13 @@ ASR_NLU_SAMPLES_SYNTHETIC=false \
 
 输出 `logs/asr_nlu_eval_candidates.jsonl`。其中的 `suggested_eval_case` 已接近
 `training/robot_instruction_eval.jsonl` schema，但仍建议人工检查动作是否符合真实意图后再合入。
+合入前可以先对候选集跑一次临时 parser 回归：
+
+```bash
+ASR_NLU_CANDIDATE_SYNTHETIC=false \
+  ASR_NLU_CANDIDATE_INPUT=logs/asr_nlu_eval_candidates.jsonl \
+  bash scripts/acceptance_test.sh asr-nlu-candidate-eval
+```
 
 另开一个终端做人工验收统计：
 

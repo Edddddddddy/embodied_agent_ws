@@ -254,6 +254,8 @@
 - `scripts/asr_nlu_samples_to_eval_candidates.py` 会把这些运行时事件按 `asr_final`
   分组，生成 `logs/asr_nlu_eval_candidates.jsonl`；候选样本带 `suggested_eval_case`，
   人工确认后即可补进 `training/robot_instruction_eval.jsonl`。
+- `scripts/evaluate_asr_nlu_eval_candidates.py` 复用正式 parser 评估逻辑，对候选集先跑
+  临时 accuracy；这让现场采到的错词即使还没合入正式数据集，也能马上用于回归观察。
 
 为什么这样设计：
 
@@ -262,6 +264,8 @@
 - 轻量 NLU 覆盖固定机器人动作域，速度快、可测试、可解释。
 - 真实 ASR 的错词分布很依赖麦克风和环境，靠人工凭记忆补测试很容易漏；采样日志转候选集
   可以把现场失败直接变成可回归的数据资产。
+- 候选集和正式评估集分开，是为了避免“观察到的动作候选”未经人工确认就污染 ground truth；
+  但候选集临时评估又能让工程迭代保持速度。
 
 方案对比：
 

@@ -173,6 +173,17 @@ bash scripts/acceptance_test.sh asr-nlu-samples-to-eval
 输出候选集里的 `suggested_eval_case` 接近 `training/robot_instruction_eval.jsonl`
 格式，但仍必须人工确认动作是否符合真实意图，再合入评估集并运行 `instruction-parser-eval`
 做回归。
+如果暂时不想合入正式评估集，也可以直接对候选集跑临时 accuracy：
+
+```bash
+ASR_NLU_CANDIDATE_SYNTHETIC=false \
+  ASR_NLU_CANDIDATE_INPUT=logs/asr_nlu_eval_candidates.jsonl \
+  ASR_NLU_CANDIDATE_REPORT=logs/asr_nlu_candidate_eval_report.json \
+  bash scripts/acceptance_test.sh asr-nlu-candidate-eval
+```
+
+这个报告用于现场复盘和规则/轻量 NLU 迭代，不替代人工审核；只有确认过的样本才建议合入
+`training/robot_instruction_eval.jsonl`。
 
 ### 2.1 无外部依赖基础验收
 
@@ -732,7 +743,7 @@ ros2 topic echo /robot/action_result
 通过时应看到 `nlu_parsed`、同一个 `batch_id` 下的多个 `enqueue`，以及与 `request_id` 对应的 `command_id` result。
 如果现场出现新的 ASR 错词或多命令粘连，可用 `CONTINUOUS_SAMPLE_LOG=logs/asr_nlu_samples.jsonl`
 保存事件流，演示后运行 `asr-nlu-samples-to-eval` 生成待审核候选集，再把确认过的失败样本
-补进指令评估集。
+补进指令评估集。合入前也可以运行 `asr-nlu-candidate-eval` 先看候选集上的 parser accuracy。
 
 ### 5.4 ASR 有输出但动作没执行
 

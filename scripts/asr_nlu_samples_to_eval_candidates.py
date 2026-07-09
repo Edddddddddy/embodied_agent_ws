@@ -55,7 +55,7 @@ SYNTHETIC_EVENTS: list[dict[str, Any]] = [
         "kind": "action_candidate",
         "topic": "/agent/action_candidate",
         "name": "turn",
-        "arguments": {"angular_z": -0.8, "duration_s": 1.4},
+        "arguments": {"angular_z": -0.6, "duration_s": 2.6},
     },
     {
         "schema_version": 1,

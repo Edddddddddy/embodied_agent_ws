@@ -55,6 +55,7 @@ Automated modes:
   instruction-eval-dataset Validate lightweight robot instruction eval dataset
   instruction-parser-eval Evaluate deterministic command parser on instruction eval set
   asr-nlu-samples-to-eval Convert live ASR/NLU sample JSONL into reviewable eval candidates
+  asr-nlu-candidate-eval Evaluate parser accuracy on reviewable ASR/NLU eval candidates
   release-gate        Job-showcase core 5-command gate with logs/acceptance_report.json
   demo-gate           Pre-demo automatic evidence gate with logs/demo_acceptance_report.json
   wsl-microphone-preflight PulseAudio/WSLg microphone capture check before live demos
@@ -299,6 +300,18 @@ case "$LEVEL" in
         --input "${ASR_NLU_SAMPLE_LOG:-logs/asr_nlu_samples.jsonl}" \
         --output "$ASR_NLU_EVAL_OUTPUT"
     fi
+    ;;
+  asr-nlu-candidate-eval)
+    ASR_NLU_CANDIDATE_INPUT="${ASR_NLU_CANDIDATE_INPUT:-logs/asr_nlu_eval_candidates.synthetic.jsonl}"
+    if [[ "${ASR_NLU_CANDIDATE_SYNTHETIC:-true}" == "true" ]]; then
+      python3 scripts/asr_nlu_samples_to_eval_candidates.py \
+        --synthetic-demo \
+        --output "$ASR_NLU_CANDIDATE_INPUT"
+    fi
+    python3 scripts/evaluate_asr_nlu_eval_candidates.py \
+      --input "$ASR_NLU_CANDIDATE_INPUT" \
+      --output "${ASR_NLU_CANDIDATE_REPORT:-logs/asr_nlu_candidate_eval_report.json}" \
+      --minimum "${ASR_NLU_CANDIDATE_MINIMUM:-1.0}"
     ;;
   release-gate) python3 scripts/showcase_release_gate.py ;;
   demo-gate) python3 scripts/showcase_release_gate.py --profile demo ;;

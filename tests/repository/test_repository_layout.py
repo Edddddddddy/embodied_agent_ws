@@ -46,6 +46,7 @@ def test_critical_full_chain_probes_remain_discoverable():
         "test_continuous_nav2_voice_control_script.py",
         "test_continuous_voice_monitor.py",
         "test_asr_nlu_samples_to_eval_candidates.py",
+        "test_evaluate_asr_nlu_eval_candidates.py",
         "test_continuous_kws_sidecar.py",
         "test_voice_provider_preflight.py",
         "test_audio_frontend_calibration.py",
@@ -106,7 +107,9 @@ def test_real_asr_sample_eval_loop_entrypoints_remain_available():
         encoding="utf-8"
     )
     assert "asr-nlu-samples-to-eval" in acceptance
+    assert "asr-nlu-candidate-eval" in acceptance
     assert (ROOT / "scripts" / "asr_nlu_samples_to_eval_candidates.py").is_file()
+    assert (ROOT / "scripts" / "evaluate_asr_nlu_eval_candidates.py").is_file()
     assert (ROOT / "training" / "robot_instruction_eval.jsonl").is_file()
 
 
