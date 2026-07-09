@@ -73,3 +73,40 @@ def test_showcase_release_gate_full_profile_keeps_expanded_checks(tmp_path):
         "summer_tts_service",
         "cpp_ros_unit",
     } <= command_names
+
+
+def test_showcase_release_gate_demo_profile_targets_pre_demo_evidence(tmp_path):
+    output = tmp_path / "demo_acceptance_report.json"
+    completed = subprocess.run(
+        [
+            "python3",
+            str(ROOT / "scripts" / "showcase_release_gate.py"),
+            "--workspace",
+            str(ROOT),
+            "--dry-run",
+            "--profile",
+            "demo",
+            "--output",
+            str(output),
+        ],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stdout
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["profile"] == "demo"
+    assert report["command_count"] == 5
+    command_names = {item["name"] for item in report["commands"]}
+    assert {
+        "demo_cli_readiness",
+        "voice_provider_readiness",
+        "speaker_memory_preferences",
+        "continuous_voice_demo",
+        "navigation_and_offline_evidence",
+    } == command_names
+    commands = "\n".join(item["command"] for item in report["commands"])
+    assert "provider-preflight" in commands
+    assert "speaker-memory-mock" in commands
+    assert "offline-showcase-report" in commands

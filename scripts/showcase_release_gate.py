@@ -70,9 +70,36 @@ FULL_COMMANDS: tuple[tuple[str, str], ...] = (
     ),
 )
 
+DEMO_COMMANDS: tuple[tuple[str, str], ...] = (
+    (
+        "demo_cli_readiness",
+        "bash tests/integration/test_acceptance_cli.sh",
+    ),
+    (
+        "voice_provider_readiness",
+        "bash scripts/acceptance_test.sh provider-preflight && "
+        "bash scripts/acceptance_test.sh voice-readiness",
+    ),
+    (
+        "speaker_memory_preferences",
+        "bash scripts/acceptance_test.sh speaker-memory-mock",
+    ),
+    (
+        "continuous_voice_demo",
+        "bash scripts/acceptance_test.sh continuous-mock && "
+        "bash scripts/acceptance_test.sh continuous-multi-command",
+    ),
+    (
+        "navigation_and_offline_evidence",
+        "bash scripts/acceptance_test.sh navigation-demo && "
+        "bash scripts/acceptance_test.sh offline-showcase-report",
+    ),
+)
+
 
 PROFILE_COMMANDS = {
     "core": CORE_COMMANDS,
+    "demo": DEMO_COMMANDS,
     "full": FULL_COMMANDS,
 }
 
@@ -111,7 +138,9 @@ def _run_command(command: GateCommand, *, root: Path, timeout_s: float, tail_lin
     }
 
 
-def _default_report_path(root: Path) -> Path:
+def _default_report_path(root: Path, profile: str) -> Path:
+    if profile == "demo":
+        return root / "logs" / "demo_acceptance_report.json"
     return root / "logs" / "acceptance_report.json"
 
 
@@ -138,7 +167,11 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     root = Path(args.workspace).expanduser().resolve()
-    output_path = Path(args.output).expanduser() if args.output else _default_report_path(root)
+    output_path = (
+        Path(args.output).expanduser()
+        if args.output
+        else _default_report_path(root, args.profile)
+    )
     commands = [GateCommand(name, command) for name, command in PROFILE_COMMANDS[args.profile]]
     started = time.strftime("%Y-%m-%dT%H:%M:%S%z")
 

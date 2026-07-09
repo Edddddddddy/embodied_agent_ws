@@ -469,12 +469,26 @@ bash scripts/acceptance_test.sh all
 
 `all` 不包含需要人工说话的 microphone/continuous interactive 模式。
 
-求职展示版推荐 release gate 默认固定为 5 条聚合命令，覆盖 Python/Agent 单测、CLI/指令解析、
-连续语音队列、语音导航 demo、离线延迟/SummerTTS/C++ ROS 单测，并输出统一报告：
+求职展示版推荐把验收分成三层：
+
+- 日常开发 gate：`bash scripts/acceptance_test.sh core`，速度快，适合频繁本地检查。
+- 发布 gate：`bash scripts/acceptance_test.sh release-gate`，固定 5 条聚合命令，覆盖 Python/Agent 单测、
+  CLI/指令解析、连续语音队列、语音导航 demo、离线延迟/SummerTTS/C++ ROS 单测。
+- 演示 gate：`bash scripts/acceptance_test.sh demo-gate`，更贴近 15 分钟展示前留证，覆盖 provider preflight、
+  声纹/记忆偏好闭环、连续多命令、语音导航 mock 和离线展示报告。
+
+发布 gate 会输出统一报告：
 
 ```bash
 bash scripts/acceptance_test.sh release-gate
 # 默认报告：logs/acceptance_report.json
+```
+
+演示前建议再跑一遍自动证据 gate：
+
+```bash
+bash scripts/acceptance_test.sh demo-gate
+# 默认报告：logs/demo_acceptance_report.json
 ```
 
 如果要查看或运行更完整的本地门禁，可直接调用 full profile：
@@ -482,6 +496,7 @@ bash scripts/acceptance_test.sh release-gate
 ```bash
 python3 scripts/showcase_release_gate.py --profile full
 python3 scripts/showcase_release_gate.py --profile full --dry-run
+python3 scripts/showcase_release_gate.py --profile demo --dry-run
 ```
 
 ## 常见问题

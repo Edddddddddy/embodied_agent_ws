@@ -389,10 +389,12 @@ def test_showcase_hardening_artifacts_remain_discoverable():
         assert path.is_file()
 
     assert "release-gate" in acceptance
+    assert "demo-gate" in acceptance
     assert "offline-showcase-report" in acceptance
     assert "instruction-eval-dataset" in acceptance
     assert "instruction-parser-eval" in acceptance
     assert "logs/acceptance_report.json" in readme
+    assert "logs/demo_acceptance_report.json" in readme
     assert "离线模型 Benchmark 与展示报告" in readme
     offline_report_text = offline_showcase_report.read_text(encoding="utf-8")
     assert "offline_deployment_showcase" in offline_report_text
@@ -402,8 +404,10 @@ def test_showcase_hardening_artifacts_remain_discoverable():
     release_gate_text = release_gate.read_text(encoding="utf-8")
     assert "job_showcase_release_gate" in release_gate_text
     assert "CORE_COMMANDS" in release_gate_text
+    assert "DEMO_COMMANDS" in release_gate_text
     assert "FULL_COMMANDS" in release_gate_text
     assert "\"core\": CORE_COMMANDS" in release_gate_text
+    assert "\"demo\": DEMO_COMMANDS" in release_gate_text
     assert "command_count" in release_gate_text
     assert "instruction_parser_eval" in release_gate_text
     assert "tag_accuracy" in parser_eval.read_text(encoding="utf-8")

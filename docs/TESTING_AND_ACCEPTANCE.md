@@ -37,6 +37,7 @@ bash scripts/acceptance_test.sh --help
 | `instruction-eval-dataset` | 自动/数据集 | 校验轻量机器人指令评估集 schema、动作名和标签 |
 | `instruction-parser-eval` | 自动/数据集 | 在评估集上计算 deterministic parser 动作准确率和 tag 维度分数 |
 | `release-gate` | 自动/报告 | 求职展示版发布门禁，默认输出 `logs/acceptance_report.json` |
+| `demo-gate` | 自动/报告 | 演示前自动证据门禁，默认输出 `logs/demo_acceptance_report.json` |
 | `summer-tts-preflight` | 自动/本地模型 | SummerTTS 源码、二进制和模型文件预检 |
 | `summer-tts-smoke` | 自动/本地模型 | 真实 SummerTTS C++ 二进制合成验证 |
 | `summer-pseudo-tts` | 自动/本地模型 | SummerTTS 与项目伪流式双缓冲 pipeline 集成验证 |
@@ -99,10 +100,31 @@ bash scripts/acceptance_test.sh release-gate
 logs/acceptance_report.json
 ```
 
+15 分钟汇报或现场演示前，建议再运行演示证据 gate：
+
+```bash
+bash scripts/acceptance_test.sh demo-gate
+```
+
+该入口使用 `demo` profile，固定 5 条偏展示的自动证据：
+
+1. CLI 入口可发现；
+2. VAD/KWS provider preflight 与语音 readiness；
+3. speaker identity、用户记忆和偏好影响动作参数；
+4. 连续语音 session、多命令队列；
+5. 语音导航 mock 与离线展示报告。
+
+报告默认写入：
+
+```text
+logs/demo_acceptance_report.json
+```
+
 如果只想检查 gate 列表而不运行命令：
 
 ```bash
 python3 scripts/showcase_release_gate.py --dry-run
+python3 scripts/showcase_release_gate.py --profile demo --dry-run
 ```
 
 如果需要更完整但更慢的本地门禁：

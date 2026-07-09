@@ -54,6 +54,7 @@ Automated modes:
   instruction-eval-dataset Validate lightweight robot instruction eval dataset
   instruction-parser-eval Evaluate deterministic command parser on instruction eval set
   release-gate        Job-showcase core 5-command gate with logs/acceptance_report.json
+  demo-gate           Pre-demo automatic evidence gate with logs/demo_acceptance_report.json
   wsl-microphone-preflight PulseAudio/WSLg microphone capture check before live demos
   gazebo              Typed Action physical motion verification
   cpp-action-client   C++ rclcpp_action demo client sends typed command to simulation server
@@ -270,6 +271,7 @@ case "$LEVEL" in
   instruction-eval-dataset) python3 scripts/validate_instruction_eval_dataset.py ;;
   instruction-parser-eval) python3 scripts/evaluate_instruction_parser.py --minimum "${INSTRUCTION_PARSER_MINIMUM:-1.0}" ;;
   release-gate) python3 scripts/showcase_release_gate.py ;;
+  demo-gate) python3 scripts/showcase_release_gate.py --profile demo ;;
   wsl-microphone-preflight) bash scripts/wsl_microphone_preflight.sh ;;
   gazebo) run_gazebo ;;
   cpp-action-client) bash scripts/smoke_test_cpp_action_client.sh ;;
