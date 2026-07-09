@@ -64,6 +64,7 @@ def test_nlu_prioritizes_stop_and_blocks_unsafe_language():
 
     assert not CommandNLU().parse("不要向前走").accepted
     assert not CommandNLU().parse("你觉得向前是什么意思").accepted
+    assert not CommandNLU().parse("一边前进一边高速旋转").accepted
 
 
 def test_nlu_extracts_navigation_and_waypoint_patrol():

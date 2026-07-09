@@ -48,6 +48,8 @@ _QUESTION_OR_NEGATION = (
     "不要",
     "禁止",
 )
+_UNSAFE_COMBINATION_MARKERS = ("一边", "同时", "高速")
+_UNSAFE_ROTATION_MARKERS = ("旋转", "转")
 
 
 def _clean(text: str) -> str:
@@ -230,6 +232,12 @@ class CommandNLU:
             return NluResult(source, reason="disabled_or_empty")
         if any(marker in normalized for marker in _QUESTION_OR_NEGATION):
             return NluResult(source, reason="blocked_semantic")
+        if any(marker in normalized for marker in _UNSAFE_COMBINATION_MARKERS) and any(
+            marker in normalized for marker in _UNSAFE_ROTATION_MARKERS
+        ):
+            # 连续语音队列会优先走 NLU，如果这里不拦截，“一边前进一边高速旋转”
+            # 可能被锚点模型截成一个普通 move。安全否定必须早于动作锚点抽取。
+            return NluResult(source, reason="blocked_unsafe_combination")
 
         anchors = self._find_anchors(normalized)
         if not anchors:

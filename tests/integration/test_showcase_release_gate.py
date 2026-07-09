@@ -31,6 +31,7 @@ def test_showcase_release_gate_dry_run_writes_report(tmp_path):
     command_names = {item["name"] for item in report["commands"]}
     assert {
         "repository_and_offline_unit",
+        "instruction_parser_eval",
         "continuous_multi_command",
         "navigation_demo",
         "offline_latency",

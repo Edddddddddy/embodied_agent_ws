@@ -477,6 +477,7 @@ pytest -q tests/repository src/embodied_offline_agent/test
 bash tests/integration/test_acceptance_cli.sh
 bash scripts/acceptance_test.sh continuous-multi-command
 bash scripts/acceptance_test.sh navigation-demo
+bash scripts/acceptance_test.sh instruction-parser-eval
 bash scripts/acceptance_test.sh offline-latency
 bash scripts/acceptance_test.sh summer-tts-service
 colcon test --packages-select embodied_agent_cpp embodied_simulation --event-handlers console_direct+

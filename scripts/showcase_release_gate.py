@@ -27,6 +27,7 @@ DEFAULT_COMMANDS: tuple[tuple[str, str], ...] = (
         "pytest -q tests/repository src/embodied_offline_agent/test",
     ),
     ("acceptance_cli", "bash tests/integration/test_acceptance_cli.sh"),
+    ("instruction_parser_eval", "bash scripts/acceptance_test.sh instruction-parser-eval"),
     ("continuous_mock", "bash scripts/acceptance_test.sh continuous-mock"),
     ("continuous_multi_command", "bash scripts/acceptance_test.sh continuous-multi-command"),
     ("navigation_demo", "bash scripts/acceptance_test.sh navigation-demo"),

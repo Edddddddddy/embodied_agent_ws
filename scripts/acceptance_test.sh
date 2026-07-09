@@ -51,6 +51,7 @@ Automated modes:
   voice-readiness     Dependency-free voice readiness smoke test
   provider-preflight  Dependency-free optional VAD/KWS provider preflight
   instruction-eval-dataset Validate lightweight robot instruction eval dataset
+  instruction-parser-eval Evaluate deterministic command parser on instruction eval set
   release-gate        Job-showcase release gate with logs/acceptance_report.json
   wsl-microphone-preflight PulseAudio/WSLg microphone capture check before live demos
   gazebo              Typed Action physical motion verification
@@ -249,6 +250,7 @@ case "$LEVEL" in
   voice-readiness) bash scripts/smoke_test_voice_readiness.sh ;;
   provider-preflight) pytest -q tests/integration/test_voice_provider_preflight.py ;;
   instruction-eval-dataset) python3 scripts/validate_instruction_eval_dataset.py ;;
+  instruction-parser-eval) python3 scripts/evaluate_instruction_parser.py --minimum "${INSTRUCTION_PARSER_MINIMUM:-1.0}" ;;
   release-gate) python3 scripts/showcase_release_gate.py ;;
   wsl-microphone-preflight) bash scripts/wsl_microphone_preflight.sh ;;
   gazebo) run_gazebo ;;

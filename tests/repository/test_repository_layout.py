@@ -347,18 +347,30 @@ def test_showcase_hardening_artifacts_remain_discoverable():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     release_gate = ROOT / "scripts" / "showcase_release_gate.py"
     eval_validator = ROOT / "scripts" / "validate_instruction_eval_dataset.py"
+    parser_eval = ROOT / "scripts" / "evaluate_instruction_parser.py"
     eval_dataset = ROOT / "training" / "robot_instruction_eval.jsonl"
     interview_doc = ROOT / "docs" / "INTERVIEW_QA.md"
     gaps_doc = ROOT / "docs" / "PROJECT_GAPS_AND_OPTIMIZATION.md"
     benchmark_doc = ROOT / "docs" / "OFFLINE_BENCHMARK_REPORT.md"
 
-    for path in (release_gate, eval_validator, eval_dataset, interview_doc, gaps_doc, benchmark_doc):
+    for path in (
+        release_gate,
+        eval_validator,
+        parser_eval,
+        eval_dataset,
+        interview_doc,
+        gaps_doc,
+        benchmark_doc,
+    ):
         assert path.is_file()
 
     assert "release-gate" in acceptance
     assert "instruction-eval-dataset" in acceptance
+    assert "instruction-parser-eval" in acceptance
     assert "logs/acceptance_report.json" in readme
     assert "job_showcase_release_gate" in release_gate.read_text(encoding="utf-8")
+    assert "instruction_parser_eval" in release_gate.read_text(encoding="utf-8")
+    assert "tag_accuracy" in parser_eval.read_text(encoding="utf-8")
     assert "ActionGuard" in interview_doc.read_text(encoding="utf-8")
     assert "真实语音稳定性" in gaps_doc.read_text(encoding="utf-8")
     assert "evaluate_instruction_following.sh" in benchmark_doc.read_text(encoding="utf-8")

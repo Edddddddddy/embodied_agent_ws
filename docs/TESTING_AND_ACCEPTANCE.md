@@ -34,6 +34,7 @@ bash scripts/acceptance_test.sh --help
 | `offline-runtime-versions` | 自动/本地版本 | 检查 llama.cpp、SummerTTS、sherpa-onnx 是否匹配阶段固定版本 |
 | `offline-latency` | 自动/本地模型 | 检查 llama.cpp 首 token ≤ 1s、默认 Sherpa-TTS 首音频 ≤ 300ms |
 | `instruction-eval-dataset` | 自动/数据集 | 校验轻量机器人指令评估集 schema、动作名和标签 |
+| `instruction-parser-eval` | 自动/数据集 | 在评估集上计算 deterministic parser 动作准确率和 tag 维度分数 |
 | `release-gate` | 自动/报告 | 求职展示版发布门禁，默认输出 `logs/acceptance_report.json` |
 | `summer-tts-preflight` | 自动/本地模型 | SummerTTS 源码、二进制和模型文件预检 |
 | `summer-tts-smoke` | 自动/本地模型 | 真实 SummerTTS C++ 二进制合成验证 |
@@ -83,8 +84,8 @@ bash scripts/acceptance_test.sh --help
 bash scripts/acceptance_test.sh release-gate
 ```
 
-该入口会运行仓库/Agent 单测、CLI 入口、连续语音 mock、多命令队列、导航 demo、
-离线延迟、SummerTTS service 和 C++/ROS2 单测，并把每个步骤的命令、耗时、
+该入口会运行仓库/Agent 单测、CLI 入口、指令解析准确率、连续语音 mock、多命令队列、
+导航 demo、离线延迟、SummerTTS service 和 C++/ROS2 单测，并把每个步骤的命令、耗时、
 退出码和尾部日志写入：
 
 ```text
@@ -96,6 +97,16 @@ logs/acceptance_report.json
 ```bash
 python3 scripts/showcase_release_gate.py --dry-run
 ```
+
+动作解析评估可以单独运行：
+
+```bash
+bash scripts/acceptance_test.sh instruction-eval-dataset
+bash scripts/acceptance_test.sh instruction-parser-eval
+```
+
+`instruction-parser-eval` 会读取 `training/robot_instruction_eval.jsonl`，输出整体准确率、
+tag 准确率、实际动作和期望动作，适合持续沉淀真实 ASR 错误样例。
 
 ### 2.1 无外部依赖基础验收
 

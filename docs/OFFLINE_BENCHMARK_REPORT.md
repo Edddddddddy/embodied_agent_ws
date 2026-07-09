@@ -23,6 +23,7 @@ bash scripts/acceptance_test.sh llama-cpp-preflight
 bash scripts/acceptance_test.sh llama-cpp-smoke
 bash scripts/acceptance_test.sh offline-latency
 bash scripts/benchmark_offline.sh
+bash scripts/acceptance_test.sh instruction-parser-eval
 bash scripts/evaluate_instruction_following.sh --minimum 0.70
 ```
 
@@ -35,7 +36,8 @@ bash scripts/evaluate_instruction_following.sh --minimum 0.70
 | llama.cpp tokens/s | 记录即可 | TODO | `/offline_agent/metrics` 或 `llama-cpp-smoke` |
 | ASR realtime factor | < 1.0 更好 | TODO | `benchmark_offline.sh` |
 | TTS realtime factor | < 1.0 更好 | TODO | `benchmark_offline.sh` |
-| 指令动作准确率 | ≥ 70% 起步 | TODO | `evaluate_instruction_following.sh` |
+| deterministic parser 动作准确率 | ≥ 95% | TODO | `instruction-parser-eval` |
+| 离线 LLM 指令动作准确率 | ≥ 70% 起步 | TODO | `evaluate_instruction_following.sh` |
 
 ## 4. 错误样例回归
 
