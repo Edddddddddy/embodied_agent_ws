@@ -766,8 +766,10 @@ def test_audio_calibration_outputs_copyable_live_demo_advice():
     assert "logs/audio_calibration.json" in readme
     assert "voice-calibration-report" in readme
     assert "APPLY_VOICE_CALIBRATION" in readme
+    assert "CONTINUOUS_SAMPLE_LOG" in readme
     assert "APPLY_VOICE_CALIBRATION" in continuous
     assert "VOICE_CALIBRATION_ENV_APPLIED" in continuous
+    assert "CONTINUOUS_SAMPLE_LOG" in continuous
     assert "recommended_environment" in acceptance_doc
 
 

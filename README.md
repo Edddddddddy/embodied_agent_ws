@@ -385,6 +385,16 @@ bash scripts/acceptance_test.sh continuous-nav2-live-report logs/nav2-live-check
 退出控制
 ```
 
+如果想把真实 ASR 错词、漏字、多命令粘连样本沉淀成后续 NLU 回归数据，可以打开 JSONL 采样：
+
+```bash
+CONTINUOUS_SAMPLE_LOG=logs/asr_nlu_samples.jsonl \
+  bash scripts/acceptance_test.sh continuous-offline
+```
+
+该文件会记录 `/agent/asr_final`、归一化/补全/NLU feedback、动作候选和 result。
+演示后可以挑选失败样本补进 `training/robot_instruction_eval.jsonl`。
+
 另开一个终端做人工验收统计：
 
 ```bash

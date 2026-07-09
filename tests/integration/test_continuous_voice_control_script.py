@@ -43,6 +43,7 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
             "AUTO_GAIN_ENABLED": "true",
             "CONTINUOUS_MONITOR_ENABLED": "false",
             "CONTINUOUS_MONITOR_AUDIO_SAMPLE_LIMIT": "42",
+            "CONTINUOUS_SAMPLE_LOG": "/tmp/asr_nlu_samples.jsonl",
             "CONTINUOUS_PREFLIGHT_ENABLED": "true",
             "CONTINUOUS_READINESS_ENABLED": "true",
             "CONTINUOUS_READINESS_DURATION": "3.5",
@@ -92,6 +93,7 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
     assert "NOISE_SUPPRESSION_ENABLED=true" in result.stdout
     assert "AUTO_GAIN_ENABLED=true" in result.stdout
     assert "CONTINUOUS_MONITOR_AUDIO_SAMPLE_LIMIT=42" in result.stdout
+    assert "CONTINUOUS_SAMPLE_LOG=/tmp/asr_nlu_samples.jsonl" in result.stdout
     assert "CONTINUOUS_PREFLIGHT_ENABLED=true" in result.stdout
     assert "CONTINUOUS_READINESS_ENABLED=true" in result.stdout
     assert "CONTINUOUS_READINESS_DURATION=3.5" in result.stdout

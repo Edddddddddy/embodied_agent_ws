@@ -386,11 +386,56 @@ def test_monitor_stats_keeps_bounded_recent_audio_samples():
     assert "max_rms=0.0300" in summary
 
 
+def test_asr_nlu_sample_recorder_writes_jsonl(tmp_path):
+    output = tmp_path / "asr_nlu_samples.jsonl"
+    recorder = monitor.AsrNluSampleRecorder(output)
+
+    recorder.record_asr("向右转然后向前走一秒")
+    recorder.record_json_event(
+        "recognition_feedback",
+        "/agent/recognition_feedback",
+        json.dumps(
+            {
+                "status": "nlu_parsed",
+                "batch_id": "demo-1",
+                "commands": [
+                    {"intent": "turn_right", "span_text": "向右转"},
+                    {"intent": "move_forward", "span_text": "向前走一秒"},
+                ],
+            },
+            ensure_ascii=False,
+        ),
+    )
+    recorder.record_json_event(
+        "action_candidate",
+        "/agent/action_candidate",
+        json.dumps(
+            {"name": "move", "arguments": {"linear_x": 0.2, "duration_s": 1.0}},
+            ensure_ascii=False,
+        ),
+    )
+
+    rows = [
+        json.loads(line)
+        for line in output.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert [row["kind"] for row in rows] == [
+        "asr_final",
+        "recognition_feedback",
+        "action_candidate",
+    ]
+    assert rows[0]["text"] == "向右转然后向前走一秒"
+    assert rows[1]["status"] == "nlu_parsed"
+    assert rows[2]["name"] == "move"
+
+
 def test_monitor_exposes_audio_sample_limit_cli_option():
     content = MONITOR.read_text(encoding="utf-8")
 
     assert "--audio-sample-limit" in content
-    assert "ContinuousVoiceMonitor(audio_sample_limit=args.audio_sample_limit)" in content
+    assert "--sample-output" in content
+    assert "sample_output=args.sample_output" in content
 
 
 def test_monitor_signal_handler_uses_keyboard_interrupt_for_summary_path():

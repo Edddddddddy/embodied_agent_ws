@@ -6,6 +6,7 @@ import importlib.util
 import json
 import signal
 import sys
+import time
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -233,6 +234,42 @@ def install_signal_handlers() -> None:
     signal.signal(signal.SIGTERM, _interrupt_monitor)
 
 
+class AsrNluSampleRecorder:
+    """Append real ASR/NLU/action events to JSONL for later regression tests.
+
+    真实麦克风问题通常不是“代码完全错”，而是 ASR final 带错字、漏字或多命令粘连。
+    monitor 已经订阅了这些 topic，因此在这里可选落盘，后续把失败样本补进
+    `training/robot_instruction_eval.jsonl` 或 NLU 单测。
+    """
+
+    def __init__(self, output_path: str | Path):
+        self.output_path = Path(output_path).expanduser()
+        self.output_path.parent.mkdir(parents=True, exist_ok=True)
+        self._sequence = 0
+
+    def record(self, kind: str, topic: str, payload: dict[str, Any]) -> None:
+        self._sequence += 1
+        item = {
+            "schema_version": 1,
+            "sequence": self._sequence,
+            "ts": round(time.time(), 3),
+            "kind": kind,
+            "topic": topic,
+            **payload,
+        }
+        with self.output_path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(item, ensure_ascii=False, sort_keys=True) + "\n")
+
+    def record_asr(self, text: str) -> None:
+        self.record("asr_final", "/agent/asr_final", {"text": text})
+
+    def record_json_event(self, kind: str, topic: str, serialized: str) -> None:
+        payload = _json_dict(serialized)
+        if not payload:
+            payload = {"raw": serialized}
+        self.record(kind, topic, payload)
+
+
 @dataclass
 class MonitorStats:
     """长时间语音演示的轻量统计器。
@@ -397,11 +434,14 @@ class MonitorStats:
 
 
 class ContinuousVoiceMonitor(Node):
-    def __init__(self, *, audio_sample_limit: int = 600):
+    def __init__(self, *, audio_sample_limit: int = 600, sample_output: str = ""):
         super().__init__("continuous_voice_monitor")
         self._queued_seen = 0
         self._structured_queue_seen = False
         self._stats = MonitorStats(audio_sample_limit=audio_sample_limit)
+        self._sample_recorder = (
+            AsrNluSampleRecorder(sample_output) if sample_output else None
+        )
         self.create_subscription(String, "/agent/session_state", self._on_session, 10)
         self.create_subscription(String, "/agent/wake_event", self._on_wake, 10)
         self.create_subscription(String, "/agent/kws_event", self._on_kws, 10)
@@ -420,8 +460,10 @@ class ContinuousVoiceMonitor(Node):
         self.create_subscription(
             String, "/agent/recognition_feedback", self._on_feedback, 10
         )
-        self.create_subscription(String, "/robot/action_result", self._on_result, 10)
-        self.create_subscription(String, "/robot/action_ack", self._on_result, 10)
+        self.create_subscription(
+            String, "/robot/action_result", self._on_action_result, 10
+        )
+        self.create_subscription(String, "/robot/action_ack", self._on_action_ack, 10)
 
     def _emit(self, line: str) -> None:
         print(line, flush=True)
@@ -445,6 +487,8 @@ class ContinuousVoiceMonitor(Node):
 
     def _on_asr(self, message: String) -> None:
         self._stats.record_asr(message.data)
+        if self._sample_recorder is not None:
+            self._sample_recorder.record_asr(message.data)
         self._emit(format_asr_final(message.data))
 
     def _on_state(self, message: String) -> None:
@@ -457,6 +501,10 @@ class ContinuousVoiceMonitor(Node):
     def _on_queue(self, message: String) -> None:
         self._structured_queue_seen = True
         self._stats.record_queue(message.data)
+        if self._sample_recorder is not None:
+            self._sample_recorder.record_json_event(
+                "command_queue", "/agent/command_queue", message.data
+            )
         self._emit(format_queue_event(message.data))
 
     def _on_execution(self, message: String) -> None:
@@ -464,6 +512,10 @@ class ContinuousVoiceMonitor(Node):
         self._emit(format_execution_event(message.data))
 
     def _on_action(self, message: String) -> None:
+        if self._sample_recorder is not None:
+            self._sample_recorder.record_json_event(
+                "action_candidate", "/agent/action_candidate", message.data
+            )
         self._emit(format_action_candidate(message.data))
 
     def _on_action_feedback(self, message: String) -> None:
@@ -471,11 +523,25 @@ class ContinuousVoiceMonitor(Node):
 
     def _on_feedback(self, message: String) -> None:
         self._stats.record_recognition_feedback(message.data)
+        if self._sample_recorder is not None:
+            self._sample_recorder.record_json_event(
+                "recognition_feedback", "/agent/recognition_feedback", message.data
+            )
         self._emit(format_recognition_feedback(message.data))
 
-    def _on_result(self, message: String) -> None:
+    def _handle_result(self, message: String, *, topic: str, kind: str) -> None:
         self._stats.record_result(message.data)
+        if self._sample_recorder is not None:
+            self._sample_recorder.record_json_event(kind, topic, message.data)
         self._emit(format_action_result(message.data))
+
+    def _on_action_result(self, message: String) -> None:
+        self._handle_result(
+            message, topic="/robot/action_result", kind="action_result"
+        )
+
+    def _on_action_ack(self, message: String) -> None:
+        self._handle_result(message, topic="/robot/action_ack", kind="action_ack")
 
     def emit_summary(self) -> None:
         self._emit(self._stats.format_summary())
@@ -489,10 +555,18 @@ def main() -> None:
         default=600,
         help="保留最近 N 条 /audio/frontend_metrics 用于退出 summary，避免长时间演示无限增长。",
     )
+    parser.add_argument(
+        "--sample-output",
+        default="",
+        help="可选 JSONL 文件；记录 ASR final、NLU/补全/归一化、动作候选和 result，便于沉淀真实错词回归集。",
+    )
     args = parser.parse_args()
     install_signal_handlers()
     rclpy.init()
-    node = ContinuousVoiceMonitor(audio_sample_limit=args.audio_sample_limit)
+    node = ContinuousVoiceMonitor(
+        audio_sample_limit=args.audio_sample_limit,
+        sample_output=args.sample_output,
+    )
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

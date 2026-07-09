@@ -249,6 +249,8 @@
 - 例如“向右转，向前走一秒”会输出 `turn -> move`。
 - 每个队列项带 `batch_id / batch_index / batch_size`，便于 monitor 解释顺序。
 - 每个动作候选带 `request_id`，ActionGuard 映射成 `RobotCommand.command_id`，用于 result 关联。
+- monitor 支持 `CONTINUOUS_SAMPLE_LOG=logs/asr_nlu_samples.jsonl`，把真实 ASR final、
+  NLU/补全/归一化 feedback、动作候选和 result 写成 JSONL，方便把现场错词沉淀成回归集。
 
 为什么这样设计：
 

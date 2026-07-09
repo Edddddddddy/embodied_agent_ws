@@ -147,6 +147,17 @@ bash scripts/acceptance_test.sh instruction-parser-eval
 输出包含整体准确率、`source_counts`、tag 准确率、实际/期望动作和 `failed_cases`，
 适合持续沉淀真实 ASR 错误样例。
 
+真实麦克风演示时可以打开样本采集：
+
+```bash
+CONTINUOUS_SAMPLE_LOG=logs/asr_nlu_samples.jsonl \
+  bash scripts/acceptance_test.sh continuous-offline
+```
+
+该 JSONL 会保存 ASR final、归一化/补全/NLU feedback、动作候选和 result。
+演示后把失败样本人工整理到 `training/robot_instruction_eval.jsonl`，再运行
+`instruction-parser-eval` 做回归。
+
 ### 2.1 无外部依赖基础验收
 
 ```bash
@@ -703,6 +714,8 @@ ros2 topic echo /robot/action_result
 ```
 
 通过时应看到 `nlu_parsed`、同一个 `batch_id` 下的多个 `enqueue`，以及与 `request_id` 对应的 `command_id` result。
+如果现场出现新的 ASR 错词或多命令粘连，可用 `CONTINUOUS_SAMPLE_LOG=logs/asr_nlu_samples.jsonl`
+保存事件流，演示后把失败样本补进指令评估集。
 
 ### 5.4 ASR 有输出但动作没执行
 
