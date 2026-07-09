@@ -537,9 +537,10 @@ typed action feedback/result，便于现场判断是 action server 没起来、�
 超时提高到演示级窗口，避免按普通短动作提前取消真实导航 goal。该模式耗时较长，
 通常不放入 CI。
 `nav2-assets` 会输出 `logs/nav2_demo_assets.json`，当前应能看到 `places/launch/rviz_config`
-为 present，同时 warning 会说明 map/world 仍复用 Nav2 官方 `tb3_sandbox`；如果要把
-“项目自带固定 map/world”作为发布条件，可运行
-`python3 scripts/audit_nav2_demo_assets.py --require-local-assets`。
+以及 `local_assets.local_maps/local_worlds/local_map_images` 为 present。项目默认 map 为
+`src/embodied_simulation/maps/voice_demo.yaml`，默认 world 为
+`src/embodied_simulation/worlds/voice_demo.sdf.xacro`；如果后续误删这些本地资产，
+`python3 scripts/audit_nav2_demo_assets.py --require-local-assets` 会把缺失项作为发布 blocker。
 
 真实麦克风连续 Nav2 演示：
 

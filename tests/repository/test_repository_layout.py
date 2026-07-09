@@ -100,7 +100,12 @@ def test_voice_navigation_acceptance_entrypoints_remain_available():
         ROOT / "src" / "embodied_simulation" / "launch" / "voice_nav2_turtlebot3.launch.py"
     ).is_file()
     assert (ROOT / "src" / "embodied_simulation" / "config" / "places.yaml").is_file()
+    assert (ROOT / "src" / "embodied_simulation" / "maps" / "voice_demo.yaml").is_file()
+    assert (ROOT / "src" / "embodied_simulation" / "maps" / "voice_demo.pgm").is_file()
     assert (ROOT / "src" / "embodied_simulation" / "rviz" / "voice_nav2_demo.rviz").is_file()
+    assert (
+        ROOT / "src" / "embodied_simulation" / "worlds" / "voice_demo.sdf.xacro"
+    ).is_file()
 
 
 def test_real_asr_sample_eval_loop_entrypoints_remain_available():

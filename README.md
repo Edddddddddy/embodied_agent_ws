@@ -249,9 +249,10 @@ bash scripts/acceptance_test.sh nav2-preflight
 bash scripts/acceptance_test.sh nav2-assets
 ```
 
-`nav2-assets` 会审计 `places.yaml`、`voice_nav2_turtlebot3.launch.py`、RViz 展示配置和
-重型验收脚本。当前项目已提供本地 RViz 配置 `voice_nav2_demo.rviz`；map/world 仍复用
-Nav2 官方 `tb3_sandbox`，审计报告会给出 warning，避免把它说成项目自带完整建图资产。
+`nav2-assets` 会审计 `places.yaml`、`voice_nav2_turtlebot3.launch.py`、项目本地
+`voice_demo.yaml` / `voice_demo.sdf.xacro`、RViz 展示配置和重型验收脚本。当前默认
+Nav2 bringup 仍复用官方 TurtleBot3 导航栈，但 map/world/RViz 入口已经由本项目维护，
+适合在汇报中稳定展示 TF、map、scan、odom、global plan 和语音目标点导航链路。
 
 语音导航阶段门禁（推荐提交前跑；不启动重型 Gazebo/Nav2）：
 

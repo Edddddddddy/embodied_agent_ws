@@ -2,8 +2,8 @@
 """Audit Nav2/TurtleBot3 voice-demo assets.
 
 这个审计不启动 Gazebo/Nav2；它只检查演示资产是否齐全：语义目标点、Nav2 launch、
-RViz 配置、重型验收脚本，以及当前是否仍复用 Nav2 官方 map/world。默认复用官方资产只给
-warning；如果需要“项目自带固定 map/world”作为发布条件，可加 `--require-local-assets`。
+RViz 配置、项目本地 map/world、重型验收脚本。`--require-local-assets` 保留为发布门禁：
+如果后续误删本地 map/world，它会把资产缺失从 warning 升级为 blocker。
 """
 
 from __future__ import annotations
@@ -79,12 +79,21 @@ def _audit_launch(blockers: list[str]) -> dict[str, Any]:
         blockers.append("launch:nav2_tb3_bringup_not_included")
     if "Nav2RobotExecutor" not in text:
         blockers.append("launch:nav2_executor_not_configured")
+    uses_project_local_map = "maps" in text and "voice_demo.yaml" in text
+    uses_project_local_world = "worlds" in text and "voice_demo.sdf.xacro" in text
+    if not uses_project_local_map:
+        blockers.append("launch:project_local_map_not_default")
+    if not uses_project_local_world:
+        blockers.append("launch:project_local_world_not_default")
+    launch_ready = not missing and uses_project_local_map and uses_project_local_world
     return {
-        "status": "present" if not missing else "incomplete",
+        "status": "present" if launch_ready else "incomplete",
         "path": _relative(path),
         "arguments": arguments,
         "includes_nav2_tb3": "tb3_simulation_launch.py" in text,
         "uses_nav2_executor": "Nav2RobotExecutor" in text,
+        "uses_project_local_map": uses_project_local_map,
+        "uses_project_local_world": uses_project_local_world,
     }
 
 
@@ -129,8 +138,24 @@ def _audit_local_assets(
         if require_local_assets:
             blockers.append(message)
         warnings.append("world:uses_nav2_builtin_tb3_sandbox")
+    map_images: list[str] = []
+    for map_yaml in local_maps:
+        try:
+            data = yaml.safe_load(map_yaml.read_text(encoding="utf-8")) or {}
+        except yaml.YAMLError:
+            blockers.append(f"map:invalid_yaml:{_relative(map_yaml)}")
+            continue
+        image = data.get("image")
+        if not isinstance(image, str) or not image:
+            blockers.append(f"map:image_missing:{_relative(map_yaml)}")
+            continue
+        image_path = (map_yaml.parent / image).resolve()
+        map_images.append(_relative(image_path))
+        if not image_path.is_file():
+            blockers.append(f"map:image_file_missing:{_relative(image_path)}")
     return {
         "local_maps": [_relative(path) for path in local_maps],
+        "local_map_images": map_images,
         "local_worlds": [_relative(path) for path in local_worlds],
         "uses_nav2_builtin_map": not local_maps,
         "uses_nav2_builtin_world": not local_worlds,

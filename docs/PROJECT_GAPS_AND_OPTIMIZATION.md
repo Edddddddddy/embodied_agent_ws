@@ -54,15 +54,16 @@
 现状：
 
 - 已支持语义地点、`navigate_to`、`follow_waypoints`、Nav2 bridge 和 TurtleBot3/Nav2 bringup。
-- 地图、目标点和场景资产仍比较静态。
+- 已补充项目本地 `voice_demo.yaml`、`voice_demo.sdf.xacro` 和 `voice_nav2_demo.rviz`
+  演示资产；目标点和场景仍比较静态。
 - 已开始透传 Nav2 action 级别的失败细节，例如 server unavailable、goal rejected、aborted/canceled、
   error code/message、missed waypoints；但还没有进一步语义化归因到 planner/controller/localization
   等具体 Nav2 子系统。
 
 优化：
 
-- 增加固定 Gazebo world、map、waypoint assets。
-- 增加 RViz 展示脚本，突出 TF、map、path、goal。
+- 继续丰富固定 Gazebo world、map、waypoint assets，例如增加障碍物、房间语义和更多目标点。
+- 继续强化 RViz 展示脚本，突出 TF、map、path、goal 和导航状态。
 - 继续把 Nav2 result 与 `/diagnostics`、planner/controller 日志关联，形成更细粒度报告。
 
 ## 5. NLU 多命令泛化有限
@@ -141,5 +142,5 @@
 1. 固定真实演示脚本和 evidence 报告。
 2. 强化真实麦克风稳定性，默认接入一个成熟 VAD/KWS 方案。
 3. 补离线模型 benchmark 报告和动作准确率评估。
-4. 增加 Nav2 map/world/waypoint/RViz 展示资产。
+4. 丰富 Nav2 map/world/waypoint/RViz 展示资产和失败诊断报告。
 5. 继续整理面试问答和 C++ 技术亮点。

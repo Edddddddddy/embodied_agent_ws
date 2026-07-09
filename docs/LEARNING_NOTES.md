@@ -519,10 +519,13 @@ bash scripts/acceptance_test.sh speaker-enroll
 - `voice_nav2_turtlebot3.launch.py` 复用官方 `nav2_bringup/tb3_simulation_launch.py`，
   再叠加本项目的 Agent、ActionGuard、typed action bridge 和 Nav2 executor。
 - launch 暴露 `rviz_config_file/world/map/params_file`，默认 RViz 使用本项目的
-  `voice_nav2_demo.rviz`，方便面试时稳定展示 TF、map、scan、odom、global plan。
-- `audit_nav2_demo_assets.py` 审计语义地点、Nav2 launch、RViz 配置和验收脚本；默认允许
-  复用 Nav2 官方 `tb3_sandbox` map/world，但输出 warning。加 `--require-local-assets` 时，
-  可以把“项目自带固定 map/world”变成严格发布条件。
+  `voice_nav2_demo.rviz`，默认 map/world 使用项目内的 `voice_demo.yaml` 和
+  `voice_demo.sdf.xacro`，方便面试时稳定展示 TF、map、scan、odom、global plan。
+- `audit_nav2_demo_assets.py` 审计语义地点、Nav2 launch、RViz 配置、本地 map/world
+  和验收脚本；加 `--require-local-assets` 时，可以把“项目自带固定 map/world”
+  变成严格发布条件。world 文件仍通过 `model://turtlebot3_world` 复用 TurtleBot3 官方
+  场景几何，这是为了降低 Gazebo/Nav2 bringup 的不确定性；项目负责维护演示入口、
+  map/world 文件、目标点配置和语音到 Nav2 action 的链路。
 - `nav2-turtlebot3` 重型验收会启动真实 TurtleBot3/Nav2 仿真，注入语音文本命令，
   等待目标点导航/巡航 result，并检查 `/odom` 运动证据。
 - `test_continuous_navigation_queue.py` 是介于普通连续队列测试和真实 Nav2 重型测试之间的

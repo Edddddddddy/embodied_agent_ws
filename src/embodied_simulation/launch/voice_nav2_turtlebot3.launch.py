@@ -27,10 +27,9 @@ def as_python_bool(value):
 def generate_launch_description():
     simulation_share = get_package_share_directory("embodied_simulation")
     nav2_share = get_package_share_directory("nav2_bringup")
-    tb3_sim_share = get_package_share_directory("nav2_minimal_tb3_sim")
     nav2_params = os.path.join(nav2_share, "params", "nav2_params.yaml")
-    nav2_map = os.path.join(nav2_share, "maps", "tb3_sandbox.yaml")
-    default_world = os.path.join(tb3_sim_share, "worlds", "tb3_sandbox.sdf.xacro")
+    nav2_map = os.path.join(simulation_share, "maps", "voice_demo.yaml")
+    default_world = os.path.join(simulation_share, "worlds", "voice_demo.sdf.xacro")
     default_rviz = os.path.join(simulation_share, "rviz", "voice_nav2_demo.rviz")
     control_config = os.path.join(
         simulation_share, "config", "simulation_control.yaml"
@@ -156,8 +155,8 @@ def generate_launch_description():
         DeclareLaunchArgument("x_pose", default_value="-2.0"),
         DeclareLaunchArgument("y_pose", default_value="-0.5"),
         DeclareLaunchArgument("yaw", default_value="0.0"),
-        # 复用 Nav2 官方 TurtleBot3 仿真 bringup：地图、AMCL/SLAM、planner/controller
-        # 都由 nav2_bringup 管理，本项目只接入“语音 -> Nav2 action”的上层链路。
+        # 复用 Nav2 官方 TurtleBot3 bringup 的成熟导航栈；默认 map/world/RViz
+        # 指向本项目资产，让演示脚本、审计报告和简历讲解都有稳定的项目内入口。
         include_launch(
             "nav2_bringup",
             "tb3_simulation_launch.py",

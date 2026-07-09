@@ -39,7 +39,12 @@ def test_nav2_demo_asset_audit_reports_required_assets(tmp_path):
     assert audit["assets"]["launch"]["status"] == "present"
     assert "map" in audit["assets"]["launch"]["arguments"]
     assert "rviz_config_file" in audit["assets"]["launch"]["arguments"]
-    assert "map:uses_nav2_builtin_tb3_sandbox" in audit["warnings"]
+    assert audit["assets"]["launch"]["uses_project_local_map"] is True
+    assert audit["assets"]["launch"]["uses_project_local_world"] is True
+    assert audit["assets"]["local_assets"]["local_maps"]
+    assert audit["assets"]["local_assets"]["local_map_images"]
+    assert audit["assets"]["local_assets"]["local_worlds"]
+    assert "map:uses_nav2_builtin_tb3_sandbox" not in audit["warnings"]
 
 
 def test_nav2_demo_asset_audit_can_require_local_map_and_world():
@@ -53,10 +58,9 @@ def test_nav2_demo_asset_audit_can_require_local_map_and_world():
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        check=True,
     )
 
     summary = json.loads(result.stdout)
-    assert result.returncode == 1
-    assert summary["status"] == "FAIL"
-    assert "map:local_asset_required" in summary["blockers"]
-    assert "world:local_asset_required" in summary["blockers"]
+    assert summary["status"] == "PASS"
+    assert summary["blockers"] == []
