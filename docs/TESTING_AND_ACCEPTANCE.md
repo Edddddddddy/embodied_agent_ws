@@ -33,6 +33,7 @@ bash scripts/acceptance_test.sh --help
 | `offline` | 自动/本地模型 | Sherpa/llama.cpp/Sherpa-TTS 真实离线链路 |
 | `offline-runtime-versions` | 自动/本地版本 | 检查 llama.cpp、SummerTTS、sherpa-onnx 是否匹配阶段固定版本 |
 | `offline-showcase-report` | 自动/报告 | 汇总模型大小、运行时版本、指令解析准确率，输出离线展示 JSON/Markdown 报告 |
+| `offline-evidence-audit` | 自动/报告 | 审计离线报告的证据强度，输出哪些指标可宣称、哪些仍缺真实 benchmark |
 | `offline-latency` | 自动/本地模型 | 检查 llama.cpp 首 token ≤ 1s、默认 Sherpa-TTS 首音频 ≤ 300ms |
 | `instruction-eval-dataset` | 自动/数据集 | 校验轻量机器人指令评估集 schema、动作名和标签 |
 | `instruction-parser-eval` | 自动/数据集 | 在评估集上计算 deterministic parser 动作准确率和 tag 维度分数 |

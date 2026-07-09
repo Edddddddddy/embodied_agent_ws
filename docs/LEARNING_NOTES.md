@@ -352,6 +352,8 @@ bash scripts/acceptance_test.sh speaker-enroll
 - `scripts/setup_summer_tts_runtime.sh`
 - `scripts/summer_tts_smoke.py`
 - `scripts/smoke_test_summer_pseudo_tts.py`
+- `scripts/generate_offline_showcase_report.py`
+- `scripts/audit_offline_showcase_evidence.py`
 
 设计方式：
 
@@ -373,6 +375,9 @@ bash scripts/acceptance_test.sh speaker-enroll
 - `llama_cpp_preflight.py` 把 binary、模型文件、`/health`、`/v1/models`、低 token 流式 chat 分层验证。
 - `summer_tts_smoke.py` 把 SummerTTS 源码、二进制、模型和真实合成分层验证；`summer-pseudo-tts`
   再验证真实 SummerTTS 能接入项目双缓冲伪流式 pipeline。
+- `generate_offline_showcase_report.py` 汇总模型资产、运行时版本、parser accuracy、可选 latency/ASR/TTS benchmark；
+  `audit_offline_showcase_evidence.py` 再审计这份报告，输出 `claim_guidance`，明确哪些指标已有证据、
+  哪些只能作为后续计划。
 
 为什么这样设计：
 
@@ -381,6 +386,8 @@ bash scripts/acceptance_test.sh speaker-enroll
 - 双缓冲可以减少“LLM 等 TTS / TTS 等 LLM”的卡顿。
 - 本地 TTS 通常不是天然流式；伪流式的关键是尽早切短句、尽早开始合成、音频按 PCM 小块发布。
 - 推理层独立预检可以快速判断问题在模型服务、ASR、TTS 还是 ROS 控制链路，避免完整 demo 失败时只能猜。
+- 离线展示最怕“工程接口接了”和“指标已复现”混在一起讲；证据审计脚本把未运行的 latency、
+  ASR/TTS benchmark、LoRA 训练指标显式标成 warning，帮助汇报时守住边界。
 - SummerTTS 是 C++ 项目，适合展示“端侧 C++ 运行时嵌入”；命令行 provider 保证部署简单，
   常驻 ROS component 则展示了更工程化的低耦合封装，并减少每句进程启动和模型加载开销。
 - 短文本缓存只覆盖“收到/好的/正在执行”等反馈语，长句不缓存，避免内存被长音频占满；这属于工程优化，

@@ -115,12 +115,17 @@ bash scripts/acceptance_test.sh llama-cpp-preflight
 bash scripts/acceptance_test.sh llama-cpp-smoke
 bash scripts/acceptance_test.sh pseudo-tts
 bash scripts/acceptance_test.sh offline-runtime-versions
+bash scripts/acceptance_test.sh offline-showcase-report
+bash scripts/acceptance_test.sh offline-evidence-audit
 bash scripts/acceptance_test.sh offline-latency
 ```
 
 `llama-cpp-preflight` 会检查 `llama-server` binary、Q8 GGUF 模型、`/health` 和 `/v1/models`；
 `llama-cpp-smoke` 会额外发送一次低 token 流式 chat 请求；`pseudo-tts` 不依赖真实
 Sherpa/SummerTTS 模型，用假 PCM 验证“LLM token 流 -> 短句切分 -> 伪流式 TTS 双缓冲 -> 音频块发布”的工程链路。
+`offline-evidence-audit` 会读取 `logs/offline_showcase_report.json`，输出
+`logs/offline_evidence_audit.json`，明确哪些指标已有证据、哪些只能作为后续计划，避免把
+LoRA/真实延迟/ASR-TTS benchmark 等未复现项说成已完成。
 常用调参环境变量：
 
 ```bash

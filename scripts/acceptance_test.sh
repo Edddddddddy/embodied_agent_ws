@@ -17,6 +17,7 @@ Automated modes:
   llama-cpp-smoke     Low-token llama.cpp streaming chat verification
   offline-runtime-versions Check pinned llama.cpp/SummerTTS/sherpa-onnx versions
   offline-showcase-report Generate offline deployment JSON/Markdown evidence report
+  offline-evidence-audit Audit offline report evidence and over-claiming boundaries
   offline-latency     Check llama.cpp first token <1s and default TTS first audio <300ms
   summer-tts-preflight Check SummerTTS source/binary/model runtime files
   summer-tts-smoke     Real SummerTTS synthesis verification
@@ -213,6 +214,16 @@ case "$LEVEL" in
   offline) run_offline ;;
   offline-runtime-versions) python3 scripts/offline_runtime_versions.py --check ;;
   offline-showcase-report) python3 scripts/generate_offline_showcase_report.py ;;
+  offline-evidence-audit)
+    if [[ ! -s "${OFFLINE_EVIDENCE_REPORT:-logs/offline_showcase_report.json}" ]]; then
+      python3 scripts/generate_offline_showcase_report.py
+    fi
+    python3 scripts/audit_offline_showcase_evidence.py \
+      --input "${OFFLINE_EVIDENCE_REPORT:-logs/offline_showcase_report.json}" \
+      --output "${OFFLINE_EVIDENCE_AUDIT_OUTPUT:-logs/offline_evidence_audit.json}" \
+      ${OFFLINE_EVIDENCE_REQUIRE_LATENCY:+--require-latency} \
+      ${OFFLINE_EVIDENCE_REQUIRE_ASR_TTS:+--require-asr-tts}
+    ;;
   offline-latency) check_llama_cpp_runtime; bash scripts/smoke_test_offline_latency.sh ;;
   llama-cpp-preflight) check_llama_cpp_runtime; bash scripts/smoke_test_llama_cpp.sh preflight ;;
   llama-cpp-smoke) check_llama_cpp_runtime; bash scripts/smoke_test_llama_cpp.sh smoke ;;

@@ -7,6 +7,7 @@
 
 ```bash
 bash scripts/acceptance_test.sh offline-showcase-report
+bash scripts/acceptance_test.sh offline-evidence-audit
 ```
 
 默认不会启动 llama.cpp 或真实 ASR/TTS benchmark，会输出：
@@ -14,7 +15,12 @@ bash scripts/acceptance_test.sh offline-showcase-report
 ```text
 logs/offline_showcase_report.json
 logs/offline_showcase_report.md
+logs/offline_evidence_audit.json
 ```
+
+`offline-evidence-audit` 会把报告分成 `blockers`、`warnings` 和 `claim_guidance`：
+默认报告可以证明模型资产、运行时版本和 deterministic parser 评估；如果没有运行
+`offline-latency` 或 `--run-latency`，它会提示不要宣称首 token / 首音频指标已在当前机器复现。
 
 演示前如果要补充真实延迟和 Sherpa ASR/TTS benchmark：
 
@@ -39,6 +45,7 @@ python3 scripts/generate_offline_showcase_report.py --run-latency --run-asr-tts
 ```bash
 bash scripts/acceptance_test.sh offline-runtime-versions
 bash scripts/acceptance_test.sh offline-showcase-report
+bash scripts/acceptance_test.sh offline-evidence-audit
 bash scripts/acceptance_test.sh llama-cpp-preflight
 bash scripts/acceptance_test.sh llama-cpp-smoke
 bash scripts/acceptance_test.sh offline-latency
