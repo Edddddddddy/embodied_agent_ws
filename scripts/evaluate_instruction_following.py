@@ -178,9 +178,10 @@ def run_evaluation(args: argparse.Namespace) -> dict[str, Any]:
             and _actions_equal(actual["actions"], expected_actions)
         )
         effective_actions = _effective_actions(sample["input"], actual["actions"])
-        effective_passed = bool(actual["speech"]) and _actions_equal(
-            effective_actions, expected_actions
-        )
+        # effective_score 衡量的是“工程出口动作是否正确”，因此只看 fallback/安全层
+        # 兜底后的动作序列，不把模型是否生成合法 speech 标签混进去。模型协议严格性由
+        # model_score 单独承担，避免两个指标互相污染。
+        effective_passed = _actions_equal(effective_actions, expected_actions)
         failure_type = _failure_type(
             actual,
             expected_actions,
@@ -252,6 +253,7 @@ def build_report(
         "total": total,
         "model_score": round(model_passed / total, 4) if total else 0.0,
         "effective_score": round(effective_passed / total, 4) if total else 0.0,
+        "effective_score_policy": "action_only_after_fallback_and_safety",
         "failure_counts": dict(sorted(failure_counts.items())),
         "failed_cases": failed_cases,
         "cases": cases,

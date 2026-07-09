@@ -452,10 +452,11 @@ def build_claim_evidence(report: dict[str, Any]) -> dict[str, Any]:
                 "effective_passed": instruction_payload.get("effective_passed"),
                 "total": instruction_payload.get("total"),
                 "failed_cases": instruction_failed_count,
+                "effective_score_policy": instruction_payload.get("effective_score_policy"),
             }
             if instruction_payload
             else None,
-            caveat="model_score 只看离线 LLM 原始协议输出；effective_score 允许确定性 fallback/安全层兜底。",
+            caveat="model_score 只看离线 LLM 原始协议输出；effective_score 只看 fallback/安全层兜底后的动作序列。",
             next_step="运行 bash scripts/acceptance_test.sh instruction-following-eval 或 --run-instruction-following。",
         ),
         _claim(

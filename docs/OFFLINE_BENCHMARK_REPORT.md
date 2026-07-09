@@ -79,7 +79,9 @@ bash scripts/acceptance_test.sh instruction-following-eval
 `instruction-following-eval` 输出两个分数：
 
 - `model_score`：只看离线 LLM 原始 `<speech>/<action>` 协议输出是否正确，适合判断模型本身是否需要 LoRA/提示词优化。
-- `effective_score`：允许确定性 fallback 和安全层兜底后的有效动作结果，适合判断工程链路在演示动作域内的可用性。
+- `effective_score`：只看确定性 fallback 和安全层兜底后的动作序列是否正确，报告字段
+  `effective_score_policy=action_only_after_fallback_and_safety`。它适合判断工程链路在演示动作域内的可用性，
+  不代表模型本身已经学会了标签协议。
 
 如果 `model_score` 低但 `effective_score` 高，应如实表述为“离线 LLM 原始指令遵循仍弱，
 当前靠轻量 NLU/fallback/ActionGuard 保证演示动作稳定”，不要把 effective score 说成模型训练后准确率。

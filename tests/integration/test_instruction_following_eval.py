@@ -22,6 +22,7 @@ def _write_instruction_following_report(path: Path, *, model_score: float = 0.5)
                 "total": 4,
                 "model_score": model_score,
                 "effective_score": 0.75,
+                "effective_score_policy": "action_only_after_fallback_and_safety",
                 "failed_cases": [
                     {
                         "id": "case_0002",
@@ -76,11 +77,13 @@ def test_instruction_following_eval_reuses_existing_report(tmp_path):
     assert summary["model_score"] == 0.5
     assert summary["effective_score"] == 0.75
     assert report["scenario"] == "offline_llm_instruction_following_eval"
+    assert report["effective_score_policy"] == "action_only_after_fallback_and_safety"
     assert report["failed_cases"][0]["failure_type"] == "model_action_mismatch"
 
 
 def test_instruction_following_eval_fails_when_model_score_below_threshold(tmp_path):
     source = tmp_path / "source_report.json"
+    output = tmp_path / "instruction_following_report.json"
     _write_instruction_following_report(source, model_score=0.25)
 
     completed = subprocess.run(
@@ -89,6 +92,8 @@ def test_instruction_following_eval_fails_when_model_score_below_threshold(tmp_p
             str(SCRIPT),
             "--input-report",
             str(source),
+            "--output",
+            str(output),
             "--minimum",
             "0.7",
         ],
