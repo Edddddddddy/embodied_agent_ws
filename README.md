@@ -60,6 +60,7 @@ embodied_agent_ws/
 ├── tests/                           # repository / integration 测试
 ├── docs/
 │   ├── ARCHITECTURE_AND_KNOWLEDGE.md
+│   ├── FINAL_ARCHITECTURE_DIAGRAMS.md
 │   ├── TESTING_AND_ACCEPTANCE.md
 │   ├── PROJECT_PRESENTATION_15MIN.md
 │   ├── INTERVIEW_QA.md
@@ -621,6 +622,7 @@ bash scripts/acceptance_test.sh online
 ## 文档索引
 
 - [架构与模块说明](docs/ARCHITECTURE_AND_KNOWLEDGE.md)
+- [最终架构图与端到端数据流图](docs/FINAL_ARCHITECTURE_DIAGRAMS.md)
 - [测试与验收手册](docs/TESTING_AND_ACCEPTANCE.md)
 - [15 分钟汇报与代码走读稿](docs/PROJECT_PRESENTATION_15MIN.md)
 - [面试问答：ROS 2 / C++ 项目追问](docs/INTERVIEW_QA.md)

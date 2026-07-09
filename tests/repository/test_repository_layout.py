@@ -331,13 +331,25 @@ def test_job_presentation_doc_remains_discoverable():
     """求职展示版必须有稳定的汇报入口，方便按代码讲完整链路。"""
 
     presentation = ROOT / "docs" / "PROJECT_PRESENTATION_15MIN.md"
+    diagrams = ROOT / "docs" / "FINAL_ARCHITECTURE_DIAGRAMS.md"
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     presentation_text = presentation.read_text(encoding="utf-8")
+    diagrams_text = diagrams.read_text(encoding="utf-8")
 
     assert presentation.is_file()
+    assert diagrams.is_file()
     assert "PROJECT_PRESENTATION_15MIN.md" in readme
+    assert "FINAL_ARCHITECTURE_DIAGRAMS.md" in readme
     assert "15 分钟项目汇报" in presentation_text
+    assert "FINAL_ARCHITECTURE_DIAGRAMS.md" in presentation_text
     assert "从语音输入到仿真执行的代码走读地图" in presentation_text
+    assert "最终系统架构图" in diagrams_text
+    assert "端到端数据流图" in diagrams_text
+    assert "flowchart TB" in diagrams_text
+    assert "sequenceDiagram" in diagrams_text
+    assert "C++ ActionGuard" in diagrams_text
+    assert "typed_action_demo_client" in diagrams_text
+    assert "offline_showcase_report" in diagrams_text
     for required in (
         "continuous-offline",
         "continuous-multi-command",

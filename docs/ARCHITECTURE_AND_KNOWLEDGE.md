@@ -1,6 +1,8 @@
 # 架构与模块说明
 
-本文档描述当前项目的功能结构和模块边界。更详细的技术取舍、代码位置和面试讲法见 [LEARNING_NOTES.md](LEARNING_NOTES.md)。
+本文档描述当前项目的功能结构和模块边界。汇报时优先看
+[FINAL_ARCHITECTURE_DIAGRAMS.md](FINAL_ARCHITECTURE_DIAGRAMS.md) 中的最终架构图与端到端数据流图；
+更详细的技术取舍、代码位置和面试讲法见 [LEARNING_NOTES.md](LEARNING_NOTES.md)。
 
 ## 1. 总体目标
 

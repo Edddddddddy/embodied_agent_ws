@@ -28,7 +28,7 @@
 
 | 时间 | 讲什么 | 建议打开的文件/命令 |
 | --- | --- | --- |
-| 0:00 - 2:00 | 项目背景：为什么要做语音 Agent 到机器人控制的全链路 | `README.md` 的系统链路图 |
+| 0:00 - 2:00 | 项目背景：为什么要做语音 Agent 到机器人控制的全链路 | `docs/FINAL_ARCHITECTURE_DIAGRAMS.md` 的最终架构图 |
 | 2:00 - 4:00 | ROS 2 接口设计：为什么用 typed msg/action，而不是直接发 `/cmd_vel` | `src/embodied_agent_interfaces/msg/RobotCommand.msg`、`src/embodied_agent_interfaces/action/ExecuteRobotCommand.action` |
 | 4:00 - 6:00 | C++ 安全边界：ActionGuard 如何校验、限幅、拒绝非法动作 | `src/embodied_agent_cpp/src/action_guard_node.cpp`、`src/embodied_agent_cpp/src/action_validator.cpp` |
 | 6:00 - 8:00 | 连续语音：唤醒、去重、filler 过滤、队列、急停抢占 | `src/embodied_online_agent/embodied_online_agent/continuous_voice.py` |

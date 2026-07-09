@@ -7,6 +7,9 @@
 - 为什么这样设计？
 - 和其他方案相比有什么区别？
 
+如果只想先看主链路图，优先打开
+[FINAL_ARCHITECTURE_DIAGRAMS.md](FINAL_ARCHITECTURE_DIAGRAMS.md)。
+
 ## 1. ROS 2 通信模型：topic、msg、action 的分工
 
 关键代码：
