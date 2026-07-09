@@ -218,6 +218,25 @@ def collect_asr_tts_benchmark(run_asr_tts: bool, timeout_s: float) -> dict[str, 
     return _run_json_command([sys.executable, "scripts/benchmark_offline.py"], timeout_s=timeout_s)
 
 
+def collect_llama_decode_benchmark(
+    run_llama_bench: bool,
+    timeout_s: float,
+    llama_bench_input: str | None,
+    llama_bench_output: str,
+) -> dict[str, Any]:
+    if not run_llama_bench:
+        return {
+            "status": "not_run",
+            "reason": "pass --run-llama-bench to measure llama.cpp decode tokens/s",
+        }
+    command = [sys.executable, "scripts/benchmark_llama_decode_speed.py"]
+    if llama_bench_input:
+        command.extend(["--input-json", llama_bench_input])
+    if llama_bench_output:
+        command.extend(["--output", llama_bench_output])
+    return _run_json_command(command, timeout_s=timeout_s)
+
+
 def _inventory_item(models: dict[str, Any], key: str) -> dict[str, Any] | None:
     for item in models.get("items", []):
         if item.get("key") == key:
@@ -275,6 +294,7 @@ def build_claim_evidence(report: dict[str, Any]) -> dict[str, Any]:
     parser = report["instruction_parser"]
     latency = report["latency"]
     asr_tts = report["asr_tts_benchmark"]
+    llama_bench = report["llama_decode_benchmark"]
     q8_model = _inventory_item(models, "llm_qwen3_0_6b_q8")
     tts_model = _inventory_item(models, "tts_sherpa_vits")
 
@@ -285,6 +305,8 @@ def build_claim_evidence(report: dict[str, Any]) -> dict[str, Any]:
 
     asr_tts_payload = _command_payload(asr_tts)
     asr_tts_ok = _executed_ok(asr_tts)
+    llama_bench_payload = _command_payload(llama_bench)
+    llama_bench_ok = _executed_ok(llama_bench)
 
     parser_ok = parser.get("accuracy", 0.0) >= 0.95 and not parser.get("failed_cases")
 
@@ -311,10 +333,23 @@ def build_claim_evidence(report: dict[str, Any]) -> dict[str, Any]:
         _claim(
             "llama_decode_speed",
             "llama.cpp CPU decode tokens/s",
-            "missing",
-            "latency_report_does_not_include_decode_speed",
-            caveat="当前快速报告只检查资产/版本/parser；tokens/s 需要独立从 llama.cpp metrics 或 benchmark 采集。",
-            next_step="补充 llama.cpp benchmark 输出解析，把 tokens/s 写入 logs/offline_showcase_report.json。",
+            "proven"
+            if llama_bench_ok and llama_bench_payload.get("decode_tokens_per_s") is not None
+            else "missing",
+            "llama-bench" if llama_bench_ok else "not_measured",
+            metric={
+                "decode_tokens_per_s": llama_bench_payload.get("decode_tokens_per_s"),
+                "prompt_tokens_per_s": llama_bench_payload.get("prompt_tokens_per_s"),
+                "minimum_decode_tokens_per_s": llama_bench_payload.get(
+                    "minimum_decode_tokens_per_s"
+                ),
+                "n_threads": llama_bench_payload.get("n_threads"),
+                "n_gpu_layers": llama_bench_payload.get("n_gpu_layers"),
+            }
+            if llama_bench_payload
+            else None,
+            caveat="该指标来自 llama.cpp 自带 llama-bench，和真实 Agent 长上下文、多轮对话吞吐仍有差异。",
+            next_step="运行 bash scripts/acceptance_test.sh llama-decode-benchmark 或 --run-llama-bench。",
         ),
         _claim(
             "llm_first_token_latency",
@@ -411,15 +446,24 @@ def build_claim_evidence(report: dict[str, Any]) -> dict[str, Any]:
         )
     if latency_ok:
         allowed_claims.append("可以说：LLM/TTS 延迟已有本机真实测量证据。")
+    if llama_bench_ok and llama_bench_payload.get("decode_tokens_per_s") is not None:
+        allowed_claims.append(
+            "可以说：llama.cpp CPU decode speed 已通过 llama-bench 本机测量，"
+            f"decode≈{llama_bench_payload.get('decode_tokens_per_s')} tokens/s。"
+        )
     if asr_tts_ok:
         allowed_claims.append("可以说：Sherpa ASR/TTS realtime factor 已在本机测量。")
 
     restricted_claims = [
         "不要说：LoRA 微调训练、checkpoint 和训练后准确率已经复现；当前报告没有这类证据。",
         "不要说：Q8 指令遵循精度约 85% 已复现；除非补充离线 LLM 指令评估报告。",
-        "不要说：llama.cpp CPU decode 已达到某个 tokens/s；除非报告中出现真实 decode benchmark。",
         "不要说：SummerTTS 是默认 <300ms TTS；当前低延迟默认仍以 Sherpa-TTS 为主。",
     ]
+    if not llama_bench_ok:
+        restricted_claims.insert(
+            2,
+            "不要说：llama.cpp CPU decode 已达到某个 tokens/s；除非报告中出现真实 llama-bench benchmark。",
+        )
 
     return {
         "schema_version": 1,
@@ -444,6 +488,12 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "instruction_parser": evaluate_instruction_parser(dataset),
         "latency": collect_latency(args.run_latency, args.timeout_s),
         "asr_tts_benchmark": collect_asr_tts_benchmark(args.run_asr_tts, args.timeout_s),
+        "llama_decode_benchmark": collect_llama_decode_benchmark(
+            args.run_llama_bench,
+            args.timeout_s,
+            args.llama_bench_input,
+            args.llama_bench_output,
+        ),
     }
     report["claim_evidence"] = build_claim_evidence(report)
     return report
@@ -509,12 +559,13 @@ def render_markdown(report: dict[str, Any]) -> str:
             "## 4. 延迟与 ASR/TTS benchmark",
             "",
             f"- 延迟测量：`{report['latency'].get('status', 'executed')}`",
+            f"- llama.cpp decode benchmark：`{report['llama_decode_benchmark'].get('status', 'executed')}`",
             f"- ASR/TTS benchmark：`{report['asr_tts_benchmark'].get('status', 'executed')}`",
             "",
             "说明：默认报告不启动 llama.cpp 或真实 ASR/TTS benchmark。演示前可运行：",
             "",
             "```bash",
-            "python3 scripts/generate_offline_showcase_report.py --run-latency --run-asr-tts",
+            "python3 scripts/generate_offline_showcase_report.py --run-latency --run-llama-bench --run-asr-tts",
             "```",
         ]
     )
@@ -559,6 +610,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--md-output", default="logs/offline_showcase_report.md")
     parser.add_argument("--timeout-s", type=float, default=900.0)
     parser.add_argument("--run-latency", action="store_true")
+    parser.add_argument("--run-llama-bench", action="store_true")
+    parser.add_argument("--llama-bench-input", help="parse saved llama-bench JSON instead of running it")
+    parser.add_argument("--llama-bench-output", default="logs/llama_decode_benchmark.json")
     parser.add_argument("--run-asr-tts", action="store_true")
     return parser.parse_args()
 

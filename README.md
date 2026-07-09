@@ -113,6 +113,7 @@ llama.cpp 推理层可以先单独验收，避免把 ASR、TTS、Gazebo 的问�
 ```bash
 bash scripts/acceptance_test.sh llama-cpp-preflight
 bash scripts/acceptance_test.sh llama-cpp-smoke
+bash scripts/acceptance_test.sh llama-decode-benchmark
 bash scripts/acceptance_test.sh pseudo-tts
 bash scripts/acceptance_test.sh offline-runtime-versions
 bash scripts/acceptance_test.sh offline-showcase-report
@@ -121,17 +122,27 @@ bash scripts/acceptance_test.sh offline-latency
 ```
 
 `llama-cpp-preflight` 会检查 `llama-server` binary、Q8 GGUF 模型、`/health` 和 `/v1/models`；
-`llama-cpp-smoke` 会额外发送一次低 token 流式 chat 请求；`pseudo-tts` 不依赖真实
-Sherpa/SummerTTS 模型，用假 PCM 验证“LLM token 流 -> 短句切分 -> 伪流式 TTS 双缓冲 -> 音频块发布”的工程链路。
+`llama-cpp-smoke` 会额外发送一次低 token 流式 chat 请求；`llama-decode-benchmark`
+调用 llama.cpp 自带 `llama-bench`，把 CPU decode tokens/s 写入
+`logs/llama_decode_benchmark.json`；`pseudo-tts` 不依赖真实 Sherpa/SummerTTS 模型，
+用假 PCM 验证“LLM token 流 -> 短句切分 -> 伪流式 TTS 双缓冲 -> 音频块发布”的工程链路。
 `offline-evidence-audit` 会读取 `logs/offline_showcase_report.json`，输出
 `logs/offline_evidence_audit.json`。报告中的 `claim_evidence` 会逐项标记 Q8 模型资产、
 deterministic parser、首 token、TTS 首音频、tokens/s、LoRA 训练等证据状态，明确哪些指标
 已有证据、哪些只能作为后续计划，避免把 LoRA/真实延迟/ASR-TTS benchmark 等未复现项说成已完成。
+演示前如需把 tokens/s 直接写进离线展示报告，可运行：
+
+```bash
+OFFLINE_SHOWCASE_RUN_LLAMA_BENCH=true bash scripts/acceptance_test.sh offline-showcase-report
+OFFLINE_EVIDENCE_REQUIRE_LLAMA_BENCH=1 bash scripts/acceptance_test.sh offline-evidence-audit
+```
+
 常用调参环境变量：
 
 ```bash
 LLAMA_THREADS=8 LLAMA_CONTEXT=2048 bash scripts/start_llama_server.sh
 LLAMA_EXTRA_ARGS="--parallel 1" bash scripts/acceptance_test.sh llama-cpp-smoke
+LLAMA_DECODE_MIN_TOKENS_PER_S=8.0 LLAMA_BENCH_NO_WARMUP=1 bash scripts/acceptance_test.sh llama-decode-benchmark
 ```
 
 SummerTTS 可以单独部署和验收：

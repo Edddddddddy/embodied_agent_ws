@@ -18,6 +18,8 @@ WORKSPACE = Path(__file__).resolve().parents[1]
 
 
 def _status_from_executed_block(block: dict[str, Any]) -> str:
+    if not block:
+        return "missing"
     if block.get("status") == "not_run":
         return "missing"
     if block.get("ok") is True:
@@ -50,6 +52,7 @@ def audit_report(
     *,
     parser_minimum: float = 0.95,
     require_latency: bool = False,
+    require_llama_bench: bool = False,
     require_asr_tts: bool = False,
 ) -> dict[str, Any]:
     blockers: list[str] = []
@@ -59,6 +62,7 @@ def audit_report(
     versions = report.get("runtime_versions") or {}
     parser = report.get("instruction_parser") or {}
     latency = report.get("latency") or {}
+    llama_bench = report.get("llama_decode_benchmark") or {}
     asr_tts = report.get("asr_tts_benchmark") or {}
     claim_statuses = _claim_statuses(report)
 
@@ -81,6 +85,15 @@ def audit_report(
             warnings.append("latency:not_measured")
     elif latency_status != "proven" or not _latency_payload_ok(latency):
         blockers.append("latency:measured_but_failed")
+
+    llama_bench_status = _status_from_executed_block(llama_bench)
+    if llama_bench_status == "missing":
+        if require_llama_bench:
+            blockers.append("llama_decode_benchmark:required_but_not_measured")
+        else:
+            warnings.append("llama_decode_benchmark:not_measured")
+    elif llama_bench_status != "proven":
+        blockers.append("llama_decode_benchmark:measured_but_failed")
 
     asr_tts_status = _status_from_executed_block(asr_tts)
     if asr_tts_status == "missing":
@@ -120,6 +133,10 @@ def audit_report(
             "status": latency_status,
             "raw_status": latency.get("status", "executed"),
         },
+        "llama_decode_benchmark": {
+            "status": llama_bench_status,
+            "raw_status": llama_bench.get("status", "executed"),
+        },
         "asr_tts_benchmark": {
             "status": asr_tts_status,
             "raw_status": asr_tts.get("status", "executed"),
@@ -151,6 +168,10 @@ def audit_report(
         claim_guidance.append("可以说：Sherpa ASR/TTS benchmark 已在当前环境真实测量。")
     else:
         claim_guidance.append("不要说：ASR/TTS realtime factor 已在当前环境复现；除非先运行 benchmark_offline 或 --run-asr-tts。")
+    if llama_bench_status == "proven":
+        claim_guidance.append("可以说：llama.cpp decode tokens/s 已有 llama-bench 证据。")
+    else:
+        claim_guidance.append("不要说：llama.cpp CPU decode tokens/s 已复现；除非先运行 llama-decode-benchmark 或 --run-llama-bench。")
     claim_guidance.append("不要说：LoRA 微调、Q8 指令遵循 85% 等训练指标已经复现；当前证据只支撑工程接口与评估闭环。")
     claim_guidance.append("不要说：SummerTTS 是默认 <300ms 低延迟 TTS；当前低延迟默认仍以 Sherpa-TTS 为准。")
 
@@ -171,6 +192,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", default="logs/offline_evidence_audit.json")
     parser.add_argument("--parser-minimum", type=float, default=0.95)
     parser.add_argument("--require-latency", action="store_true")
+    parser.add_argument("--require-llama-bench", action="store_true")
     parser.add_argument("--require-asr-tts", action="store_true")
     return parser.parse_args()
 
@@ -188,6 +210,7 @@ def main() -> None:
         report,
         parser_minimum=args.parser_minimum,
         require_latency=args.require_latency,
+        require_llama_bench=args.require_llama_bench,
         require_asr_tts=args.require_asr_tts,
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)

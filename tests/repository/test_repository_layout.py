@@ -164,12 +164,13 @@ def test_llama_cpp_deployment_entrypoints_remain_available():
     acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
         encoding="utf-8"
     )
-    for mode in ("llama-cpp-preflight", "llama-cpp-smoke"):
+    for mode in ("llama-cpp-preflight", "llama-cpp-smoke", "llama-decode-benchmark"):
         assert mode in acceptance
 
     start_script = ROOT / "scripts" / "start_llama_server.sh"
     smoke_script = ROOT / "scripts" / "smoke_test_llama_cpp.sh"
     preflight_script = ROOT / "scripts" / "llama_cpp_preflight.py"
+    decode_benchmark_script = ROOT / "scripts" / "benchmark_llama_decode_speed.py"
     provider = (
         ROOT
         / "src"
@@ -181,6 +182,7 @@ def test_llama_cpp_deployment_entrypoints_remain_available():
     assert start_script.is_file()
     assert smoke_script.is_file()
     assert preflight_script.is_file()
+    assert decode_benchmark_script.is_file()
     assert provider.is_file()
 
     start_text = start_script.read_text(encoding="utf-8")
@@ -188,6 +190,7 @@ def test_llama_cpp_deployment_entrypoints_remain_available():
     provider_text = provider.read_text(encoding="utf-8")
     assert "LLAMA_EXTRA_ARGS" in start_text
     assert "/v1/chat/completions" in preflight_text
+    assert "llama-bench" in decode_benchmark_script.read_text(encoding="utf-8")
     assert "LlamaCppMetrics" in provider_text
     assert "timeout_s" in provider_text
 
@@ -431,6 +434,9 @@ def test_showcase_hardening_artifacts_remain_discoverable():
     assert "offline_showcase_evidence_audit" in audit_text
     assert "claim_guidance" in audit_text
     assert "不要说：LoRA" in audit_text
+    assert "require_llama_bench" in audit_text
+    assert "OFFLINE_SHOWCASE_RUN_LLAMA_BENCH" in acceptance
+    assert "OFFLINE_EVIDENCE_REQUIRE_LLAMA_BENCH" in acceptance
     release_gate_text = release_gate.read_text(encoding="utf-8")
     assert "job_showcase_release_gate" in release_gate_text
     assert "CORE_COMMANDS" in release_gate_text

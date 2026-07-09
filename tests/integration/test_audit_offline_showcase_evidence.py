@@ -37,6 +37,10 @@ def _write_report(path: Path, *, latency_status: str = "not_run") -> None:
             "failed_cases": [],
         },
         "latency": {"status": latency_status, "reason": "not measured in default report"},
+        "llama_decode_benchmark": {
+            "status": "not_run",
+            "reason": "not measured in default report",
+        },
         "asr_tts_benchmark": {"status": "not_run", "reason": "not measured in default report"},
         "claim_evidence": {
             "schema_version": 1,
@@ -82,8 +86,10 @@ def test_offline_evidence_audit_warns_when_latency_is_not_measured(tmp_path):
     assert summary["status"] == "PASS"
     assert audit["ok"] is True
     assert "latency:not_measured" in audit["warnings"]
+    assert "llama_decode_benchmark:not_measured" in audit["warnings"]
     assert audit["evidence"]["instruction_parser"]["status"] == "proven"
     assert audit["evidence"]["latency"]["status"] == "missing"
+    assert audit["evidence"]["llama_decode_benchmark"]["status"] == "missing"
     assert audit["evidence"]["claim_evidence"]["status"] == "proven"
     assert audit["evidence"]["claim_evidence"]["items"]["lora_training"] == "not_reproduced"
     assert "claim_evidence:llama_decode_speed:missing" in audit["warnings"]
@@ -112,3 +118,27 @@ def test_offline_evidence_audit_can_require_real_latency(tmp_path):
     assert result.returncode == 1
     assert summary["status"] == "FAIL"
     assert "latency:required_but_not_measured" in summary["blockers"]
+
+
+def test_offline_evidence_audit_can_require_llama_decode_benchmark(tmp_path):
+    report = tmp_path / "offline_showcase_report.json"
+    _write_report(report)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--input",
+            str(report),
+            "--require-llama-bench",
+        ],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    summary = json.loads(result.stdout)
+    assert result.returncode == 1
+    assert summary["status"] == "FAIL"
+    assert "llama_decode_benchmark:required_but_not_measured" in summary["blockers"]

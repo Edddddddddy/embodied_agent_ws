@@ -15,6 +15,7 @@ Automated modes:
   offline             Real ZipFormer/llama.cpp/Sherpa-TTS verification
   llama-cpp-preflight Check llama.cpp binary/model plus llama-server health/models API
   llama-cpp-smoke     Low-token llama.cpp streaming chat verification
+  llama-decode-benchmark Measure llama.cpp CPU decode tokens/s with llama-bench
   offline-runtime-versions Check pinned llama.cpp/SummerTTS/sherpa-onnx versions
   offline-showcase-report Generate offline deployment JSON/Markdown evidence report
   offline-evidence-audit Audit offline report evidence and over-claiming boundaries
@@ -216,7 +217,25 @@ case "$LEVEL" in
   online) run_online ;;
   offline) run_offline ;;
   offline-runtime-versions) python3 scripts/offline_runtime_versions.py --check ;;
-  offline-showcase-report) python3 scripts/generate_offline_showcase_report.py ;;
+  offline-showcase-report)
+    REPORT_ARGS=()
+    if [[ "${OFFLINE_SHOWCASE_RUN_LATENCY:-false}" == "true" ]]; then
+      REPORT_ARGS+=(--run-latency)
+    fi
+    if [[ "${OFFLINE_SHOWCASE_RUN_LLAMA_BENCH:-false}" == "true" ]]; then
+      REPORT_ARGS+=(--run-llama-bench)
+    fi
+    if [[ -n "${OFFLINE_SHOWCASE_LLAMA_BENCH_INPUT:-}" ]]; then
+      REPORT_ARGS+=(--llama-bench-input "$OFFLINE_SHOWCASE_LLAMA_BENCH_INPUT")
+    fi
+    if [[ -n "${OFFLINE_SHOWCASE_LLAMA_BENCH_OUTPUT:-}" ]]; then
+      REPORT_ARGS+=(--llama-bench-output "$OFFLINE_SHOWCASE_LLAMA_BENCH_OUTPUT")
+    fi
+    if [[ "${OFFLINE_SHOWCASE_RUN_ASR_TTS:-false}" == "true" ]]; then
+      REPORT_ARGS+=(--run-asr-tts)
+    fi
+    python3 scripts/generate_offline_showcase_report.py "${REPORT_ARGS[@]}"
+    ;;
   offline-evidence-audit)
     if [[ ! -s "${OFFLINE_EVIDENCE_REPORT:-logs/offline_showcase_report.json}" ]]; then
       python3 scripts/generate_offline_showcase_report.py
@@ -225,11 +244,19 @@ case "$LEVEL" in
       --input "${OFFLINE_EVIDENCE_REPORT:-logs/offline_showcase_report.json}" \
       --output "${OFFLINE_EVIDENCE_AUDIT_OUTPUT:-logs/offline_evidence_audit.json}" \
       ${OFFLINE_EVIDENCE_REQUIRE_LATENCY:+--require-latency} \
+      ${OFFLINE_EVIDENCE_REQUIRE_LLAMA_BENCH:+--require-llama-bench} \
       ${OFFLINE_EVIDENCE_REQUIRE_ASR_TTS:+--require-asr-tts}
     ;;
   offline-latency) check_llama_cpp_runtime; bash scripts/smoke_test_offline_latency.sh ;;
   llama-cpp-preflight) check_llama_cpp_runtime; bash scripts/smoke_test_llama_cpp.sh preflight ;;
   llama-cpp-smoke) check_llama_cpp_runtime; bash scripts/smoke_test_llama_cpp.sh smoke ;;
+  llama-decode-benchmark)
+    check_llama_cpp_runtime
+    require_file third_party/llama.cpp/build/bin/llama-bench
+    python3 scripts/benchmark_llama_decode_speed.py \
+      --minimum-decode-tokens-per-s "${LLAMA_DECODE_MIN_TOKENS_PER_S:-0}" \
+      ${LLAMA_BENCH_NO_WARMUP:+--no-warmup}
+    ;;
   summer-tts-preflight) check_summer_tts_runtime; python3 scripts/summer_tts_smoke.py --preflight-only ;;
   summer-tts-smoke) check_summer_tts_runtime; python3 scripts/summer_tts_smoke.py ;;
   summer-pseudo-tts) check_summer_tts_runtime; python3 scripts/smoke_test_summer_pseudo_tts.py ;;

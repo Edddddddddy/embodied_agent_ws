@@ -20,7 +20,8 @@ logs/offline_evidence_audit.json
 
 `offline-evidence-audit` 会把报告分成 `blockers`、`warnings` 和 `claim_guidance`：
 默认报告可以证明模型资产、运行时版本和 deterministic parser 评估；如果没有运行
-`offline-latency` 或 `--run-latency`，它会提示不要宣称首 token / 首音频指标已在当前机器复现。
+`offline-latency` / `llama-decode-benchmark` 或对应 `--run-*` 参数前，它会提示不要宣称
+首 token、首音频或 tokens/s 指标已在当前机器复现。
 
 `offline_showcase_report.json` 还包含 `claim_evidence` 指标证据矩阵，用于把每项能力标成
 `proven`、`missing`、`not_reproduced` 或 `not_default`。汇报时优先引用这张矩阵：
@@ -30,7 +31,7 @@ llama.cpp tokens/s、离线 LLM 指令遵循准确率等仍需要单独 benchmar
 演示前如果要补充真实延迟和 Sherpa ASR/TTS benchmark：
 
 ```bash
-python3 scripts/generate_offline_showcase_report.py --run-latency --run-asr-tts
+python3 scripts/generate_offline_showcase_report.py --run-latency --run-llama-bench --run-asr-tts
 ```
 
 ## 1. 环境信息
@@ -53,6 +54,7 @@ bash scripts/acceptance_test.sh offline-showcase-report
 bash scripts/acceptance_test.sh offline-evidence-audit
 bash scripts/acceptance_test.sh llama-cpp-preflight
 bash scripts/acceptance_test.sh llama-cpp-smoke
+bash scripts/acceptance_test.sh llama-decode-benchmark
 bash scripts/acceptance_test.sh offline-latency
 bash scripts/benchmark_offline.sh
 bash scripts/acceptance_test.sh instruction-parser-eval
@@ -68,7 +70,7 @@ bash scripts/evaluate_instruction_following.sh --minimum 0.70
 | 指标证据矩阵 | 区分可宣称/不可宣称 | 见 `claim_evidence` | `offline-showcase-report` + `offline-evidence-audit` |
 | LLM 首 token | ≤ 1000ms | 见真实延迟报告 | `offline-latency` 或 `--run-latency` |
 | 默认 TTS 首音频 | ≤ 300ms | 见真实延迟报告 | `offline-latency` 或 `--run-latency` |
-| llama.cpp tokens/s | 记录即可 | 见 llama.cpp 日志/metrics | `/offline_agent/metrics` 或 `llama-cpp-smoke` |
+| llama.cpp tokens/s | 记录即可 | 见 `logs/llama_decode_benchmark.json` 或 `claim_evidence` | `llama-decode-benchmark` 或 `--run-llama-bench` |
 | ASR realtime factor | < 1.0 更好 | 见真实 benchmark | `benchmark_offline.sh` 或 `--run-asr-tts` |
 | TTS realtime factor | < 1.0 更好 | 见真实 benchmark | `benchmark_offline.sh` 或 `--run-asr-tts` |
 | deterministic parser 动作准确率 | ≥ 95% | 当前代表集 39/39（100%） | `instruction-parser-eval` |
