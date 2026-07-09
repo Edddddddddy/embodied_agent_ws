@@ -561,6 +561,10 @@ source logs/voice_calibration.env
 bash scripts/acceptance_test.sh continuous-offline
 ```
 
+如果当前使用 `KWS_PROVIDER=openwakeword` 或 `KWS_PROVIDER=livekit`，并且采集到了
+`/agent/kws_score`，`logs/voice_calibration.env` 还会写入推荐的
+`OPENWAKEWORD_THRESHOLD` 或 `LIVEKIT_WAKEWORD_THRESHOLD`，用于下一轮唤醒词阈值复测。
+
 连续语音脚本默认 `APPLY_VOICE_CALIBRATION=auto`：如果
 `logs/voice_calibration.env` 存在，会在 profile 默认值计算前自动加载；如果你显式传了
 `VOICE_CONTROL_PROFILE/SPEECH_START_THRESHOLD/VAD_PROVIDER` 等关键变量，显式值会优先。

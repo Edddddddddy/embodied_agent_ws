@@ -125,6 +125,15 @@ def build_calibration_report(
     recommended_environment.append(f"VAD_PROVIDER={provider.vad_provider}")
     if provider.kws_provider not in {"none", "disabled", "mock_text"}:
         recommended_environment.append(f"KWS_PROVIDER={provider.kws_provider}")
+    if kws.sample_count > 0:
+        if provider.kws_provider == "openwakeword":
+            recommended_environment.append(
+                f"OPENWAKEWORD_THRESHOLD={kws.suggested_threshold}"
+            )
+        elif provider.kws_provider == "livekit":
+            recommended_environment.append(
+                f"LIVEKIT_WAKEWORD_THRESHOLD={kws.suggested_threshold}"
+            )
     next_command = (
         " ".join(recommended_environment)
         + f" bash scripts/acceptance_test.sh continuous-{mode}"

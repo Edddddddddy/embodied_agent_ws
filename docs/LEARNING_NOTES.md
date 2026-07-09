@@ -166,7 +166,9 @@
 - `VOICE_CONTROL_PROFILE` 提供 normal、quiet、low_gain、noisy_room 四种参数预设。
 - `voice_calibration_report.py` 把 provider preflight、audio calibration、KWS score calibration
   汇总成 `logs/voice_calibration_report.json/.md`，并额外生成可 `source` 的
-  `logs/voice_calibration.env`，用于真实麦克风演示前保存和复用调参证据。
+  `logs/voice_calibration.env`，用于真实麦克风演示前保存和复用调参证据。对
+  openWakeWord/LiveKit，采到 KWS 分数后会把建议阈值写成
+  `OPENWAKEWORD_THRESHOLD` / `LIVEKIT_WAKEWORD_THRESHOLD`。
 - `continuous_voice_control.sh` 默认 `APPLY_VOICE_CALIBRATION=auto`：如果
   `logs/voice_calibration.env` 存在，会在 profile 默认值计算前加载；如果用户显式传入
   `VOICE_CONTROL_PROFILE/SPEECH_START_THRESHOLD/VAD_PROVIDER` 等关键变量，则显式值优先。

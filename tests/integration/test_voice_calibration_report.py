@@ -38,6 +38,44 @@ def test_low_gain_bundle_recommends_copyable_environment():
     assert "export SPEECH_START_THRESHOLD=" in env_text
 
 
+def test_kws_samples_add_copyable_threshold_environment():
+    report = voice_report.build_calibration_report(
+        mode="offline",
+        audio_samples=voice_report._synthetic_audio_samples("ready"),
+        kws_samples=voice_report._synthetic_kws_samples("ready"),
+        require_kws=True,
+        vad_provider="webrtc",
+        kws_provider="openwakeword",
+    )
+
+    threshold_items = [
+        item for item in report["recommended_environment"]
+        if item.startswith("OPENWAKEWORD_THRESHOLD=")
+    ]
+    assert threshold_items
+    assert "KWS_PROVIDER=openwakeword" in report["recommended_environment"]
+    assert "OPENWAKEWORD_THRESHOLD=" in report["next_command"]
+    env_text = voice_report.render_env(report)
+    assert "export OPENWAKEWORD_THRESHOLD=" in env_text
+
+
+def test_livekit_kws_samples_add_copyable_threshold_environment():
+    report = voice_report.build_calibration_report(
+        mode="online",
+        audio_samples=voice_report._synthetic_audio_samples("ready"),
+        kws_samples=voice_report._synthetic_kws_samples("ready"),
+        require_kws=True,
+        vad_provider="webrtc",
+        kws_provider="livekit",
+    )
+
+    assert any(
+        item.startswith("LIVEKIT_WAKEWORD_THRESHOLD=")
+        for item in report["recommended_environment"]
+    )
+    assert "LIVEKIT_WAKEWORD_THRESHOLD=" in report["next_command"]
+
+
 def test_voice_calibration_report_cli_writes_json_and_markdown(tmp_path):
     json_output = tmp_path / "voice_calibration_report.json"
     md_output = tmp_path / "voice_calibration_report.md"
