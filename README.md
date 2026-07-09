@@ -575,8 +575,14 @@ APPLY_VOICE_CALIBRATION=false bash scripts/acceptance_test.sh continuous-offline
 如果它建议 `VOICE_CONTROL_PROFILE=low_gain` 或更低 `SPEECH_START_THRESHOLD`，
 可以直接复制 `next_command` 重新启动连续语音验收。
 
-如果希望 `VAD_PROVIDER=auto` 尽量使用成熟声学 VAD，而不是降级到 energy VAD，可以先安装
-WebRTC/Silero 可选依赖。先 dry-run 看将执行的命令：
+如果希望 `VAD_PROVIDER=auto` 尽量使用成熟声学 VAD，而不是降级到 energy VAD，可以先运行
+provider preflight。它会在缺少可选依赖时输出 `recommendations`，直接给出推荐安装命令：
+
+```bash
+VAD_PROVIDER=auto bash scripts/acceptance_test.sh provider-preflight
+```
+
+也可以先 dry-run 看安装脚本将执行哪些命令：
 
 ```bash
 bash scripts/acceptance_test.sh voice-vad-runtime-dry-run

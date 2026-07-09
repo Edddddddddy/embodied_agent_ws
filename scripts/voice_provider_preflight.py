@@ -31,6 +31,7 @@ class ProviderPreflightReport:
     config_path: str
     blockers: tuple[str, ...]
     warnings: tuple[str, ...]
+    recommendations: tuple[str, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -115,6 +116,11 @@ def _has_module(module: str, finder: Callable[[str], object | None]) -> bool:
     return finder(module) is not None
 
 
+def _append_once(items: list[str], item: str) -> None:
+    if item not in items:
+        items.append(item)
+
+
 def _silero_blockers(
     silero: Mapping[str, object],
     *,
@@ -163,6 +169,7 @@ def check_voice_providers(
     )
     blockers: list[str] = []
     warnings: list[str] = []
+    recommendations: list[str] = []
 
     if vad == "auto":
         silero_blockers = _silero_blockers(silero, module_finder=module_finder)
@@ -177,26 +184,54 @@ def check_voice_providers(
                     "vad:auto_fallback:webrtc:"
                     + ",".join(silero_blockers)
                 )
+                _append_once(
+                    recommendations,
+                    "bash scripts/setup_voice_vad_runtime.sh all",
+                )
             else:
                 vad = "energy"
                 warnings.append(
                     "vad:auto_fallback:energy:"
                     + ",".join((*silero_blockers, *webrtc_blockers))
                 )
+                _append_once(
+                    recommendations,
+                    "bash scripts/setup_voice_vad_runtime.sh webrtc",
+                )
 
     if vad not in {"energy", "silero", "webrtc"}:
         warnings.append(f"vad:unknown_provider:{vad}")
     if vad == "silero":
-        blockers.extend(_silero_blockers(silero, module_finder=module_finder))
+        silero_blockers = _silero_blockers(silero, module_finder=module_finder)
+        blockers.extend(silero_blockers)
+        if silero_blockers:
+            _append_once(
+                recommendations,
+                "bash scripts/setup_voice_vad_runtime.sh silero",
+            )
     if vad == "webrtc":
-        blockers.extend(_webrtc_blockers(module_finder=module_finder))
+        webrtc_blockers = _webrtc_blockers(module_finder=module_finder)
+        blockers.extend(webrtc_blockers)
+        if webrtc_blockers:
+            _append_once(
+                recommendations,
+                "bash scripts/setup_voice_vad_runtime.sh webrtc",
+            )
 
     if kws in {"none", "disabled", "mock_text"}:
-        return ProviderPreflightReport(vad, kws, str(config), tuple(blockers), tuple(warnings))
+        return ProviderPreflightReport(
+            vad,
+            kws,
+            str(config),
+            tuple(blockers),
+            tuple(warnings),
+            tuple(recommendations),
+        )
 
     if kws == "sherpa":
         if not _has_module("sherpa_onnx", module_finder):
             blockers.append("kws:sherpa_onnx_package_missing")
+            _append_once(recommendations, "bash scripts/setup_voice_kws_runtime.sh sherpa")
         required = [
             "sherpa_tokens",
             "sherpa_encoder",
@@ -210,9 +245,15 @@ def check_voice_providers(
                 blockers.append(f"kws:{name}_empty")
             elif _missing_paths([value]):
                 blockers.append(f"kws:{name}_missing:{value}")
+        if any(blocker.startswith("kws:") for blocker in blockers):
+            _append_once(recommendations, "bash scripts/setup_voice_kws_runtime.sh sherpa")
     elif kws == "openwakeword":
         if not _has_module("openwakeword.model", module_finder):
             blockers.append("kws:openwakeword_package_missing")
+            _append_once(
+                recommendations,
+                "bash scripts/setup_voice_kws_runtime.sh openwakeword",
+            )
         models = _truthy_paths(keyword.get("openwakeword_models", []))
         missing = _missing_paths(models)
         for path in missing:
@@ -222,6 +263,7 @@ def check_voice_providers(
     elif kws == "livekit":
         if not _has_module("livekit.wakeword", module_finder):
             blockers.append("kws:livekit_wakeword_package_missing")
+            _append_once(recommendations, "bash scripts/setup_voice_kws_runtime.sh livekit")
         models = _truthy_paths(keyword.get("livekit_wakeword_models", []))
         if not models:
             blockers.append("kws:livekit_wakeword_models_empty")
@@ -230,7 +272,14 @@ def check_voice_providers(
     else:
         warnings.append(f"kws:unknown_provider:{kws}")
 
-    return ProviderPreflightReport(vad, kws, str(config), tuple(blockers), tuple(warnings))
+    return ProviderPreflightReport(
+        vad,
+        kws,
+        str(config),
+        tuple(blockers),
+        tuple(warnings),
+        tuple(recommendations),
+    )
 
 
 def format_report(report: ProviderPreflightReport) -> str:
@@ -249,6 +298,10 @@ def format_report(report: ProviderPreflightReport) -> str:
         lines.append("  warnings:")
         for warning in report.warnings:
             lines.append(f"    - {warning}")
+    if report.recommendations:
+        lines.append("  recommendations:")
+        for recommendation in report.recommendations:
+            lines.append(f"    - {recommendation}")
     if report.ok:
         lines.append("  next: provider configuration looks launchable.")
     else:

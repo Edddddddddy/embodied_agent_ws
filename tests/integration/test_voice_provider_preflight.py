@@ -63,6 +63,7 @@ def test_auto_vad_falls_back_to_energy_when_silero_dependencies_are_missing(tmp_
     assert report.ok
     assert report.vad_provider == "energy"
     assert any(item.startswith("vad:auto_fallback:energy:") for item in report.warnings)
+    assert "bash scripts/setup_voice_vad_runtime.sh webrtc" in report.recommendations
 
 
 def test_auto_vad_falls_back_to_webrtc_when_silero_missing_but_webrtc_available(tmp_path):
@@ -77,6 +78,7 @@ def test_auto_vad_falls_back_to_webrtc_when_silero_missing_but_webrtc_available(
     assert report.ok
     assert report.vad_provider == "webrtc"
     assert any(item.startswith("vad:auto_fallback:webrtc:") for item in report.warnings)
+    assert "bash scripts/setup_voice_vad_runtime.sh all" in report.recommendations
 
 
 def test_auto_vad_selects_silero_when_dependencies_are_available(tmp_path):
@@ -104,6 +106,7 @@ def test_webrtc_vad_requires_python_package(tmp_path):
 
     assert not report.ok
     assert "vad:webrtcvad_package_missing" in report.blockers
+    assert "bash scripts/setup_voice_vad_runtime.sh webrtc" in report.recommendations
 
 
 def test_silero_requires_python_and_onnxruntime_packages(tmp_path):
@@ -118,6 +121,7 @@ def test_silero_requires_python_and_onnxruntime_packages(tmp_path):
     assert not report.ok
     assert "vad:silero_vad_package_missing" in report.blockers
     assert "vad:onnxruntime_package_missing" in report.blockers
+    assert "bash scripts/setup_voice_vad_runtime.sh silero" in report.recommendations
 
 
 def test_silero_vad_can_be_configured_by_cli_overrides(tmp_path):
@@ -256,3 +260,5 @@ def test_format_report_explains_blockers(tmp_path):
 
     assert "BLOCKED: voice provider preflight" in rendered
     assert "vad:silero_vad_package_missing" in rendered
+    assert "recommendations:" in rendered
+    assert "bash scripts/setup_voice_vad_runtime.sh silero" in rendered

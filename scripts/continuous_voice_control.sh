@@ -191,10 +191,15 @@ resolve_vad_provider() {
   VAD_PROVIDER=$(printf '%s\n' "$report" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("vad_provider", "energy"))')
   local vad_warnings
   vad_warnings=$(printf '%s\n' "$report" | python3 -c 'import json,sys; print("; ".join(json.load(sys.stdin).get("warnings", [])))')
+  local vad_recommendations
+  vad_recommendations=$(printf '%s\n' "$report" | python3 -c 'import json,sys; print("; ".join(json.load(sys.stdin).get("recommendations", [])))')
   if [[ -n "$vad_warnings" ]]; then
     echo "INFO: VAD_PROVIDER=auto -> $VAD_PROVIDER ($vad_warnings)" >&2
   else
     echo "INFO: VAD_PROVIDER=auto -> $VAD_PROVIDER" >&2
+  fi
+  if [[ -n "$vad_recommendations" ]]; then
+    echo "INFO: mature VAD setup suggestion: $vad_recommendations" >&2
   fi
 }
 

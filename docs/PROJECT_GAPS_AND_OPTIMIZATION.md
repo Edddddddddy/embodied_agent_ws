@@ -11,6 +11,8 @@
 - `continuous-offline/online` 已能跑通，但 WSL 麦克风、PulseAudio/WSLg、VAD 阈值仍受环境影响。
 - 连续语音脚本已默认 `VAD_PROVIDER=auto`：Silero VAD 依赖可用时优先使用成熟声学 VAD，
   不可用时尝试轻量 WebRTC VAD，最后清晰降级到 energy VAD。
+- provider preflight 已能在降级到 energy 或显式 provider 缺依赖时输出推荐安装命令，
+  把“发现缺依赖”推进到“知道下一步运行哪个 setup 脚本”。
 - WebRTC VAD 已作为可选 sidecar 接入；WebRTC AEC/NS、openWakeWord/sherpa KWS 仍是 seam
   或可选项，不是默认强依赖。
 

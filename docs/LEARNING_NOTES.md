@@ -150,6 +150,9 @@
 - `scripts/setup_voice_vad_runtime.sh` 提供 WebRTC/Silero 可选依赖安装入口，支持 dry-run；
   它会安装 `embodied_online_agent[webrtc-vad]`、`embodied_online_agent[silero-vad]`
   对应 extra，并在安装后跑 provider preflight。
+- `voice_provider_preflight.py` 不只判断 PASS/BLOCKED，还会在 auto 降级或显式 provider
+  缺依赖时输出 `recommendations`。这样真实麦克风演示前可以从“缺什么包”直接走到
+  “运行哪个 setup 脚本”，减少现场排障成本。
 - `scripts/setup_voice_kws_runtime.sh` 提供 openWakeWord、sherpa-onnx KWS、LiveKit WakeWord
   的可选运行时入口；sherpa profile 会复用 ZipFormer ASR 模型路径并生成默认关键词文件。
 - Agent 收到 endpoint 后调用 ASR commit。
