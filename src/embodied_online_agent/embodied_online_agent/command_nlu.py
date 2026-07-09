@@ -50,6 +50,7 @@ _QUESTION_OR_NEGATION = (
 )
 _UNSAFE_COMBINATION_MARKERS = ("一边", "同时", "高速")
 _UNSAFE_ROTATION_MARKERS = ("旋转", "转")
+_UNSAFE_SPEED_MARKERS = ("高速", "全速", "最快", "最大速度", "冲过去")
 
 
 def _clean(text: str) -> str:
@@ -232,6 +233,8 @@ class CommandNLU:
             return NluResult(source, reason="disabled_or_empty")
         if any(marker in normalized for marker in _QUESTION_OR_NEGATION):
             return NluResult(source, reason="blocked_semantic")
+        if any(marker in normalized for marker in _UNSAFE_SPEED_MARKERS):
+            return NluResult(source, reason="blocked_unsafe_speed")
         if any(marker in normalized for marker in _UNSAFE_COMBINATION_MARKERS) and any(
             marker in normalized for marker in _UNSAFE_ROTATION_MARKERS
         ):

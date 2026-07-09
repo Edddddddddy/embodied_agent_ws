@@ -29,7 +29,8 @@
 
 优化：
 
-- 使用 `training/robot_instruction_eval.jsonl` 固化动作解析评估样例。
+- 使用 `training/robot_instruction_eval.jsonl` 固化动作解析评估样例；当前已有 39 条代表集，
+  覆盖 ASR 错词、多命令、Nav2 目标点/巡航和安全拒绝。
 - 用 `docs/OFFLINE_BENCHMARK_REPORT.md` 记录模型大小、首 token、tokens/s、ASR/TTS realtime factor。
 - 后续再补 LLaMA-Factory LoRA 训练复现实验，不把未复现指标写成已完成能力。
 
@@ -69,7 +70,8 @@
 
 优化：
 
-- 收集真实 ASR final，持续补进 `training/robot_instruction_eval.jsonl`。
+- 收集真实 ASR final，持续补进 `training/robot_instruction_eval.jsonl`，并观察 `failed_cases`
+  与 tag 维度准确率。
 - 对规则、轻量模型、在线 function calling 做准确率/延迟对比。
 - 离线默认保留轻量方案，在线可探索更强 parser。
 

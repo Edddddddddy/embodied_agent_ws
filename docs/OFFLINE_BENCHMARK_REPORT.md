@@ -36,7 +36,7 @@ bash scripts/evaluate_instruction_following.sh --minimum 0.70
 | llama.cpp tokens/s | 记录即可 | TODO | `/offline_agent/metrics` 或 `llama-cpp-smoke` |
 | ASR realtime factor | < 1.0 更好 | TODO | `benchmark_offline.sh` |
 | TTS realtime factor | < 1.0 更好 | TODO | `benchmark_offline.sh` |
-| deterministic parser 动作准确率 | ≥ 95% | TODO | `instruction-parser-eval` |
+| deterministic parser 动作准确率 | ≥ 95% | 当前代表集 39/39（100%） | `instruction-parser-eval` |
 | 离线 LLM 指令动作准确率 | ≥ 70% 起步 | TODO | `evaluate_instruction_following.sh` |
 
 ## 4. 错误样例回归
@@ -51,7 +51,13 @@ bash scripts/evaluate_instruction_following.sh --minimum 0.70
 
 ```bash
 python3 scripts/validate_instruction_eval_dataset.py
+python3 scripts/evaluate_instruction_parser.py --minimum 0.95
 ```
+
+当前评估集覆盖基础移动/转向、短命令补全、ASR 错词归一化、多命令队列、组合动作、
+Nav2 目标点/巡航、附件/模式命令，以及否定、疑问和危险速度请求等安全拒绝样例。
+`evaluate_instruction_parser.py` 会输出 `source_counts`、`tag_accuracy` 和 `failed_cases`，
+便于把真实 ASR 错误持续沉淀成回归用例。
 
 ## 5. 当前结论模板
 

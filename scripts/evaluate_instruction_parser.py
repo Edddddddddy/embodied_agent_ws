@@ -129,12 +129,29 @@ def main() -> None:
         )
     passed_count = sum(1 for item in cases if item["passed"])
     total = len(cases)
+    source_counts: dict[str, int] = {}
+    for item in cases:
+        source_counts[item["source"]] = source_counts.get(item["source"], 0) + 1
+    failed_cases = [
+        {
+            "id": item["id"],
+            "text": item["text"],
+            "tags": item["tags"],
+            "source": item["source"],
+            "expected_actions": item["expected_actions"],
+            "actual_actions": item["actual_actions"],
+            "nlu_reason": item.get("nlu_reason", ""),
+        }
+        for item in cases
+        if not item["passed"]
+    ]
     report = {
         "schema_version": 1,
         "dataset": str(dataset_path),
         "passed": passed_count,
         "total": total,
         "accuracy": round(passed_count / total, 4) if total else 0.0,
+        "source_counts": dict(sorted(source_counts.items())),
         "tag_accuracy": {
             tag: {
                 "passed": stats["passed"],
@@ -143,6 +160,7 @@ def main() -> None:
             }
             for tag, stats in sorted(tag_stats.items())
         },
+        "failed_cases": failed_cases,
         "cases": cases,
     }
     if args.output:

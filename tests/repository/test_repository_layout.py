@@ -381,10 +381,22 @@ def test_showcase_hardening_artifacts_remain_discoverable():
     assert "job_showcase_release_gate" in release_gate.read_text(encoding="utf-8")
     assert "instruction_parser_eval" in release_gate.read_text(encoding="utf-8")
     assert "tag_accuracy" in parser_eval.read_text(encoding="utf-8")
+    assert "source_counts" in parser_eval.read_text(encoding="utf-8")
+    assert "failed_cases" in parser_eval.read_text(encoding="utf-8")
     assert "ActionGuard" in interview_doc.read_text(encoding="utf-8")
     assert "真实语音稳定性" in gaps_doc.read_text(encoding="utf-8")
     assert "evaluate_instruction_following.sh" in benchmark_doc.read_text(encoding="utf-8")
-    assert "expected_actions" in eval_dataset.read_text(encoding="utf-8")
+    dataset_lines = [
+        line
+        for line in eval_dataset.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert len(dataset_lines) >= 24
+    dataset_text = "\n".join(dataset_lines)
+    assert "expected_actions" in dataset_text
+    assert '"safety"' in dataset_text
+    assert '"navigation"' in dataset_text
+    assert '"asr_noise"' in dataset_text
 
 
 def test_nav2_live_evidence_script_keeps_control_and_scoring_together():

@@ -179,6 +179,10 @@ def should_block_model_actions(text: str) -> bool:
         return True
     if any(word in normalized for word in ("不要", "别", "禁止")):
         return True
+    # “高速/全速/最快”这类速度越权请求不交给 parser 默认降成普通前进。
+    # 连续语音里宁可要求用户重新说清楚，也不要静默执行一个被弱化的危险意图。
+    if any(word in normalized for word in ("高速", "全速", "最快", "最大速度", "冲过去")):
+        return True
     return ("一边" in normalized or "同时" in normalized or "高速" in normalized) and (
         "旋转" in normalized or "转" in normalized
     )

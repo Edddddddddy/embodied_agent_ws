@@ -105,8 +105,10 @@ bash scripts/acceptance_test.sh instruction-eval-dataset
 bash scripts/acceptance_test.sh instruction-parser-eval
 ```
 
-`instruction-parser-eval` 会读取 `training/robot_instruction_eval.jsonl`，输出整体准确率、
-tag 准确率、实际动作和期望动作，适合持续沉淀真实 ASR 错误样例。
+`instruction-parser-eval` 会读取 `training/robot_instruction_eval.jsonl`，当前代表集为
+39 条，覆盖移动、转向、ASR 错词、多命令、组合动作、Nav2 导航/巡航和安全拒绝样例。
+输出包含整体准确率、`source_counts`、tag 准确率、实际/期望动作和 `failed_cases`，
+适合持续沉淀真实 ASR 错误样例。
 
 ### 2.1 无外部依赖基础验收
 

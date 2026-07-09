@@ -61,7 +61,18 @@ def main() -> None:
             assert isinstance(action.get("arguments", {}), dict), (
                 f"line {line_no}: arguments must be object"
             )
-    assert records >= 6, "dataset should include at least six seed eval cases"
+    required_tags = {
+        "move",
+        "turn",
+        "navigation",
+        "multi_command",
+        "safety",
+        "asr_noise",
+        "composite",
+    }
+    missing_tags = sorted(required_tags.difference(tag_counts))
+    assert records >= 24, "dataset should include at least 24 representative eval cases"
+    assert not missing_tags, f"dataset missing required tags: {missing_tags}"
     print(
         json.dumps(
             {"status": "PASS", "records": records, "tag_counts": tag_counts},
