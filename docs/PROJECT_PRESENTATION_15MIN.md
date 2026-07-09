@@ -1,0 +1,165 @@
+# 15 分钟项目汇报与代码走读稿
+
+本文档用于面试、答辩或项目展示。目标不是把所有实现细节讲完，而是在 15 分钟内讲清楚：
+
+- 项目解决什么问题。
+- 语音输入如何变成 ROS 2/Gazebo 中的机器人运动。
+- 哪些部分体现 ROS 2 / C++ 工程能力。
+- 哪些验收结果能证明链路真的打通。
+
+## 1. 一句话项目介绍
+
+本项目是一个面向 ROS 2 / C++ 求职展示的具身智能语音交互与仿真控制系统。它打通了：
+
+```text
+真实/模拟语音输入
+→ ASR
+→ 在线/离线 Agent
+→ 轻量 NLU / LLM 动作解析
+→ C++ ActionGuard 安全校验
+→ ROS 2 Action
+→ BehaviorTree + pluginlib 仿真执行器
+→ Gazebo / TurtleBot3 / Nav2
+```
+
+当前验收平台以 Gazebo/TurtleBot3 仿真为主，真实 UART/SPI 硬件接口作为 mock/预留，不把实体硬件作为本阶段交付边界。
+
+## 2. 15 分钟讲解节奏
+
+| 时间 | 讲什么 | 建议打开的文件/命令 |
+| --- | --- | --- |
+| 0:00 - 2:00 | 项目背景：为什么要做语音 Agent 到机器人控制的全链路 | `README.md` 的系统链路图 |
+| 2:00 - 4:00 | ROS 2 接口设计：为什么用 typed msg/action，而不是直接发 `/cmd_vel` | `src/embodied_agent_interfaces/msg/RobotCommand.msg`、`src/embodied_agent_interfaces/action/ExecuteRobotCommand.action` |
+| 4:00 - 6:00 | C++ 安全边界：ActionGuard 如何校验、限幅、拒绝非法动作 | `src/embodied_agent_cpp/src/action_guard_node.cpp`、`src/embodied_agent_cpp/src/action_validator.cpp` |
+| 6:00 - 8:00 | 连续语音：唤醒、去重、filler 过滤、队列、急停抢占 | `src/embodied_online_agent/embodied_online_agent/continuous_voice.py` |
+| 8:00 - 10:00 | 多命令 NLU：一句“右转然后前进一秒”如何拆成顺序队列 | `src/embodied_online_agent/embodied_online_agent/command_nlu.py` |
+| 10:00 - 12:00 | 仿真执行：ROS 2 Action、BehaviorTree、pluginlib、Gazebo `/cmd_vel` | `src/embodied_simulation/src/simulation_control_node.cpp`、`src/embodied_simulation/src/robot_executor_plugins.cpp` |
+| 12:00 - 13:30 | 离线端侧链路：llama.cpp、Sherpa-TTS、SummerTTS 服务化和延迟统计 | `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py`、`src/embodied_agent_cpp/src/summer_tts_service_node.cpp` |
+| 13:30 - 15:00 | 演示与边界：跑验收命令，说明已完成和后续可做 | `bash scripts/acceptance_test.sh continuous-offline` 或 `navigation-demo` |
+
+## 3. 推荐现场演示路径
+
+### 3.1 无麦克风快速证明主链路
+
+```bash
+bash scripts/acceptance_test.sh mock
+bash scripts/acceptance_test.sh continuous-multi-command
+bash scripts/acceptance_test.sh navigation-demo
+```
+
+这三条命令适合在面试前快速确认工程没有坏：
+
+- `mock`：证明 Agent → ActionGuard → ROS 2 Action → executor 的基础链路。
+- `continuous-multi-command`：证明一句话多个命令可以按顺序入队。
+- `navigation-demo`：证明语音目标点导航语义能进入仿真执行链路。
+
+### 3.2 真实麦克风演示
+
+```bash
+bash scripts/acceptance_test.sh continuous-offline
+```
+
+推荐话术：
+
+```text
+小智
+向前走一秒
+左转九十度
+向右转，向前走一秒
+走正方形
+停下
+退出控制
+```
+
+通过标准：
+
+- 终端能看到 `[session] / [asr] / [queue] / [exec] / [action] / [result]`。
+- 多个命令能进入队列，按 ROS 2 Action result 顺序执行。
+- `停下/急停` 能清队列并抢占当前动作。
+- 最终 `/cmd_vel` 归零。
+
+### 3.3 Nav2 目标点导航演示
+
+轻量 gate：
+
+```bash
+bash scripts/acceptance_test.sh nav2-stage
+```
+
+重型 TurtleBot3/Nav2 演示：
+
+```bash
+bash scripts/acceptance_test.sh nav2-turtlebot3
+```
+
+真实麦克风 Nav2 留证：
+
+```bash
+CONTINUOUS_LIVE_CHECK_REPORT=logs/nav2-live-check.json \
+  CONTINUOUS_LIVE_CHECK_DURATION=240 \
+  bash scripts/acceptance_test.sh continuous-nav2-evidence offline
+```
+
+## 4. 从语音输入到仿真执行的代码走读地图
+
+| 链路层 | 关键文件 | 关键函数/类 | 技术点 |
+| --- | --- | --- | --- |
+| 音频输入与 VAD | `src/embodied_agent_cpp/src/audio_frontend_node.cpp` | `AudioFrontendNode`、endpoint publisher | C++ 音频前端、VAD、`/audio/speech_started`、`/audio/speech_ended` |
+| 在线 Agent | `src/embodied_online_agent/embodied_online_agent/online_agent_node.py` | `_on_asr_final()`、`_run_turn()`、`_publish_action_candidate()` | ASR final、LLM/TTS provider、动作候选发布 |
+| 离线 Agent | `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py` | `_commit_asr_endpoint()`、`_run_turn()`、metrics publisher | Sherpa/llama.cpp/TTS 组合、延迟统计 |
+| 连续会话 | `src/embodied_online_agent/embodied_online_agent/continuous_voice.py` | `ContinuousVoiceSession.accept()`、`ContinuousCommandQueue.put()`、`get()` | 唤醒、去重、filler、TTL、急停抢占 |
+| 多命令 NLU | `src/embodied_online_agent/embodied_online_agent/command_nlu.py` | `CommandNLU.parse()` | 字符级轻量模型、多命令识别、低置信度 fallback |
+| 动作候选协议 | `src/embodied_online_agent/embodied_online_agent/protocol.py` | action payload helpers | Agent 输出结构化动作，不直接控制机器人 |
+| 安全网关 | `src/embodied_agent_cpp/src/action_guard_node.cpp` | `on_candidate()` | Lifecycle node、白名单、限幅、拒绝非法动作 |
+| typed 转换 | `src/embodied_agent_cpp/src/robot_command_adapter.cpp` | `RobotCommandAdapter::convert()` | 将动作候选转成 `RobotCommand` |
+| ROS 2 Action bridge | `src/embodied_agent_cpp/src/typed_action_bridge_node.cpp` | action client callbacks | topic 命令转 `ExecuteRobotCommand` goal，保留反馈/结果 |
+| 仿真控制 | `src/embodied_simulation/src/simulation_control_node.cpp` | `handle_goal()`、`control_tick()`、`finish_active_action()` | ROS 2 Action server、Lifecycle、诊断、超时停止 |
+| 执行后端 | `src/embodied_simulation/src/robot_executor_plugins.cpp` | `GazeboRobotExecutor`、`MockRobotExecutor`、`Nav2RobotExecutor` | pluginlib、Gazebo `/cmd_vel`、Nav2 action bridge |
+| 行为树 | `src/embodied_simulation/src/command_behavior_tree.cpp` | `CommandBehaviorTree` | BehaviorTree.CPP 编排校验、执行、取消 |
+
+## 5. 面试时可以重点强调的设计取舍
+
+- 不让 LLM 直接发 `/cmd_vel`：LLM 只产动作候选，C++ ActionGuard 做安全边界，降低失控风险。
+- 不只用 topic 表达长动作：移动、转向、导航都用 ROS 2 Action，天然支持反馈、取消和 result。
+- 不把连续语音写成 Agent 私有逻辑：会话、队列、执行追踪抽到共享模块，online/offline Agent 复用同一套状态机。
+- 不强依赖重型声学模型：默认用 energy VAD + 当前 ASR + 文本唤醒，先保证 WSL/Gazebo 演示可复现；openWakeWord/Silero 等作为后续 seam。
+- 不把 SummerTTS 宣称为当前低延迟默认路径：它已完成 C++ ROS 服务化接入，适合展示端侧 TTS runtime 封装；当前 `<300ms` 低延迟 gate 仍以 Sherpa-TTS 路径为主。
+
+## 6. 阶段版本发布前门禁
+
+快速本地门禁：
+
+```bash
+pytest -q tests/repository src/embodied_offline_agent/test
+bash tests/integration/test_acceptance_cli.sh
+bash scripts/acceptance_test.sh continuous-mock
+bash scripts/acceptance_test.sh continuous-multi-command
+bash scripts/acceptance_test.sh navigation-demo
+bash scripts/acceptance_test.sh offline-latency
+bash scripts/acceptance_test.sh summer-tts-service
+```
+
+C++/ROS 2 门禁：
+
+```bash
+colcon test --packages-select embodied_agent_cpp embodied_simulation --event-handlers console_direct+
+colcon test-result --verbose
+```
+
+演示前人工门禁：
+
+```bash
+bash scripts/acceptance_test.sh continuous-offline
+bash scripts/acceptance_test.sh gazebo
+bash scripts/acceptance_test.sh nav2-stage
+bash scripts/acceptance_test.sh continuous-nav2-evidence offline
+```
+
+## 7. 当前边界与后续路线
+
+当前阶段已经完成语音到仿真控制的主链路，适合作为 ROS 2 / C++ 求职项目展示。需要谨慎表述的边界：
+
+- 实体 UART/SPI 硬件控制是 mock/预留，不是本阶段实体验收。
+- LoRA 训练、Q8 量化可以作为规划和接口说明，不宣称完整复现实验指标。
+- Nav2 已有 bridge、bringup 和目标点导航验收入口，但复杂 SLAM、地图构建和大规模目标点规划不是当前主线。
+- SummerTTS 已服务化，但当前 CPU 推理瓶颈仍明显，后续可做量化、缓存或更快声码器优化。

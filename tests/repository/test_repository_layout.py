@@ -1,10 +1,24 @@
 """仓库结构约束：用户命令与集成测试必须分区，避免 scripts/ 再次退化成杂物箱。"""
 
+import ast
 import re
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def _python_literal(module_path: Path, name: str):
+    tree = ast.parse(module_path.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            if node.target.id == name:
+                return ast.literal_eval(node.value)
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == name:
+                    return ast.literal_eval(node.value)
+    raise AssertionError(f"{name} not found in {module_path}")
 
 
 def test_integration_probes_are_not_mixed_with_user_scripts():
@@ -22,19 +36,364 @@ def test_critical_full_chain_probes_remain_discoverable():
         "test_continuous_command_ttl.py",
         "test_continuous_endpoint_asr.py",
         "test_continuous_multi_command.py",
+        "test_continuous_navigation_queue.py",
+        "test_continuous_navigation_natural.py",
         "test_continuous_live_check.py",
         "test_continuous_session_timeout.py",
         "test_continuous_voice_soak.py",
         "test_continuous_voice_control.py",
         "test_continuous_voice_control_script.py",
+        "test_continuous_nav2_voice_control_script.py",
         "test_continuous_voice_monitor.py",
         "test_continuous_kws_sidecar.py",
         "test_voice_provider_preflight.py",
         "test_audio_frontend_calibration.py",
         "test_typed_action_server.py",
+        "test_navigation_sequence.py",
+        "test_nav2_bridge_sequence.py",
+        "test_nav2_turtlebot3_voice.py",
+        "test_offline_sherpa_typed_simulation.py",
     }
     present = {path.name for path in integration.glob("test_*")}
     assert required <= present
+
+
+def test_voice_navigation_acceptance_entrypoints_remain_available():
+    """语音目标点导航/巡航是当前阶段核心能力，入口脚本不能在整理中丢失。"""
+
+    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
+        encoding="utf-8"
+    )
+    for mode in (
+        "navigation-demo",
+        "nav2-bridge",
+        "nav2-preflight",
+        "nav2-stage",
+        "nav2-turtlebot3",
+        "continuous-nav2-offline",
+        "continuous-nav2-online",
+        "continuous-nav2-evidence",
+        "continuous-nav2-live-check",
+        "continuous-navigation",
+        "continuous-navigation-natural",
+    ):
+        assert mode in acceptance
+
+    for script in (
+        "smoke_test_navigation_sequence.sh",
+        "smoke_test_continuous_navigation_queue.sh",
+        "smoke_test_continuous_navigation_natural.sh",
+        "smoke_test_nav2_bridge.sh",
+        "smoke_test_nav2_preflight.sh",
+        "smoke_test_nav2_turtlebot3_voice.sh",
+        "continuous_nav2_voice_control.sh",
+        "continuous_nav2_voice_evidence.sh",
+        "publish_nav2_initial_pose.py",
+    ):
+        assert (ROOT / "scripts" / script).is_file()
+
+    assert (
+        ROOT / "src" / "embodied_simulation" / "launch" / "voice_nav2_turtlebot3.launch.py"
+    ).is_file()
+    assert (ROOT / "src" / "embodied_simulation" / "config" / "places.yaml").is_file()
+
+
+def test_sherpa_asr_deployment_entrypoints_remain_available():
+    """离线 ASR 真实部署必须有轻量入口，不能只依赖完整离线大脚本。
+
+    setup_offline_runtime.sh 会同时拉 TTS、llama.cpp 和 Qwen GGUF，适合完整离线链路；
+    但真实排查 ASR 时需要 ASR-only 预检和单 wav smoke，便于快速确认 sherpa-onnx
+    推理框架、ZipFormer 模型文件和项目 provider seam 是否可用。
+    """
+
+    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
+        encoding="utf-8"
+    )
+    for mode in ("sherpa-asr-preflight", "sherpa-asr-smoke", "offline-sherpa-typed"):
+        assert mode in acceptance
+
+    setup_script = ROOT / "scripts" / "setup_sherpa_asr_runtime.sh"
+    smoke_script = ROOT / "scripts" / "sherpa_asr_smoke.py"
+    typed_script = ROOT / "scripts" / "smoke_test_offline_sherpa_typed_simulation.sh"
+    typed_probe = ROOT / "tests" / "integration" / "test_offline_sherpa_typed_simulation.py"
+    assert setup_script.is_file()
+    assert smoke_script.is_file()
+    assert typed_script.is_file()
+    assert typed_probe.is_file()
+
+    setup_text = setup_script.read_text(encoding="utf-8")
+    smoke_text = smoke_script.read_text(encoding="utf-8")
+    typed_text = typed_probe.read_text(encoding="utf-8")
+    assert "sherpa-onnx==" in setup_text
+    assert "k2fsa-zipformer-bilingual-zh-en-t" in setup_text
+    assert "setup_offline_runtime.sh" in setup_text
+    assert "SherpaZipformerAsr" in smoke_text
+    assert "--preflight-only" in smoke_text
+    assert "SherpaVitsTts" in typed_text
+    assert "/robot/action_command_typed" in typed_text
+    assert "/cmd_vel" in typed_text
+    assert "RobotCommand.MOVE" in typed_text
+
+
+def test_llama_cpp_deployment_entrypoints_remain_available():
+    """llama.cpp 离线推理必须能独立预检，不能只能挂在完整离线验收里排查。"""
+
+    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
+        encoding="utf-8"
+    )
+    for mode in ("llama-cpp-preflight", "llama-cpp-smoke"):
+        assert mode in acceptance
+
+    start_script = ROOT / "scripts" / "start_llama_server.sh"
+    smoke_script = ROOT / "scripts" / "smoke_test_llama_cpp.sh"
+    preflight_script = ROOT / "scripts" / "llama_cpp_preflight.py"
+    provider = (
+        ROOT
+        / "src"
+        / "embodied_offline_agent"
+        / "embodied_offline_agent"
+        / "providers"
+        / "llama_cpp.py"
+    )
+    assert start_script.is_file()
+    assert smoke_script.is_file()
+    assert preflight_script.is_file()
+    assert provider.is_file()
+
+    start_text = start_script.read_text(encoding="utf-8")
+    preflight_text = preflight_script.read_text(encoding="utf-8")
+    provider_text = provider.read_text(encoding="utf-8")
+    assert "LLAMA_EXTRA_ARGS" in start_text
+    assert "/v1/chat/completions" in preflight_text
+    assert "LlamaCppMetrics" in provider_text
+    assert "timeout_s" in provider_text
+
+
+def test_summer_tts_deployment_entrypoints_remain_available():
+    """SummerTTS 是独立 C++ 离线 TTS 后端，必须能单独部署和验收。"""
+
+    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
+        encoding="utf-8"
+    )
+    for mode in ("summer-tts-preflight", "summer-tts-smoke", "summer-pseudo-tts"):
+        assert mode in acceptance
+
+    setup_script = ROOT / "scripts" / "setup_summer_tts_runtime.sh"
+    smoke_script = ROOT / "scripts" / "summer_tts_smoke.py"
+    pseudo_script = ROOT / "scripts" / "smoke_test_summer_pseudo_tts.py"
+    provider = (
+        ROOT
+        / "src"
+        / "embodied_offline_agent"
+        / "embodied_offline_agent"
+        / "providers"
+        / "summer_tts.py"
+    )
+    offline_node = (
+        ROOT
+        / "src"
+        / "embodied_offline_agent"
+        / "embodied_offline_agent"
+        / "offline_agent_node.py"
+    ).read_text(encoding="utf-8")
+    offline_launch = (
+        ROOT / "src" / "embodied_offline_agent" / "launch" / "offline_agent.launch.py"
+    ).read_text(encoding="utf-8")
+
+    assert setup_script.is_file()
+    assert smoke_script.is_file()
+    assert pseudo_script.is_file()
+    assert provider.is_file()
+
+    setup_text = setup_script.read_text(encoding="utf-8")
+    provider_text = provider.read_text(encoding="utf-8")
+    assert "huakunyang/SummerTTS" in setup_text
+    assert "patch_missing_cstdint" in setup_text
+    assert "tts_test" in provider_text
+    assert "SummerTts" in offline_node
+    assert "tts_provider" in offline_node
+    assert "tts_provider" in offline_launch
+    assert "summer_tts_binary" in offline_launch
+
+
+def test_summer_tts_resident_ros_component_entrypoints_remain_available():
+    """SummerTTS 常驻 C++ ROS 组件化入口必须可构建、可验收、可从 Agent 选择。"""
+
+    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
+        encoding="utf-8"
+    )
+    cpp_cmake = (ROOT / "src" / "embodied_agent_cpp" / "CMakeLists.txt").read_text(
+        encoding="utf-8"
+    )
+    offline_node = (
+        ROOT
+        / "src"
+        / "embodied_offline_agent"
+        / "embodied_offline_agent"
+        / "offline_agent_node.py"
+    ).read_text(encoding="utf-8")
+    offline_launch = (
+        ROOT / "src" / "embodied_offline_agent" / "launch" / "offline_agent.launch.py"
+    ).read_text(encoding="utf-8")
+
+    assert (ROOT / "src" / "embodied_agent_interfaces" / "srv" / "SynthesizeSpeech.srv").is_file()
+    assert (
+        ROOT
+        / "src"
+        / "embodied_agent_cpp"
+        / "include"
+        / "embodied_agent_cpp"
+        / "summer_tts_service_node.hpp"
+    ).is_file()
+    assert (
+        ROOT / "src" / "embodied_agent_cpp" / "src" / "summer_tts_service_node.cpp"
+    ).is_file()
+    assert "summer_tts_component" in cpp_cmake
+    assert "rclcpp_components_register_nodes" in cpp_cmake
+    assert "summer_tts_service" in cpp_cmake
+    assert "summer-tts-service" in acceptance
+    assert "summer_tts_service_probe.py" in acceptance or "smoke_test_summer_tts_service.sh" in acceptance
+    assert "summer_ros" in offline_node
+    assert "summer_tts_service" in offline_launch
+
+
+def test_offline_runtime_versions_are_pinned_and_documented():
+    """离线运行时必须有固定版本，避免第三方 main 分支漂移破坏演示。"""
+
+    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
+        encoding="utf-8"
+    )
+    setup_offline = (ROOT / "scripts" / "setup_offline_runtime.sh").read_text(
+        encoding="utf-8"
+    )
+    setup_summer = (ROOT / "scripts" / "setup_summer_tts_runtime.sh").read_text(
+        encoding="utf-8"
+    )
+    version_probe = ROOT / "scripts" / "offline_runtime_versions.py"
+    version_doc = ROOT / "docs" / "OFFLINE_RUNTIME_VERSIONS.md"
+    version_text = version_probe.read_text(encoding="utf-8")
+    doc_text = version_doc.read_text(encoding="utf-8")
+
+    expected_llama = "0eca4d490e591d4e93058d07540cf47278a72577"
+    expected_summer = "c90e0e8d31e09c98199ab9b5a605af74c179f811"
+    expected_sherpa = "1.13.3"
+
+    assert "offline-runtime-versions" in acceptance
+    assert version_probe.is_file()
+    assert version_doc.is_file()
+    assert expected_llama in setup_offline
+    assert expected_summer in setup_summer
+    assert expected_sherpa in setup_offline
+    for expected in (expected_llama, expected_summer, expected_sherpa):
+        assert expected in version_text
+        assert expected in doc_text
+
+
+def test_offline_latency_gate_remains_available_and_documented():
+    """LLM/TTS 延迟目标必须有可执行 gate，不能只停留在 README 声明。"""
+
+    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
+        encoding="utf-8"
+    )
+    latency_probe = ROOT / "scripts" / "offline_latency_targets.py"
+    latency_smoke = ROOT / "scripts" / "smoke_test_offline_latency.sh"
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    testing_doc = (ROOT / "docs" / "TESTING_AND_ACCEPTANCE.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "offline-latency" in acceptance
+    assert "smoke_test_offline_latency.sh" in acceptance
+    assert latency_probe.is_file()
+    assert latency_smoke.is_file()
+    probe_text = latency_probe.read_text(encoding="utf-8")
+    assert "LLM_FIRST_TOKEN_TARGET_MS = 1000.0" in probe_text
+    assert "TTS_FIRST_AUDIO_TARGET_MS = 300.0" in probe_text
+    assert "--tts-provider" in probe_text
+    assert "offline-latency" in readme
+    assert "≤ 1000ms" in readme
+    assert "≤ 300ms" in readme
+    assert "SummerTTS 命令行 provider" in testing_doc
+    assert "tts_provider:=summer_ros" in testing_doc
+
+
+def test_job_presentation_doc_remains_discoverable():
+    """求职展示版必须有稳定的汇报入口，方便按代码讲完整链路。"""
+
+    presentation = ROOT / "docs" / "PROJECT_PRESENTATION_15MIN.md"
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    presentation_text = presentation.read_text(encoding="utf-8")
+
+    assert presentation.is_file()
+    assert "PROJECT_PRESENTATION_15MIN.md" in readme
+    assert "15 分钟项目汇报" in presentation_text
+    assert "从语音输入到仿真执行的代码走读地图" in presentation_text
+    for required in (
+        "continuous-offline",
+        "continuous-multi-command",
+        "ActionGuard",
+        "BehaviorTree",
+        "SummerTTS",
+    ):
+        assert required in presentation_text
+
+
+def test_nav2_live_evidence_script_keeps_control_and_scoring_together():
+    """一键现场留证脚本必须同时启动控制链路与 live-check，并保存可复核报告。"""
+
+    evidence = (ROOT / "scripts" / "continuous_nav2_voice_evidence.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "continuous_nav2_voice_control.sh" in evidence
+    assert "continuous_live_check.py" in evidence
+    assert "CONTINUOUS_LIVE_CHECK_REPORT" in evidence
+    assert "--output \"$REPORT_PATH\"" in evidence
+    assert "--require-candidate navigate_to" in evidence
+    assert "--require-candidate follow_waypoints" in evidence
+    assert "CONTINUOUS_NAV2_EVIDENCE_DRY_RUN" in evidence
+    assert "LIVE_CHECK_ARGS" in evidence
+    assert "DRY RUN" in evidence
+    assert "export ROS_DOMAIN_ID" in evidence
+    assert "kill -TERM -- \"-$CONTROL_PID\"" in evidence
+
+
+def test_voice_navigation_places_stay_consistent_across_agent_guard_and_nav2():
+    """Agent、ActionGuard、Nav2 executor 必须共享同一组标准地点名。
+
+    语音导航链路跨 Python Agent、C++ 安全网关和 Nav2 坐标配置。任何一层漏掉
+    某个 canonical place，都会导致“ASR/LLM 已解析，但机器人不执行”的现场事故。
+    这里不限制中文别名，只锁住标准地点名和默认巡航点。
+    """
+
+    navigation_phrases = (
+        ROOT
+        / "src"
+        / "embodied_online_agent"
+        / "embodied_online_agent"
+        / "navigation_phrases.py"
+    )
+    action_validator = (
+        ROOT / "src" / "embodied_agent_cpp" / "src" / "action_validator.cpp"
+    ).read_text(encoding="utf-8")
+    places_yaml = (
+        ROOT / "src" / "embodied_simulation" / "config" / "places.yaml"
+    ).read_text(encoding="utf-8")
+
+    agent_places = set(_python_literal(navigation_phrases, "PLACE_ALIASES"))
+    default_patrol = _python_literal(navigation_phrases, "DEFAULT_PATROL_WAYPOINTS")
+    guard_function = re.search(
+        r"supported_navigation_places\(\).*?static const std::set<std::string> places\{(?P<body>.*?)\};",
+        action_validator,
+        flags=re.S,
+    )
+    assert guard_function is not None
+    guard_places = set(re.findall(r'"([a-zA-Z0-9_]+)"', guard_function.group("body")))
+    nav2_places = set(re.findall(r"^  ([a-zA-Z0-9_]+):\s*\{", places_yaml, flags=re.M))
+
+    assert agent_places == guard_places == nav2_places
+    assert set(default_patrol) <= agent_places
+    assert default_patrol == ["door", "desk", "home"]
 
 
 def test_audio_endpoint_events_remain_wired_through_frontend_and_agents():
@@ -154,3 +513,25 @@ def test_continuous_voice_state_machine_remains_shared_by_online_and_offline_age
 
     assert "from .continuous_voice import" in online_agent
     assert "from embodied_online_agent.continuous_voice import" in offline_agent
+
+
+def test_ros_dds_env_disables_fastdds_shm_by_default_for_wsl_demos():
+    """WSL 真实语音/Gazebo 演示默认绕开 FastDDS SHM 端口锁。
+
+    用户现场经常遇到 `Failed init_port fastrtps_port7000`。这个结构测试锁住
+    activate.sh 的默认 DDS 环境，避免后续脚本整理时把 UDPv4 fallback 删掉。
+    """
+
+    activate = (ROOT / "scripts" / "activate.sh").read_text(encoding="utf-8")
+    dds_env_path = ROOT / "scripts" / "ros_dds_env.sh"
+    dds_env = dds_env_path.read_text(encoding="utf-8")
+    continuous = (ROOT / "scripts" / "continuous_voice_control.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert dds_env_path.is_file()
+    assert "source \"$WORKSPACE/scripts/ros_dds_env.sh\"" in activate
+    assert "FASTDDS_BUILTIN_TRANSPORTS" in dds_env
+    assert "UDPv4" in dds_env
+    assert "EMBODIED_ALLOW_FASTDDS_SHM" in dds_env
+    assert "FASTDDS_BUILTIN_TRANSPORTS" in continuous

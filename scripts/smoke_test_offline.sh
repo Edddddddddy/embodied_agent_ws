@@ -16,11 +16,12 @@ cleanup() {
 trap cleanup EXIT
 sleep 3
 ACTION_LOG="$(mktemp)"
-timeout 10 ros2 topic echo --once /robot/action_command std_msgs/msg/String >"$ACTION_LOG" &
+timeout 10 ros2 topic echo --once /robot/action_command_typed \
+  embodied_agent_interfaces/msg/RobotCommand >"$ACTION_LOG" &
 ECHO_PID=$!
 sleep 1
 ros2 topic pub --once /agent/text_input std_msgs/msg/String "{data: '小智，向前走一秒'}" >/dev/null
 wait "$ECHO_PID" 2>/dev/null || { cat "$LOG"; rm -f "$ACTION_LOG"; exit 1; }
-grep -q '"name":"move"' "$ACTION_LOG"
+grep -q "action_type: 2" "$ACTION_LOG"
 rm -f "$ACTION_LOG"
 echo "PASS: offline mock ROS/action pipeline"

@@ -1,0 +1,13 @@
+# 语义目标点配置：Agent 只输出 home/door/desk 等稳定地点名，
+# Nav2 executor 在这里把地点名映射到地图坐标。
+frame_id: map
+places:
+  home: {x: 0.0, y: 0.0, yaw: 0.0}
+  door: {x: 1.2, y: 0.0, yaw: 0.0}
+  desk: {x: 1.2, y: 1.0, yaw: 1.57}
+  living_room: {x: 0.0, y: 1.4, yaw: 3.14}
+  kitchen: {x: -1.0, y: 1.0, yaw: 3.14}
+  charging_station: {x: -0.6, y: -0.4, yaw: -1.57}
+  waypoint_a: {x: 0.6, y: 0.0, yaw: 0.0}
+  waypoint_b: {x: 0.6, y: 0.8, yaw: 1.57}
+  waypoint_c: {x: 0.0, y: 0.8, yaw: 3.14}

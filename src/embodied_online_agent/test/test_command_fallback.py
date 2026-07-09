@@ -71,6 +71,32 @@ def test_parses_composite_demo_sequences():
     ]
 
 
+def test_parses_navigation_and_patrol_commands():
+    assert parse_fallback_action("去门口").as_dict() == {
+        "name": "navigate_to",
+        "arguments": {"target": "door"},
+    }
+    assert parse_fallback_action("回到起点").arguments["target"] == "home"
+
+    patrol = parse_fallback_action("开始巡航")
+    assert patrol.name == "follow_waypoints"
+    assert patrol.arguments == {
+        "waypoints": ["door", "desk", "home"],
+        "number_of_loops": 1,
+    }
+
+    sequence = parse_fallback_action("依次去门口、书桌、起点")
+    assert sequence.name == "follow_waypoints"
+    assert sequence.arguments["waypoints"] == ["door", "desk", "home"]
+    natural_sequence = parse_fallback_action("先去门口再去书桌最后回起点")
+    assert natural_sequence.name == "follow_waypoints"
+    assert natural_sequence.arguments["waypoints"] == ["door", "desk", "home"]
+    patrol_places = parse_fallback_action("巡逻门口、书桌、起点")
+    assert patrol_places.name == "follow_waypoints"
+    assert patrol_places.arguments["waypoints"] == ["door", "desk", "home"]
+    assert parse_fallback_action("取消导航").name == "cancel_navigation"
+
+
 def test_rejects_negated_or_ambiguous_text():
     assert parse_fallback_action("不要向前走") is None
     assert parse_fallback_action("你觉得向前意味着什么") is None

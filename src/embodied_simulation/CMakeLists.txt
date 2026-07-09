@@ -13,6 +13,7 @@ find_package(embodied_agent_interfaces REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(lifecycle_msgs REQUIRED)
 find_package(nlohmann_json REQUIRED)
+find_package(nav2_msgs REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
@@ -25,6 +26,7 @@ add_library(simulation_control_core
   src/action_execution.cpp
   src/command_behavior_tree.cpp
   src/executor_diagnostics.cpp
+  src/nav2_places.cpp
   src/node_configuration.cpp
   src/simulation_controller.cpp
 )
@@ -35,14 +37,14 @@ target_include_directories(simulation_control_core PUBLIC
   $<INSTALL_INTERFACE:include>
 )
 ament_target_dependencies(simulation_control_core PUBLIC
-  behaviortree_cpp diagnostic_msgs embodied_agent_interfaces)
+  behaviortree_cpp diagnostic_msgs embodied_agent_interfaces geometry_msgs)
 
 add_library(embodied_simulation_executors SHARED
   src/robot_executor_plugins.cpp
 )
 target_link_libraries(embodied_simulation_executors simulation_control_core)
 ament_target_dependencies(embodied_simulation_executors
-  embodied_agent_interfaces pluginlib)
+  ament_index_cpp embodied_agent_interfaces geometry_msgs nav2_msgs pluginlib rclcpp rclcpp_action)
 pluginlib_export_plugin_description_file(
   embodied_simulation robot_executor_plugins.xml)
 
@@ -95,6 +97,8 @@ if(BUILD_TESTING)
   ament_add_gtest(test_robot_executor_plugins test/test_robot_executor_plugins.cpp)
   target_link_libraries(test_robot_executor_plugins simulation_control_core)
   ament_target_dependencies(test_robot_executor_plugins pluginlib)
+  ament_add_gtest(test_nav2_places test/test_nav2_places.cpp)
+  target_link_libraries(test_nav2_places simulation_control_core)
   ament_add_gtest(test_node_configuration test/test_node_configuration.cpp)
   target_link_libraries(test_node_configuration simulation_control_core)
   ament_add_gtest(test_executor_diagnostics test/test_executor_diagnostics.cpp)
@@ -104,5 +108,5 @@ endif()
 ament_export_include_directories(include)
 ament_export_libraries(simulation_control_core)
 ament_export_dependencies(
-  behaviortree_cpp diagnostic_msgs embodied_agent_interfaces pluginlib)
+  behaviortree_cpp diagnostic_msgs embodied_agent_interfaces geometry_msgs pluginlib)
 ament_package()

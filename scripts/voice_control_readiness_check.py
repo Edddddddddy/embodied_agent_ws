@@ -95,6 +95,10 @@ def format_readiness_report(report: VoiceReadinessReport) -> str:
         f"  recommended_voice_profile: {report.audio.recommended_voice_profile}",
         f"  profile_reason: {report.audio.profile_reason}",
         f"  quick_apply: export VOICE_CONTROL_PROFILE={report.audio.recommended_voice_profile}",
+        (
+            "  quick_apply_threshold: "
+            f"export SPEECH_START_THRESHOLD={report.audio.suggested_vad_threshold:.4f}"
+        ),
         f"  vad_provider: {report.audio.vad_provider or 'unknown'}",
         (
             "  audio_enhancer: "

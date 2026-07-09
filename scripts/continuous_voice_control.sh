@@ -3,7 +3,7 @@ set -euo pipefail
 WORKSPACE="${WORKSPACE:-/home/ubuntu/embodied_agent_ws}"
 MODE="${1:-offline}"
 VOICE_CONTROL_PROFILE="${VOICE_CONTROL_PROFILE:-normal}"
-# 真实麦克风现场通常没有时间逐项调 VAD/队列/纠错参数，因此提供三个预设档。
+# 真实麦克风现场通常没有时间逐项调 VAD/队列/纠错参数，因此提供几个预设档。
 # 下面的 PROFILE_* 只作为默认值；用户显式传入的环境变量会在 case 之后覆盖它们。
 PROFILE_SESSION_TIMEOUT=60
 PROFILE_COMMAND_QUEUE_SIZE=8
@@ -28,6 +28,17 @@ case "$VOICE_CONTROL_PROFILE" in
     PROFILE_MIN_UTTERANCE_MS=80
     PROFILE_MAX_UTTERANCE_S=12.0
     ;;
+  low_gain)
+    PROFILE_SESSION_TIMEOUT=75
+    PROFILE_COMMAND_QUEUE_SIZE=10
+    PROFILE_COMMAND_NORMALIZATION_FUZZY_THRESHOLD=0.82
+    PROFILE_SPEECH_START_THRESHOLD=0.0012
+    PROFILE_SPEECH_END_SILENCE_S=0.8
+    PROFILE_MIN_UTTERANCE_MS=120
+    PROFILE_MAX_UTTERANCE_S=12.0
+    PROFILE_ASR_COMMIT_DELAY_MS=450
+    PROFILE_AEC_ENABLED=false
+    ;;
   noisy_room)
     PROFILE_SESSION_TIMEOUT=45
     PROFILE_COMMAND_QUEUE_SIZE=5
@@ -39,7 +50,7 @@ case "$VOICE_CONTROL_PROFILE" in
     PROFILE_MAX_UTTERANCE_S=10.0
     ;;
   *)
-    echo "unknown VOICE_CONTROL_PROFILE=$VOICE_CONTROL_PROFILE; expected normal, quiet, or noisy_room" >&2
+    echo "unknown VOICE_CONTROL_PROFILE=$VOICE_CONTROL_PROFILE; expected normal, quiet, low_gain, or noisy_room" >&2
     exit 2
     ;;
 esac
@@ -56,6 +67,8 @@ COMMAND_COMPLETION_ENABLED="${COMMAND_COMPLETION_ENABLED:-true}"
 ASR_COMMIT_DELAY_MS="${ASR_COMMIT_DELAY_MS:-$PROFILE_ASR_COMMIT_DELAY_MS}"
 WAKE_WORD_ENABLED="${WAKE_WORD_ENABLED:-true}"
 SPEAKER_ENABLED="${SPEAKER_ENABLED:-false}"
+PULSE_CAPTURE_BRIDGE="${PULSE_CAPTURE_BRIDGE:-auto}"
+PULSE_CAPTURE_SOURCE="${PULSE_CAPTURE_SOURCE:-@DEFAULT_SOURCE@}"
 VAD_PROVIDER="${VAD_PROVIDER:-energy}"
 SPEECH_START_THRESHOLD="${SPEECH_START_THRESHOLD:-$PROFILE_SPEECH_START_THRESHOLD}"
 SPEECH_END_SILENCE_S="${SPEECH_END_SILENCE_S:-$PROFILE_SPEECH_END_SILENCE_S}"
@@ -75,7 +88,7 @@ OPENWAKEWORD_THRESHOLD="${OPENWAKEWORD_THRESHOLD:-0.5}"
 LIVEKIT_WAKEWORD_MODELS="${LIVEKIT_WAKEWORD_MODELS:-}"
 LIVEKIT_WAKEWORD_THRESHOLD="${LIVEKIT_WAKEWORD_THRESHOLD:-0.5}"
 AUDIO_ENHANCER="${AUDIO_ENHANCER:-nlms}"
-AEC_ENABLED="${AEC_ENABLED:-true}"
+AEC_ENABLED="${AEC_ENABLED:-${PROFILE_AEC_ENABLED:-true}}"
 NOISE_SUPPRESSION_ENABLED="${NOISE_SUPPRESSION_ENABLED:-false}"
 AUTO_GAIN_ENABLED="${AUTO_GAIN_ENABLED:-false}"
 GUI_ENABLED="${GUI_ENABLED:-true}"
@@ -85,8 +98,24 @@ PRINT_CONFIG="${CONTINUOUS_PRINT_CONFIG:-false}"
 PREFLIGHT_ENABLED="${CONTINUOUS_PREFLIGHT_ENABLED:-true}"
 READINESS_ENABLED="${CONTINUOUS_READINESS_ENABLED:-true}"
 READINESS_DURATION="${CONTINUOUS_READINESS_DURATION:-3.0}"
+SIMULATION_READINESS_ENABLED="${SIMULATION_READINESS_ENABLED:-true}"
+SIMULATION_READINESS_REQUIRED="${SIMULATION_READINESS_REQUIRED:-true}"
+SIMULATION_READINESS_TIMEOUT="${SIMULATION_READINESS_TIMEOUT:-35.0}"
+SIMULATION_CLEANUP_STALE="${SIMULATION_CLEANUP_STALE:-false}"
 source "$WORKSPACE/scripts/activate.sh"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((140 + $$ % 80))}"
+
+PULSE_CAPTURE_BRIDGE_ACTIVE=false
+if [[ "$PULSE_CAPTURE_BRIDGE" == "true" ]]; then
+  PULSE_CAPTURE_BRIDGE_ACTIVE=true
+elif [[ "$PULSE_CAPTURE_BRIDGE" == "auto" ]]; then
+  if [[ -n "${PULSE_SERVER:-}" ]] && command -v parecord >/dev/null 2>&1; then
+    PULSE_CAPTURE_BRIDGE_ACTIVE=true
+  fi
+elif [[ "$PULSE_CAPTURE_BRIDGE" != "false" ]]; then
+  echo "unknown PULSE_CAPTURE_BRIDGE=$PULSE_CAPTURE_BRIDGE; expected auto, true, or false" >&2
+  exit 2
+fi
 
 if [[ "$MODE" != "offline" && "$MODE" != "online" ]]; then
   echo "Usage: $0 {offline|online}" >&2
@@ -96,6 +125,8 @@ fi
 print_configuration() {
   cat <<EOF
 ROS_DOMAIN_ID=$ROS_DOMAIN_ID，连续语音控制模式=$MODE
+FASTDDS_BUILTIN_TRANSPORTS=${FASTDDS_BUILTIN_TRANSPORTS:-<unset>}（默认 UDPv4，用于规避 WSL FastDDS SHM 锁报错）
+EMBODIED_ALLOW_FASTDDS_SHM=${EMBODIED_ALLOW_FASTDDS_SHM:-false}
 
 建议演示话术：
   小智
@@ -111,7 +142,7 @@ ROS_DOMAIN_ID=$ROS_DOMAIN_ID，连续语音控制模式=$MODE
 终端会持续打印 [session] / [asr] / [queue] / [action] / [feedback] / [result] 链路事件。
 通过标准：至少识别 6 条 ASR final、产生 4 个以上动作、看到 [session] awake 与 sleeping，最后 /cmd_vel 归零。
 如需量化验收，请在第二终端运行：CONTINUOUS_LIVE_CHECK_DURATION=180 bash scripts/acceptance_test.sh continuous-live-check $MODE
-VOICE_CONTROL_PROFILE=$VOICE_CONTROL_PROFILE（normal/quiet/noisy_room；显式环境变量会覆盖 profile 默认值）
+VOICE_CONTROL_PROFILE=$VOICE_CONTROL_PROFILE（normal/quiet/low_gain/noisy_room；显式环境变量会覆盖 profile 默认值）
 VOICE_SESSION_TIMEOUT=$SESSION_TIMEOUT
 CONTINUOUS_COMMAND_QUEUE_SIZE=$COMMAND_QUEUE_SIZE
 COMMAND_NORMALIZATION_ENABLED=$COMMAND_NORMALIZATION_ENABLED
@@ -122,6 +153,8 @@ COMMAND_COMPLETION_ENABLED=$COMMAND_COMPLETION_ENABLED
 ASR_COMMIT_DELAY_MS=$ASR_COMMIT_DELAY_MS
 WAKE_WORD_ENABLED=$WAKE_WORD_ENABLED
 SPEAKER_ENABLED=$SPEAKER_ENABLED
+PULSE_CAPTURE_BRIDGE=$PULSE_CAPTURE_BRIDGE（active=$PULSE_CAPTURE_BRIDGE_ACTIVE；WSLg 下用于绕过 PortAudio/ALSA 默认输入近静音问题）
+PULSE_CAPTURE_SOURCE=$PULSE_CAPTURE_SOURCE
 VAD_PROVIDER=$VAD_PROVIDER（默认 energy；安装 silero-vad 后可设为 silero）
 SPEECH_START_THRESHOLD=$SPEECH_START_THRESHOLD（energy VAD RMS 起始阈值）
 SPEECH_END_SILENCE_S=$SPEECH_END_SILENCE_S
@@ -149,6 +182,10 @@ CONTINUOUS_MONITOR_AUDIO_SAMPLE_LIMIT=$MONITOR_AUDIO_SAMPLE_LIMIT
 CONTINUOUS_PREFLIGHT_ENABLED=$PREFLIGHT_ENABLED
 CONTINUOUS_READINESS_ENABLED=$READINESS_ENABLED
 CONTINUOUS_READINESS_DURATION=$READINESS_DURATION
+SIMULATION_READINESS_ENABLED=$SIMULATION_READINESS_ENABLED
+SIMULATION_READINESS_REQUIRED=$SIMULATION_READINESS_REQUIRED
+SIMULATION_READINESS_TIMEOUT=$SIMULATION_READINESS_TIMEOUT
+SIMULATION_CLEANUP_STALE=$SIMULATION_CLEANUP_STALE（true 时启动前清理残留 Gazebo/ROS 仿真进程）
 CONTINUOUS_COMMAND_MAX_AGE=$COMMAND_MAX_AGE
 CONTINUOUS_DUPLICATE_WINDOW_S=$COMMAND_DUPLICATE_WINDOW
 GUI_ENABLED=$GUI_ENABLED
@@ -169,13 +206,17 @@ add_optional_launch_arg() {
 
 build_launch_args() {
   LAUNCH_ARGS=(embodied_simulation voice_turtlebot3.launch.py)
+  local capture_enabled=true
+  if [[ "$PULSE_CAPTURE_BRIDGE_ACTIVE" == "true" ]]; then
+    capture_enabled=false
+  fi
   add_launch_arg gui "$GUI_ENABLED"
   add_launch_arg rviz false
   add_launch_arg launch_agent true
   add_launch_arg agent_type "$MODE"
   add_launch_arg provider_mode "$MODE"
   add_launch_arg microphone_enabled true
-  add_launch_arg capture_enabled true
+  add_launch_arg capture_enabled "$capture_enabled"
   add_launch_arg speaker_enabled "$SPEAKER_ENABLED"
   add_launch_arg vad_provider "$VAD_PROVIDER"
   add_launch_arg kws_provider "$KWS_PROVIDER"
@@ -249,14 +290,29 @@ if ! pactl list short sources 2>/dev/null | grep -q .; then
   exit 1
 fi
 
+if [[ "$SIMULATION_CLEANUP_STALE" == "true" ]]; then
+  CLEANUP_CONFIRM=true bash "$WORKSPACE/scripts/cleanup_simulation_processes.sh" || true
+else
+  if bash "$WORKSPACE/scripts/cleanup_simulation_processes.sh" >/tmp/embodied_agent_stale_simulation_check.log 2>&1; then
+    :
+  else
+    echo "WARN: 检测到可能残留的 Gazebo/ROS 仿真进程，可能导致 Gazebo GUI 空世界或小车模型不出现。" >&2
+    echo "      建议先运行：CLEANUP_CONFIRM=true bash scripts/cleanup_simulation_processes.sh" >&2
+    echo "      或本次直接运行：SIMULATION_CLEANUP_STALE=true bash scripts/acceptance_test.sh continuous-$MODE" >&2
+    sed 's/^/      /' /tmp/embodied_agent_stale_simulation_check.log >&2 || true
+  fi
+fi
+
 SERVER_PID=""
 LAUNCH_PID=""
 MONITOR_PID=""
+PULSE_BRIDGE_PID=""
 cleanup() {
   [[ -z "$LAUNCH_PID" ]] || kill -TERM -- "-$LAUNCH_PID" 2>/dev/null || true
   [[ -z "$MONITOR_PID" ]] || kill -INT "$MONITOR_PID" 2>/dev/null || true
+  [[ -z "$PULSE_BRIDGE_PID" ]] || kill -INT "$PULSE_BRIDGE_PID" 2>/dev/null || true
   [[ -z "$SERVER_PID" ]] || kill "$SERVER_PID" 2>/dev/null || true
-  wait "$LAUNCH_PID" "$MONITOR_PID" "$SERVER_PID" 2>/dev/null || true
+  wait "$LAUNCH_PID" "$MONITOR_PID" "$PULSE_BRIDGE_PID" "$SERVER_PID" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
@@ -280,10 +336,37 @@ print_configuration
 build_launch_args
 setsid ros2 launch "${LAUNCH_ARGS[@]}" &
 LAUNCH_PID=$!
+if [[ "$PULSE_CAPTURE_BRIDGE_ACTIVE" == "true" ]]; then
+  python3 "$WORKSPACE/scripts/pulse_audio_capture_bridge.py" \
+    --source "$PULSE_CAPTURE_SOURCE" \
+    --sample-rate 16000 \
+    --frame-ms 20 \
+    --vad-rms-threshold "$SPEECH_START_THRESHOLD" \
+    --speech-end-silence-s "$SPEECH_END_SILENCE_S" \
+    --min-utterance-ms "$MIN_UTTERANCE_MS" \
+    --max-utterance-s "$MAX_UTTERANCE_S" &
+  PULSE_BRIDGE_PID=$!
+fi
 if [[ "$MONITOR_ENABLED" == "true" ]]; then
   python3 "$WORKSPACE/scripts/continuous_voice_monitor.py" \
     --audio-sample-limit "$MONITOR_AUDIO_SAMPLE_LIMIT" &
   MONITOR_PID=$!
+fi
+
+if [[ "$SIMULATION_READINESS_ENABLED" == "true" ]]; then
+  echo
+  echo "正在检查 Gazebo/TurtleBot3 小车模型 readiness（timeout=${SIMULATION_READINESS_TIMEOUT}s）..."
+  if python3 "$WORKSPACE/scripts/simulation_readiness_check.py" \
+    --timeout "$SIMULATION_READINESS_TIMEOUT"; then
+    echo "仿真小车已就绪：已收到 /odom 与 /scan，/cmd_vel 和 ROS 2 Action 链路在线。"
+  else
+    echo "FAIL: Gazebo/TurtleBot3 小车模型未就绪；为避免演示时只跑语音不动小车，当前停止 continuous-$MODE。" >&2
+    echo "排查建议：先运行 bash scripts/acceptance_test.sh gazebo；若需要无 GUI 演示可设置 GUI_ENABLED=false。" >&2
+    if [[ "$SIMULATION_READINESS_REQUIRED" == "true" ]]; then
+      exit 1
+    fi
+    echo "WARN: SIMULATION_READINESS_REQUIRED=false，继续运行但小车可能不可见或不可控。" >&2
+  fi
 fi
 
 if [[ "$READINESS_ENABLED" == "true" ]]; then
@@ -296,7 +379,7 @@ if [[ "$READINESS_ENABLED" == "true" ]]; then
   if python3 "$WORKSPACE/scripts/voice_control_readiness_check.py" "${readiness_args[@]}"; then
     echo "系统已就绪，可以开始说：小智"
   else
-    echo "WARN: readiness check 未完全通过；仍继续运行。建议按顺序检查：麦克风 source、SPEECH_START_THRESHOLD、VOICE_CONTROL_PROFILE=noisy_room/quiet，以及可选 KWS 模型路径。" >&2
+    echo "WARN: readiness check 未完全通过；仍继续运行。建议按顺序检查：麦克风 source、SPEECH_START_THRESHOLD、VOICE_CONTROL_PROFILE=low_gain/quiet/noisy_room，以及可选 KWS 模型路径。" >&2
   fi
 fi
 

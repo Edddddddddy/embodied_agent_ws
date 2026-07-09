@@ -237,7 +237,7 @@ def install_signal_handlers() -> None:
 class MonitorStats:
     """长时间语音演示的轻量统计器。
 
-    统计只依赖已有 JSON topic，退出 monitor 时输出一行 summary，帮助判断问题是在
+    统计只依赖已有事件 topic，退出 monitor 时输出一行 summary，帮助判断问题是在
     ASR、过滤、队列还是执行阶段。
     """
 
@@ -384,6 +384,10 @@ class MonitorStats:
             if "vad_threshold_may_be_too_high" in warning_set:
                 advice.append(
                     "[advice] VAD 可能太保守：建议 VOICE_CONTROL_PROFILE=quiet，或降低 SPEECH_START_THRESHOLD。"
+                )
+            if "microphone_low_gain" in warning_set:
+                advice.append(
+                    "[advice] 麦克风输入增益偏低：建议 VOICE_CONTROL_PROFILE=low_gain，或按 suggested_vad_threshold 降低 SPEECH_START_THRESHOLD。"
                 )
             if "audio_capture_overrun" in warning_set:
                 advice.append(

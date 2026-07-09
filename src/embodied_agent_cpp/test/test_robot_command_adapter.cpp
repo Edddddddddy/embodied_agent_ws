@@ -19,7 +19,6 @@ TEST(RobotCommandAdapterTest, ConvertsAndClampsMoveIntoTypedCommand)
   EXPECT_EQ(result.typed_command.source, "online_agent");
   EXPECT_DOUBLE_EQ(result.typed_command.linear_x, 0.5);
   EXPECT_DOUBLE_EQ(result.typed_command.duration_s, 10.0);
-  EXPECT_DOUBLE_EQ(result.legacy_command["arguments"]["linear_x"], 0.5);
 }
 
 TEST(RobotCommandAdapterTest, UsesRequestIdWhenProvidedByAgent)
@@ -47,7 +46,6 @@ TEST(RobotCommandAdapterTest, ConvertsArcIntoTypedCurvedMove)
   EXPECT_DOUBLE_EQ(result.typed_command.linear_x, 0.12);
   EXPECT_DOUBLE_EQ(result.typed_command.angular_z, 0.45);
   EXPECT_DOUBLE_EQ(result.typed_command.duration_s, 6.0);
-  EXPECT_EQ(result.legacy_command["name"], "move");
 }
 
 TEST(RobotCommandAdapterTest, ConvertsTurnAndStopWithoutAmbiguousFields)
@@ -110,9 +108,42 @@ TEST(RobotCommandAdapterTest, RejectsInvalidInputWithoutProducingACommand)
 
   EXPECT_FALSE(result.valid);
   EXPECT_FALSE(result.error.empty());
-  EXPECT_TRUE(result.legacy_command.is_null());
   EXPECT_TRUE(result.typed_command.command_id.empty());
   EXPECT_EQ(
     result.typed_command.action_type,
     embodied_agent_interfaces::msg::RobotCommand::UNKNOWN);
+}
+
+TEST(RobotCommandAdapterTest, ConvertsNavigationCommands)
+{
+  embodied_agent_cpp::RobotCommandAdapter adapter;
+  const auto target = adapter.convert(
+    R"({"name":"navigate_to","arguments":{"target":"door"}})",
+    "nav-1", "agent");
+  ASSERT_TRUE(target.valid) << target.error;
+  EXPECT_EQ(
+    target.typed_command.action_type,
+    embodied_agent_interfaces::msg::RobotCommand::NAVIGATE_TO);
+  EXPECT_EQ(target.typed_command.target, "door");
+  EXPECT_DOUBLE_EQ(target.typed_command.duration_s, 3.0);
+
+  const auto patrol = adapter.convert(
+    R"({"name":"follow_waypoints","arguments":{"waypoints":["door","desk","home"],"number_of_loops":2}})",
+    "patrol-1", "agent");
+  ASSERT_TRUE(patrol.valid) << patrol.error;
+  EXPECT_EQ(
+    patrol.typed_command.action_type,
+    embodied_agent_interfaces::msg::RobotCommand::FOLLOW_WAYPOINTS);
+  ASSERT_EQ(patrol.typed_command.waypoints.size(), 3U);
+  EXPECT_EQ(patrol.typed_command.waypoints[1], "desk");
+  EXPECT_EQ(patrol.typed_command.number_of_loops, 2U);
+  EXPECT_DOUBLE_EQ(patrol.typed_command.duration_s, 10.0);
+
+  const auto cancel = adapter.convert(
+    R"({"name":"cancel_navigation","arguments":{}})",
+    "cancel-1", "agent");
+  ASSERT_TRUE(cancel.valid) << cancel.error;
+  EXPECT_EQ(
+    cancel.typed_command.action_type,
+    embodied_agent_interfaces::msg::RobotCommand::CANCEL_NAVIGATION);
 }

@@ -64,3 +64,56 @@ def test_nlu_prioritizes_stop_and_blocks_unsafe_language():
 
     assert not CommandNLU().parse("不要向前走").accepted
     assert not CommandNLU().parse("你觉得向前是什么意思").accepted
+
+
+def test_nlu_extracts_navigation_and_waypoint_patrol():
+    nav = CommandNLU().parse("去门口")
+    assert nav.accepted
+    assert nav.commands[0].intent == "navigate_to"
+    assert nav.commands[0].actions[0].as_dict() == {
+        "name": "navigate_to",
+        "arguments": {"target": "door"},
+    }
+
+    patrol = CommandNLU().parse("依次去门口、书桌、起点")
+    assert patrol.accepted
+    assert patrol.commands[0].intent == "follow_waypoints"
+    assert patrol.commands[0].actions[0].as_dict() == {
+        "name": "follow_waypoints",
+        "arguments": {"waypoints": ["door", "desk", "home"], "number_of_loops": 1},
+    }
+
+    cancel = CommandNLU().parse("取消导航然后去门口")
+    assert [action.name for command in cancel.commands for action in command.actions] == [
+        "cancel_navigation"
+    ]
+
+
+def test_nlu_treats_natural_multi_target_navigation_as_waypoint_patrol():
+    for text in (
+        "先去门口再去书桌最后回起点",
+        "去门口然后前往书桌最后返回起点",
+        "巡逻门口、书桌、起点",
+    ):
+        result = CommandNLU().parse(text)
+
+        assert result.accepted
+        assert result.commands[0].intent == "follow_waypoints"
+        assert result.commands[0].actions[0].as_dict() == {
+            "name": "follow_waypoints",
+            "arguments": {"waypoints": ["door", "desk", "home"], "number_of_loops": 1},
+        }
+
+
+def test_nlu_keeps_two_target_navigation_as_separate_queue_items():
+    result = CommandNLU().parse("去门口，然后前往书桌")
+
+    assert result.accepted
+    assert [command.intent for command in result.commands] == [
+        "navigate_to",
+        "navigate_to",
+    ]
+    assert [command.actions[0].arguments["target"] for command in result.commands] == [
+        "door",
+        "desk",
+    ]

@@ -9,6 +9,9 @@ uint8 TURN=3
 uint8 WAVE=4
 uint8 SET_LED=5
 uint8 SET_MODE=6
+uint8 NAVIGATE_TO=7
+uint8 FOLLOW_WAYPOINTS=8
+uint8 CANCEL_NAVIGATION=9
 uint8 action_type
 
 float64 linear_x
@@ -17,3 +20,6 @@ float64 duration_s
 int32 count
 string color
 string mode
+string target
+string[] waypoints
+uint32 number_of_loops

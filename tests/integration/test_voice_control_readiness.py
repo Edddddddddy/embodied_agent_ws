@@ -85,6 +85,27 @@ def test_format_readiness_report_summarizes_next_actions():
     assert "kws:no_kws_scores" in rendered
     assert "recommended_voice_profile: normal" in rendered
     assert "quick_apply: export VOICE_CONTROL_PROFILE=normal" in rendered
+    assert "quick_apply_threshold: export SPEECH_START_THRESHOLD=0.0180" in rendered
+
+
+def test_readiness_recommends_low_gain_for_user_reported_low_peak_audio():
+    audio = readiness.analyze_audio_health(
+        [
+            readiness.AudioMetricSample(rms=0.0003, peak=23, speech=False),
+            readiness.AudioMetricSample(rms=0.0023, peak=180, speech=False),
+        ]
+    )
+    kws = readiness.analyze_kws_scores([])
+
+    report = readiness.build_readiness_report(audio, kws, require_kws=False)
+
+    rendered = readiness.format_readiness_report(report)
+
+    assert report.ok is True
+    assert report.audio.recommended_voice_profile == "low_gain"
+    assert "audio:microphone_low_gain" in report.warnings
+    assert "quick_apply: export VOICE_CONTROL_PROFILE=low_gain" in rendered
+    assert "quick_apply_threshold: export SPEECH_START_THRESHOLD=" in rendered
 
 
 def test_readiness_report_preserves_audio_profile_advice_for_json_output():

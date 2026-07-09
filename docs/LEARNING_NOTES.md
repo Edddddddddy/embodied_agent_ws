@@ -18,8 +18,8 @@
 
 设计方式：
 
-- Agent 先发布 `/agent/action_candidate`，内容是 LLM 或 fallback parser 生成的动作 JSON。
-- C++ ActionGuard 将 JSON 转为强类型 `RobotCommand`。
+- Agent 先发布 `/agent/action_candidate`，内容是 LLM 或 fallback parser 生成的结构化动作候选。
+- C++ ActionGuard 将动作候选转为强类型 `RobotCommand`。
 - typed action bridge 将 `RobotCommand` 发送为 `ExecuteRobotCommand` goal。
 - simulation executor 返回 feedback/result，并驱动 `/cmd_vel`。
 
@@ -27,13 +27,13 @@
 
 - topic 适合广播状态和瞬时事件，例如 ASR final、动作候选、监控日志。
 - ROS 2 Action 适合“移动一秒”“转九十度”这种有持续时间、可取消、需要反馈的动作。
-- 自定义 msg/action 让动作接口可测试、可限幅、可扩展，比纯字符串 JSON 更工程化。
+- 自定义 msg/action 让动作接口可测试、可限幅、可扩展，比纯字符串事件载荷更工程化。
 
 方案对比：
 
 - 只用 `/cmd_vel`：简单，但 LLM 直接控制速度风险高，也难以表达执行结果。
 - 只用 service：适合短请求，不适合持续动作和取消。
-- 只用 JSON topic：开发快，但类型不安全，后期维护和测试成本高。
+- 只用字符串事件 topic：开发快，但类型不安全，后期维护和测试成本高。
 
 ## 2. ActionGuard：LLM 输出和机器人执行之间的安全边界
 
@@ -48,18 +48,16 @@
 设计方式：
 
 - 订阅 `/agent/action_candidate`。
-- 解析动作 JSON。
+- 解析动作候选。
 - 校验动作类型、速度、时长、颜色、模式等字段。
-- 通过后同时发布：
-  - `/robot/action_command`：兼容旧 JSON 链路。
-  - `/robot/action_command_typed`：新的强类型 ROS 2 msg。
+- 通过后发布 `/robot/action_command_typed` 强类型 ROS 2 msg。
 - 拒绝时发布 `/robot/action_rejected`。
 
 为什么这样设计：
 
 - 大模型输出不可完全信任，必须在进入机器人执行层前做白名单和限幅。
-- 保留旧 JSON topic，方便兼容早期脚本和测试。
-- 新增 typed message，方便 C++、Action、仿真执行器稳定对接。
+- 删除旧字符串动作命令入口，避免仿真/硬件执行层出现双入口。
+- 使用 typed message，方便 C++、Action、仿真执行器稳定对接。
 
 方案对比：
 
@@ -139,7 +137,7 @@
 - C++ audio frontend 发布 `/audio/clean_pcm`、`/audio/speech_started`、`/audio/speech_ended`、`/audio/silence_timeout`。
 - Agent 收到 endpoint 后调用 ASR commit。
 - `asr_commit_delay_ms` 允许在 endpoint 后等待少量时间，再提交 final。
-- `VOICE_CONTROL_PROFILE` 提供 quiet、normal、noisy_room 三种参数预设。
+- `VOICE_CONTROL_PROFILE` 提供 normal、quiet、low_gain、noisy_room 四种参数预设。
 
 为什么这样设计：
 
@@ -244,7 +242,48 @@
 - 大模型 function calling：泛化强，但响应和稳定性受模型影响。
 - 本地轻量 NLU + ActionGuard：在固定动作域内更适合端侧演示。
 
-## 9. 离线 Agent：Sherpa、llama.cpp、Sherpa-TTS 与双缓冲
+## 9. 声纹识别与用户行为记忆
+
+关键代码：
+
+- `src/embodied_online_agent/embodied_online_agent/speaker_identity_node.py`
+- `src/embodied_online_agent/embodied_online_agent/user_memory.py`
+- `src/embodied_online_agent/embodied_online_agent/online_agent_node.py`
+- `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py`
+- `tests/integration/test_speaker_memory_mock.py`
+
+设计方式：
+
+- 声纹识别被做成 sidecar：订阅 `/audio/clean_pcm` 和 `/audio/speech_ended`，发布 `/agent/speaker_identity`。
+- 声纹录入通过 `/agent/speaker_enroll_request` 触发，sidecar 把后续语音段保存成 wav 样本并维护 `speakers.txt`。
+- Agent 只消费稳定 JSON identity，不直接绑定某个模型库。
+- `UserMemoryStore` 按 `speaker_id` 保存本地 profile，包括用户名、偏好、常用动作、最近交互。
+- Agent 推理前把当前用户画像追加进 system prompt，但动作仍必须经过 ActionGuard。
+- 管理命令直接在 Agent 层处理，例如“记住我，我是小李”“我喜欢慢一点”“我是谁”“清除我的记忆”。
+
+为什么这样设计：
+
+- 声纹模型属于可替换能力，和 ASR/LLM/动作控制主链路解耦，降低演示风险。
+- 用户画像是长期稳定信息，不适合无限追加到普通对话历史里。
+- 记忆写入必须可控，不能完全交给 LLM 自行决定，否则容易把误识别或幻觉写入本地 profile。
+- 低置信度声纹返回 `unknown`，避免把 A 用户偏好误写到 B 用户。
+
+方案对比：
+
+- 直接接 mem0/Letta/Zep：记忆能力强，但偏 Web Agent/服务端框架，当前 ROS2 端侧项目会变重。
+- 使用 SpeechBrain/pyannote：模型能力成熟，但依赖 PyTorch 或 HuggingFace 模型，部署复杂。
+- 当前方案：mock 可自动验收，sherpa-onnx seam 可接真实端侧声纹，和已有离线技术栈一致。
+
+验收方式：
+
+```bash
+bash scripts/acceptance_test.sh speaker-memory-mock
+bash scripts/acceptance_test.sh speaker-enroll
+```
+
+该验收证明：speaker identity 进入 Agent、用户偏好落盘、动作执行后更新用户行为统计，并且声纹录入 seam 能采集样本文件。
+
+## 10. 离线 Agent：Sherpa、llama.cpp、Sherpa-TTS/SummerTTS 与双缓冲
 
 关键代码：
 
@@ -252,30 +291,62 @@
 - `src/embodied_offline_agent/embodied_offline_agent/providers/sherpa_asr.py`
 - `src/embodied_offline_agent/embodied_offline_agent/providers/llama_cpp.py`
 - `src/embodied_offline_agent/embodied_offline_agent/providers/sherpa_tts.py`
+- `src/embodied_offline_agent/embodied_offline_agent/providers/summer_tts.py`
+- `src/embodied_offline_agent/embodied_offline_agent/providers/summer_tts_ros.py`
+- `src/embodied_agent_interfaces/srv/SynthesizeSpeech.srv`
+- `src/embodied_agent_cpp/src/summer_tts_service_node.cpp`
+- `src/embodied_offline_agent/embodied_offline_agent/pseudo_streaming_tts.py`
 - `src/embodied_offline_agent/embodied_offline_agent/double_buffer.py`
 - `src/embodied_offline_agent/embodied_offline_agent/latency.py`
+- `scripts/start_llama_server.sh`
+- `scripts/llama_cpp_preflight.py`
+- `scripts/setup_summer_tts_runtime.sh`
+- `scripts/summer_tts_smoke.py`
+- `scripts/smoke_test_summer_pseudo_tts.py`
 
 设计方式：
 
 - Sherpa ZipFormer 负责流式 ASR。
-- llama.cpp server 提供 OpenAI-compatible completion。
-- Sherpa-TTS 做本地语音合成。
-- 双缓冲把 LLM 文本生成与 TTS 音频输出解耦。
+- llama.cpp server 提供 OpenAI-compatible streaming completion，`LlamaCppLlm` 只暴露 `stream(messages)`，
+  让 Offline Agent 不关心底层是 llama.cpp、云 API 还是测试 fake client。
+- Sherpa-TTS 是默认稳定 TTS provider；SummerTTS 是新增 C++ 独立编译 TTS provider，可通过 `tts_provider:=summer` 切换。
+- `SummerTts` provider 调用 `third_party/SummerTTS/build/tts_test`，输入文本文件和 `.bin` 模型，读取 16kHz mono wav 后返回 PCM16 bytes。
+- `SummerTtsServiceNode` 是常驻 C++ ROS component：节点启动时加载 `single_speaker_fast.bin`，
+  对外提供 `/tts/synthesize` service，Python 侧 `SummerTtsRosClient` 通过 `tts_provider:=summer_ros` 调用。
+- `PseudoStreamingTtsPipeline` 把 Sherpa/SummerTTS 这种“整句生成”的本地 TTS 包装成伪流式：
+  LLM 文字增量先经 `SentenceChunker` 切成短句，TTS worker 合成 PCM，audio worker 再按小块发布。
+- 双缓冲把 LLM 文本生成、TTS 合成与音频输出解耦。
 - latency 模块记录离线端到端耗时。
+- llama.cpp provider 额外记录首 token、token 数、tokens/s、错误原因，并合并到 `/offline_agent/metrics`。
+- TTS pipeline 额外记录 `text_chunks`、`synth_calls`、`audio_chunks`、`first_text_to_first_audio_ms`，
+  并合并到 `/offline_agent/metrics.tts_pipeline`。
+- `llama_cpp_preflight.py` 把 binary、模型文件、`/health`、`/v1/models`、低 token 流式 chat 分层验证。
+- `summer_tts_smoke.py` 把 SummerTTS 源码、二进制、模型和真实合成分层验证；`summer-pseudo-tts`
+  再验证真实 SummerTTS 能接入项目双缓冲伪流式 pipeline。
 
 为什么这样设计：
 
 - 端侧算力有限，离线链路必须控制模型体积和串行等待。
-- llama.cpp、Sherpa 都是轻量部署方案，适合 CPU/边缘端演示。
+- llama.cpp、Sherpa、SummerTTS 都是轻量本地部署方案，适合 CPU/边缘端演示。
 - 双缓冲可以减少“LLM 等 TTS / TTS 等 LLM”的卡顿。
+- 本地 TTS 通常不是天然流式；伪流式的关键是尽早切短句、尽早开始合成、音频按 PCM 小块发布。
+- 推理层独立预检可以快速判断问题在模型服务、ASR、TTS 还是 ROS 控制链路，避免完整 demo 失败时只能猜。
+- SummerTTS 是 C++ 项目，适合展示“端侧 C++ 运行时嵌入”；命令行 provider 保证部署简单，
+  常驻 ROS component 则展示了更工程化的低耦合封装，并减少每句进程启动和模型加载开销。
+- 请求失败后只在“尚未吐出 token”时重试；如果流式回复已经输出一半，就不能静默重试，否则上游 parser 会收到拼接污染的回复。
 
 方案对比：
 
 - 全部云端：效果强，但不体现端侧部署能力。
 - Python 大模型框架直接推理：开发方便，但部署和性能压力更大。
 - llama.cpp + Sherpa：工程味更强，适合展示端侧推理思路。
+- SummerTTS 命令行封装：接入最快、易验收，但每句会启动进程并加载模型；适合先打通链路。
+- SummerTTS C++ 组件化封装：可复用已加载模型，服务接口清晰，但需要维护 C++ wrapper、ROS2 service
+  和组件生命周期；当前实测仍受 SummerTTS CPU infer 本身限制。
+- 直接绑定 llama.cpp C API：可控性更强，但 Python/ROS2 集成和维护成本高；本项目选择 OpenAI-compatible server，
+  用网络 seam 换取更低耦合、更容易 mock 和更清晰的部署边界。
 
-## 10. BehaviorTree.CPP 与 pluginlib 仿真执行
+## 11. BehaviorTree.CPP 与 pluginlib 仿真执行
 
 关键代码：
 
@@ -304,7 +375,7 @@
 - 直接引入完整 Nav2：功能强，但本项目目标不是复杂导航，成本过高。
 - 轻量 BT + pluginlib：足够展示工程规范，同时保持项目可跑通。
 
-## 11. 测试体系
+## 12. 测试体系
 
 关键代码：
 
@@ -337,7 +408,80 @@
 - 只做人工演示：不可复现，回归成本高。
 - 单测 + smoke + 人工验收：更适合当前工程规模。
 
-## 12. 面试讲法建议
+## 13. 语音目标点导航与多目标点巡航
+
+关键代码：
+
+- `src/embodied_online_agent/embodied_online_agent/navigation_phrases.py`
+- `src/embodied_online_agent/embodied_online_agent/command_nlu.py`
+- `src/embodied_online_agent/embodied_online_agent/command_fallback.py`
+- `src/embodied_agent_interfaces/msg/RobotCommand.msg`
+- `src/embodied_agent_cpp/src/action_validator.cpp`
+- `src/embodied_agent_cpp/src/robot_command_adapter.cpp`
+- `src/embodied_simulation/include/embodied_simulation/nav2_places.hpp`
+- `src/embodied_simulation/config/places.yaml`
+- `src/embodied_simulation/src/simulation_control_node.cpp`
+- `src/embodied_simulation/src/robot_executor_plugins.cpp`
+- `src/embodied_simulation/launch/voice_nav2_turtlebot3.launch.py`
+- `scripts/continuous_nav2_voice_control.sh`
+- `scripts/publish_nav2_initial_pose.py`
+- `tests/integration/test_navigation_sequence.py`
+- `tests/integration/test_continuous_navigation_queue.py`
+- `tests/integration/test_nav2_bridge_sequence.py`
+- `tests/integration/test_nav2_turtlebot3_voice.py`
+- `tests/integration/test_continuous_nav2_voice_control_script.py`
+
+设计方式：
+
+- Agent 层只解析“去哪里”和“经过哪些点”，输出 `navigate_to` 或 `follow_waypoints`，不直接写坐标。
+- `navigation_phrases.py` 用语义地点词表把“门口/书桌/起点”等口语映射为 `door/desk/home`。
+- `RobotCommand.msg` 新增 `NAVIGATE_TO / FOLLOW_WAYPOINTS / CANCEL_NAVIGATION` 和 `target/waypoints/number_of_loops` 字段。
+- `ActionGuard` 继续作为安全边界：校验地点白名单、巡航点数量、循环次数，再转换为 typed command。
+- `places.yaml` 维护语义地点到地图坐标的映射。
+- `tests/repository/test_repository_layout.py` 会检查 Agent 地点词表、ActionGuard 白名单和
+  `places.yaml` 的 canonical place 完全一致，避免“语音能解析但 Nav2 不认地点”的漂移。
+- mock/Gazebo executor 用“运动窗口”模拟导航和巡航，确保 `/cmd_vel`、Action feedback、Action result 可观测。
+- `Nav2RobotExecutor` 作为 pluginlib 插件调用 Nav2 `NavigateToPose / FollowWaypoints` action；
+  `nav2-bridge` 用 fake Nav2 action server 自动验证 goal 内容。
+- `RobotExecutor::external_action_update()` 让 Nav2 action result 反向驱动本项目
+  `ExecuteRobotCommand` 的 result，避免只按本地 `duration_s` 假完成。
+- `voice_nav2_turtlebot3.launch.py` 复用官方 `nav2_bringup/tb3_simulation_launch.py`，
+  再叠加本项目的 Agent、ActionGuard、typed action bridge 和 Nav2 executor。
+- `nav2-turtlebot3` 重型验收会启动真实 TurtleBot3/Nav2 仿真，注入语音文本命令，
+  等待目标点导航/巡航 result，并检查 `/odom` 运动证据。
+- `test_continuous_navigation_queue.py` 是介于普通连续队列测试和真实 Nav2 重型测试之间的
+  自动回归：它验证一次唤醒后，多目标点导航和巡航命令都能进入连续队列，并按 request_id
+  对应到 ROS 2 Action result。
+- `continuous_nav2_voice_control.sh` 面向现场真实麦克风演示：它在 TurtleBot3/Nav2
+  bringup 之上打开在线/离线 Agent 的连续语音模式，让用户一次唤醒后连续说多个目标点命令。
+- `publish_nav2_initial_pose.py` 在演示启动后重复发布 AMCL `/initialpose`，降低现场
+  “Nav2 已启动但机器人还没有定位”的失败概率。
+- 真实 Nav2 bringup 前需要给 AMCL 发布 `/initialpose`，否则 map->odom/base_link TF
+  不成立；导航 action 也要使用较长 `nav_action_timeout_s`，不能沿用普通动作 12 秒超时。
+
+为什么这样设计：
+
+- 先做语义地点，而不是直接语音转坐标，可以减少 ASR/LLM 的自由度，方便测试和演示。
+- 新增强类型字段，而不是继续塞字符串字段，可以体现 ROS2/C++ 工程能力，也让后续 Nav2 bridge 更自然。
+- 把真实 Nav2 作为 executor 插件，避免把导航细节侵入 Agent、ActionGuard 和测试。
+- 用 external result seam 连接 Nav2 与本项目 Action，能体现“长动作可反馈、可取消、可等待结果”，
+  而不是仅发布一个 topic 后马上认为成功。
+- AMCL 初始位姿和长动作超时放在验收/launch 层处理，而不是塞进 Agent，保持“语音语义层”和
+  “导航运行时状态层”职责分离。
+- 连续麦克风 Nav2 演示脚本保留 `VOICE_CONTROL_PROFILE`、VAD endpoint、ASR commit delay、
+  session timeout 和 queue size 参数，原因是导航命令更长、更容易被噪声或尾部漏识别影响；
+  把这些参数显式打印出来，比“没反应时猜原因”更适合工程验收。
+- Nav2 自己会发布 `/cmd_vel`，所以 `RobotExecutor::publishes_cmd_vel()` 允许 Nav2 插件禁止
+  simulation node 周期性发布速度，避免两个控制器抢同一个速度话题。
+
+方案对比：
+
+- 直接让 LLM 输出 `{x,y,yaw}`：灵活但不稳定，且每个地图都要改 prompt；本项目更适合展示工程闭环，所以先固定语义地点。
+- 只做 fake Nav2 bridge：速度快、CI 稳定，但不能证明 controller server 真的驱动机器人；因此本项目同时提供 `nav2-turtlebot3` 重型验收入口，演示前单独跑。
+- 只做文本注入 Nav2 验收：自动化更稳，但不能覆盖真实麦克风的 ASR/session/queue 体验；因此新增 `continuous-nav2-offline/online` 作为人工演示入口。
+- 只做字符串 topic：实现快，但难体现可取消、带反馈、可测试的 ROS 2 Action 能力。
+
+## 14. 面试讲法建议
 
 可以用这条主线介绍项目：
 

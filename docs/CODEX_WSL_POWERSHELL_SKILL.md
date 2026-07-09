@@ -26,6 +26,11 @@ wsl -d Ubuntu-24.04 -- bash -lc 'cd /home/ubuntu/embodied_agent_ws && git status
 
 不要在仓库根目录无脑 grep，会扫到 `.venv`、`third_party/llama.cpp`、`__pycache__`，输出会爆炸。
 
+如果 `command -v rg` 指向 Windows Codex App 目录，例如
+`/mnt/c/Program Files/WindowsApps/.../app/resources/rg`，WSL 里直接调用可能报
+`Permission denied`。此时不要继续调 PowerShell 引号，先改用 `grep/find`，或在 WSL
+内安装 `ripgrep` 后显式使用 WSL 版本。
+
 推荐：
 
 ```bash

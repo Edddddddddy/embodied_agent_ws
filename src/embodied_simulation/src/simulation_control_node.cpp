@@ -1,4 +1,5 @@
 #include <atomic>
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -91,8 +92,6 @@ protected:
       "robot/bt_status", rclcpp::QoS(10).reliable());
     diagnostics_pub_ = create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
       "diagnostics", rclcpp::QoS(10).reliable());
-    const bool legacy_command_enabled =
-      bool_parameter("legacy_command_enabled", true);
     use_behavior_tree_ = bool_parameter("use_behavior_tree", true);
     if (use_behavior_tree_) {
       const auto default_tree =
@@ -112,11 +111,6 @@ protected:
         RCLCPP_ERROR(get_logger(), "failed to load BT XML: %s", error.what());
         return CallbackReturn::FAILURE;
       }
-    }
-    if (legacy_command_enabled) {
-      action_sub_ = create_subscription<std_msgs::msg::String>(
-        "robot/action_command", rclcpp::QoS(10).reliable(),
-        std::bind(&SimulationControlNode::on_action, this, _1));
     }
     action_server_ = rclcpp_action::create_server<ExecuteRobotCommand>(
       this,
@@ -312,6 +306,21 @@ private:
              std::isfinite(command.duration_s) &&
              command.duration_s >= 0.0 && command.duration_s <= 10.0;
     }
+    if (command.action_type == Command::NAVIGATE_TO) {
+      return !command.target.empty() &&
+             std::isfinite(command.duration_s) &&
+             command.duration_s >= 0.0 && command.duration_s <= 10.0;
+    }
+    if (command.action_type == Command::FOLLOW_WAYPOINTS) {
+      return !command.waypoints.empty() &&
+             command.number_of_loops >= 1 &&
+             command.number_of_loops <= 3 &&
+             std::isfinite(command.duration_s) &&
+             command.duration_s >= 0.0 && command.duration_s <= 10.0;
+    }
+    if (command.action_type == Command::CANCEL_NAVIGATION) {
+      return true;
+    }
     return false;
   }
 
@@ -354,6 +363,12 @@ private:
       executor_->stop();
       finish_immediate_action(goal_handle, true, "stopped");
       publish_action_ack("stop", "accepted");
+      return;
+    }
+    if (command.action_type == Command::CANCEL_NAVIGATION) {
+      executor_->stop();
+      finish_immediate_action(goal_handle, true, "navigation_canceled");
+      publish_action_ack("cancel_navigation", "accepted");
       return;
     }
     if (command.action_type == Command::SET_MODE) {
@@ -412,6 +427,20 @@ private:
         return;
       }
       active_action_name_ = "turn";
+    } else if (command.action_type == Command::NAVIGATE_TO) {
+      if (!executor_->execute(command, now)) {
+        finish_immediate_action(goal_handle, false, "executor_rejected");
+        active_goal_.reset();
+        return;
+      }
+      active_action_name_ = "navigate_to";
+    } else if (command.action_type == Command::FOLLOW_WAYPOINTS) {
+      if (!executor_->execute(command, now)) {
+        finish_immediate_action(goal_handle, false, "executor_rejected");
+        active_goal_.reset();
+        return;
+      }
+      active_action_name_ = "follow_waypoints";
     } else {
       finish_immediate_action(goal_handle, false, "invalid_command");
       active_goal_.reset();
@@ -419,8 +448,14 @@ private:
     }
     active_goal_ = goal_handle;
     action_active_ = true;
+    active_action_uses_external_result_ =
+      (active_action_name_ == "navigate_to" ||
+      active_action_name_ == "follow_waypoints") &&
+      executor_->external_action_update().has_value();
+    const double execution_duration_s = active_action_uses_external_result_ ?
+      action_timeout_s_ + 1.0 : command.duration_s;
     action_execution_.emplace(
-      command.duration_s, action_timeout_s_, now);
+      execution_duration_s, action_timeout_s_, now);
     publish_action_feedback(
       ExecuteRobotCommand::Feedback::PHASE_ACCEPTED, 0.0F, "accepted");
     publish_action_ack(active_action_name_, "accepted");
@@ -487,6 +522,7 @@ private:
     publish_action_ack(active_action_name_, message);
     active_goal_.reset();
     action_active_ = false;
+    active_action_uses_external_result_ = false;
     action_execution_.reset();
     active_action_name_.clear();
   }
@@ -496,8 +532,19 @@ private:
     if (!active_goal_ || !action_execution_) {
       return false;
     }
-    const auto update = action_execution_->update(
+    const auto timed_update = action_execution_->update(
       now, active_goal_->is_canceling(), output.safety_stopped);
+    auto update = timed_update;
+    if (active_action_uses_external_result_ &&
+      timed_update.state == ActionExecutionState::kRunning)
+    {
+      // Nav2 是外部 action server，真正的完成/失败要以 Nav2 result 为准；
+      // duration_s 在这里只作为兜底超时进度，避免目标点还没到就被本节点提前取消。
+      if (const auto external_update = executor_->external_action_update()) {
+        update = *external_update;
+        update.progress = std::max(update.progress, timed_update.progress);
+      }
+    }
     if (behavior_tree_) {
       const std::string detail =
         update.state == ActionExecutionState::kSucceeded ? "succeeded" :
@@ -547,57 +594,6 @@ private:
         break;
     }
     return true;
-  }
-
-  void on_action(const std_msgs::msg::String::SharedPtr message)
-  {
-    if (!is_active()) {
-      return;
-    }
-    try {
-      const auto command = nlohmann::json::parse(message->data);
-      const std::string name = command.at("name").get<std::string>();
-      const auto & arguments = command.at("arguments");
-      embodied_agent_interfaces::msg::RobotCommand typed_command;
-      if (name == "move") {
-        typed_command.action_type = typed_command.MOVE;
-        typed_command.linear_x = arguments.at("linear_x").get<double>();
-        typed_command.angular_z = arguments.value("angular_z", 0.0);
-        typed_command.duration_s = arguments.at("duration_s").get<double>();
-        executor_->execute(typed_command, now_seconds());
-        publish_mode();
-        publish_action_ack(name, "accepted");
-      } else if (name == "turn") {
-        typed_command.action_type = typed_command.TURN;
-        typed_command.angular_z = arguments.at("angular_z").get<double>();
-        typed_command.duration_s = arguments.at("duration_s").get<double>();
-        executor_->execute(typed_command, now_seconds());
-        publish_mode();
-        publish_action_ack(name, "accepted");
-      } else if (name == "stop") {
-        executor_->stop();
-        publish_mode();
-        publish_action_ack(name, "accepted");
-      } else if (name == "set_mode") {
-        const bool accepted = set_mode(arguments.at("mode").get<std::string>());
-        publish_action_ack(name, accepted ? "accepted" : "rejected");
-      } else if (name == "wave") {
-        typed_command.action_type = typed_command.WAVE;
-        typed_command.count = arguments.at("count").get<int>();
-        const bool accepted = executor_->execute(typed_command, now_seconds());
-        publish_action_ack(name, accepted ? "accepted" : "rejected");
-      } else if (name == "set_led") {
-        typed_command.action_type = typed_command.SET_LED;
-        typed_command.color = arguments.at("color").get<std::string>();
-        const bool accepted = executor_->execute(typed_command, now_seconds());
-        publish_action_ack(name, accepted ? "accepted" : "rejected");
-      } else {
-        publish_action_ack(name, "ignored");
-      }
-    } catch (const std::exception & error) {
-      RCLCPP_WARN(get_logger(), "ignored malformed trusted action: %s", error.what());
-      publish_action_ack("unknown", "rejected", error.what());
-    }
   }
 
   void on_mode_request(const std_msgs::msg::String::SharedPtr message)
@@ -753,7 +749,6 @@ private:
     scan_sub_.reset();
     emergency_sub_.reset();
     mode_sub_.reset();
-    action_sub_.reset();
     diagnostics_pub_.reset();
     bt_status_pub_.reset();
     action_ack_pub_.reset();
@@ -762,6 +757,7 @@ private:
     cmd_vel_pub_.reset();
     active_goal_.reset();
     action_active_ = false;
+    active_action_uses_external_result_ = false;
     action_execution_.reset();
     active_action_name_.clear();
     action_sequence_ = 0;
@@ -779,10 +775,12 @@ private:
       diagnostic_output_ = output;
     }
     const bool action_stopped = update_active_action(output, now);
-    geometry_msgs::msg::Twist velocity;
-    velocity.linear.x = action_stopped ? 0.0 : output.velocity.linear_x;
-    velocity.angular.z = action_stopped ? 0.0 : output.velocity.angular_z;
-    cmd_vel_pub_->publish(velocity);
+    if (executor_->publishes_cmd_vel()) {
+      geometry_msgs::msg::Twist velocity;
+      velocity.linear.x = action_stopped ? 0.0 : output.velocity.linear_x;
+      velocity.angular.z = action_stopped ? 0.0 : output.velocity.angular_z;
+      cmd_vel_pub_->publish(velocity);
+    }
 
     nlohmann::json state{
       {"mode", SimulationController::mode_name(output.mode)},
@@ -815,7 +813,6 @@ private:
     bt_status_pub_;
   rclcpp_lifecycle::LifecyclePublisher<
     diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diagnostics_pub_;
-  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr action_sub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr mode_sub_;
   rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr emergency_sub_;
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
@@ -828,6 +825,7 @@ private:
   std::shared_ptr<GoalHandle> active_goal_;
   std::optional<ActionExecution> action_execution_;
   std::string active_action_name_;
+  bool active_action_uses_external_result_{false};
   bool use_behavior_tree_{true};
   std::unique_ptr<CommandBehaviorTree> behavior_tree_;
   std::string last_bt_status_;

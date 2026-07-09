@@ -3,6 +3,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "embodied_agent_interfaces/msg/robot_command.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/string.hpp"
 
@@ -16,24 +17,19 @@ public:
   : Node("robot_action_stub")
   {
     acknowledgement_publisher_ = create_publisher<std_msgs::msg::String>("/robot/action_ack", 10);
-    command_subscription_ = create_subscription<std_msgs::msg::String>(
-      "/robot/action_command",
+    command_subscription_ =
+      create_subscription<embodied_agent_interfaces::msg::RobotCommand>(
+      "/robot/action_command_typed",
       10,
-      [this](const std_msgs::msg::String::SharedPtr message) {
-        nlohmann::json acknowledgement;
-        try {
-          const auto command = nlohmann::json::parse(message->data);
-          acknowledgement = {
-            {"name", command.at("name")},
-            {"status", "accepted"},
-          };
-          RCLCPP_INFO(get_logger(), "simulating action: %s", message->data.c_str());
-        } catch (const nlohmann::json::exception & error) {
-          acknowledgement = {
-            {"status", "rejected"},
-            {"error", error.what()},
-          };
-        }
+      [this](const embodied_agent_interfaces::msg::RobotCommand::SharedPtr command) {
+        nlohmann::json acknowledgement = {
+          {"action_type", command->action_type},
+          {"command_id", command->command_id},
+          {"status", "accepted"},
+        };
+        RCLCPP_INFO(
+          get_logger(), "simulating typed action: command_id=%s type=%u",
+          command->command_id.c_str(), command->action_type);
         std_msgs::msg::String output;
         output.data = acknowledgement.dump();
         acknowledgement_publisher_->publish(output);
@@ -43,7 +39,8 @@ public:
 
 private:
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr acknowledgement_publisher_;
-  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr command_subscription_;
+  rclcpp::Subscription<embodied_agent_interfaces::msg::RobotCommand>::SharedPtr
+    command_subscription_;
 };
 
 }  // namespace embodied_agent_cpp
@@ -55,4 +52,3 @@ int main(int argc, char ** argv)
   rclcpp::shutdown();
   return 0;
 }
-

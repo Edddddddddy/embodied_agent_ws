@@ -2,8 +2,6 @@
 
 #include <string>
 
-#include <nlohmann/json.hpp>
-
 #include "embodied_agent_interfaces/msg/robot_command.hpp"
 
 namespace embodied_agent_cpp
@@ -12,7 +10,6 @@ namespace embodied_agent_cpp
 struct RobotCommandConversion
 {
   bool valid{false};
-  nlohmann::json legacy_command;
   embodied_agent_interfaces::msg::RobotCommand typed_command;
   std::string error;
 };

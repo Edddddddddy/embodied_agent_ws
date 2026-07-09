@@ -41,15 +41,29 @@ def test_parse_audio_metrics_accepts_frontend_json():
 
 def test_quiet_microphone_produces_actionable_warning():
     samples = [
-        audio_calibration.AudioMetricSample(rms=0.001, peak=10, speech=False),
-        audio_calibration.AudioMetricSample(rms=0.002, peak=20, speech=False),
+        audio_calibration.AudioMetricSample(rms=0.0001, peak=3, speech=False),
+        audio_calibration.AudioMetricSample(rms=0.0002, peak=6, speech=False),
     ]
 
     report = audio_calibration.analyze_audio_health(samples)
 
     assert report.ok is False
     assert "microphone_too_quiet_or_disconnected" in report.warnings
-    assert report.suggested_vad_threshold >= 0.006
+    assert report.suggested_vad_threshold < 0.006
+
+
+def test_low_gain_microphone_recommends_low_gain_profile_and_low_threshold():
+    samples = [
+        audio_calibration.AudioMetricSample(rms=0.0003, peak=23, speech=False),
+        audio_calibration.AudioMetricSample(rms=0.0023, peak=180, speech=False),
+    ]
+
+    report = audio_calibration.analyze_audio_health(samples)
+
+    assert "microphone_low_gain" in report.warnings
+    assert report.recommended_voice_profile == "low_gain"
+    assert report.profile_reason == "low_gain_input_detected_but_below_default_vad"
+    assert 0.0008 <= report.suggested_vad_threshold <= 0.002
 
 
 def test_loud_audio_without_speech_suggests_vad_threshold_is_high():
@@ -95,17 +109,17 @@ def test_noisy_room_samples_recommend_noisy_room_profile():
     assert "persistent_speech_or_noise" in report.profile_reason
 
 
-def test_quiet_input_recommends_quiet_profile():
+def test_low_mid_input_without_warning_keeps_normal_profile():
     samples = [
-        audio_calibration.AudioMetricSample(rms=0.002, peak=80, speech=False),
-        audio_calibration.AudioMetricSample(rms=0.004, peak=160, speech=True),
-        audio_calibration.AudioMetricSample(rms=0.003, peak=100, speech=False),
+        audio_calibration.AudioMetricSample(rms=0.006, peak=220, speech=False),
+        audio_calibration.AudioMetricSample(rms=0.009, peak=360, speech=False),
+        audio_calibration.AudioMetricSample(rms=0.008, peak=300, speech=False),
     ]
 
     report = audio_calibration.analyze_audio_health(samples)
 
-    assert report.recommended_voice_profile == "quiet"
-    assert "low_input_energy" in report.profile_reason
+    assert report.recommended_voice_profile == "normal"
+    assert "balanced_audio_frontend" in report.profile_reason
 
 
 def test_dropped_frames_are_reported_from_counter_delta():

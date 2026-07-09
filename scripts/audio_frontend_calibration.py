@@ -115,8 +115,16 @@ def _suggest_vad_threshold(max_rms: float, mean_rms: float) -> float:
 
     if max_rms <= 0.0:
         return 0.018
-    candidate = max(max_rms * 0.45, mean_rms * 1.8)
-    return round(min(max(candidate, 0.006), 0.05), 4)
+    # WSL/笔记本麦克风有时会被系统增益或 AEC 压得很低：
+    # 例如用户实测 max_rms≈0.0023、背景≈0.0003。旧的 0.006 下限会让
+    # “有声音但 VAD 永远 false”的场景无法自愈，因此低增益档允许更低阈值。
+    if max_rms < 0.006:
+        candidate = max(max_rms * 0.55, mean_rms * 1.2)
+        lower_bound = 0.0008
+    else:
+        candidate = max(max_rms * 0.45, mean_rms * 1.8)
+        lower_bound = 0.006
+    return round(min(max(candidate, lower_bound), 0.05), 4)
 
 
 def _recommend_voice_profile(
@@ -130,6 +138,7 @@ def _recommend_voice_profile(
     """Recommend the continuous_voice_control.sh profile for live demos.
 
     这里推荐的是“演示前先用哪一档”，不是最终麦克风调参结果：
+    - low_gain：麦克风输入极低但仍有可用语音，先大幅降低阈值并关闭 AEC；
     - quiet：输入偏弱或 VAD 太保守，先降低起始阈值；
     - noisy_room：长时间 speech=true，说明环境噪声/回声容易误触发；
     - normal：指标相对均衡，保留默认值。
@@ -142,6 +151,8 @@ def _recommend_voice_profile(
         return "noisy_room", "persistent_speech_or_noise"
     if speech_ratio > 0.85 and mean_rms > 0.01:
         return "noisy_room", "persistent_speech_or_noise"
+    if "microphone_low_gain" in warning_set:
+        return "low_gain", "low_gain_input_detected_but_below_default_vad"
     if "vad_threshold_may_be_too_high" in warning_set:
         return "quiet", "audible_input_not_detected_as_speech"
     if "microphone_too_quiet_or_disconnected" in warning_set:
@@ -183,7 +194,9 @@ def analyze_audio_health(samples: Sequence[AudioMetricSample]) -> AudioHealthRep
     latest = samples[-1]
     warnings: list[str] = []
 
-    if max_rms < 0.005:
+    if 0.001 <= max_rms < 0.005:
+        warnings.append("microphone_low_gain")
+    elif max_rms < 0.001:
         warnings.append("microphone_too_quiet_or_disconnected")
     if speech_ratio == 0.0 and max_rms > 0.02:
         warnings.append("vad_threshold_may_be_too_high")
@@ -265,6 +278,7 @@ def format_report(report: AudioHealthReport) -> str:
         explanations = {
             "no_audio_metrics": "没有收到 /audio/frontend_metrics，请确认 audio_frontend 已启动。",
             "microphone_too_quiet_or_disconnected": "麦克风能量过低，检查输入设备、WSL 麦克风权限或靠近麦克风。",
+            "microphone_low_gain": "麦克风输入偏低但仍有声音；建议 VOICE_CONTROL_PROFILE=low_gain，或手动设置更低 SPEECH_START_THRESHOLD。",
             "vad_threshold_may_be_too_high": "检测到较大音量但 speech=false，可能是 VAD 阈值过高。",
             "vad_threshold_may_be_too_low_or_environment_noisy": "长时间 speech=true，可能是阈值过低或环境噪声过大。",
             "audio_input_overrun": "输入音频丢帧，可能是 CPU 忙、音频块处理过慢或队列太小。",

@@ -5,6 +5,9 @@
 1. 项目哪些能力可以自动验证？
 2. 真实麦克风、在线接口、Gazebo 仿真应该如何人工验收？
 
+Nav2 语音目标点导航与多目标点巡航的逐项完成度审计见
+[NAV2_VOICE_ACCEPTANCE_AUDIT.md](NAV2_VOICE_ACCEPTANCE_AUDIT.md)。
+
 所有命令默认在 WSL Ubuntu 中执行：
 
 ```bash
@@ -28,6 +31,20 @@ bash scripts/acceptance_test.sh --help
 | `mock` | 自动 | 构建、单测、无模型 ROS smoke 主链路 |
 | `online` | 自动/联网 | DashScope 在线 ASR/LLM/TTS 最小 token 验证 |
 | `offline` | 自动/本地模型 | Sherpa/llama.cpp/Sherpa-TTS 真实离线链路 |
+| `offline-runtime-versions` | 自动/本地版本 | 检查 llama.cpp、SummerTTS、sherpa-onnx 是否匹配阶段固定版本 |
+| `offline-latency` | 自动/本地模型 | 检查 llama.cpp 首 token ≤ 1s、默认 Sherpa-TTS 首音频 ≤ 300ms |
+| `summer-tts-preflight` | 自动/本地模型 | SummerTTS 源码、二进制和模型文件预检 |
+| `summer-tts-smoke` | 自动/本地模型 | 真实 SummerTTS C++ 二进制合成验证 |
+| `summer-pseudo-tts` | 自动/本地模型 | SummerTTS 与项目伪流式双缓冲 pipeline 集成验证 |
+| `summer-tts-service` | 自动/ROS2/C++ | 常驻 SummerTTS C++ ROS service 合成验证 |
+| `sherpa-asr-preflight` | 自动/本地模型 | ASR-only 预检：检查 `sherpa_onnx` 和 ZipFormer 模型文件 |
+| `sherpa-asr-smoke` | 自动/本地模型 | ASR-only 真实解码：用 ZipFormer test wav 验证 Sherpa provider |
+| `offline-sherpa-typed` | 自动/本地模型/ROS2 | Sherpa ASR/TTS + llama.cpp 经过 ActionGuard、typed Action 和仿真 `/cmd_vel` |
+| `navigation-demo` | 自动/仿真 | 语音风格目标点导航与多目标点巡航，覆盖 online/offline mock Agent |
+| `nav2-bridge` | 自动/Nav2 seam | 用 fake Nav2 action server 验证语义地点会发成 NavigateToPose/FollowWaypoints goal |
+| `nav2-preflight` | 自动/Nav2 | 检查 Nav2/TurtleBot3 voice launch 依赖和参数 |
+| `nav2-stage` | 自动/Nav2 | 语音导航阶段门禁：解析、连续队列、Nav2 bridge、preflight |
+| `nav2-turtlebot3` | 重型/Nav2/Gazebo | 启动官方 Nav2 TurtleBot3 仿真，注入语音文本，验证目标点导航/巡航 result 与 odom |
 | `gazebo` | 自动/仿真 | typed Action 到 Gazebo 运动验证 |
 | `gazebo-voice` | 自动/仿真 | 离线合成语音到 Gazebo 动作 |
 | `gazebo-voice-online` | 自动/联网/仿真 | 在线 provider 到 Gazebo 动作 |
@@ -36,12 +53,22 @@ bash scripts/acceptance_test.sh --help
 | `continuous-soak` | 自动 | 长会话连续命令稳定性 |
 | `continuous-queue-full` | 自动 | busy 时队列满反馈 |
 | `continuous-multi-command` | 自动 | 一条 ASR final 被轻量 NLU 解析成多条队列命令 |
+| `continuous-navigation` | 自动/仿真 | 连续会话中目标点导航与多目标点巡航按队列顺序执行 |
+| `continuous-navigation-natural` | 自动/仿真 | 自然多目标话术解析为多目标点巡航并按队列执行 |
+| `speaker-memory-mock` | 自动 | mock 声纹身份事件、用户偏好记忆、prompt/action 记录 |
+| `speaker-enroll` | 自动 | 声纹录入请求收集 wav 样本并生成 `speakers.txt` |
 | `continuous-ttl` | 自动 | 过期命令丢弃 |
 | `continuous-timeout` | 自动 | 会话超时后重新要求唤醒 |
 | `voice-readiness` | 自动 | 麦克风/音频前端 readiness 检查 |
 | `continuous-offline` | 人工 | 真实麦克风离线连续控制 |
 | `continuous-online` | 人工/联网 | 真实麦克风在线连续控制 |
 | `continuous-live-check` | 人工辅助 | 订阅 topic 并统计现场演示证据 |
+| `continuous-live-report` | 自动/复盘 | 读取已保存的连续语音验收报告并重新判定 |
+| `continuous-nav2-offline` | 人工/Nav2 | 真实麦克风离线连续目标点导航与多目标点巡航 |
+| `continuous-nav2-online` | 人工/联网/Nav2 | 真实麦克风在线连续目标点导航与多目标点巡航 |
+| `continuous-nav2-evidence` | 人工辅助/Nav2 | 一终端启动 Nav2 语音控制、现场计分并保存报告 |
+| `continuous-nav2-live-check` | 人工辅助/Nav2 | 订阅 topic 并统计现场 Nav2 连续导航演示证据 |
+| `continuous-nav2-live-report` | 自动/复盘/Nav2 | 读取已保存的 Nav2 连续语音验收报告并重新判定 |
 | `all` | 自动 | release gate，不包含人工 microphone 模式 |
 
 ## 2. 推荐测试顺序
@@ -53,12 +80,169 @@ pytest -q tests/repository
 bash tests/integration/test_acceptance_cli.sh
 bash scripts/acceptance_test.sh continuous-endpoint
 bash scripts/acceptance_test.sh continuous-mock
+bash scripts/acceptance_test.sh nav2-stage
+bash scripts/acceptance_test.sh navigation-demo
+bash scripts/acceptance_test.sh nav2-bridge
+bash scripts/acceptance_test.sh nav2-preflight
+bash scripts/acceptance_test.sh nav2-turtlebot3
 bash scripts/acceptance_test.sh continuous-multi-command
+bash scripts/acceptance_test.sh continuous-navigation
 bash scripts/acceptance_test.sh continuous-queue-full
 bash scripts/acceptance_test.sh voice-readiness
 ```
 
 通过后说明：仓库结构、脚本入口、连续语音会话、队列、endpoint、readiness 基本正常。
+
+用户声纹与本地记忆 mock 验收：
+
+```bash
+bash scripts/acceptance_test.sh speaker-memory-mock
+bash scripts/acceptance_test.sh speaker-enroll
+```
+
+通过后说明：
+
+- `/agent/speaker_identity` 能驱动 Agent 绑定当前用户。
+- “记住我，我是小李”“我喜欢慢一点”“我是谁”等管理命令能写入/读取本地用户画像。
+- 普通动作执行后会把动作统计写入当前用户 profile。
+- `/agent/speaker_enroll_request` 能触发 sidecar 收集 3 段 wav 样本并维护 speaker-file。
+- 该验收不依赖真实声纹模型；真实 sherpa-onnx 声纹需要另行准备 speaker embedding 模型和注册 wav。
+`navigation-demo` 额外证明“去门口”和“依次去门口、书桌、起点”能被 online/offline
+Agent 解析成 `navigate_to / follow_waypoints`，并通过 typed Action 驱动仿真 executor。
+
+### 2.1.1 Sherpa-ONNX ASR-only 真实部署检查
+
+如果只想先验证离线 ASR 推理框架，不想下载/编译完整离线 LLM/TTS 栈，运行：
+
+```bash
+bash scripts/setup_sherpa_asr_runtime.sh
+bash scripts/acceptance_test.sh sherpa-asr-preflight
+bash scripts/acceptance_test.sh sherpa-asr-smoke
+```
+
+通过后说明：
+
+- `sherpa_onnx` Python 包可导入。
+- ZipFormer encoder/decoder/joiner/tokens 文件存在且大小合理。
+- `SherpaZipformerAsr` provider 可以加载真实模型，并对 test wav 输出 final 文本。
+
+这只覆盖 ASR 层；完整离线链路仍使用：
+
+```bash
+bash scripts/setup_offline_runtime.sh
+bash scripts/acceptance_test.sh llama-cpp-preflight
+bash scripts/acceptance_test.sh llama-cpp-smoke
+bash scripts/acceptance_test.sh pseudo-tts
+bash scripts/acceptance_test.sh offline-runtime-versions
+bash scripts/acceptance_test.sh offline-latency
+bash scripts/acceptance_test.sh summer-tts-preflight
+bash scripts/acceptance_test.sh summer-tts-smoke
+bash scripts/acceptance_test.sh summer-pseudo-tts
+bash scripts/acceptance_test.sh offline
+```
+
+### 2.1.2 SummerTTS TTS-only 真实部署检查
+
+SummerTTS 是独立 C++ 离线语音合成项目，源码和模型部署在 `third_party/SummerTTS`。
+它和 Sherpa-TTS 的定位不同：Sherpa-TTS 通过 Python `sherpa_onnx` 包加载 ONNX/VITS
+模型；SummerTTS 通过本地 C++ `tts_test` 二进制读取文本文件和 `.bin` 模型，输出
+16kHz mono PCM wav。项目中的 `SummerTts` provider 会剥离 wav 头，返回 PCM16 bytes，
+再交给 `PseudoStreamingTtsPipeline` 做双缓冲伪流式发布。
+
+部署与验收：
+
+```bash
+bash scripts/setup_summer_tts_runtime.sh
+bash scripts/acceptance_test.sh summer-tts-preflight
+bash scripts/acceptance_test.sh summer-tts-smoke
+bash scripts/acceptance_test.sh summer-pseudo-tts
+bash scripts/acceptance_test.sh summer-tts-service
+```
+
+通过标准：
+
+- `third_party/SummerTTS/build/tts_test` 存在且可执行。
+- `third_party/SummerTTS/models/single_speaker_fast.bin` 存在。
+- `summer-tts-smoke` 能输出非空 PCM。
+- `summer-pseudo-tts` 的 `tts_pipeline.synth_calls` 为 2，且产生多个 audio chunks。
+- `summer-tts-service` 能启动 `embodied_agent_cpp/summer_tts_service`，通过 `/tts/synthesize`
+  返回 `sample_rate=16000` 和非空 PCM。
+
+常见失败定位：
+
+- `uint16_t was not declared`：直接运行 `setup_summer_tts_runtime.sh`，脚本会为 Ubuntu
+  24.04/GCC 13 自动补 `<cstdint>` 兼容 include。
+- `SummerTTS runtime preflight failed`：检查 `third_party/SummerTTS` 是否完整克隆、构建是否完成。
+- 完整离线 Agent 想切换 SummerTTS：启动时设置 `tts_provider:=summer`。
+- 完整离线 Agent 想切换常驻 C++ service：启动时设置 `tts_provider:=summer_ros`。
+- SummerTTS 命令行 provider 每句会启动进程并加载模型；`summer_ros` 已消除这部分开销，
+  但当前 CPU infer 仍明显高于 Sherpa-TTS，因此 `offline-latency` 的 `<300ms`
+  TTS 指标仍以默认 Sherpa-TTS provider 为准。
+
+### 2.1.3 离线低延迟指标验收
+
+```bash
+bash scripts/acceptance_test.sh offline-latency
+```
+
+通过标准：
+
+- `llm.first_token_ms <= 1000`。
+- `tts.provider == "sherpa"`。
+- `tts.first_audio_ms <= 300`。
+- `ok == true`。
+
+该模式会启动或复用 `llama-server`，发送一次极短流式请求，并在常驻 Sherpa-TTS
+provider 上合成短句。它验证的是当前离线 Agent 默认低延迟路径，而不是 SummerTTS
+命令行封装路径。
+
+### 2.1.1 llama.cpp 推理层验收
+
+llama.cpp 现在有独立分层验收，建议在排查离线链路时先跑：
+
+```bash
+bash scripts/acceptance_test.sh llama-cpp-preflight
+bash scripts/acceptance_test.sh llama-cpp-smoke
+bash scripts/acceptance_test.sh pseudo-tts
+```
+
+通过标准：
+
+- `third_party/llama.cpp/build/bin/llama-server` 存在且可执行。
+- `models/Qwen3-0.6B-Q8_0.gguf` 存在。
+- `llama-server` 的 `/health`、`/v1/models` 可访问。
+- smoke 模式能从 `/v1/chat/completions` 收到流式 token，并打印 `first_token_ms`。
+- `pseudo-tts` 能证明 token 流产生的短句被伪流式 TTS pipeline 异步合成并发布音频块。
+
+常见失败定位：
+
+- `MISSING llama-server binary`：先运行 `bash scripts/setup_offline_runtime.sh`。
+- `MISSING GGUF model`：确认模型文件放在 `models/Qwen3-0.6B-Q8_0.gguf`，或设置 `LLAMA_MODEL`。
+- `cannot connect` / health 超时：查看 `scripts/start_llama_server.sh` 输出，降低 `LLAMA_THREADS` 或缩小 `LLAMA_CONTEXT`。
+- Offline Agent 已收到 ASR final 但无动作：查看 `/offline_agent/metrics` 的 `llm_provider` 字段和 Agent 日志。
+
+如果只想验证“Sherpa-ONNX 语音模型参与的 ROS2 typed Action 控制闭环”，运行：
+
+```bash
+bash scripts/acceptance_test.sh offline-sherpa-typed
+```
+
+该模式会启动：
+
+```text
+Sherpa-TTS 合成命令音频
+  -> /audio/clean_pcm
+  -> Sherpa ZipFormer ASR
+  -> Offline Agent + llama.cpp + Sherpa-TTS
+  -> /agent/action_candidate
+  -> C++ ActionGuard
+  -> /robot/action_command_typed
+  -> ExecuteRobotCommand Action
+  -> simulation_control MockRobotExecutor
+  -> /cmd_vel + /robot/action_result
+```
+
+详细说明见 [SHERPA_ONNX_DEPLOYMENT.md](SHERPA_ONNX_DEPLOYMENT.md)。
 
 ### 2.2 Python/C++ 单元测试
 
@@ -110,6 +294,28 @@ bash scripts/acceptance_test.sh continuous-offline
 bash scripts/acceptance_test.sh continuous-online
 ```
 
+`continuous-offline/online` 会先检查 Gazebo/TurtleBot3 仿真 readiness：必须收到
+`/odom`、`/scan`，并且 `/cmd_vel` 与 `/robot/execute_command` 链路在线。若检查失败，
+脚本会直接停止，避免出现“语音在跑，但 Gazebo 里没有小车模型”的演示假阳性。
+如果只想先排查仿真本身，运行：
+
+```bash
+bash scripts/acceptance_test.sh gazebo
+```
+
+如果 WSL 里残留了旧 Gazebo 进程，可能出现 GUI 空世界、模型不出现、odom 跳变等现象。
+先运行：
+
+```bash
+CLEANUP_CONFIRM=true bash scripts/cleanup_simulation_processes.sh
+```
+
+也可以让连续语音演示入口启动前自动清理：
+
+```bash
+SIMULATION_CLEANUP_STALE=true bash scripts/acceptance_test.sh continuous-online
+```
+
 推荐话术：
 
 ```text
@@ -140,21 +346,184 @@ bash scripts/acceptance_test.sh continuous-live-check online
 - `停下/急停` 能抢占，队列被清空。
 - 结束后 `/cmd_vel` 为 0。
 
-## 4. 真实语音问题排查
+## 4. 语音目标点导航与多目标点巡航
 
-### 4.1 ASR 完全没听到
+自动验收：
+
+```bash
+bash scripts/acceptance_test.sh navigation-demo
+bash scripts/acceptance_test.sh nav2-stage
+bash scripts/acceptance_test.sh nav2-bridge
+bash scripts/acceptance_test.sh nav2-preflight
+bash scripts/acceptance_test.sh continuous-navigation
+```
+
+覆盖链路：
+
+```text
+/agent/text_input 模拟 ASR final
+  -> CommandNLU / fallback parser
+  -> /agent/action_candidate
+  -> C++ ActionGuard
+  -> RobotCommand.NAVIGATE_TO / FOLLOW_WAYPOINTS
+  -> ROS 2 ExecuteRobotCommand Action
+  -> BehaviorTree + pluginlib executor
+  -> /cmd_vel 与 /robot/action_result
+```
+
+当前支持的话术示例：
+
+```text
+去门口
+前往书桌
+回到起点
+导航到厨房
+依次去门口、书桌、起点
+开始巡航
+停止巡航 / 取消导航
+```
+
+通过标准：
+
+- online 和 offline mock Agent 均 PASS。
+- `去门口` 解析为 `{"name": "navigate_to", "arguments": {"target": "door"}}`。
+- `依次去门口、书桌、起点` 解析为 `follow_waypoints`，waypoints 为 `door/desk/home`。
+- `continuous-navigation` 会验证一次唤醒后，`去门口，然后前往书桌` 与
+  `依次去门口、书桌、起点` 能排入同一个连续控制链路，且 result 与 request_id 对应。
+- `/robot/action_result` 中对应 command_id success=true。
+- `/cmd_vel` 能观察到目标导航的前进速度，以及巡航的线速度 + 角速度。
+
+边界说明：语义地点仍由 `places.yaml` 维护，不在本阶段做自动建图或复杂任务规划。
+仓库结构测试会锁住 Agent 地点词表、ActionGuard 地点白名单和 `places.yaml` 的
+canonical place 一致性，防止某一层配置漂移。
+`navigation-demo` 由仿真 executor 生成可观测运动；`nav2-bridge` 会启动 fake Nav2
+action server，证明 `Nav2RobotExecutor` 已能把语义地点转换成真正的
+`NavigateToPose / FollowWaypoints` goal，并且 action result 由 Nav2 result 驱动，
+不是本地固定 duration 假完成。`nav2-preflight` 用于在启动重型 Gazebo/Nav2 前
+确认依赖包、`voice_nav2_turtlebot3.launch.py`、`nav_action_timeout_s` 和关键参数可用；
+`nav2-turtlebot3` 用于真实 TurtleBot3/Nav2 bringup，验证目标点导航/多目标点巡航
+result 和 `/odom` 运动证据。该模式会给 AMCL 发布 `/initialpose`，并把 Nav2 长动作
+超时提高到演示级窗口，避免按普通短动作提前取消真实导航 goal。该模式耗时较长，
+通常不放入 CI。
+
+真实麦克风连续 Nav2 演示：
+
+```bash
+bash scripts/acceptance_test.sh continuous-nav2-offline
+# 或
+bash scripts/acceptance_test.sh continuous-nav2-online
+```
+
+推荐的一终端留证方式：
+
+```bash
+CONTINUOUS_LIVE_CHECK_REPORT=logs/nav2-live-check.json \
+  CONTINUOUS_LIVE_CHECK_DURATION=240 \
+  bash scripts/acceptance_test.sh continuous-nav2-evidence offline
+```
+
+该模式会在同一个 `ROS_DOMAIN_ID` 下后台启动连续 Nav2 语音控制，前台运行
+`continuous-nav2-live-check` 等价的现场统计，并在结束时清理 Gazebo/Nav2/Agent。
+如果要分开观察日志和 topic，再使用下面的两终端方式。
+正式启动前可用 dry-run 自检参数，不会占用麦克风或启动 Gazebo：
+
+```bash
+CONTINUOUS_NAV2_EVIDENCE_DRY_RUN=true \
+  CONTINUOUS_LIVE_CHECK_REPORT=logs/nav2-live-check.json \
+  bash scripts/acceptance_test.sh continuous-nav2-evidence offline
+```
+
+推荐另开一个终端做现场计分：
+
+```bash
+CONTINUOUS_LIVE_CHECK_DURATION=240 bash scripts/acceptance_test.sh continuous-nav2-live-check offline
+```
+
+`continuous-nav2-live-check` 会在通用连续语音统计基础上，额外要求至少出现一次
+`navigate_to` 和一次 `follow_waypoints` action candidate。
+如果需要留存验收证据，可以指定报告文件：
+
+```bash
+CONTINUOUS_LIVE_CHECK_REPORT=logs/nav2-live-check.json \
+  CONTINUOUS_LIVE_CHECK_DURATION=240 \
+  bash scripts/acceptance_test.sh continuous-nav2-live-check offline
+```
+
+报告文件可以作为阶段验收附件保存。复盘或发给他人确认时，可直接重新判定：
+
+```bash
+bash scripts/acceptance_test.sh continuous-nav2-live-report logs/nav2-live-check.json
+```
+
+推荐话术：
+
+```text
+小智
+去门口
+前往书桌
+依次去门口、书桌、起点
+停止巡航
+退出控制
+```
+
+通过标准：
+
+- 终端持续打印 session、ASR、queue、action/result 事件。
+- `去门口/前往书桌` 能产生 `navigate_to`，并收到 Nav2 action result。
+- `依次去门口、书桌、起点` 能产生 `follow_waypoints`，多个 waypoint 按顺序进入 Nav2。
+- 执行过程中再次说目标点命令时，命令进入连续队列等待，而不是丢失。
+- `停止巡航/取消导航/停下` 能抢占当前导航并让 `/cmd_vel` 归零。
+
+## 5. 真实语音问题排查
+
+### 5.1 ASR 完全没听到
 
 运行：
 
 ```bash
+bash scripts/acceptance_test.sh wsl-microphone-preflight
 bash scripts/acceptance_test.sh voice-readiness
 python scripts/audio_frontend_calibration.py --duration 6
 ```
+
+如果 `wsl-microphone-preflight` 录到的 `rms≈0.0000`、`peak` 只有个位数，说明
+WSLg/PulseAudio source 存在但没有真实麦克风音频。这个问题发生在 ROS 音频前端之前，
+需要先检查 Windows 麦克风权限、默认输入设备或 WSLg 音频转发。
+
+如果 `wsl-microphone-preflight` 已 PASS，但 `continuous-offline` 中 C++ audio frontend
+长期只显示近静音，优先确认终端是否显示：
+
+```text
+PULSE_CAPTURE_BRIDGE=auto（active=true）
+enhancer=pulse_bridge
+```
+
+该 bridge 使用 `parecord` 从 WSLg PulseAudio 捕获 PCM，并发布项目既有
+`/audio/clean_pcm`、`/audio/frontend_metrics`、`/audio/speech_started`、
+`/audio/speech_ended`，用于绕过 WSL 中 PortAudio/ALSA 默认输入不可用的问题。
 
 如果 speech ratio 很低，尝试：
 
 ```bash
 VOICE_CONTROL_PROFILE=quiet bash scripts/acceptance_test.sh continuous-offline
+```
+
+如果终端持续出现类似：
+
+```text
+[audio] rms=0.0023 peak=180 speech=False
+```
+
+这表示音频链路有输入，但输入增益低于默认 VAD 阈值。优先使用低增益 profile：
+
+```bash
+VOICE_CONTROL_PROFILE=low_gain bash scripts/acceptance_test.sh continuous-offline
+```
+
+也可以直接套用 calibration/readiness 给出的阈值，例如：
+
+```bash
+SPEECH_START_THRESHOLD=0.0012 AEC_ENABLED=false bash scripts/acceptance_test.sh continuous-offline
 ```
 
 如果环境噪声持续触发，尝试：
@@ -163,7 +532,7 @@ VOICE_CONTROL_PROFILE=quiet bash scripts/acceptance_test.sh continuous-offline
 VOICE_CONTROL_PROFILE=noisy_room bash scripts/acceptance_test.sh continuous-offline
 ```
 
-### 4.2 “左转90度”只识别成“左转”
+### 5.2 “左转90度”只识别成“左转”
 
 当前链路有两层保护：
 
@@ -178,7 +547,7 @@ SPEECH_END_SILENCE_S=0.85 ASR_COMMIT_DELAY_MS=500 bash scripts/acceptance_test.s
 
 如果 monitor 输出 `completed_missing_slot`，说明短命令补全已经生效。
 
-### 4.3 一句话里多个命令没有顺序执行
+### 5.3 一句话里多个命令没有顺序执行
 
 当前连续控制链路增加了轻量 NLU 层。它会把一条 ASR final 解析为多个队列项：
 
@@ -203,7 +572,7 @@ ros2 topic echo /robot/action_result
 
 通过时应看到 `nlu_parsed`、同一个 `batch_id` 下的多个 `enqueue`，以及与 `request_id` 对应的 `command_id` result。
 
-### 4.4 ASR 有输出但动作没执行
+### 5.4 ASR 有输出但动作没执行
 
 依次观察：
 
@@ -224,7 +593,7 @@ ros2 topic echo /cmd_vel
 - 卡在 typed command：检查 ActionGuard 是否 active。
 - 卡在 result/cmd_vel：检查 typed action bridge 和 simulation executor。
 
-### 4.5 在线模式失败
+### 5.5 在线模式失败
 
 检查 API Key：
 
@@ -235,7 +604,36 @@ bash scripts/acceptance_test.sh online
 
 在线真实语音受网络和云端服务波动影响，现场演示建议优先使用 `continuous-offline`，在线作为补充展示。
 
-## 5. Release gate
+### 5.6 FastDDS SHM 端口锁报错
+
+现象：
+
+```text
+RTPS_TRANSPORT_SHM Error ... Failed init_port fastrtps_port7000: open_and_lock_file failed
+```
+
+原因通常是 WSL 中 FastDDS shared-memory transport 的 `/dev/shm/fastrtps_port*`
+锁文件或残留 ROS/Gazebo 进程冲突。当前项目的 `scripts/activate.sh` 会默认 source
+`scripts/ros_dds_env.sh`，设置：
+
+```bash
+FASTDDS_BUILTIN_TRANSPORTS=UDPv4
+```
+
+这会绕开 SHM transport，连续语音/Gazebo 本机演示仍可正常通过 DDS 通信。若要临时恢复
+FastDDS SHM：
+
+```bash
+EMBODIED_ALLOW_FASTDDS_SHM=true bash scripts/acceptance_test.sh continuous-offline
+```
+
+如果恢复 SHM 后仍报错，先清理残留仿真进程：
+
+```bash
+CLEANUP_CONFIRM=true bash scripts/cleanup_simulation_processes.sh
+```
+
+## 6. Release gate
 
 完整自动门禁：
 
@@ -249,7 +647,7 @@ bash scripts/acceptance_test.sh all
 - `all` 不包含 `continuous-offline` / `continuous-online`，因为它们需要人工真实说话。
 - 如果本轮只修改文档和注释，可先跑轻量门禁；发布前再跑 `all`。
 
-## 6. 当前完成度
+## 7. 当前完成度
 
 已完成：
 

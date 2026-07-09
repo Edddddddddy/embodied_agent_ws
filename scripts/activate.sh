@@ -3,6 +3,10 @@ set -e
 
 WORKSPACE="${WORKSPACE:-/home/ubuntu/embodied_agent_ws}"
 
+if [[ -f "$WORKSPACE/scripts/ros_dds_env.sh" ]]; then
+  source "$WORKSPACE/scripts/ros_dds_env.sh"
+fi
+
 # ROS-generated setup files are not safe under `set -u`. Preserve the caller's
 # nounset setting while sourcing them, then restore it.
 NOUNSET_WAS_ENABLED=false

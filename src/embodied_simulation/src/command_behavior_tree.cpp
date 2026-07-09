@@ -54,6 +54,21 @@ bool valid_command(const RobotCommand & command)
            std::isfinite(command.duration_s) &&
            command.duration_s >= 0.0 && command.duration_s <= 10.0;
   }
+  if (command.action_type == RobotCommand::NAVIGATE_TO) {
+    return !command.target.empty() &&
+           std::isfinite(command.duration_s) &&
+           command.duration_s >= 0.0 && command.duration_s <= 10.0;
+  }
+  if (command.action_type == RobotCommand::FOLLOW_WAYPOINTS) {
+    return !command.waypoints.empty() &&
+           command.number_of_loops >= 1 &&
+           command.number_of_loops <= 3 &&
+           std::isfinite(command.duration_s) &&
+           command.duration_s >= 0.0 && command.duration_s <= 10.0;
+  }
+  if (command.action_type == RobotCommand::CANCEL_NAVIGATION) {
+    return true;
+  }
   return false;
 }
 

@@ -9,9 +9,9 @@
 #include "std_msgs/msg/empty.hpp"
 #include "std_msgs/msg/string.hpp"
 
-#include "embodied_agent_cpp/hardware_protocol.hpp"
+#include "embodied_agent_interfaces/msg/robot_command.hpp"
 #include "embodied_agent_cpp/hardware_transport.hpp"
-#include "embodied_agent_cpp/action_validator.hpp"
+#include "embodied_agent_cpp/hardware_protocol.hpp"
 
 namespace embodied_agent_cpp
 {
@@ -48,9 +48,12 @@ public:
     }
     ack_publisher_ = create_publisher<std_msgs::msg::String>("/robot/action_ack", 10);
     status_publisher_ = create_publisher<std_msgs::msg::String>("/robot/hardware_status", 10);
-    command_subscription_ = create_subscription<std_msgs::msg::String>(
-      "/robot/action_command", 10,
-      [this](const std_msgs::msg::String::SharedPtr message) {execute(message->data, "command");});
+    command_subscription_ =
+      create_subscription<embodied_agent_interfaces::msg::RobotCommand>(
+      "/robot/action_command_typed", 10,
+      [this](const embodied_agent_interfaces::msg::RobotCommand::SharedPtr message) {
+        execute(*message);
+      });
     emergency_subscription_ = create_subscription<std_msgs::msg::Empty>(
       "/robot/emergency_stop", 10,
       [this](const std_msgs::msg::Empty::SharedPtr) {send_stop("emergency_stop");});
@@ -66,18 +69,13 @@ public:
   }
 
 private:
-  void execute(const std::string & command, const std::string & source)
+  void execute(const embodied_agent_interfaces::msg::RobotCommand & command)
   {
-    const auto validation = validator_.validate(command);
-    if (!validation.valid) {
-      publish_status("rejected", validation.error);
+    if (command.action_type == command.STOP) {
+      send_stop(command.source.empty() ? "typed_command" : command.source);
       return;
     }
-    if (validation.command["name"] == "stop") {
-      send_stop(source);
-      return;
-    }
-    const auto encoded = protocol_.encode(validation.command.dump());
+    const auto encoded = protocol_.encode(to_protocol_command(command).dump());
     if (!encoded.valid) {
       publish_status("rejected", encoded.error);
       return;
@@ -91,7 +89,42 @@ private:
     if (encoded.action_name == "move" || encoded.action_name == "turn") {
       watchdog_.arm(encoded.motion_duration, MotionWatchdog::Clock::now());
     }
-    publish_ack(encoded, source);
+    publish_ack(encoded, command.source.empty() ? "typed_command" : command.source);
+  }
+
+  nlohmann::json to_protocol_command(
+    const embodied_agent_interfaces::msg::RobotCommand & command) const
+  {
+    switch (command.action_type) {
+      case embodied_agent_interfaces::msg::RobotCommand::MOVE:
+        return {
+          {"name", "move"},
+          {"arguments", {
+            {"linear_x", command.linear_x},
+            {"duration_s", command.duration_s},
+          }},
+        };
+      case embodied_agent_interfaces::msg::RobotCommand::TURN:
+        return {
+          {"name", "turn"},
+          {"arguments", {
+            {"angular_z", command.angular_z},
+            {"duration_s", command.duration_s},
+          }},
+        };
+      case embodied_agent_interfaces::msg::RobotCommand::WAVE:
+        return {{"name", "wave"}, {"arguments", {{"count", command.count}}}};
+      case embodied_agent_interfaces::msg::RobotCommand::SET_LED:
+        return {
+          {"name", "set_led"},
+          {"arguments", {{"color", command.color}}},
+        };
+      default:
+        return {
+          {"name", "unsupported"},
+          {"arguments", nlohmann::json::object()},
+        };
+    }
   }
 
   void send_stop(const std::string & source)
@@ -129,12 +162,12 @@ private:
   }
 
   HardwareProtocol protocol_;
-  ActionValidator validator_;
   MotionWatchdog watchdog_;
   std::unique_ptr<HardwareTransport> transport_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr ack_publisher_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_publisher_;
-  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr command_subscription_;
+  rclcpp::Subscription<embodied_agent_interfaces::msg::RobotCommand>::SharedPtr
+    command_subscription_;
   rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr emergency_subscription_;
   rclcpp::TimerBase::SharedPtr watchdog_timer_;
 };
