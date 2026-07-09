@@ -18,6 +18,34 @@ bash scripts/acceptance_test.sh instruction-following-lora-candidates
 `meta.json` 中的 `skipped_cases`、`failure_type_counts` 和每条样本的 `metadata.raw_output`，
 再决定是否合并到正式训练集。不要把候选集生成当作“已经完成 LoRA 训练”的证据。
 
+候选集审核分两步执行：
+
+```bash
+INSTRUCTION_FOLLOWING_LORA_REVIEW_INIT=true \
+  bash scripts/acceptance_test.sh instruction-following-lora-review
+
+# 人工编辑 training/robot_dialogue_lora_review.json：
+# - approved：可信样例，允许导出到 LoRA 训练集
+# - rejected：脏样本或重复样本，不训练
+# - needs_edit：需要改写答案或动作 schema
+# - needs_review：尚未审核，默认不训练
+
+bash scripts/acceptance_test.sh instruction-following-lora-review
+```
+
+这会在存在 `approved` 样例时生成：
+
+- `training/robot_dialogue_lora_review.json`
+- `training/robot_dialogue_lora_approved.jsonl`
+- `training/robot_dialogue_lora_approved.meta.json`
+
+`robot_dialogue_lora_approved.jsonl` 已注册到 `dataset_info.json`，但训练配置默认仍使用
+`robot_dialogue_seed`。只有当审核完成且 approved 样例质量确认后，才建议把训练配置改为：
+
+```yaml
+dataset: robot_dialogue_seed,robot_dialogue_lora_approved
+```
+
 运行训练前，将本目录的 `dataset_info.json` 合并到 LLaMA-Factory 的数据目录，然后执行：
 
 ```bash

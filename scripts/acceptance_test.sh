@@ -63,6 +63,7 @@ Automated modes:
   instruction-parser-eval Evaluate deterministic command parser on instruction eval set
   instruction-following-eval Evaluate offline LLM instruction following with llama.cpp
   instruction-following-lora-candidates Export failed instruction-following cases for LoRA review
+  instruction-following-lora-review Init/apply human review for approved LoRA dataset
   asr-nlu-samples-to-eval Convert live ASR/NLU sample JSONL into reviewable eval candidates
   asr-nlu-candidate-eval Evaluate parser accuracy on reviewable ASR/NLU eval candidates
   release-gate        Job-showcase core 5-command gate with logs/acceptance_report.json
@@ -370,6 +371,21 @@ case "$LEVEL" in
       --output "${INSTRUCTION_FOLLOWING_LORA_CANDIDATES:-training/robot_dialogue_lora_candidates.jsonl}" \
       --metadata-output "${INSTRUCTION_FOLLOWING_LORA_CANDIDATES_META:-training/robot_dialogue_lora_candidates.meta.json}" \
       ${INSTRUCTION_FOLLOWING_LORA_FAIL_IF_EMPTY:+--fail-if-empty}
+    ;;
+  instruction-following-lora-review)
+    LORA_REVIEW_ARGS=(
+      --candidates "${INSTRUCTION_FOLLOWING_LORA_CANDIDATES:-training/robot_dialogue_lora_candidates.jsonl}"
+      --review "${INSTRUCTION_FOLLOWING_LORA_REVIEW:-training/robot_dialogue_lora_review.json}"
+      --output "${INSTRUCTION_FOLLOWING_LORA_APPROVED:-training/robot_dialogue_lora_approved.jsonl}"
+      --metadata-output "${INSTRUCTION_FOLLOWING_LORA_APPROVED_META:-training/robot_dialogue_lora_approved.meta.json}"
+    )
+    if [[ "${INSTRUCTION_FOLLOWING_LORA_REVIEW_INIT:-false}" == "true" ]]; then
+      LORA_REVIEW_ARGS+=(--init-review)
+    fi
+    if [[ -n "${INSTRUCTION_FOLLOWING_LORA_FAIL_IF_EMPTY:-}" ]]; then
+      LORA_REVIEW_ARGS+=(--fail-if-empty)
+    fi
+    python3 scripts/review_lora_candidates.py "${LORA_REVIEW_ARGS[@]}"
     ;;
   asr-nlu-samples-to-eval)
     ASR_NLU_EVAL_OUTPUT="${ASR_NLU_EVAL_OUTPUT:-logs/asr_nlu_eval_candidates.jsonl}"

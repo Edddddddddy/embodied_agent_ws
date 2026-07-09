@@ -195,6 +195,35 @@ def test_llama_cpp_deployment_entrypoints_remain_available():
     assert "timeout_s" in provider_text
 
 
+def test_instruction_following_lora_review_workflow_remains_available():
+    """失败样例只能先进入候选集；人工审核后才允许导出 approved LoRA 数据集。"""
+
+    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
+        encoding="utf-8"
+    )
+    for mode in (
+        "instruction-following-lora-candidates",
+        "instruction-following-lora-review",
+    ):
+        assert mode in acceptance
+
+    candidate_script = ROOT / "scripts" / "export_instruction_following_lora_candidates.py"
+    review_script = ROOT / "scripts" / "review_lora_candidates.py"
+    dataset_info = (ROOT / "training" / "dataset_info.json").read_text(
+        encoding="utf-8"
+    )
+    training_readme = (ROOT / "training" / "README.md").read_text(encoding="utf-8")
+
+    assert candidate_script.is_file()
+    assert review_script.is_file()
+    assert "review_required" in candidate_script.read_text(encoding="utf-8")
+    review_text = review_script.read_text(encoding="utf-8")
+    assert "lora_candidate_review" in review_text
+    assert "lora_approved_dataset_export" in review_text
+    assert "robot_dialogue_lora_approved" in dataset_info
+    assert "instruction-following-lora-review" in training_readme
+
+
 def test_summer_tts_deployment_entrypoints_remain_available():
     """SummerTTS 是独立 C++ 离线 TTS 后端，必须能单独部署和验收。"""
 
