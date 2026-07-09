@@ -356,6 +356,7 @@ def test_showcase_hardening_artifacts_remain_discoverable():
     )
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     release_gate = ROOT / "scripts" / "showcase_release_gate.py"
+    offline_showcase_report = ROOT / "scripts" / "generate_offline_showcase_report.py"
     eval_validator = ROOT / "scripts" / "validate_instruction_eval_dataset.py"
     parser_eval = ROOT / "scripts" / "evaluate_instruction_parser.py"
     eval_dataset = ROOT / "training" / "robot_instruction_eval.jsonl"
@@ -365,6 +366,7 @@ def test_showcase_hardening_artifacts_remain_discoverable():
 
     for path in (
         release_gate,
+        offline_showcase_report,
         eval_validator,
         parser_eval,
         eval_dataset,
@@ -375,9 +377,16 @@ def test_showcase_hardening_artifacts_remain_discoverable():
         assert path.is_file()
 
     assert "release-gate" in acceptance
+    assert "offline-showcase-report" in acceptance
     assert "instruction-eval-dataset" in acceptance
     assert "instruction-parser-eval" in acceptance
     assert "logs/acceptance_report.json" in readme
+    assert "离线模型 Benchmark 与展示报告" in readme
+    offline_report_text = offline_showcase_report.read_text(encoding="utf-8")
+    assert "offline_deployment_showcase" in offline_report_text
+    assert "model_inventory" in offline_report_text
+    assert "runtime_versions" in offline_report_text
+    assert "instruction_parser" in offline_report_text
     release_gate_text = release_gate.read_text(encoding="utf-8")
     assert "job_showcase_release_gate" in release_gate_text
     assert "CORE_COMMANDS" in release_gate_text

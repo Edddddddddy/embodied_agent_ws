@@ -1,16 +1,35 @@
-# 离线模型 Benchmark 报告模板
+# 离线模型 Benchmark 与展示报告
 
 本文档用于把“端侧部署能力”从项目叙述变成可复查证据。每次更换 GGUF、ASR、TTS
-或运行设备后，建议重新填写一版。
+或运行设备后，建议重新生成一版报告。
+
+快速生成默认报告：
+
+```bash
+bash scripts/acceptance_test.sh offline-showcase-report
+```
+
+默认不会启动 llama.cpp 或真实 ASR/TTS benchmark，会输出：
+
+```text
+logs/offline_showcase_report.json
+logs/offline_showcase_report.md
+```
+
+演示前如果要补充真实延迟和 Sherpa ASR/TTS benchmark：
+
+```bash
+python3 scripts/generate_offline_showcase_report.py --run-latency --run-asr-tts
+```
 
 ## 1. 环境信息
 
 | 项目 | 记录 |
 | --- | --- |
-| 日期 | TODO |
-| 机器/CPU | TODO |
+| 日期 | 见生成报告 `generated_at` |
+| 机器/CPU | 现场演示机器；如需精确记录可附 `lscpu` 输出 |
 | OS / ROS 2 | Ubuntu 24.04 / ROS 2 Jazzy |
-| llama.cpp commit | 见 `docs/OFFLINE_RUNTIME_VERSIONS.md` |
+| llama.cpp commit | 由 `scripts/offline_runtime_versions.py` 自动采集 |
 | GGUF 模型 | `models/Qwen3-0.6B-Q8_0.gguf` |
 | ASR 模型 | Sherpa-ONNX ZipFormer |
 | TTS 模型 | Sherpa-TTS 默认；SummerTTS 作为 C++ runtime 展示 |
@@ -19,6 +38,7 @@
 
 ```bash
 bash scripts/acceptance_test.sh offline-runtime-versions
+bash scripts/acceptance_test.sh offline-showcase-report
 bash scripts/acceptance_test.sh llama-cpp-preflight
 bash scripts/acceptance_test.sh llama-cpp-smoke
 bash scripts/acceptance_test.sh offline-latency
@@ -31,11 +51,13 @@ bash scripts/evaluate_instruction_following.sh --minimum 0.70
 
 | 指标 | 目标 | 实测 | 证据命令 |
 | --- | --- | --- | --- |
-| LLM 首 token | ≤ 1000ms | TODO | `offline-latency` |
-| 默认 TTS 首音频 | ≤ 300ms | TODO | `offline-latency` |
-| llama.cpp tokens/s | 记录即可 | TODO | `/offline_agent/metrics` 或 `llama-cpp-smoke` |
-| ASR realtime factor | < 1.0 更好 | TODO | `benchmark_offline.sh` |
-| TTS realtime factor | < 1.0 更好 | TODO | `benchmark_offline.sh` |
+| 模型资产大小 | 记录即可 | 见 `logs/offline_showcase_report.md` | `offline-showcase-report` |
+| 运行时版本 | 固定版本匹配 | 见 `logs/offline_showcase_report.md` | `offline-showcase-report` |
+| LLM 首 token | ≤ 1000ms | 见真实延迟报告 | `offline-latency` 或 `--run-latency` |
+| 默认 TTS 首音频 | ≤ 300ms | 见真实延迟报告 | `offline-latency` 或 `--run-latency` |
+| llama.cpp tokens/s | 记录即可 | 见 llama.cpp 日志/metrics | `/offline_agent/metrics` 或 `llama-cpp-smoke` |
+| ASR realtime factor | < 1.0 更好 | 见真实 benchmark | `benchmark_offline.sh` 或 `--run-asr-tts` |
+| TTS realtime factor | < 1.0 更好 | 见真实 benchmark | `benchmark_offline.sh` 或 `--run-asr-tts` |
 | deterministic parser 动作准确率 | ≥ 95% | 当前代表集 39/39（100%） | `instruction-parser-eval` |
 | 离线 LLM 指令动作准确率 | ≥ 70% 起步 | TODO | `evaluate_instruction_following.sh` |
 

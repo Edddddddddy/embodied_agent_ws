@@ -622,7 +622,7 @@ bash scripts/acceptance_test.sh online
 - [项目不足与优化路线](docs/PROJECT_GAPS_AND_OPTIMIZATION.md)
 - [Nav2 语音导航/巡航验收审计](docs/NAV2_VOICE_ACCEPTANCE_AUDIT.md)
 - [学习笔记：关键技术点与设计取舍](docs/LEARNING_NOTES.md)
-- [离线模型 Benchmark 报告模板](docs/OFFLINE_BENCHMARK_REPORT.md)
+- [离线模型 Benchmark 与展示报告](docs/OFFLINE_BENCHMARK_REPORT.md)
 - [版本记录与路线图](docs/CHANGELOG_AND_ROADMAP.md)
 - [Codex WSL + PowerShell 开发 Skill](docs/CODEX_WSL_POWERSHELL_SKILL.md)
 
