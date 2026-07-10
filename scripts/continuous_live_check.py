@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import threading
 import time
 from dataclasses import asdict, dataclass, field
@@ -45,7 +46,9 @@ class LiveCheckReport:
     missing: list[str]
     asr_samples: list[str] = field(default_factory=list)
     action_candidate_samples: list[dict] = field(default_factory=list)
+    action_result_samples: list[dict] = field(default_factory=list)
     successful_action_samples: list[dict] = field(default_factory=list)
+    navigation_failure_reasons: list[dict] = field(default_factory=list)
 
 
 class LiveCheckNode(Node):
@@ -129,9 +132,11 @@ class LiveCheckNode(Node):
             missing=missing,
             asr_samples=_tail(self.asr),
             action_candidate_samples=_tail(self.candidates),
+            action_result_samples=_tail(self.results),
             successful_action_samples=_tail(
                 [result for result in self.results if result.get("success") is True]
             ),
+            navigation_failure_reasons=_navigation_failure_reasons(self.results),
         )
 
 
@@ -178,7 +183,9 @@ def evaluate_report(report: LiveCheckReport, thresholds: LiveCheckThresholds) ->
         missing=missing,
         asr_samples=report.asr_samples,
         action_candidate_samples=report.action_candidate_samples,
+        action_result_samples=report.action_result_samples,
         successful_action_samples=report.successful_action_samples,
+        navigation_failure_reasons=report.navigation_failure_reasons,
     )
 
 
@@ -215,6 +222,50 @@ def _has_waypoint_patrol(candidates: list[dict]) -> bool:
     return False
 
 
+def _parse_nav2_result_message(message: str) -> dict | None:
+    """Parse Nav2 executor detail strings into stable report fields.
+
+    C++ executor messages follow this shape:
+    `nav2:<action>:<status> key=value key=value`.  Keeping the parser in the
+    evidence script avoids changing ROS messages while still making saved reports
+    queryable for planner/controller/localization-style failures.
+    """
+
+    if not message.startswith("nav2:"):
+        return None
+    parts = message.split()
+    head = parts[0].split(":")
+    if len(head) < 3 or head[0] != "nav2":
+        return None
+    parsed = {
+        "backend": "nav2",
+        "action": head[1],
+        "status": head[2],
+    }
+    tail = message[len(parts[0]):].strip()
+    for match in re.finditer(r"(\w+)=([^=]*?)(?=\s+\w+=|$)", tail):
+        key = match.group(1)
+        value = match.group(2).strip()
+        if key and value:
+            parsed[key] = value
+    return parsed
+
+
+def _navigation_failure_reasons(results: list[dict]) -> list[dict]:
+    reasons: list[dict] = []
+    for result in results:
+        message = result.get("message", "")
+        if not isinstance(message, str):
+            continue
+        parsed = _parse_nav2_result_message(message)
+        if parsed is None:
+            continue
+        if parsed.get("status") == "succeeded" and result.get("success") is True:
+            continue
+        reasons.append(parsed)
+    return reasons
+
+
 def load_report(path: str) -> LiveCheckReport:
     payload = json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
@@ -237,8 +288,12 @@ def load_report(path: str) -> LiveCheckReport:
         action_candidate_samples=_required_dict_list(
             payload, "action_candidate_samples"
         ),
+        action_result_samples=_optional_dict_list(payload, "action_result_samples"),
         successful_action_samples=_required_dict_list(
             payload, "successful_action_samples"
+        ),
+        navigation_failure_reasons=_optional_dict_list(
+            payload, "navigation_failure_reasons"
         ),
     )
 
@@ -275,6 +330,12 @@ def _required_dict_list(payload: dict, key: str) -> list[dict]:
     if any(not isinstance(item, dict) for item in values):
         raise ValueError(f"report field must be a list of objects: {key}")
     return values
+
+
+def _optional_dict_list(payload: dict, key: str) -> list[dict]:
+    if key not in payload:
+        return []
+    return _required_dict_list(payload, key)
 
 
 def write_report(path: str | None, report: LiveCheckReport) -> None:

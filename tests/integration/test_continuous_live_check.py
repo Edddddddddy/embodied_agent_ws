@@ -87,6 +87,52 @@ def test_live_check_report_requires_navigation_candidates():
     assert report.action_candidate_names["follow_waypoints"] == 1
 
 
+def test_live_check_report_extracts_nav2_failure_reasons():
+    node = live_check.LiveCheckNode()
+    node.asr.extend(["小智", "去门口", "退出控制"])
+    node.session_states.extend(["awake", "sleeping"])
+    node.candidates.append({"name": "navigate_to", "arguments": {"target": "door"}})
+    node.results.extend(
+        [
+            {
+                "success": False,
+                "message": "nav2:navigate_to_pose:aborted target=door error_code=304 error_msg=planner_failed",
+            },
+            {
+                "success": False,
+                "message": "nav2:follow_waypoints:canceled waypoints=door,desk missed_waypoints=1",
+            },
+        ]
+    )
+    node.velocities.append((0.0, 0.0))
+
+    report = node.build_report(
+        live_check.LiveCheckThresholds(min_asr=1, min_candidates=1, min_success=0)
+    )
+
+    assert report.navigation_failure_reasons == [
+        {
+            "backend": "nav2",
+            "action": "navigate_to_pose",
+            "status": "aborted",
+            "target": "door",
+            "error_code": "304",
+            "error_msg": "planner_failed",
+        },
+        {
+            "backend": "nav2",
+            "action": "follow_waypoints",
+            "status": "canceled",
+            "waypoints": "door,desk",
+            "missed_waypoints": "1",
+        },
+    ]
+    assert report.action_result_samples[0]["message"].startswith("nav2:navigate_to_pose")
+    assert live_check._parse_nav2_result_message(
+        "nav2:navigate_to_pose:aborted target=desk error_code=12 error_msg=planner failed near obstacle"
+    )["error_msg"] == "planner failed near obstacle"
+
+
 def test_live_check_report_requires_navigation_details_when_requested():
     node = live_check.LiveCheckNode()
     node.asr.extend(["小智", "去门口", "依次去门口书桌起点"])

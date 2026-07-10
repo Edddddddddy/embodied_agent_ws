@@ -394,6 +394,9 @@ CONTINUOUS_NAV2_EVIDENCE_DRY_RUN=true \
 
 该计分脚本会要求现场至少出现一次 `navigate_to` 和一次 `follow_waypoints`，
 避免只看到普通动作 result 就误判为 Nav2 导航演示通过。
+如果 Nav2 action 返回失败，保存的报告会在 `navigation_failure_reasons` 中提取
+`aborted/canceled`、`target/waypoints`、`error_code/error_msg`、`missed_waypoints`
+等字段，便于复盘是目标被拒绝、规划/控制失败还是巡航点未到达。
 如需保存现场证据：
 
 ```bash
