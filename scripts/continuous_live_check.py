@@ -49,10 +49,14 @@ class LiveCheckReport:
     action_result_samples: list[dict] = field(default_factory=list)
     successful_action_samples: list[dict] = field(default_factory=list)
     navigation_failure_reasons: list[dict] = field(default_factory=list)
+    duration_s: float = 0.0
+    metrics_samples: list[dict] = field(default_factory=list)
+    action_e2e_latency_ms: list[float] = field(default_factory=list)
+    capture_source: str = "unspecified"
 
 
 class LiveCheckNode(Node):
-    def __init__(self):
+    def __init__(self, capture_source: str = "unspecified"):
         super().__init__("continuous_live_check")
         self.asr: list[str] = []
         self.session_states: list[str] = []
@@ -61,16 +65,28 @@ class LiveCheckNode(Node):
         self.candidates: list[dict] = []
         self.results: list[dict] = []
         self.velocities: list[tuple[float, float]] = []
+        self.metrics: list[dict] = []
+        self.started_at = time.monotonic()
+        self._last_asr_at = 0.0
+        self._candidate_asr_at: dict[str, float] = {}
+        self._candidate_name_by_id: dict[str, str] = {}
+        self.action_e2e_latency_ms: list[float] = []
+        self.capture_source = capture_source
         self.create_subscription(String, "/agent/asr_final", self._on_asr, 10)
         self.create_subscription(String, "/agent/session_state", self._on_session, 10)
         self.create_subscription(String, "/agent/command_queue", self._on_queue, 10)
         self.create_subscription(String, "/agent/command_execution", self._on_execution, 10)
         self.create_subscription(String, "/agent/action_candidate", self._on_candidate, 10)
         self.create_subscription(String, "/robot/action_result", self._on_result, 10)
+        self.create_subscription(String, "/agent/metrics", self._on_metrics, 10)
+        # 在线与离线 Agent 为避免指标语义混淆使用了不同 topic；评测探针同时监听，
+        # 让同一套 benchmark 能覆盖两条链路，而不是让离线报告悄悄缺失延迟数据。
+        self.create_subscription(String, "/offline_agent/metrics", self._on_metrics, 10)
         self.create_subscription(Twist, "/cmd_vel", self._on_velocity, 10)
 
     def _on_asr(self, message: String) -> None:
         self.asr.append(message.data)
+        self._last_asr_at = time.monotonic()
 
     def _on_session(self, message: String) -> None:
         self.session_states.append(message.data)
@@ -82,13 +98,36 @@ class LiveCheckNode(Node):
         self.execution_events.append(_json_dict(message.data))
 
     def _on_candidate(self, message: String) -> None:
-        self.candidates.append(_json_dict(message.data))
+        candidate = _json_dict(message.data)
+        self.candidates.append(candidate)
+        request_id = str(candidate.get("request_id") or "")
+        if request_id and self._last_asr_at > 0.0:
+            self._candidate_asr_at[request_id] = self._last_asr_at
+        if request_id:
+            self._candidate_name_by_id[request_id] = str(candidate.get("name") or "")
 
     def _on_result(self, message: String) -> None:
-        self.results.append(_json_dict(message.data))
+        result = _json_dict(message.data)
+        command_id = str(result.get("command_id") or "")
+        action_name = self._candidate_name_by_id.pop(command_id, "")
+        if action_name:
+            # C++ bridge 的 result 只携带 command_id/status；在采集端用同一个
+            # command_id 补回动作名，才能证明“成功的是哪条命令”，而不只是成功总数。
+            result["action_name"] = action_name
+        self.results.append(result)
+        started = self._candidate_asr_at.pop(command_id, None)
+        if started is not None:
+            # 该延迟包含排队和实际动作时长，表达“ASR final 到机器人终态”，
+            # 与只看 LLM/TTS 首包的交互延迟是不同指标。
+            self.action_e2e_latency_ms.append(
+                round((time.monotonic() - started) * 1000.0, 3)
+            )
 
     def _on_velocity(self, message: Twist) -> None:
         self.velocities.append((message.linear.x, message.angular.z))
+
+    def _on_metrics(self, message: String) -> None:
+        self.metrics.append(_json_dict(message.data))
 
     def build_report(self, thresholds: LiveCheckThresholds) -> LiveCheckReport:
         success_count = sum(1 for result in self.results if result.get("success") is True)
@@ -137,6 +176,10 @@ class LiveCheckNode(Node):
                 [result for result in self.results if result.get("success") is True]
             ),
             navigation_failure_reasons=_navigation_failure_reasons(self.results),
+            duration_s=round(time.monotonic() - self.started_at, 3),
+            metrics_samples=_tail(self.metrics),
+            action_e2e_latency_ms=_tail(self.action_e2e_latency_ms),
+            capture_source=self.capture_source,
         )
 
 
@@ -186,6 +229,10 @@ def evaluate_report(report: LiveCheckReport, thresholds: LiveCheckThresholds) ->
         action_result_samples=report.action_result_samples,
         successful_action_samples=report.successful_action_samples,
         navigation_failure_reasons=report.navigation_failure_reasons,
+        duration_s=report.duration_s,
+        metrics_samples=report.metrics_samples,
+        action_e2e_latency_ms=report.action_e2e_latency_ms,
+        capture_source=report.capture_source,
     )
 
 
@@ -197,7 +244,7 @@ def _json_dict(serialized: str) -> dict:
     return payload if isinstance(payload, dict) else {}
 
 
-def _tail(items: list, limit: int = 12) -> list:
+def _tail(items: list, limit: int = 50) -> list:
     return items[-limit:]
 
 
@@ -360,6 +407,12 @@ def load_report(path: str) -> LiveCheckReport:
         navigation_failure_reasons=_optional_dict_list(
             payload, "navigation_failure_reasons"
         ),
+        duration_s=float(payload.get("duration_s", 0.0)),
+        metrics_samples=_optional_dict_list(payload, "metrics_samples"),
+        action_e2e_latency_ms=[
+            float(value) for value in payload.get("action_e2e_latency_ms", [])
+        ],
+        capture_source=str(payload.get("capture_source", "unspecified")),
     )
 
 
@@ -428,9 +481,15 @@ def main() -> None:
     )
     parser.add_argument(
         "--scenario",
-        choices=("motion", "nav2"),
+        choices=("motion", "nav2", "benchmark"),
         default="motion",
         help="打印哪套人工验收话术",
+    )
+    parser.add_argument(
+        "--capture-source",
+        choices=("unspecified", "real_microphone", "synthetic"),
+        default="unspecified",
+        help="显式声明输入证据来源；时长本身不能证明是真人麦克风",
     )
     parser.add_argument("--output", default="", help="可选：把验收统计写入证据文件")
     parser.add_argument("--input-report", default="", help="读取已有证据文件并重新判定")
@@ -463,13 +522,20 @@ def main() -> None:
     if args.scenario == "nav2":
         print("请在另一个终端启动 continuous-nav2-offline/online，然后按顺序说：", flush=True)
         print("小智 / 去门口 / 前往书桌 / 依次去门口、书桌、起点 / 停止巡航 / 退出控制", flush=True)
+    elif args.scenario == "benchmark":
+        print("请在另一个终端启动 continuous-offline/online，然后按顺序说：", flush=True)
+        print(
+            "小智 / 向前走一秒 / 左转九十度 / 后退一秒 / 右转九十度 / "
+            "绕圈 / 挥手两次 / 把灯设成蓝色 / 去门口 / 取消导航 / 停下 / 退出控制",
+            flush=True,
+        )
     else:
         print("请在另一个终端启动 continuous-offline/online，然后按顺序说：", flush=True)
         print("小智 / 向前走一秒 / 左转九十度 / 后退一秒 / 绕圈 / 走正方形 / 停下 / 退出控制", flush=True)
     print(f"开始统计 {args.duration:.0f}s 内的连续语音链路事件...", flush=True)
 
     rclpy.init()
-    node = LiveCheckNode()
+    node = LiveCheckNode(capture_source=args.capture_source)
     executor = rclpy.executors.SingleThreadedExecutor()
     executor.add_node(node)
     thread = threading.Thread(target=executor.spin, daemon=True)

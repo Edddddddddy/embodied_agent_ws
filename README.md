@@ -396,6 +396,22 @@ bash scripts/acceptance_test.sh continuous-offline
 bash scripts/acceptance_test.sh continuous-online
 ```
 
+如果要从“能演示”升级为可量化的 3 分钟/10 命令证据，另开计分终端：
+
+```bash
+# 终端 1
+bash scripts/acceptance_test.sh continuous-offline
+
+# 终端 2：按打印的 10 条固定话术说完并等待 180 秒
+bash scripts/acceptance_test.sh continuous-voice-benchmark offline
+```
+
+它会生成 `logs/continuous_voice_offline_live_report.json` 与
+`logs/voice_benchmark_report.json`，统计命令识别率、动作序列准确率、动作成功率、
+多余 candidate 误触发率、`/agent/metrics` 首包延迟、ASR final→Action result 端到端
+延迟的中位数/P95、会话状态和最终停车。
+这项必须真人对麦克风实测；单元测试只验证统计器，不能替代现场证据。
+
 Nav2/TurtleBot3 目标点导航连续语音演示：
 
 ```bash

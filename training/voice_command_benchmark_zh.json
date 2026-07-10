@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "name": "continuous_voice_10_command_zh",
+  "recommended_duration_s": 180,
+  "wake_phrase": "小智",
+  "sleep_phrase": "退出控制",
+  "commands": [
+    {"text": "向前走一秒", "action": "move"},
+    {"text": "左转九十度", "action": "turn"},
+    {"text": "后退一秒", "action": "move"},
+    {"text": "右转九十度", "action": "turn"},
+    {"text": "绕圈", "action": "arc"},
+    {"text": "挥手两次", "action": "wave"},
+    {"text": "把灯设成蓝色", "action": "set_led"},
+    {"text": "去门口", "action": "navigate_to"},
+    {"text": "取消导航", "action": "cancel_navigation"},
+    {"text": "停下", "action": "stop"}
+  ]
+}

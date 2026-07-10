@@ -91,8 +91,10 @@ Interactive modes:
   continuous-nav2-online   Long-running microphone target navigation with Nav2/TurtleBot3
   continuous-nav2-evidence {offline|online}  Run Nav2 microphone demo and live-check evidence in one terminal
   continuous-live-check {offline|online}  Observe a running live microphone demo and score evidence
+  continuous-voice-benchmark {offline|online}  Score a 3-minute, 10-command microphone benchmark
   continuous-nav2-live-check {offline|online}  Score a running live Nav2 microphone demo
   continuous-live-report REPORT_FILE  Re-score a saved continuous live-check report
+  voice-benchmark-report REPORT_FILE  Evaluate recognition/action/false-trigger/latency metrics
   continuous-nav2-live-report REPORT_FILE  Re-score a saved Nav2 live-check report
 EOF
 }
@@ -527,6 +529,24 @@ case "$LEVEL" in
     fi
     python3 scripts/continuous_live_check.py "${LIVE_CHECK_ARGS[@]}"
     ;;
+  continuous-voice-benchmark)
+    CHECK_MODE="${2:-offline}"
+    if [[ "$CHECK_MODE" != "offline" && "$CHECK_MODE" != "online" ]]; then
+      echo "Usage: $0 continuous-voice-benchmark {offline|online}" >&2
+      exit 2
+    fi
+    REPORT_PATH="${VOICE_BENCHMARK_LIVE_REPORT:-logs/continuous_voice_${CHECK_MODE}_live_report.json}"
+    echo "请先在另一个终端启动 acceptance_test.sh continuous-$CHECK_MODE"
+    python3 scripts/continuous_live_check.py \
+      --scenario benchmark \
+      --capture-source real_microphone \
+      --duration "${VOICE_BENCHMARK_DURATION:-180}" \
+      --min-asr 12 \
+      --min-candidates 10 \
+      --min-success 9 \
+      --output "$REPORT_PATH"
+    python3 scripts/evaluate_live_voice_benchmark.py --report "$REPORT_PATH"
+    ;;
   continuous-nav2-live-check)
     CHECK_MODE="${2:-offline}"
     if [[ "$CHECK_MODE" != "offline" && "$CHECK_MODE" != "online" ]]; then
@@ -556,6 +576,14 @@ case "$LEVEL" in
       exit 2
     fi
     python3 scripts/continuous_live_check.py --input-report "$REPORT_PATH"
+    ;;
+  voice-benchmark-report)
+    REPORT_PATH="${2:-}"
+    if [[ -z "$REPORT_PATH" ]]; then
+      echo "Usage: $0 voice-benchmark-report REPORT_FILE" >&2
+      exit 2
+    fi
+    python3 scripts/evaluate_live_voice_benchmark.py --report "$REPORT_PATH"
     ;;
   continuous-nav2-live-report)
     REPORT_PATH="${2:-}"

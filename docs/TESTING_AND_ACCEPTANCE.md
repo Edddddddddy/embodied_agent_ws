@@ -570,6 +570,43 @@ bash scripts/acceptance_test.sh continuous-live-check online
 - `停下/急停` 能抢占，队列被清空。
 - 结束后 `/cmd_vel` 为 0。
 
+### 3.1 三分钟、十命令量化评测
+
+基础 live-check 证明链路可用；固定 benchmark 用于量化识别与误触发：
+
+```bash
+# 终端 1
+bash scripts/acceptance_test.sh continuous-offline
+
+# 终端 2
+bash scripts/acceptance_test.sh continuous-voice-benchmark offline
+```
+
+话术定义在 `training/voice_command_benchmark_zh.json`，包含 10 条 primitive、附件、
+导航、取消和停止命令。评测器从 live report 计算：
+
+- ASR 文本与期望话术的单调模糊匹配率。
+- action candidate 顺序准确率与多余 candidate 误触发率。
+- 成功 action result 比例。
+- `asr_to_first_token_ms / llm_first_token_ms / tts_first_audio_ms` 中位数与 P95。
+- 通过 request_id 关联的 `ASR final → Action result` 端到端中位数与 P95；该值包含
+  队列等待和机器人实际动作时长，不能与 LLM 首 token 延迟混为一谈。
+- 统计时长、awake/sleeping 和最终 `/cmd_vel=0`。
+
+默认门槛：180 秒、至少 10 条命令、识别/动作/成功率均不低于 80%、误触发率不高于
+10%。交互入口会显式写入 `capture_source=real_microphone`；报告只有在该声明存在且
+时长达到 180 秒时才标为 `operator_declared_real_microphone`，否则统一标为
+`synthetic_short_or_unspecified`。这能防止仅凭一个伪造的时长字段把自动 mock 包装成
+真人长时间证据，但它仍属于操作者声明，最终应保留现场录屏或终端日志。已有报告可重算：
+
+```bash
+bash scripts/acceptance_test.sh voice-benchmark-report \
+  logs/continuous_voice_offline_live_report.json
+```
+
+当前自动测试只证明统计算法和报告契约；最终 `real_microphone` PASS 必须由用户在实际
+WSL 麦克风环境按固定话术采集。
+
 ## 4. 语音目标点导航与多目标点巡航
 
 自动验收：
