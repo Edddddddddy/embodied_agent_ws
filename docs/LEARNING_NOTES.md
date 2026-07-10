@@ -344,11 +344,17 @@
   `default_move_duration_s`、`default_turn_degrees`；这样 fallback、轻量 NLU、多命令队列和 LLM 输出
   都能得到一致的参数调整。
 - 管理命令直接在 Agent 层处理，例如“记住我，我是小李”“我喜欢慢一点”“我是谁”“清除我的记忆”。
+- 记忆生命周期支持“我的偏好”查询、“恢复默认速度”等按项删除，以及清空整个 profile。
+  清空命令不会再被当作新 interaction 写回，避免出现“刚清除又生成文件”的反直觉行为。
+- `user_memory_retention_days` 对 recent interaction/correction 做 TTL 清理；显式 preference
+  代表用户配置，只有主动删除才消失。这样兼顾隐私留存上限与机器人行为的可预测性。
 
 为什么这样设计：
 
 - 声纹模型属于可替换能力，和 ASR/LLM/动作控制主链路解耦，降低演示风险。
 - 用户画像是长期稳定信息，不适合无限追加到普通对话历史里。
+- 原始话术明细和稳定偏好采用不同保留策略：前者 TTL，后者显式删除；如果给全部记忆
+  使用同一个 TTL，机器人可能在用户不知情时突然恢复默认行为。
 - 记忆写入必须可控，不能完全交给 LLM 自行决定，否则容易把误识别或幻觉写入本地 profile。
 - 低置信度声纹返回 `unknown`；`UserMemoryStore` 对写操作增加 `LowConfidenceSpeakerError`
   门控，Agent 捕获后跳过个人记忆写入，避免把 A 用户偏好误写到 B 用户。

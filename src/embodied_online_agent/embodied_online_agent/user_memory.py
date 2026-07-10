@@ -7,7 +7,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 
 _UNKNOWN_SPEAKER_ID = "unknown"
@@ -134,15 +134,27 @@ class UserMemoryStore:
     两者分开，可以避免把长时间聊天原文无限塞进 prompt，也方便按用户清除隐私数据。
     """
 
-    def __init__(self, root_dir: str, *, max_recent: int = 8):
+    def __init__(
+        self,
+        root_dir: str,
+        *,
+        max_recent: int = 8,
+        retention_s: float = 90.0 * 86400.0,
+        clock: Callable[[], float] = time.time,
+    ):
         self.root_dir = Path(os.path.expanduser(root_dir))
         self.max_recent = max(1, int(max_recent))
+        self.retention_s = max(0.0, float(retention_s))
+        self._clock = clock
         self._lock = threading.RLock()
 
     def profile(self, identity: SpeakerIdentity | str | None) -> UserProfile:
         speaker_id = self._speaker_id(identity)
         with self._lock:
-            return self._load_profile(speaker_id)
+            profile = self._load_profile(speaker_id)
+            if self._prune_expired(profile):
+                self._save_profile(profile)
+            return profile
 
     def enroll(
         self, identity: SpeakerIdentity | str | None, display_name: str
@@ -151,7 +163,7 @@ class UserMemoryStore:
         with self._lock:
             profile = self._load_profile(speaker_id)
             profile.display_name = display_name.strip() or profile.display_name
-            profile.updated_at = time.time()
+            profile.updated_at = self._clock()
             self._save_profile(profile)
             return profile
 
@@ -169,7 +181,18 @@ class UserMemoryStore:
         with self._lock:
             profile = self._load_profile(speaker_id)
             profile.preferences[key] = value
-            profile.updated_at = time.time()
+            profile.updated_at = self._clock()
+            self._save_profile(profile)
+            return profile
+
+    def remove_preference(
+        self, identity: SpeakerIdentity | str | None, key: str
+    ) -> UserProfile:
+        speaker_id = self._writable_speaker_id(identity)
+        with self._lock:
+            profile = self._load_profile(speaker_id)
+            profile.preferences.pop(str(key), None)
+            profile.updated_at = self._clock()
             self._save_profile(profile)
             return profile
 
@@ -185,7 +208,8 @@ class UserMemoryStore:
         speaker_id = self._writable_speaker_id(identity)
         with self._lock:
             profile = self._load_profile(speaker_id)
-            now = time.time()
+            self._prune_expired(profile)
+            now = self._clock()
             for action in actions or []:
                 name = str(action.get("name") or "")
                 if name:
@@ -233,14 +257,42 @@ class UserMemoryStore:
     def _load_profile(self, speaker_id: str) -> UserProfile:
         path = self._profile_path(speaker_id)
         if not path.exists():
-            return UserProfile(speaker_id=speaker_id, updated_at=time.time())
+            return UserProfile(speaker_id=speaker_id, updated_at=self._clock())
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
             if isinstance(raw, dict):
                 return UserProfile.from_dict(raw, speaker_id)
         except (OSError, ValueError, TypeError):
             pass
-        return UserProfile(speaker_id=speaker_id, updated_at=time.time())
+        return UserProfile(speaker_id=speaker_id, updated_at=self._clock())
+
+    def _prune_expired(self, profile: UserProfile) -> bool:
+        """清理带时间戳的行为明细；显式偏好保留到用户主动删除。
+
+        TTL 面向可能含原始话术的 recent/corrections，既控制磁盘增长，也降低长期
+        隐私留存。preferences 是用户明确设置的稳定配置，不应因一段时间没说话而静默消失。
+        """
+
+        if self.retention_s <= 0.0:
+            cutoff = self._clock()
+        else:
+            cutoff = self._clock() - self.retention_s
+        original_recent = len(profile.recent_interactions)
+        original_corrections = len(profile.corrections)
+        profile.recent_interactions = [
+            item
+            for item in profile.recent_interactions
+            if _as_float(item.get("ts"), 0.0) >= cutoff
+        ]
+        profile.corrections = [
+            item
+            for item in profile.corrections
+            if _as_float(item.get("ts"), 0.0) >= cutoff
+        ]
+        return (
+            len(profile.recent_interactions) != original_recent
+            or len(profile.corrections) != original_corrections
+        )
 
     def _save_profile(self, profile: UserProfile) -> None:
         self.root_dir.mkdir(parents=True, exist_ok=True)
@@ -282,8 +334,13 @@ def parse_memory_command(text: str) -> Optional[MemoryCommand]:
         return None
     if any(word in compact for word in ("我是谁", "现在是谁", "识别到谁")):
         return MemoryCommand("whoami")
+    if any(word in compact for word in ("我的偏好", "查看偏好", "记住了什么偏好")):
+        return MemoryCommand("query_preferences")
     if any(word in compact for word in ("清除我的记忆", "删除我的记忆", "忘记我")):
         return MemoryCommand("clear")
+    preference_to_delete = _extract_preference_deletion(compact)
+    if preference_to_delete:
+        return MemoryCommand("delete_preference", preference_to_delete)
     if any(word in compact for word in ("录入我的声纹", "注册声纹", "记住我的声音")):
         return MemoryCommand("enroll_request")
 
@@ -328,6 +385,18 @@ def _extract_preference(compact: str) -> Optional[dict]:
         if degrees is not None:
             return {"default_turn_degrees": degrees}
     return None
+
+
+def _extract_preference_deletion(compact: str) -> str:
+    if not any(word in compact for word in ("取消", "删除", "清除", "恢复默认")):
+        return ""
+    if "速度" in compact or "快慢" in compact:
+        return "movement_speed"
+    if "前进" in compact and any(word in compact for word in ("时长", "时间", "秒数")):
+        return "default_move_duration_s"
+    if any(word in compact for word in ("转弯", "左转", "右转")) and "角度" in compact:
+        return "default_turn_degrees"
+    return ""
 
 
 def _normalize_text(text: str) -> str:

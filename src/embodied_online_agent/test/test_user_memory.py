@@ -43,6 +43,7 @@ def test_user_memory_rejects_low_confidence_writes(tmp_path):
     for operation in (
         lambda: store.enroll(identity, "小李"),
         lambda: store.set_preference(identity, "movement_speed", "slow"),
+        lambda: store.remove_preference(identity, "movement_speed"),
         lambda: store.record_interaction(identity, user_text="向前走"),
         lambda: store.clear(identity),
     ):
@@ -93,10 +94,39 @@ def test_user_memory_bounds_recent_interactions(tmp_path):
     ]
 
 
+def test_user_memory_expires_interaction_details_but_keeps_explicit_preferences(tmp_path):
+    now = [1000.0]
+    store = UserMemoryStore(
+        str(tmp_path), retention_s=60.0, clock=lambda: now[0]
+    )
+    identity = SpeakerIdentity("lcy", confidence=1.0, enrolled=True, model="mock")
+    store.set_preference(identity, "movement_speed", "slow")
+    store.record_interaction(identity, user_text="隐私话术")
+
+    now[0] += 61.0
+    profile = store.profile(identity)
+    assert profile.recent_interactions == []
+    assert profile.preferences == {"movement_speed": "slow"}
+
+
+def test_user_memory_removes_one_preference_without_deleting_profile(tmp_path):
+    store = UserMemoryStore(str(tmp_path))
+    identity = SpeakerIdentity("lcy", confidence=1.0, enrolled=True, model="mock")
+    store.set_preference(identity, "movement_speed", "slow")
+    store.set_preference(identity, "default_move_duration_s", 2.0)
+
+    profile = store.remove_preference(identity, "movement_speed")
+    assert profile.preferences == {"default_move_duration_s": 2.0}
+
+
 def test_parse_memory_management_commands():
     assert parse_memory_command("记住我，我是小李").kind == "enroll_name"
     assert parse_memory_command("我是谁").kind == "whoami"
     assert parse_memory_command("清除我的记忆").kind == "clear"
+    assert parse_memory_command("我的偏好").kind == "query_preferences"
+    assert parse_memory_command("恢复默认速度").value == "movement_speed"
+    assert parse_memory_command("取消默认前进时长").value == "default_move_duration_s"
+    assert parse_memory_command("删除默认转弯角度").value == "default_turn_degrees"
     assert parse_memory_command("我喜欢慢一点").value == {"movement_speed": "slow"}
     assert parse_memory_command("以后前进默认两秒").value == {
         "default_move_duration_s": 2.0

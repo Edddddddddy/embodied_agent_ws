@@ -237,6 +237,8 @@ bash scripts/acceptance_test.sh speaker-runtime
 
 - `/agent/speaker_identity` 能驱动 Agent 绑定当前用户。
 - “记住我，我是小李”“我喜欢慢一点”“我是谁”等管理命令能写入/读取本地用户画像。
+- “我的偏好”“恢复默认速度”“清除我的记忆”分别验证查询、按项删除和整份删除；
+  清除后 profile 文件不能被回复日志再次创建。
 - “我喜欢慢一点”会影响后续 `move` 动作候选参数，证明记忆不只是 prompt 上下文。
 - 普通动作执行后会把动作统计写入当前用户 profile。
 - 低置信度 speaker identity 会被拒绝写入个人 profile；普通动作链路继续可用，但不会更新
@@ -251,6 +253,8 @@ bash scripts/acceptance_test.sh speaker-runtime
   多用户 FAR/FRR 或噪声鲁棒性。
 - top-1 分数虽然过阈值，但若与第二名的 margin 小于 `sherpa_min_margin`，身份仍返回
   `unknown/ambiguous_match`，避免错误加载或污染他人记忆。
+- `user_memory_retention_days` 默认 90 天，只清理可能包含原始话术的 interaction/correction
+  明细；用户显式设置的偏好不会静默过期，保留到按项删除或清空 profile。
 
 `navigation-demo` 额外证明“去门口”和“依次去门口、书桌、起点”能被 online/offline
 Agent 解析成 `navigate_to / follow_waypoints`，并通过 typed Action 驱动仿真 executor。

@@ -65,6 +65,7 @@ class OfflineAgentNode(Node):
         self._user_memory = UserMemoryStore(
             self._param("user_memory_dir"),
             max_recent=int(self._param("user_memory_max_recent")),
+            retention_s=float(self._param("user_memory_retention_days")) * 86400.0,
         )
         self._wake_gate = WakeWordGate(
             self._param("wake_words"),
@@ -176,6 +177,7 @@ class OfflineAgentNode(Node):
             "memory_max_turns": 6,
             "user_memory_dir": "~/.ros/embodied_agent/users",
             "user_memory_max_recent": 8,
+            "user_memory_retention_days": 90.0,
             "speaker_identity_min_confidence": 0.55,
             "system_prompt_path": "",
             "asr_model_dir": "/home/ubuntu/embodied_agent_ws/models/sherpa-onnx-streaming-zipformer-small-bilingual-zh-en-2023-02-16",
@@ -600,6 +602,7 @@ class OfflineAgentNode(Node):
         if memory_command is None:
             return False
         identity = self._current_speaker
+        should_record = memory_command.kind != "clear"
         if memory_command.kind == "whoami":
             if identity.usable:
                 profile = self._user_memory.profile(identity)
@@ -607,6 +610,20 @@ class OfflineAgentNode(Node):
                 response = f"我识别到当前用户是：{name}。"
             else:
                 response = "我还没有可靠识别到当前用户，可以先说“记住我，我是某某”。"
+        elif memory_command.kind == "query_preferences":
+            if identity.usable:
+                profile = self._user_memory.profile(identity)
+                response = (
+                    "你的当前偏好："
+                    + "，".join(
+                        f"{key}={value}"
+                        for key, value in sorted(profile.preferences.items())
+                    )
+                    if profile.preferences
+                    else "当前没有保存个人偏好。"
+                )
+            else:
+                response = "我还没有可靠识别当前用户，无法查询个人偏好。"
         elif memory_command.kind == "clear":
             if identity.usable:
                 self._try_user_memory_write(self._user_memory.clear, identity)
@@ -649,6 +666,18 @@ class OfflineAgentNode(Node):
                 response = "已记录你的偏好：" + "，".join(
                     f"{key}={value}" for key, value in sorted(profile.preferences.items())
                 )
+        elif memory_command.kind == "delete_preference":
+            if not identity.usable:
+                response = "我还没有可靠识别当前用户，无法删除个人偏好。"
+            else:
+                key = str(memory_command.value)
+                profile = self._user_memory.remove_preference(identity, key)
+                response = f"已删除偏好：{key}。"
+                if profile.preferences:
+                    response += "当前保留：" + "，".join(
+                        f"{name}={value}"
+                        for name, value in sorted(profile.preferences.items())
+                    )
         else:
             return False
         self._response_delta_pub.publish(String(data=response))
@@ -656,13 +685,14 @@ class OfflineAgentNode(Node):
         threading.Thread(
             target=self._speak_memory_response, args=(response,), daemon=True
         ).start()
-        self._record_user_interaction(
-            identity,
-            user_text=command,
-            assistant_text=response,
-            actions=[],
-            success=True,
-        )
+        if should_record:
+            self._record_user_interaction(
+                identity,
+                user_text=command,
+                assistant_text=response,
+                actions=[],
+                success=True,
+            )
         return True
 
     def _speak_memory_response(self, response):

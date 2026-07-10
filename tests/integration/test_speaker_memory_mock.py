@@ -93,9 +93,43 @@ def main():
     assert profile["preferences"]["movement_speed"] == "slow"
     assert profile["command_counts"]["move"] >= 1
 
+    response_count = len(responses)
+    text_pub.publish(String(data="我的偏好"))
+    assert _spin_until(
+        node,
+        lambda: len(responses) > response_count
+        and "movement_speed=slow" in responses[-1],
+    )
+
+    response_count = len(responses)
+    text_pub.publish(String(data="恢复默认速度"))
+    assert _spin_until(
+        node,
+        lambda: len(responses) > response_count
+        and "已删除偏好：movement_speed" in responses[-1],
+    )
+    assert _spin_until(
+        node,
+        lambda: "movement_speed"
+        not in json.loads(profile_path.read_text(encoding="utf-8")).get(
+            "preferences", {}
+        ),
+    )
+
+    # clear 必须真的删除 profile；不能在回复后又把“清除记忆”作为 interaction 写回。
+    response_count = len(responses)
+    text_pub.publish(String(data="清除我的记忆"))
+    assert _spin_until(
+        node,
+        lambda: len(responses) > response_count and "已清除" in responses[-1],
+    )
+    assert _spin_until(node, lambda: not profile_path.exists())
+
     node.destroy_node()
     rclpy.shutdown()
-    print("PASS: speaker identity -> user memory -> preference-adjusted action record")
+    print(
+        "PASS: speaker identity -> user memory -> query/delete/clear preference lifecycle"
+    )
 
 
 if __name__ == "__main__":
