@@ -570,6 +570,25 @@ bash scripts/acceptance_test.sh demo-gate
 # 默认报告：logs/demo_acceptance_report.json
 ```
 
+真实麦克风、Gazebo/RViz 和 Nav2 仍然需要人工现场证据。演示前后可以用 checklist
+把自动 gate、live-check、Nav2 live-check、录屏和截图汇总成一份报告：
+
+```bash
+bash scripts/acceptance_test.sh demo-evidence-checklist
+# 默认输出：
+#   logs/demo_evidence_checklist.json
+#   logs/demo_evidence_checklist.md
+```
+
+默认模式只汇总缺口，不会因为尚未录屏或尚未跑真实麦克风而失败。演示前可以打开严格模式：
+
+```bash
+DEMO_EVIDENCE_STRICT=true \
+DEMO_EVIDENCE_REQUIRE_NAV2=true \
+DEMO_EVIDENCE_REQUIRE_VISUAL=true \
+  bash scripts/acceptance_test.sh demo-evidence-checklist
+```
+
 如果要查看或运行更完整的本地门禁，可直接调用 full profile：
 
 ```bash

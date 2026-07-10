@@ -68,6 +68,7 @@ Automated modes:
   asr-nlu-candidate-eval Evaluate parser accuracy on reviewable ASR/NLU eval candidates
   release-gate        Job-showcase core 5-command gate with logs/acceptance_report.json
   demo-gate           Pre-demo automatic evidence gate with logs/demo_acceptance_report.json
+  demo-evidence-checklist Summarize automatic/live/visual demo evidence into JSON/Markdown
   wsl-microphone-preflight PulseAudio/WSLg microphone capture check before live demos
   gazebo              Typed Action physical motion verification
   cpp-action-client   C++ rclcpp_action demo client sends typed command to simulation server
@@ -413,6 +414,27 @@ case "$LEVEL" in
     ;;
   release-gate) python3 scripts/showcase_release_gate.py ;;
   demo-gate) python3 scripts/showcase_release_gate.py --profile demo ;;
+  demo-evidence-checklist)
+    CHECKLIST_ARGS=(
+      --output "${DEMO_EVIDENCE_REPORT:-logs/demo_evidence_checklist.json}"
+      --markdown "${DEMO_EVIDENCE_MARKDOWN:-logs/demo_evidence_checklist.md}"
+      --automatic-report "${DEMO_EVIDENCE_AUTOMATIC_REPORT:-logs/demo_acceptance_report.json}"
+      --voice-report "${DEMO_EVIDENCE_VOICE_REPORT:-logs/continuous-live-check.json}"
+      --nav2-report "${DEMO_EVIDENCE_NAV2_REPORT:-logs/nav2-live-check.json}"
+      --recording "${DEMO_EVIDENCE_RECORDING:-logs/demo_recording.mp4}"
+      --screenshot "${DEMO_EVIDENCE_SCREENSHOT:-logs/demo_screenshot.png}"
+    )
+    if [[ "${DEMO_EVIDENCE_REQUIRE_NAV2:-false}" == "true" ]]; then
+      CHECKLIST_ARGS+=(--require-nav2)
+    fi
+    if [[ "${DEMO_EVIDENCE_REQUIRE_VISUAL:-false}" == "true" ]]; then
+      CHECKLIST_ARGS+=(--require-visual-evidence)
+    fi
+    if [[ "${DEMO_EVIDENCE_STRICT:-false}" == "true" ]]; then
+      CHECKLIST_ARGS+=(--strict)
+    fi
+    python3 scripts/demo_evidence_checklist.py "${CHECKLIST_ARGS[@]}"
+    ;;
   wsl-microphone-preflight) bash scripts/wsl_microphone_preflight.sh ;;
   gazebo) run_gazebo ;;
   cpp-action-client) bash scripts/smoke_test_cpp_action_client.sh ;;

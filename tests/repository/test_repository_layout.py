@@ -443,6 +443,7 @@ def test_showcase_hardening_artifacts_remain_discoverable():
     )
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     release_gate = ROOT / "scripts" / "showcase_release_gate.py"
+    demo_evidence_checklist = ROOT / "scripts" / "demo_evidence_checklist.py"
     offline_showcase_report = ROOT / "scripts" / "generate_offline_showcase_report.py"
     offline_evidence_audit = ROOT / "scripts" / "audit_offline_showcase_evidence.py"
     eval_validator = ROOT / "scripts" / "validate_instruction_eval_dataset.py"
@@ -454,6 +455,7 @@ def test_showcase_hardening_artifacts_remain_discoverable():
 
     for path in (
         release_gate,
+        demo_evidence_checklist,
         offline_showcase_report,
         offline_evidence_audit,
         eval_validator,
@@ -467,6 +469,7 @@ def test_showcase_hardening_artifacts_remain_discoverable():
 
     assert "release-gate" in acceptance
     assert "demo-gate" in acceptance
+    assert "demo-evidence-checklist" in acceptance
     assert "offline-showcase-report" in acceptance
     assert "offline-evidence-audit" in acceptance
     assert "instruction-eval-dataset" in acceptance
@@ -491,6 +494,7 @@ def test_showcase_hardening_artifacts_remain_discoverable():
     assert "OFFLINE_SHOWCASE_RUN_LLAMA_BENCH" in acceptance
     assert "OFFLINE_EVIDENCE_REQUIRE_LLAMA_BENCH" in acceptance
     release_gate_text = release_gate.read_text(encoding="utf-8")
+    checklist_text = demo_evidence_checklist.read_text(encoding="utf-8")
     assert "job_showcase_release_gate" in release_gate_text
     assert "CORE_COMMANDS" in release_gate_text
     assert "DEMO_COMMANDS" in release_gate_text
@@ -498,6 +502,9 @@ def test_showcase_hardening_artifacts_remain_discoverable():
     assert "\"core\": CORE_COMMANDS" in release_gate_text
     assert "\"demo\": DEMO_COMMANDS" in release_gate_text
     assert "command_count" in release_gate_text
+    assert "job_showcase_demo_evidence_checklist" in checklist_text
+    assert "continuous-live-check" in checklist_text
+    assert "demo_recording.mp4" in checklist_text
     assert "instruction_parser_eval" in release_gate_text
     assert "tag_accuracy" in parser_eval.read_text(encoding="utf-8")
     assert "source_counts" in parser_eval.read_text(encoding="utf-8")
