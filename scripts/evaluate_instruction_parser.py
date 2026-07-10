@@ -78,6 +78,7 @@ def _parse_actions(text: str) -> tuple[list[dict], str, dict]:
             "completed": working_text,
             "nlu_reason": nlu_result.reason,
             "nlu_intents": [parsed.intent for parsed in nlu_result.commands],
+            "nlu_slots": [parsed.slots for parsed in nlu_result.commands],
         }
 
     fallback_actions = parse_fallback_actions(working_text)

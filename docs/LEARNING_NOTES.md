@@ -287,6 +287,13 @@
 
 - 使用字符 n-gram 原型模型识别控制意图，不依赖 torch/transformers。
 - 输入一条 ASR final，输出多个动作片段和置信度。
+- `ParsedCommand.slots` 显式保存方向、速度、距离、角度、时长或地点，不再只从最终
+  `linear_x/angular_z/duration_s` 反推动作语义。
+- 距离动作按 `duration = distance / speed` 转换到现有强类型运动接口；未指定速度且超过
+  默认 10 秒窗口时，在 `0.5m/s` 安全上限内自适应提速。用户已明确慢速且单动作无法在
+  10 秒内完成时，拆成多个同速 primitive action 顺序执行，避免提速或静默截断距离。
+- 任意角度先转换为弧度，再根据角速度计算持续时间；90° 保留已有 Gazebo 标定参数，
+  360° 自动使用安全范围内更高的角速度，避免突破 ActionGuard 的时长上限。
 - 例如“向右转，向前走一秒”会输出 `turn -> move`。
 - 每个队列项带 `batch_id / batch_index / batch_size`，便于 monitor 解释顺序。
 - 每个动作候选带 `request_id`，ActionGuard 映射成 `RobotCommand.command_id`，用于 result 关联。
@@ -313,6 +320,15 @@
 - 规则拆分：部署最简单，但表达能力弱。
 - 大模型 function calling：泛化强，但响应和稳定性受模型影响。
 - 本地轻量 NLU + ActionGuard：在固定动作域内更适合端侧演示。
+
+槽位评测：
+
+```bash
+bash scripts/acceptance_test.sh instruction-parser-eval
+```
+
+当前 `training/robot_instruction_eval.jsonl` 包含 43 条代表用例；报告按 `slots / speed /
+distance / angle / duration / navigation` 等 tag 分组，避免只用总体准确率掩盖某一类槽位失败。
 
 ## 9. 声纹识别与用户行为记忆
 

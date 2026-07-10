@@ -79,7 +79,7 @@ bash scripts/acceptance_test.sh instruction-following-eval
 | 真实 Agent LLM 首 token | ≤ 1000ms | 最近一次 864.12ms；预热后多次运行约 0.29–0.86s | `offline-voice-e2e-report` |
 | 伪流式首文本→首 PCM | 记录即可 | 585.36ms | `offline-voice-e2e-report` |
 | 整轮完成 | 记录即可 | 3631.22ms | `offline-voice-e2e-report` |
-| deterministic parser 动作准确率 | ≥ 95% | 当前代表集 39/39（100%） | `instruction-parser-eval` |
+| deterministic parser 动作准确率 | ≥ 95% | 当前代表集 43/43（100%） | `instruction-parser-eval` |
 | 离线 LLM 原始指令动作准确率 | ≥ 70% 起步 | 3/8，37.5%，未达标 | `instruction-following-eval` / `--run-instruction-following` |
 | fallback/安全层后动作准确率 | ≥ 85% | 8/8，100% | 同上；不能冒充模型分数 |
 

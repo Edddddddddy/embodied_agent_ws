@@ -36,7 +36,7 @@
 | 离线 TTS 版本收口 | 固定 llama.cpp / SummerTTS / sherpa-onnx 版本并补充低延迟 gate | 新增 `OFFLINE_RUNTIME_VERSIONS.md`、`offline-runtime-versions`、`offline-latency` |
 | SummerTTS 服务化 | 将 SummerTTS 从命令行 provider 升级为常驻 C++ ROS service | 新增 `SynthesizeSpeech.srv`、`summer_tts_service`、`tts_provider:=summer_ros`、`summer-tts-service` |
 | SummerTTS 短文本缓存 | 优化“收到/好的/正在执行”等重复反馈的服务延迟 | `SynthesizeSpeech.srv` 增加 `cache_hit`，`summer_tts_service_probe.py` 输出首轮/缓存命中耗时 |
-| 指令解析评测增强 | 把 deterministic parser 证据从 seed 样例扩展为代表集 | `robot_instruction_eval.jsonl` 扩展到 39 条，`instruction-parser-eval` 输出 `source_counts` 与 `failed_cases` |
+| 指令解析评测增强 | 把 deterministic parser 证据从 seed 样例扩展为代表集 | `robot_instruction_eval.jsonl` 扩展到 43 条，覆盖速度/距离/角度/时长/地点槽位及长动作分段，`instruction-parser-eval` 输出分 tag 指标与失败用例 |
 | 求职展示版收口 | 固定演示路径、汇报稿、代码走读地图和发布门禁 | 新增 `PROJECT_PRESENTATION_15MIN.md`，README 指向阶段发布 gate |
 | Nav2 演示资产本地化 | 减少对官方 `tb3_sandbox` map/world 入口的展示依赖 | 新增 `voice_demo.yaml`、`voice_demo.sdf.xacro`，`nav2-assets` 审计本地 map/world/RViz |
 | 成熟 VAD 预检闭环 | 降低真实麦克风现场排障成本 | `provider-preflight` 输出 `recommendations`，连续语音启动时提示 WebRTC/Silero setup 命令 |

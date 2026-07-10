@@ -120,3 +120,74 @@ def test_nlu_keeps_two_target_navigation_as_separate_queue_items():
         "door",
         "desk",
     ]
+
+
+def test_nlu_extracts_distance_and_speed_slots_into_safe_motion_time():
+    result = CommandNLU().parse("以每秒零点二米向前走一米")
+
+    assert result.accepted
+    command = result.commands[0]
+    assert command.intent == "move_forward"
+    assert command.slots == {
+        "direction": "forward",
+        "distance_m": 1.0,
+        "speed_mps": 0.2,
+        "duration_s": 5.0,
+    }
+    assert command.actions[0].arguments == {
+        "linear_x": 0.2,
+        "duration_s": 5.0,
+    }
+
+
+def test_nlu_extracts_arbitrary_turn_angle_slot():
+    result = CommandNLU().parse("向右转四十五度")
+
+    assert result.accepted
+    command = result.commands[0]
+    assert command.slots == {
+        "direction": "right",
+        "angle_deg": 45.0,
+        "angular_speed_rps": 0.6,
+        "duration_s": 1.309,
+    }
+    assert command.actions[0].arguments == {
+        "angular_z": -0.6,
+        "duration_s": 1.309,
+    }
+
+
+def test_nlu_exposes_duration_and_place_slots():
+    motion = CommandNLU().parse("后退两秒").commands[0]
+    place = CommandNLU().parse("去门口").commands[0]
+
+    assert motion.slots == {
+        "direction": "backward",
+        "speed_mps": 0.2,
+        "duration_s": 2.0,
+    }
+    assert place.slots == {"place": "door"}
+
+
+def test_nlu_distance_conversion_respects_motion_limits_without_silent_truncation():
+    long_default = CommandNLU().parse("向前走五米")
+    impossible_explicit = CommandNLU().parse("以每秒零点一米向前走两米")
+
+    assert long_default.accepted
+    assert long_default.commands[0].actions[0].arguments == {
+        "linear_x": 0.5,
+        "duration_s": 10.0,
+    }
+    assert impossible_explicit.accepted
+    command = impossible_explicit.commands[0]
+    assert command.slots == {
+        "direction": "forward",
+        "distance_m": 2.0,
+        "speed_mps": 0.1,
+        "duration_s": 20.0,
+        "segment_count": 2,
+    }
+    assert [action.arguments for action in command.actions] == [
+        {"linear_x": 0.1, "duration_s": 10.0},
+        {"linear_x": 0.1, "duration_s": 10.0},
+    ]

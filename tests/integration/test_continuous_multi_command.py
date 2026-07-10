@@ -105,6 +105,9 @@ def main():
         ]
         if not nlu_events:
             raise RuntimeError(f"NLU feedback missing: {node.recognition_feedback}")
+        parsed_commands = nlu_events[0].get("commands") or []
+        if not parsed_commands or any("slots" not in item for item in parsed_commands):
+            raise RuntimeError(f"NLU slot observability missing: {nlu_events[0]}")
 
         command_ids = [candidate.get("request_id") for candidate in node.candidates[:3]]
         result_ids = [result.get("command_id") for result in node.results[:3]]
@@ -123,6 +126,7 @@ def main():
                     "command_ids": command_ids,
                     "result_ids": result_ids,
                     "nlu_events": len(nlu_events),
+                    "nlu_slots": [item.get("slots") for item in parsed_commands],
                     "status": "PASS",
                 },
                 ensure_ascii=False,

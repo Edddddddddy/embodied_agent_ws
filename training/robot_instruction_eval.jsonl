@@ -28,6 +28,10 @@
 {"id":"navigation_target_003","text":"回到起点","expected_actions":[{"name":"navigate_to","arguments":{"target":"home"}}],"tags":["navigation","target"]}
 {"id":"navigation_unknown_supported_place_001","text":"去厨房","expected_actions":[{"name":"navigate_to","arguments":{"target":"kitchen"}}],"tags":["navigation","target"]}
 {"id":"navigation_two_targets_001","text":"去门口，然后前往书桌","expected_actions":[{"name":"navigate_to","arguments":{"target":"door"}},{"name":"navigate_to","arguments":{"target":"desk"}}],"tags":["navigation","multi_command"]}
+{"id":"move_distance_001","text":"向前走一米","expected_actions":[{"name":"move","arguments":{"linear_x":0.2,"duration_s":5.0}}],"tags":["move","slots","distance"]}
+{"id":"move_speed_distance_001","text":"以每秒零点二米向前走一米","expected_actions":[{"name":"move","arguments":{"linear_x":0.2,"duration_s":5.0}}],"tags":["move","slots","speed","distance"]}
+{"id":"turn_angle_045","text":"向右转四十五度","expected_actions":[{"name":"turn","arguments":{"angular_z":-0.6,"duration_s":1.309}}],"tags":["turn","slots","angle"]}
+{"id":"move_slow_distance_segmented_001","text":"以每秒零点一米向前走两米","expected_actions":[{"name":"move","arguments":{"linear_x":0.1,"duration_s":10.0}},{"name":"move","arguments":{"linear_x":0.1,"duration_s":10.0}}],"tags":["move","slots","speed","distance","segmented"]}
 {"id":"nav_patrol_001","text":"先去门口再去书桌最后回起点","expected_actions":[{"name":"follow_waypoints","arguments":{"waypoints":["door","desk","home"],"number_of_loops":1}}],"tags":["navigation","waypoints"]}
 {"id":"nav_patrol_002","text":"巡逻门口书桌起点","expected_actions":[{"name":"follow_waypoints","arguments":{"waypoints":["door","desk","home"],"number_of_loops":1}}],"tags":["navigation","waypoints"]}
 {"id":"nav_cancel_001","text":"停止导航","expected_actions":[{"name":"cancel_navigation","arguments":{}}],"tags":["navigation","cancel","priority"]}

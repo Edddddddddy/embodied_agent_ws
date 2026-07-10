@@ -32,6 +32,21 @@ from .types import ActionCommand
 
 
 _CHINESE_NUMBERS = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5}
+_CHINESE_DIGITS = {
+    "零": 0,
+    "〇": 0,
+    "一": 1,
+    "二": 2,
+    "两": 2,
+    "三": 3,
+    "四": 4,
+    "五": 5,
+    "六": 6,
+    "七": 7,
+    "八": 8,
+    "九": 9,
+}
+_NUMBER_TOKEN = r"(?:\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百点]+|半)"
 _PUNCTUATION = re.compile(r"[，。！？!?\s、,.；;：:]")
 _CONNECTORS = ("然后", "接着", "随后", "再", "并且")
 _QUESTION_OR_NEGATION = (
@@ -68,16 +83,100 @@ def _ngrams(text: str, n: int = 2) -> set[str]:
     return {text[index : index + n] for index in range(len(text) - n + 1)}
 
 
+def _parse_number(token: str) -> float | None:
+    token = token.strip()
+    if token == "半":
+        return 0.5
+    try:
+        return float(token)
+    except ValueError:
+        pass
+    if "点" in token:
+        integer_text, decimal_text = token.split("点", 1)
+        integer = _parse_number(integer_text or "零")
+        if integer is None or not decimal_text:
+            return None
+        decimal_digits = []
+        for char in decimal_text:
+            if char not in _CHINESE_DIGITS:
+                return None
+            decimal_digits.append(str(_CHINESE_DIGITS[char]))
+        return float(f"{int(integer)}.{''.join(decimal_digits)}")
+    if not token or any(
+        char not in _CHINESE_DIGITS and char not in ("十", "百") for char in token
+    ):
+        return None
+    total = 0
+    current = 0
+    for char in token:
+        if char in _CHINESE_DIGITS:
+            current = _CHINESE_DIGITS[char]
+        elif char == "十":
+            total += (current or 1) * 10
+            current = 0
+        elif char == "百":
+            total += (current or 1) * 100
+            current = 0
+    return float(total + current)
+
+
+def _quantity_match(pattern: str, text: str) -> tuple[float | None, tuple[int, int] | None]:
+    match = re.search(pattern, text, re.IGNORECASE)
+    if not match:
+        return None, None
+    return _parse_number(match.group("value")), match.span()
+
+
 def _duration(text: str, default: float = 1.0) -> float:
     if "半秒" in text:
         return 0.5
-    match = re.search(r"(\d+(?:\.\d+)?)\s*(?:秒|s)", text, re.IGNORECASE)
+    match = re.search(rf"(?P<value>{_NUMBER_TOKEN})\s*(?:秒|s)", text, re.IGNORECASE)
     if match:
-        return min(10.0, max(0.1, float(match.group(1))))
-    match = re.search(r"([一二两三四五])秒", text)
-    if match:
-        return float(_CHINESE_NUMBERS[match.group(1)])
+        value = _parse_number(match.group("value"))
+        if value is not None:
+            return min(10.0, max(0.1, value))
     return default
+
+
+def _speed(
+    text: str, default: float = 0.2
+) -> tuple[float, tuple[int, int] | None, bool]:
+    patterns = (
+        rf"每秒\s*(?P<value>{_NUMBER_TOKEN})\s*(?:米|m)",
+        rf"(?P<value>{_NUMBER_TOKEN})\s*(?:米|m)\s*(?:每秒|/s)",
+    )
+    for pattern in patterns:
+        value, span = _quantity_match(pattern, text)
+        if value is not None:
+            return min(0.5, max(0.05, value)), span, True
+    if "慢速" in text or "慢一点" in text:
+        return 0.1, None, True
+    if "快速" in text or "快一点" in text:
+        return 0.3, None, True
+    return default, None, False
+
+
+def _distance(text: str, speed_span: tuple[int, int] | None) -> float | None:
+    for match in re.finditer(
+        rf"(?P<value>{_NUMBER_TOKEN})\s*(?:米|m)(?!\s*(?:每秒|/s))",
+        text,
+        re.IGNORECASE,
+    ):
+        if speed_span and match.start() < speed_span[1] and match.end() > speed_span[0]:
+            continue
+        value = _parse_number(match.group("value"))
+        if value is not None:
+            return min(5.0, max(0.05, value))
+    return None
+
+
+def _angle(text: str) -> float | None:
+    value, _ = _quantity_match(
+        rf"(?P<value>{_NUMBER_TOKEN})\s*(?:度|°)", text
+    )
+    if value is None:
+        return None
+    return min(360.0, max(1.0, value))
 
 
 def _count(text: str) -> int:
@@ -132,6 +231,7 @@ class ParsedCommand:
     span_text: str
     actions: List[ActionCommand]
     confidence: float
+    slots: dict[str, float | str | int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -311,13 +411,15 @@ class CommandNLU:
         commands: list[ParsedCommand] = []
         for index, (start, anchor_intent) in enumerate(anchors):
             end = anchors[index + 1][0] if index + 1 < len(anchors) else len(normalized)
-            segment = normalized[start:end]
+            # “以每秒 0.2 米向前走一米”的速度修饰语位于首个动作锚点之前；
+            # 第一个片段保留前缀，避免分类成功后槽位却被切掉。
+            segment = normalized[0 if index == 0 else start:end]
             intent, confidence = self.model.predict(segment, [anchor_intent])
             if confidence < self.min_confidence:
                 continue
-            actions = self._actions_for(intent, segment)
+            actions, slots = self._actions_and_slots_for(intent, segment)
             if actions:
-                commands.append(ParsedCommand(intent, segment, actions, confidence))
+                commands.append(ParsedCommand(intent, segment, actions, confidence, slots))
         return NluResult(source, commands, "" if commands else "low_confidence")
 
     def _find_anchors(self, normalized: str) -> list[tuple[int, str]]:
@@ -338,43 +440,49 @@ class CommandNLU:
             occupied_until = start + length
         return result
 
-    def _actions_for(self, intent: str, segment: str) -> list[ActionCommand]:
+    def _actions_and_slots_for(
+        self, intent: str, segment: str
+    ) -> tuple[list[ActionCommand], dict[str, float | str | int]]:
         if intent == "move_forward":
-            return [ActionCommand("move", {"linear_x": 0.2, "duration_s": _duration(segment)})]
+            return self._motion_action_and_slots(segment, "forward")
         if intent == "move_backward":
-            return [ActionCommand("move", {"linear_x": -0.2, "duration_s": _duration(segment)})]
+            return self._motion_action_and_slots(segment, "backward")
         if intent == "turn_left":
-            duration = 2.6 if ("九十度" in segment or "90度" in segment or "秒" not in segment) else _duration(segment)
-            return [ActionCommand("turn", {"angular_z": 0.6, "duration_s": duration})]
+            return self._turn_action_and_slots(segment, "left")
         if intent == "turn_right":
-            duration = 2.6 if ("九十度" in segment or "90度" in segment or "秒" not in segment) else _duration(segment)
-            return [ActionCommand("turn", {"angular_z": -0.6, "duration_s": duration})]
+            return self._turn_action_and_slots(segment, "right")
         if intent == "spin":
-            return [ActionCommand("turn", {"angular_z": 0.8, "duration_s": 7.85})]
+            return [ActionCommand("turn", {"angular_z": 0.8, "duration_s": 7.85})], {
+                "direction": "left",
+                "angle_deg": 360.0,
+                "angular_speed_rps": 0.8,
+                "duration_s": 7.85,
+            }
         if intent == "arc":
-            return [ActionCommand("arc", {"linear_x": 0.12, "angular_z": 0.45, "duration_s": 6.0})]
+            return [ActionCommand("arc", {"linear_x": 0.12, "angular_z": 0.45, "duration_s": 6.0})], {}
         if intent == "square":
-            return _square_sequence()
+            return _square_sequence(), {}
         if intent == "demo":
-            return _demo_sequence()
+            return _demo_sequence(), {}
         if intent == "wave":
-            return [ActionCommand("wave", {"count": _count(segment)})]
+            count = _count(segment)
+            return [ActionCommand("wave", {"count": count})], {"count": float(count)}
         if intent == "set_led":
             colors = {"红": "red", "绿": "green", "蓝": "blue", "黄": "yellow", "白": "white", "关闭": "off", "关": "off"}
             for keyword, color in colors.items():
                 if keyword in segment:
-                    return [ActionCommand("set_led", {"color": color})]
+                    return [ActionCommand("set_led", {"color": color})], {"color": color}
         if intent == "set_mode":
             if "沿墙" in segment or "贴墙" in segment:
-                return [ActionCommand("set_mode", {"mode": "wall_following"})]
+                return [ActionCommand("set_mode", {"mode": "wall_following"})], {"mode": "wall_following"}
             if "自动避障" in segment or "避障模式" in segment:
-                return [ActionCommand("set_mode", {"mode": "obstacle_avoidance"})]
+                return [ActionCommand("set_mode", {"mode": "obstacle_avoidance"})], {"mode": "obstacle_avoidance"}
             if "手动" in segment or "退出自动" in segment:
-                return [ActionCommand("set_mode", {"mode": "manual"})]
+                return [ActionCommand("set_mode", {"mode": "manual"})], {"mode": "manual"}
         if intent == "navigate_to":
             target = resolve_place(segment)
             if target:
-                return [ActionCommand("navigate_to", {"target": target})]
+                return [ActionCommand("navigate_to", {"target": target})], {"place": target}
         if intent == "follow_waypoints":
             waypoints = extract_waypoints(segment) or (
                 DEFAULT_PATROL_WAYPOINTS if is_patrol_request(segment) else []
@@ -385,5 +493,67 @@ class CommandNLU:
                         "follow_waypoints",
                         {"waypoints": waypoints, "number_of_loops": 1},
                     )
-                ]
-        return []
+                ], {}
+        return [], {}
+
+    @staticmethod
+    def _motion_action_and_slots(
+        segment: str, direction: str
+    ) -> tuple[list[ActionCommand], dict[str, float | str | int]]:
+        speed, speed_span, explicit_speed = _speed(segment)
+        distance = _distance(segment, speed_span)
+        if distance is not None and distance / speed > 10.0 and not explicit_speed:
+            # 未指定速度时可在 ActionGuard 的 0.5m/s 上限内提速，尽量保持单动作。
+            speed = min(0.5, distance / 10.0)
+        total_duration = distance / speed if distance is not None else _duration(segment)
+        segment_count = max(1, math.ceil(total_duration / 10.0))
+        segment_duration = round(total_duration / segment_count, 3)
+        signed_speed = speed if direction == "forward" else -speed
+        slots: dict[str, float | str | int] = {
+            "direction": direction,
+            "speed_mps": speed,
+            "duration_s": round(total_duration, 3),
+        }
+        if distance is not None:
+            # 保持学习笔记可解释的固定顺序：方向、距离、速度、换算后的时长。
+            slots = {
+                "direction": direction,
+                "distance_m": distance,
+                "speed_mps": speed,
+                "duration_s": round(total_duration, 3),
+            }
+            if segment_count > 1:
+                # 单个 RobotCommand 最长 10 秒；显式慢速长距离拆成顺序 primitive，
+                # 不提速、不截断，也不让 fallback 把它误解为默认一秒。
+                slots["segment_count"] = segment_count
+        actions = [
+            ActionCommand(
+                "move", {"linear_x": signed_speed, "duration_s": segment_duration}
+            )
+            for _ in range(segment_count)
+        ]
+        return actions, slots
+
+    @staticmethod
+    def _turn_action_and_slots(
+        segment: str, direction: str
+    ) -> tuple[list[ActionCommand], dict[str, float | str | int]]:
+        explicit_angle = _angle(segment)
+        angle = explicit_angle if explicit_angle is not None else 90.0
+        angular_speed = 0.8 if math.radians(angle) / 0.6 > 10.0 else 0.6
+        if explicit_angle is None and "秒" in segment:
+            duration = _duration(segment)
+            angle = round(math.degrees(angular_speed * duration), 3)
+        elif angle == 90.0:
+            # 保持历史动作参数兼容，90° 使用项目原有标定值 2.6 秒。
+            duration = 2.6
+        else:
+            duration = round(math.radians(angle) / angular_speed, 3)
+        signed_speed = angular_speed if direction == "left" else -angular_speed
+        slots: dict[str, float | str | int] = {
+            "direction": direction,
+            "angle_deg": angle,
+            "angular_speed_rps": angular_speed,
+            "duration_s": duration,
+        }
+        return [ActionCommand("turn", {"angular_z": signed_speed, "duration_s": duration})], slots

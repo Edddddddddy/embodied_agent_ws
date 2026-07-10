@@ -982,6 +982,7 @@ class OfflineAgentNode(Node):
                     "intent": parsed.intent,
                     "span_text": parsed.span_text,
                     "confidence": round(parsed.confidence, 3),
+                    "slots": parsed.slots,
                     "actions": [action.as_dict() for action in parsed.actions],
                 }
                 for parsed in nlu_result.commands

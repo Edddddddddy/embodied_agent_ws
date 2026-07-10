@@ -159,8 +159,9 @@ bash scripts/acceptance_test.sh instruction-parser-eval
 ```
 
 `instruction-parser-eval` 会读取 `training/robot_instruction_eval.jsonl`，当前代表集为
-39 条，覆盖移动、转向、ASR 错词、多命令、组合动作、Nav2 导航/巡航和安全拒绝样例。
-输出包含整体准确率、`source_counts`、tag 准确率、实际/期望动作和 `failed_cases`，
+43 条，覆盖移动、转向、ASR 错词、多命令、组合动作、Nav2 导航/巡航、安全拒绝样例，
+以及速度、距离、角度、时长和地点槽位。输出包含整体准确率、`source_counts`、
+`nlu_slots`、tag 准确率、实际/期望动作和 `failed_cases`，
 适合持续沉淀真实 ASR 错误样例。
 
 真实麦克风演示时可以打开样本采集：
