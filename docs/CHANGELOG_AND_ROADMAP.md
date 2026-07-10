@@ -136,6 +136,8 @@ bash scripts/acceptance_test.sh continuous-live-check offline
 - 优先保证 `continuous-offline` 在 3～5 分钟内稳定连续控制。
 - 新增固定 10 命令真实麦克风 benchmark，量化识别率、动作成功率、误触发率与延迟 P95；
   自动测试不再冒充真人长时间证据。
+- 新增 `continuous-voice-evidence` 单终端入口，自动启停控制链路并显示倒计时；benchmark
+  即使未达门槛也保证生成现场与汇总两份报告，避免 `set -e` 提前中断留证。
 - 优先保证 `continuous-nav2-offline` 能支撑 3～5 分钟真实麦克风目标点导航/巡航演示。
 - 继续完善 monitor 输出，让失败原因能直接定位到 ASR、session、queue、Action、Gazebo。
 - 为常见麦克风和噪声环境补充 profile 建议。

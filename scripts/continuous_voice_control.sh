@@ -248,10 +248,11 @@ EMBODIED_ALLOW_FASTDDS_SHM=${EMBODIED_ALLOW_FASTDDS_SHM:-false}
   停下
   退出控制
 
-说明：一次“小智”唤醒后，${SESSION_TIMEOUT}s 内可连续说多条命令；等待超过 ${COMMAND_MAX_AGE}s 的普通命令会过期跳过；Ctrl-C 退出脚本。
+说明：本入口是长期控制服务，不会在 180 秒后自动退出；一次“小智”唤醒后，${SESSION_TIMEOUT}s 内可连续说多条命令；等待超过 ${COMMAND_MAX_AGE}s 的普通命令会过期跳过；Ctrl-C 退出脚本。
 终端会持续打印 [session] / [asr] / [queue] / [action] / [feedback] / [result] 链路事件。
 通过标准：至少识别 6 条 ASR final、产生 4 个以上动作、看到 [session] awake 与 sleeping，最后 /cmd_vel 归零。
-如需量化验收，请在第二终端运行：CONTINUOUS_LIVE_CHECK_DURATION=180 bash scripts/acceptance_test.sh continuous-live-check $MODE
+自动计时并退出的一键量化验收：bash scripts/acceptance_test.sh continuous-voice-evidence $MODE
+如需保留当前控制终端，也可在第二终端运行：bash scripts/acceptance_test.sh continuous-voice-benchmark $MODE
 VOICE_CONTROL_PROFILE=$VOICE_CONTROL_PROFILE（normal/quiet/low_gain/noisy_room；显式环境变量会覆盖 profile 默认值）
 APPLY_VOICE_CALIBRATION=$APPLY_VOICE_CALIBRATION（auto/true/false；auto 会在校准 env 存在时加载，且不覆盖显式环境变量）
 VOICE_CALIBRATION_ENV=$VOICE_CALIBRATION_ENV（applied=$VOICE_CALIBRATION_ENV_APPLIED）

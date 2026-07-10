@@ -8,6 +8,7 @@ cd "$WORKSPACE"
 
 echo "[core] acceptance CLI contract"
 bash tests/integration/test_acceptance_cli.sh
+bash tests/integration/test_voice_benchmark_cli.sh
 
 echo "[core] repository structure guards"
 pytest -q tests/repository

@@ -587,10 +587,17 @@ bash scripts/acceptance_test.sh continuous-live-check online
 基础 live-check 证明链路可用；固定 benchmark 用于量化识别与误触发：
 
 ```bash
-# 终端 1
-bash scripts/acceptance_test.sh continuous-offline
+# 推荐：单终端自动启动、倒计时、生成报告、清理进程并退出
+bash scripts/acceptance_test.sh continuous-voice-evidence offline
+```
 
-# 终端 2
+`continuous-offline/online` 是常驻控制服务，不会在180秒后自动退出。需要保留控制进程时，
+才采用双终端：
+
+```bash
+# 终端1，结束时 Ctrl+C
+bash scripts/acceptance_test.sh continuous-offline
+# 终端2，自动计时退出
 bash scripts/acceptance_test.sh continuous-voice-benchmark offline
 ```
 
@@ -610,6 +617,10 @@ bash scripts/acceptance_test.sh continuous-voice-benchmark offline
 时长达到 180 秒时才标为 `operator_declared_real_microphone`，否则统一标为
 `synthetic_short_or_unspecified`。这能防止仅凭一个伪造的时长字段把自动 mock 包装成
 真人长时间证据，但它仍属于操作者声明，最终应保留现场录屏或终端日志。已有报告可重算：
+
+计分器每15秒显示一次剩余时间。无论现场门槛通过与否，都会先写出
+`continuous_voice_*_live_report.json` 和 `voice_benchmark_report.json`；FAIL 只影响退出码，
+不会再因为 shell `set -e` 跳过第二份报告。
 
 ```bash
 bash scripts/acceptance_test.sh voice-benchmark-report \

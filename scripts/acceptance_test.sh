@@ -91,6 +91,7 @@ Interactive modes:
   continuous-nav2-offline  Long-running microphone target navigation with Nav2/TurtleBot3
   continuous-nav2-online   Long-running microphone target navigation with Nav2/TurtleBot3
   continuous-nav2-evidence {offline|online}  Run Nav2 microphone demo and live-check evidence in one terminal
+  continuous-voice-evidence {offline|online}  Run microphone demo and 3-minute benchmark in one terminal
   continuous-live-check {offline|online}  Observe a running live microphone demo and score evidence
   continuous-voice-benchmark {offline|online}  Score a 3-minute, 10-command microphone benchmark
   continuous-nav2-live-check {offline|online}  Score a running live Nav2 microphone demo
@@ -521,6 +522,14 @@ case "$LEVEL" in
     fi
     bash scripts/continuous_nav2_voice_evidence.sh "$CHECK_MODE"
     ;;
+  continuous-voice-evidence)
+    CHECK_MODE="${2:-offline}"
+    if [[ "$CHECK_MODE" != "offline" && "$CHECK_MODE" != "online" ]]; then
+      echo "Usage: $0 continuous-voice-evidence {offline|online}" >&2
+      exit 2
+    fi
+    bash scripts/continuous_voice_evidence.sh "$CHECK_MODE"
+    ;;
   continuous-live-check)
     CHECK_MODE="${2:-offline}"
     if [[ "$CHECK_MODE" != "offline" && "$CHECK_MODE" != "online" ]]; then
@@ -541,16 +550,46 @@ case "$LEVEL" in
       exit 2
     fi
     REPORT_PATH="${VOICE_BENCHMARK_LIVE_REPORT:-logs/continuous_voice_${CHECK_MODE}_live_report.json}"
-    echo "请先在另一个终端启动 acceptance_test.sh continuous-$CHECK_MODE"
-    python3 scripts/continuous_live_check.py \
-      --scenario benchmark \
-      --capture-source real_microphone \
-      --duration "${VOICE_BENCHMARK_DURATION:-180}" \
-      --min-asr 12 \
-      --min-candidates 10 \
-      --min-success 9 \
-      --output "$REPORT_PATH"
-    python3 scripts/evaluate_live_voice_benchmark.py --report "$REPORT_PATH"
+    SUMMARY_PATH="${VOICE_BENCHMARK_REPORT:-logs/voice_benchmark_report.json}"
+    REPORT_PATH="$(realpath -m "$REPORT_PATH")"
+    SUMMARY_PATH="$(realpath -m "$SUMMARY_PATH")"
+    CONTROL_ARGS=()
+    if [[ "${VOICE_BENCHMARK_CONTROL_MANAGED:-false}" == "true" ]]; then
+      CONTROL_ARGS+=(--control-managed)
+      echo "连续语音控制链路由一键留证脚本后台管理。"
+    else
+      echo "请先在另一个终端启动 acceptance_test.sh continuous-$CHECK_MODE"
+    fi
+    LIVE_STATUS=0
+    if python3 scripts/continuous_live_check.py \
+        --scenario benchmark \
+        --capture-source real_microphone \
+        "${CONTROL_ARGS[@]}" \
+        --duration "${VOICE_BENCHMARK_DURATION:-180}" \
+        --progress-interval "${VOICE_BENCHMARK_PROGRESS_INTERVAL:-15}" \
+        --min-asr 12 \
+        --min-candidates 10 \
+        --min-success 9 \
+        --output "$REPORT_PATH"; then
+      LIVE_STATUS=0
+    else
+      LIVE_STATUS=$?
+    fi
+    SUMMARY_STATUS=0
+    if python3 scripts/evaluate_live_voice_benchmark.py \
+        --report "$REPORT_PATH" \
+        --output "$SUMMARY_PATH"; then
+      SUMMARY_STATUS=0
+    else
+      SUMMARY_STATUS=$?
+    fi
+    echo "现场事件报告：$REPORT_PATH"
+    echo "量化汇总报告：$SUMMARY_PATH"
+    if (( LIVE_STATUS != 0 || SUMMARY_STATUS != 0 )); then
+      echo "FAIL: 报告已经生成，但当前指标未达到门槛；请把上述两个文件发给 Codex。" >&2
+      exit 1
+    fi
+    echo "PASS: 三分钟连续语音量化验收通过"
     ;;
   continuous-nav2-live-check)
     CHECK_MODE="${2:-offline}"

@@ -467,9 +467,35 @@ def write_report(path: str | None, report: LiveCheckReport) -> None:
     )
 
 
+def wait_with_progress(duration_s: float, interval_s: float) -> None:
+    """等待统计窗口并持续显示剩余时间，避免真人验收看起来像卡死。"""
+
+    duration_s = max(1.0, duration_s)
+    interval_s = max(1.0, interval_s)
+    started_at = time.monotonic()
+    deadline = started_at + duration_s
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0.0:
+            break
+        elapsed = time.monotonic() - started_at
+        print(
+            f"[benchmark] 已统计 {elapsed:.0f}s，剩余 {remaining:.0f}s...",
+            flush=True,
+        )
+        time.sleep(min(interval_s, remaining))
+    print(f"[benchmark] 统计窗口 {duration_s:.0f}s 已结束，正在生成报告...", flush=True)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--duration", type=float, default=180.0, help="统计窗口秒数")
+    parser.add_argument(
+        "--progress-interval",
+        type=float,
+        default=15.0,
+        help="倒计时输出间隔秒数",
+    )
     parser.add_argument("--min-asr", type=int, default=6)
     parser.add_argument("--min-candidates", type=int, default=4)
     parser.add_argument("--min-success", type=int, default=4)
@@ -490,6 +516,11 @@ def main() -> None:
         choices=("unspecified", "real_microphone", "synthetic"),
         default="unspecified",
         help="显式声明输入证据来源；时长本身不能证明是真人麦克风",
+    )
+    parser.add_argument(
+        "--control-managed",
+        action="store_true",
+        help="控制链路已由一键留证脚本后台管理，不再提示另开终端",
     )
     parser.add_argument("--output", default="", help="可选：把验收统计写入证据文件")
     parser.add_argument("--input-report", default="", help="读取已有证据文件并重新判定")
@@ -523,7 +554,10 @@ def main() -> None:
         print("请在另一个终端启动 continuous-nav2-offline/online，然后按顺序说：", flush=True)
         print("小智 / 去门口 / 前往书桌 / 依次去门口、书桌、起点 / 停止巡航 / 退出控制", flush=True)
     elif args.scenario == "benchmark":
-        print("请在另一个终端启动 continuous-offline/online，然后按顺序说：", flush=True)
+        if args.control_managed:
+            print("后台控制链路已就绪，请按顺序说：", flush=True)
+        else:
+            print("请在另一个终端启动 continuous-offline/online，然后按顺序说：", flush=True)
         print(
             "小智 / 向前走一秒 / 左转九十度 / 后退一秒 / 右转九十度 / "
             "绕圈 / 挥手两次 / 把灯设成蓝色 / 去门口 / 取消导航 / 停下 / 退出控制",
@@ -541,7 +575,7 @@ def main() -> None:
     thread = threading.Thread(target=executor.spin, daemon=True)
     thread.start()
     try:
-        time.sleep(max(1.0, args.duration))
+        wait_with_progress(args.duration, args.progress_interval)
         report = node.build_report(thresholds)
         write_report(args.output, report)
         print(json.dumps(asdict(report), ensure_ascii=False, indent=2), flush=True)
