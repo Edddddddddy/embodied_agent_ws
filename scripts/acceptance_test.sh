@@ -333,7 +333,8 @@ case "$LEVEL" in
       --livekit-wakeword-models "${LIVEKIT_WAKEWORD_MODELS:-}"
     ;;
   voice-stability-preflight)
-    python3 scripts/voice_provider_preflight.py \
+    set +e
+    STABILITY_OUTPUT="$(python3 scripts/voice_provider_preflight.py \
       --mode "${PROVIDER_PREFLIGHT_MODE:-offline}" \
       --vad-provider "${VAD_PROVIDER:-auto}" \
       --kws-provider "${KWS_PROVIDER:-none}" \
@@ -346,7 +347,16 @@ case "$LEVEL" in
       --sherpa-keywords-file "${SHERPA_KWS_KEYWORDS_FILE:-}" \
       --openwakeword-models "${OPENWAKEWORD_MODELS:-}" \
       --livekit-wakeword-models "${LIVEKIT_WAKEWORD_MODELS:-}" \
-      --require-mature-vad
+      --require-mature-vad \
+      --json)"
+    STABILITY_STATUS=$?
+    set -e
+    printf '%s\n' "$STABILITY_OUTPUT"
+    if [[ -n "${VOICE_STABILITY_REPORT:-logs/voice_stability_preflight.json}" ]]; then
+      mkdir -p "$(dirname "${VOICE_STABILITY_REPORT:-logs/voice_stability_preflight.json}")"
+      printf '%s\n' "$STABILITY_OUTPUT" > "${VOICE_STABILITY_REPORT:-logs/voice_stability_preflight.json}"
+    fi
+    exit "$STABILITY_STATUS"
     ;;
   voice-vad-runtime-dry-run)
     bash scripts/setup_voice_vad_runtime.sh "${VOICE_VAD_PROFILE:-all}" --dry-run
@@ -436,6 +446,7 @@ case "$LEVEL" in
       --output "${DEMO_EVIDENCE_REPORT:-logs/demo_evidence_checklist.json}"
       --markdown "${DEMO_EVIDENCE_MARKDOWN:-logs/demo_evidence_checklist.md}"
       --automatic-report "${DEMO_EVIDENCE_AUTOMATIC_REPORT:-logs/demo_acceptance_report.json}"
+      --voice-stability-report "${DEMO_EVIDENCE_VOICE_STABILITY_REPORT:-logs/voice_stability_preflight.json}"
       --voice-report "${DEMO_EVIDENCE_VOICE_REPORT:-logs/continuous-live-check.json}"
       --nav2-report "${DEMO_EVIDENCE_NAV2_REPORT:-logs/nav2-live-check.json}"
       --recording "${DEMO_EVIDENCE_RECORDING:-logs/demo_recording.mp4}"

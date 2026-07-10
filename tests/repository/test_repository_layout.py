@@ -503,6 +503,8 @@ def test_showcase_hardening_artifacts_remain_discoverable():
     assert "\"demo\": DEMO_COMMANDS" in release_gate_text
     assert "command_count" in release_gate_text
     assert "job_showcase_demo_evidence_checklist" in checklist_text
+    assert "voice_stability_preflight" in checklist_text
+    assert "mature_vad_active" in checklist_text
     assert "continuous-live-check" in checklist_text
     assert "demo_recording.mp4" in checklist_text
     assert "instruction_parser_eval" in release_gate_text

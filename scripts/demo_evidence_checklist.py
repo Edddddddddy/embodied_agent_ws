@@ -114,6 +114,31 @@ def _nav2_summary(path: Path) -> str:
     )
 
 
+def _voice_stability_status(path: Path, *, required: bool) -> tuple[str, str]:
+    payload, reason = _load_json(path)
+    if payload is None:
+        return ("missing" if required else "optional_missing"), reason
+    if payload.get("ok") is True and payload.get("mature_vad_active") is True:
+        return "passed", "ok=true mature_vad_active=true"
+    return (
+        "failed",
+        f"ok={payload.get('ok')!r} mature_vad_active={payload.get('mature_vad_active')!r}",
+    )
+
+
+def _voice_stability_summary(path: Path) -> str:
+    payload, reason = _load_json(path)
+    if payload is None:
+        return f"未找到 voice-stability-preflight 报告：{reason}"
+    return (
+        f"ok={payload.get('ok')!r}，vad_provider={payload.get('vad_provider')}，"
+        f"vad_maturity={payload.get('vad_maturity')}，"
+        f"mature_vad_active={payload.get('mature_vad_active')}，"
+        f"blockers={payload.get('blockers')}，"
+        f"recommendations={payload.get('recommendations')}"
+    )
+
+
 def _file_status(path: Path, *, required: bool) -> tuple[str, str]:
     if path.is_file() and path.stat().st_size > 0:
         return "passed", f"size={path.stat().st_size}"
@@ -123,6 +148,7 @@ def _file_status(path: Path, *, required: bool) -> tuple[str, str]:
 def build_report(args: argparse.Namespace) -> ChecklistReport:
     workspace = Path(args.workspace).expanduser().resolve()
     automatic_report = Path(args.automatic_report).expanduser()
+    voice_stability_report = Path(args.voice_stability_report).expanduser()
     voice_report = Path(args.voice_report).expanduser()
     nav2_report = Path(args.nav2_report).expanduser()
     recording = Path(args.recording).expanduser()
@@ -146,6 +172,27 @@ def build_report(args: argparse.Namespace) -> ChecklistReport:
             command="bash scripts/acceptance_test.sh demo-gate",
             summary=f"{_automatic_summary(automatic_report)}；detail={detail}",
             next_action="先运行 demo-gate，生成 logs/demo_acceptance_report.json。",
+        )
+    )
+
+    status, detail = _voice_stability_status(voice_stability_report, required=True)
+    items.append(
+        EvidenceItem(
+            id="voice_stability_preflight",
+            title="成熟 VAD 语音稳定性预检",
+            required=True,
+            status=status,
+            evidence_kind="voice_stability_report",
+            path=str(voice_stability_report),
+            command=(
+                "VOICE_STABILITY_REPORT=logs/voice_stability_preflight.json "
+                "VAD_PROVIDER=auto bash scripts/acceptance_test.sh voice-stability-preflight"
+            ),
+            summary=f"{_voice_stability_summary(voice_stability_report)}；detail={detail}",
+            next_action=(
+                "运行 voice-stability-preflight；如果只能降级 energy，按 recommendations 安装 "
+                "WebRTC/Silero VAD 后重试。"
+            ),
         )
     )
 
@@ -272,11 +319,12 @@ def write_markdown(path: Path, report: ChecklistReport) -> None:
             "## 现场演示推荐顺序",
             "",
             "1. `bash scripts/acceptance_test.sh demo-gate`",
-            "2. `bash scripts/acceptance_test.sh continuous-offline`",
-            "3. 另一个终端运行 `continuous-live-check offline` 并保存报告。",
-            "4. 如果展示 Nav2，运行 `continuous-nav2-evidence offline`。",
-            "5. 保存录屏和 Gazebo/RViz 截图。",
-            "6. 最后运行 `DEMO_EVIDENCE_STRICT=true bash scripts/acceptance_test.sh demo-evidence-checklist`。",
+            "2. `VOICE_STABILITY_REPORT=logs/voice_stability_preflight.json VAD_PROVIDER=auto bash scripts/acceptance_test.sh voice-stability-preflight`",
+            "3. `bash scripts/acceptance_test.sh continuous-offline`",
+            "4. 另一个终端运行 `continuous-live-check offline` 并保存报告。",
+            "5. 如果展示 Nav2，运行 `continuous-nav2-evidence offline`。",
+            "6. 保存录屏和 Gazebo/RViz 截图。",
+            "7. 最后运行 `DEMO_EVIDENCE_STRICT=true bash scripts/acceptance_test.sh demo-evidence-checklist`。",
             "",
             "## 详细摘要",
             "",
@@ -300,6 +348,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workspace", default="/home/ubuntu/embodied_agent_ws")
     parser.add_argument("--automatic-report", default="logs/demo_acceptance_report.json")
+    parser.add_argument("--voice-stability-report", default="logs/voice_stability_preflight.json")
     parser.add_argument("--voice-report", default="logs/continuous-live-check.json")
     parser.add_argument("--nav2-report", default="logs/nav2-live-check.json")
     parser.add_argument("--recording", default="logs/demo_recording.mp4")

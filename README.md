@@ -571,7 +571,7 @@ bash scripts/acceptance_test.sh demo-gate
 ```
 
 真实麦克风、Gazebo/RViz 和 Nav2 仍然需要人工现场证据。演示前后可以用 checklist
-把自动 gate、live-check、Nav2 live-check、录屏和截图汇总成一份报告：
+把自动 gate、成熟 VAD 稳定性预检、live-check、Nav2 live-check、录屏和截图汇总成一份报告：
 
 ```bash
 bash scripts/acceptance_test.sh demo-evidence-checklist
