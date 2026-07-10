@@ -9,6 +9,10 @@
 
 如果只想先看主链路图，优先打开
 [FINAL_ARCHITECTURE_DIAGRAMS.md](FINAL_ARCHITECTURE_DIAGRAMS.md)。
+如果要准备面试代码走读，优先打开
+[VOICE_TO_SIMULATION_CODE_WALKTHROUGH.md](VOICE_TO_SIMULATION_CODE_WALKTHROUGH.md)，
+它按“语音输入 → Agent → ActionGuard → ROS 2 Action → Gazebo/Nav2 执行”列出了关键文件、
+关键函数和上下游接口。
 
 ## 1. ROS 2 通信模型：topic、msg、action 的分工
 

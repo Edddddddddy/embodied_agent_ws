@@ -395,14 +395,21 @@ def test_job_presentation_doc_remains_discoverable():
 
     presentation = ROOT / "docs" / "PROJECT_PRESENTATION_15MIN.md"
     diagrams = ROOT / "docs" / "FINAL_ARCHITECTURE_DIAGRAMS.md"
+    walkthrough = ROOT / "docs" / "VOICE_TO_SIMULATION_CODE_WALKTHROUGH.md"
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    learning_notes = (ROOT / "docs" / "LEARNING_NOTES.md").read_text(encoding="utf-8")
     presentation_text = presentation.read_text(encoding="utf-8")
     diagrams_text = diagrams.read_text(encoding="utf-8")
+    walkthrough_text = walkthrough.read_text(encoding="utf-8")
 
     assert presentation.is_file()
     assert diagrams.is_file()
+    assert walkthrough.is_file()
     assert "PROJECT_PRESENTATION_15MIN.md" in readme
     assert "FINAL_ARCHITECTURE_DIAGRAMS.md" in readme
+    assert "VOICE_TO_SIMULATION_CODE_WALKTHROUGH.md" in readme
+    assert "VOICE_TO_SIMULATION_CODE_WALKTHROUGH.md" in learning_notes
+    assert "VOICE_TO_SIMULATION_CODE_WALKTHROUGH.md" in presentation_text
     assert "15 分钟项目汇报" in presentation_text
     assert "FINAL_ARCHITECTURE_DIAGRAMS.md" in presentation_text
     assert "从语音输入到仿真执行的代码走读地图" in presentation_text
@@ -413,6 +420,11 @@ def test_job_presentation_doc_remains_discoverable():
     assert "C++ ActionGuard" in diagrams_text
     assert "typed_action_demo_client" in diagrams_text
     assert "offline_showcase_report" in diagrams_text
+    assert "语音输入到仿真执行" in walkthrough_text
+    assert "ContinuousCommandQueue" in walkthrough_text
+    assert "CommandNLU.parse()" in walkthrough_text
+    assert "ExecuteRobotCommand" in walkthrough_text
+    assert "evidence_kind" in walkthrough_text
     for required in (
         "continuous-offline",
         "continuous-multi-command",
