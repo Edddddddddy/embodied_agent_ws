@@ -57,16 +57,22 @@ def _percentile(values: list[float], percentile: float) -> float | None:
 
 
 def _monotonic_action_match_count(expected: list[str], observed: list[str]) -> int:
-    cursor = 0
-    matched = 0
+    """返回两个动作序列的最长公共子序列长度。
+
+    动作集合里会重复出现 move/turn。旧实现按 expected 贪心查找，漏掉一次左转后
+    会把右转对应的 ``turn`` 错配给左转，并连带错扣下一次 ``move``。LCS 仍严格
+    保持执行顺序，但允许单个漏识别独立计错，报告才能忠实反映 ROS 实际执行证据。
+    """
+    previous = [0] * (len(observed) + 1)
     for wanted in expected:
-        try:
-            index = observed.index(wanted, cursor)
-        except ValueError:
-            continue
-        matched += 1
-        cursor = index + 1
-    return matched
+        current = [0]
+        for index, actual in enumerate(observed, start=1):
+            if wanted == actual:
+                current.append(previous[index - 1] + 1)
+            else:
+                current.append(max(previous[index], current[index - 1]))
+        previous = current
+    return previous[-1]
 
 
 def _metric_values(rows: list[dict[str, Any]], *keys: str) -> list[float]:

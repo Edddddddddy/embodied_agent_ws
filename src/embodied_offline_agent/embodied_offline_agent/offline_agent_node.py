@@ -184,7 +184,7 @@ class OfflineAgentNode(Node):
             "asr_num_threads": 2,
             "asr_decoding_method": "modified_beam_search",
             "asr_hotwords_file": "",
-            "asr_hotwords_score": 2.0,
+            "asr_hotwords_score": 3.0,
             "asr_max_active_paths": 4,
             "asr_modeling_unit": "cjkchar",
             "recognition_max_retries": 3,
@@ -957,6 +957,12 @@ class OfflineAgentNode(Node):
             self._publish_state("queued")
             return
 
+        if nlu_result.retry_prompt:
+            # 缺方向/颜色时不能静默猜槽位，也不应花数秒调用 LLM；保留会话并提示重说。
+            self._publish_nlu_retry(command, nlu_result)
+            self._publish_state("retry_listening")
+            return
+
         snapshot = self._command_queue.put(command, context=self._latency)
         self._publish_queue_event("enqueue", command, snapshot)
         if snapshot.accepted:
@@ -970,6 +976,20 @@ class OfflineAgentNode(Node):
             )
             self._publish_queue_rejected_recognition(command, snapshot)
             self._publish_state("queue_full")
+
+    def _publish_nlu_retry(self, command, nlu_result):
+        payload = {
+            "status": "retry",
+            "reason": nlu_result.reason,
+            "transcript": command,
+            "prompt": nlu_result.retry_prompt,
+        }
+        self._recognition_feedback_pub.publish(
+            String(data=json.dumps(payload, ensure_ascii=False))
+        )
+        self.get_logger().warning(
+            f"incomplete voice command: reason={nlu_result.reason}, text={command}"
+        )
 
     def _publish_nlu_feedback(self, command, nlu_result, batch_id):
         payload = {

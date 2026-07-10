@@ -58,6 +58,7 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
             "COMMAND_NORMALIZATION_PATH": "/tmp/custom_normalization.yaml",
             "COMMAND_COMPLETION_ENABLED": "false",
             "ASR_COMMIT_DELAY_MS": "450",
+            "ASR_HOTWORDS_SCORE": "3.4",
         }
     )
 
@@ -72,7 +73,7 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
 
     assert "连续语音控制模式=online" in result.stdout
     assert "通过标准：至少识别 6 条 ASR final" in result.stdout
-    assert "continuous-live-check online" in result.stdout
+    assert "continuous-voice-benchmark online" in result.stdout
     assert "VOICE_SESSION_TIMEOUT=44" in result.stdout
     assert "WAKE_WORD_ENABLED=false" in result.stdout
     assert "SPEAKER_ENABLED=true" in result.stdout
@@ -110,6 +111,7 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
     assert "COMMAND_NORMALIZATION_PATH=/tmp/custom_normalization.yaml" in result.stdout
     assert "COMMAND_COMPLETION_ENABLED=false" in result.stdout
     assert "ASR_COMMIT_DELAY_MS=450" in result.stdout
+    assert "ASR_HOTWORDS_SCORE=3.4" in result.stdout
     assert "wake_word_enabled:=false" in result.stdout
     assert "speech_start_threshold:=0.021" in result.stdout
     assert "vad_speech_start_ms:=128" in result.stdout
@@ -130,6 +132,7 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
     assert "command_normalization_path:=/tmp/custom_normalization.yaml" in result.stdout
     assert "command_completion_enabled:=false" in result.stdout
     assert "asr_commit_delay_ms:=450" in result.stdout
+    assert "asr_hotwords_score:=3.4" in result.stdout
     assert "sherpa_tokens:=/models/kws/tokens.txt" in result.stdout
     assert "openwakeword_models:=/models/kws/xiaozhi.onnx,/models/kws/nihaoxiaozhi.onnx" in result.stdout
     assert "openwakeword_threshold:=0.42" in result.stdout
@@ -396,7 +399,8 @@ def test_continuous_voice_control_omits_empty_optional_launch_arguments():
     )
 
     assert "空的可选模型/配置路径参数会省略" in result.stdout
-    assert "silero_model_path:=" not in result.stdout
+    # Silero 模型现在随仓库提供默认路径，因此不是空参数；其余未配置的 KWS 路径仍应省略。
+    assert "silero_model_path:=" in result.stdout
     assert "sherpa_tokens:=" not in result.stdout
     assert "sherpa_encoder:=" not in result.stdout
     assert "sherpa_decoder:=" not in result.stdout

@@ -119,6 +119,22 @@ def test_sleep_phrase_closes_the_continuous_control_session():
     assert rejected.event.kind == SessionEventKind.REJECTED
 
 
+def test_exact_short_exit_closes_session_without_matching_longer_command():
+    """ASR 可能只提交“退出”；但“退出自动模式”仍应作为机器人命令处理。"""
+    gate = WakeWordGate(["小智"], enabled=True, active_timeout_s=60.0)
+    session = ContinuousVoiceSession(gate, enabled=True)
+
+    assert session.accept("小智").event.kind == SessionEventKind.WAKE
+    sleeping = session.accept("退出。")
+    assert sleeping.event.kind == SessionEventKind.SLEEP
+    assert sleeping.event.session_state == "sleeping"
+
+    assert session.accept("小智").event.kind == SessionEventKind.WAKE
+    mode_command = session.accept("退出自动模式")
+    assert mode_command.accepted
+    assert mode_command.command == "退出自动模式"
+
+
 def test_continuous_session_reports_timeout_after_previous_wake():
     now = [100.0]
     gate = WakeWordGate(

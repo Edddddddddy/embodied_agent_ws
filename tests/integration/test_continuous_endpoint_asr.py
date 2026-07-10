@@ -14,7 +14,10 @@ from rclpy.node import Node
 from std_msgs.msg import Empty, String
 
 
-EXPECTED_ASR = ["小智", "向前走一秒", "左转", "前进", "后退一秒", "退出控制"]
+EXPECTED_ASR = [
+    "小智", "向前走一秒", "左转", "前进", "后退一秒",
+    "把灯", "我九十", "退出",
+]
 EXPECTED_CANDIDATES = ["move", "turn", "move", "move"]
 
 
@@ -112,12 +115,33 @@ def main():
             "endpoint ASR commands did not reach robot action results",
         )
 
+        # 缺颜色/方向的真人 ASR 样本必须提示重说，不能让 LLM 猜动作。
+        publish_endpoint(node, 2)
+        wait_until(
+            lambda: {
+                item.get("reason") for item in node.recognition_feedback
+            }.issuperset({"missing_led_color", "missing_turn_direction"}),
+            5.0,
+            "incomplete command retry feedback missing",
+        )
+        candidate_count_before_exit = len(node.candidates)
+        if candidate_count_before_exit != len(EXPECTED_CANDIDATES):
+            raise RuntimeError(
+                f"incomplete ASR command unexpectedly produced actions: {node.candidates}"
+            )
+
         publish_endpoint(node, 1)
         wait_until(
             lambda: "sleeping" in node.session_states,
             5.0,
             "endpoint ASR exit command did not close the session",
         )
+        # 退出会话会主动发布 stop 归零，因此只允许新增这一条安全动作。
+        candidates_after_exit = node.candidates[candidate_count_before_exit:]
+        if [item.get("name") for item in candidates_after_exit] != ["stop"]:
+            raise RuntimeError(
+                f"exit did not produce exactly one stop action: {candidates_after_exit}"
+            )
 
         names = [
             candidate.get("name")
@@ -145,6 +169,14 @@ def main():
         if not expected_completed.issubset(completed_pairs):
             raise RuntimeError(
                 f"short ASR finals were not completed: {node.recognition_feedback}"
+            )
+        retry_reasons = {
+            item.get("reason") for item in node.recognition_feedback
+            if item.get("status") == "retry"
+        }
+        if not {"missing_led_color", "missing_turn_direction"}.issubset(retry_reasons):
+            raise RuntimeError(
+                f"incomplete command retries were not published: {node.recognition_feedback}"
             )
         endpoint_feedback = [
             item for item in node.recognition_feedback
@@ -174,6 +206,7 @@ def main():
                         event.get("event") for event in node.execution_events
                     ],
                     "completed_commands": sorted(completed_pairs),
+                    "incomplete_retry_reasons": sorted(retry_reasons),
                     "asr_endpoint_count": len(endpoint_feedback),
                     "asr_commit_count": len(commit_feedback),
                     "session_states_tail": node.session_states[-6:],

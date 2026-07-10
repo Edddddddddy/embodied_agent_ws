@@ -861,6 +861,12 @@ class OnlineAgentNode(Node):
             self._publish_state("queued")
             return
 
+        if nlu_result.retry_prompt:
+            # 控制命令缺少必需槽位时不交给云端 LLM 猜测，避免错误动作并缩短重试路径。
+            self._publish_nlu_retry(command, nlu_result)
+            self._publish_state("retry_listening")
+            return
+
         snapshot = self._command_queue.put(command)
         self._publish_queue_event("enqueue", command, snapshot)
         if snapshot.accepted:
@@ -874,6 +880,20 @@ class OnlineAgentNode(Node):
             )
             self._publish_queue_rejected_recognition(command, snapshot)
             self._publish_state("queue_full")
+
+    def _publish_nlu_retry(self, command: str, nlu_result):
+        payload = {
+            "status": "retry",
+            "reason": nlu_result.reason,
+            "transcript": command,
+            "prompt": nlu_result.retry_prompt,
+        }
+        self.recognition_feedback_pub.publish(
+            String(data=json.dumps(payload, ensure_ascii=False))
+        )
+        self.get_logger().warning(
+            f"incomplete voice command: reason={nlu_result.reason}, text={command}"
+        )
 
     def _publish_nlu_feedback(self, command: str, nlu_result, batch_id: str):
         payload = {

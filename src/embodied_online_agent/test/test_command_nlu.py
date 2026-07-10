@@ -175,6 +175,26 @@ def test_nlu_exposes_duration_and_place_slots():
     assert place.slots == {"place": "door"}
 
 
+def test_nlu_requests_repetition_when_real_asr_drops_a_required_slot():
+    missing_color = CommandNLU().parse("把灯")
+    missing_direction = CommandNLU().parse("我九十")
+
+    assert not missing_color.accepted
+    assert missing_color.reason == "missing_led_color"
+    assert "颜色" in missing_color.retry_prompt
+    assert not missing_direction.accepted
+    assert missing_direction.reason == "missing_turn_direction"
+    assert "左转或右转" in missing_direction.retry_prompt
+
+
+def test_nlu_does_not_turn_normal_chat_into_a_slot_retry():
+    result = CommandNLU().parse("今天天气怎么样")
+
+    assert not result.accepted
+    assert result.reason == "blocked_semantic"
+    assert result.retry_prompt == ""
+
+
 def test_nlu_distance_conversion_respects_motion_limits_without_silent_truncation():
     long_default = CommandNLU().parse("向前走五米")
     impossible_explicit = CommandNLU().parse("以每秒零点一米向前走两米")

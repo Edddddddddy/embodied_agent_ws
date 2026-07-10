@@ -95,3 +95,25 @@ def test_benchmark_does_not_credit_unassociated_success_totals() -> None:
     result = MODULE.evaluate(report, SCENARIO)
     assert result["action_success_rate"] == 0.0
     assert result["checks"]["action_success_rate_at_least_80pct"] is False
+
+
+def test_action_alignment_does_not_cascade_after_one_missing_repeated_action() -> None:
+    """真实报告漏掉左转后，后续正确 move/turn 不应被贪心游标连带错扣。"""
+    expected = [
+        "move", "turn", "move", "turn", "arc",
+        "wave", "set_led", "navigate_to", "cancel_navigation", "stop",
+    ]
+    observed = ["move", "move", "turn", "arc", "wave", "navigate_to", "stop"]
+
+    assert MODULE._monotonic_action_match_count(expected, observed) == 7
+
+
+def test_offline_hotwords_cover_all_live_benchmark_domains() -> None:
+    hotwords = (
+        ROOT / "src" / "embodied_offline_agent" / "config" / "hotwords_zh.txt"
+    ).read_text(encoding="utf-8").splitlines()
+
+    required = {
+        "挥手两次", "把灯设成蓝色", "蓝色", "去门口", "取消导航",
+    }
+    assert required.issubset(set(hotwords))

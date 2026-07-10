@@ -11,7 +11,7 @@ if [[ "$AGENT_KIND" != "online" && "$AGENT_KIND" != "offline" ]]; then
   exit 2
 fi
 
-MOCK_ASR_FINALS="小智|向前走一秒|左转|前进|后退一秒|退出控制"
+MOCK_ASR_FINALS="小智|向前走一秒|左转|前进|后退一秒|把灯|我九十|退出"
 LOG_FILE="$(mktemp)"
 PIDS=()
 cleanup() {

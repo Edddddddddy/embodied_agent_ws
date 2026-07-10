@@ -86,3 +86,12 @@ def test_default_repo_rules_file_extends_builtin_rules():
 
     assert normalizer.normalize("往钱走一秒").text == "往前走一秒"
     assert normalizer.normalize("倒退一秒").text == "后退一秒"
+
+
+def test_normalizes_real_microphone_navigation_cancel_typo():
+    """锁定 180 秒真人录音中出现过的领域错词，避免再次漏掉取消指令。"""
+    result = normalize("取消刀")
+
+    assert result.text == "取消导航"
+    actions = parse_fallback_action(result.text)
+    assert actions.name == "cancel_navigation"

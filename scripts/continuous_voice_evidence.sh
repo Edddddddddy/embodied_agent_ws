@@ -63,6 +63,10 @@ ROS_DOMAIN_ID=$ROS_DOMAIN_ID，连续语音一键留证模式=$MODE
   停下
   退出控制
 
+说话节奏：逐句说，每句后等待终端出现 [action]、[result] 或 [feedback] 再继续。
+如果看到 missing_led_color / missing_turn_direction 等 retry 提示，请立即完整重说当前句；
+重说属于真实鲁棒性验收的一部分，额外 ASR final 不会被当作误触发动作。
+
 现场事件报告：$LIVE_REPORT
 量化汇总报告：$SUMMARY_REPORT
 EOF

@@ -66,6 +66,10 @@ _QUESTION_OR_NEGATION = (
 _UNSAFE_COMBINATION_MARKERS = ("一边", "同时", "高速")
 _UNSAFE_ROTATION_MARKERS = ("旋转", "转")
 _UNSAFE_SPEED_MARKERS = ("高速", "全速", "最快", "最大速度", "冲过去")
+_RETRY_PROMPTS = {
+    "missing_led_color": "听到了灯光命令，但颜色不完整，请重说，例如：把灯设成蓝色",
+    "missing_turn_direction": "听到了转向角度，但方向不完整，请重说：左转或右转九十度",
+}
 
 
 def _clean(text: str) -> str:
@@ -244,6 +248,11 @@ class NluResult:
     def accepted(self) -> bool:
         return bool(self.commands)
 
+    @property
+    def retry_prompt(self) -> str:
+        """仅对确定缺槽位的控制语句要求重说，普通聊天仍可回退到 LLM。"""
+        return _RETRY_PROMPTS.get(self.reason, "")
+
 
 class CharacterNgramIntentModel:
     """字符 n-gram 原型分类器。
@@ -344,6 +353,10 @@ class CommandNLU:
 
         anchors = self._find_anchors(normalized)
         if not anchors:
+            # 真人录音里“左转九十度”曾被提交为“我九十”。方向无法安全猜测，
+            # 与其让 LLM 产生不确定动作，不如明确要求用户重复这一条命令。
+            if self._looks_like_turn_angle_without_direction(normalized):
+                return NluResult(source, reason="missing_turn_direction")
             return NluResult(source, reason="no_anchor")
 
         # 停止类命令是安全优先：一句话里只要出现急停，就不再排后续普通动作。
@@ -420,7 +433,18 @@ class CommandNLU:
             actions, slots = self._actions_and_slots_for(intent, segment)
             if actions:
                 commands.append(ParsedCommand(intent, segment, actions, confidence, slots))
-        return NluResult(source, commands, "" if commands else "low_confidence")
+        if commands:
+            return NluResult(source, commands)
+        if any(intent == "set_led" for _, intent in anchors):
+            return NluResult(source, reason="missing_led_color")
+        return NluResult(source, reason="low_confidence")
+
+    @staticmethod
+    def _looks_like_turn_angle_without_direction(normalized: str) -> bool:
+        if any(marker in normalized for marker in ("左", "右", "转")):
+            return False
+        angle = r"(?:四十五|九十|一百八十|三百六十|45|90|180|360)"
+        return re.fullmatch(rf"(?:我|向|往)?{angle}(?:度)?", normalized) is not None
 
     def _find_anchors(self, normalized: str) -> list[tuple[int, str]]:
         matches: list[tuple[int, int, str]] = []

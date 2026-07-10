@@ -10,7 +10,7 @@ class SherpaZipformerAsr:
     def __init__(
         self, model_dir: str, sample_rate: int, num_threads: int,
         decoding_method: str = "modified_beam_search",
-        hotwords_file: str = "", hotwords_score: float = 2.0,
+        hotwords_file: str = "", hotwords_score: float = 3.0,
         max_active_paths: int = 4, modeling_unit: str = "cjkchar",
     ):
         root = Path(model_dir).expanduser()

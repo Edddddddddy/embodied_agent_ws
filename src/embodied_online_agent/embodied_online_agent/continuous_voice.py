@@ -10,6 +10,8 @@ from .wake_provider import TextWakeProvider, WakeDecision, WakeEvent, WakeEventK
 
 
 DEFAULT_SLEEP_WORDS = ("退出控制", "结束控制", "休眠", "睡眠", "先这样")
+# 短词只能做“整句匹配”。若直接用 substring 判断，“退出自动模式”也会误关会话。
+DEFAULT_EXACT_SLEEP_WORDS = ("退出", "结束")
 DEFAULT_PRIORITY_STOP_WORDS = ("停下", "停止", "急停", "刹车", "别动")
 DEFAULT_FILLER_WORDS = ("嗯", "嗯嗯", "啊", "哦", "噢", "呃", "额", "唔")
 _PUNCTUATION_CHARS = " \t\r\n，。！？!?、,.；;：:"
@@ -204,6 +206,7 @@ class ContinuousVoiceSession:
         *,
         enabled: bool,
         sleep_words: Iterable[str] = DEFAULT_SLEEP_WORDS,
+        exact_sleep_words: Iterable[str] = DEFAULT_EXACT_SLEEP_WORDS,
         priority_stop_words: Iterable[str] = DEFAULT_PRIORITY_STOP_WORDS,
         filler_words: Iterable[str] = DEFAULT_FILLER_WORDS,
         duplicate_window_s: float = 1.2,
@@ -216,6 +219,9 @@ class ContinuousVoiceSession:
         )
         self.enabled = enabled
         self._sleep_words = tuple(word for word in sleep_words if word)
+        self._exact_sleep_words = tuple(
+            self._normalize_short_text(word) for word in exact_sleep_words if word
+        )
         self._priority_stop_words = tuple(word for word in priority_stop_words if word)
         self._filler_words = tuple(self._normalize_short_text(word) for word in filler_words if word)
         self._duplicate_window_s = max(0.0, float(duplicate_window_s))
@@ -254,7 +260,7 @@ class ContinuousVoiceSession:
                 priority_stop=False,
             )
 
-        if self.enabled and self._contains_any(text, self._sleep_words):
+        if self.enabled and self._is_sleep_command(text):
             wake_event = self._wake_provider.sleep()
             self._had_active_session = False
             self._forget_command()
@@ -348,6 +354,13 @@ class ContinuousVoiceSession:
     def _is_filler(self, text: str) -> bool:
         normalized = self._normalize_short_text(text)
         return bool(normalized) and normalized in self._filler_words
+
+    def _is_sleep_command(self, text: str) -> bool:
+        """长短休眠词分开匹配，兼顾 ASR 截断与模式切换命令安全。"""
+        if self._contains_any(text, self._sleep_words):
+            return True
+        normalized = self._normalize_short_text(text)
+        return bool(normalized) and normalized in self._exact_sleep_words
 
     def _is_duplicate_command(self, command: str) -> bool:
         if self._duplicate_window_s <= 0.0:
