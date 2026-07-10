@@ -49,6 +49,7 @@ Automated modes:
   continuous-kws-mock KWS sidecar opens a continuous session and executes a command
   speaker-memory-mock Speaker identity and per-user memory smoke test
   speaker-enroll     Speaker enrollment request saves wav samples and speakers.txt
+  speaker-runtime    Real sherpa speaker embedding self-match and ambiguity guard
   vad-sidecar         Dependency-free Silero VAD sidecar seam smoke test
   silero-vad-runtime  Real lightweight Silero ONNX inference and latency report
   webrtc-vad-sidecar  Installed WebRTC VAD sidecar runtime smoke test
@@ -330,6 +331,7 @@ case "$LEVEL" in
   continuous-kws-mock) bash scripts/smoke_test_continuous_kws_sidecar.sh online; bash scripts/smoke_test_continuous_kws_sidecar.sh offline ;;
   speaker-memory-mock) bash scripts/smoke_test_speaker_memory.sh online; bash scripts/smoke_test_speaker_memory.sh offline ;;
   speaker-enroll) bash scripts/smoke_test_speaker_enrollment.sh ;;
+  speaker-runtime) source "$WORKSPACE/scripts/activate.sh"; python3 scripts/probe_sherpa_speaker_runtime.py; bash scripts/smoke_test_sherpa_speaker_identity.sh ;;
   vad-sidecar) bash scripts/smoke_test_silero_vad_sidecar.sh ;;
   silero-vad-runtime)
     python3 scripts/silero_onnx_smoke.py \

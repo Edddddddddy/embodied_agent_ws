@@ -37,6 +37,7 @@ def generate_launch_description():
     speaker_identity_mode = LaunchConfiguration("speaker_identity_mode")
     speaker_identity_sherpa_model = LaunchConfiguration("speaker_identity_sherpa_model")
     speaker_identity_sherpa_file = LaunchConfiguration("speaker_identity_sherpa_file")
+    speaker_identity_min_margin = LaunchConfiguration("speaker_identity_min_margin")
     audio_enhancer = LaunchConfiguration("audio_enhancer")
     aec_enabled = LaunchConfiguration("aec_enabled")
     noise_suppression_enabled = LaunchConfiguration("noise_suppression_enabled")
@@ -98,6 +99,7 @@ def generate_launch_description():
             DeclareLaunchArgument("speaker_identity_mode", default_value="mock"),
             DeclareLaunchArgument("speaker_identity_sherpa_model", default_value=""),
             DeclareLaunchArgument("speaker_identity_sherpa_file", default_value=""),
+            DeclareLaunchArgument("speaker_identity_min_margin", default_value="0.05"),
             DeclareLaunchArgument("audio_enhancer", default_value="nlms"),
             DeclareLaunchArgument("aec_enabled", default_value="true"),
             DeclareLaunchArgument("noise_suppression_enabled", default_value="false"),
@@ -184,6 +186,9 @@ def generate_launch_description():
                         "mode": speaker_identity_mode,
                         "sherpa_model": speaker_identity_sherpa_model,
                         "sherpa_speaker_file": speaker_identity_sherpa_file,
+                        "sherpa_min_margin": ParameterValue(
+                            speaker_identity_min_margin, value_type=float
+                        ),
                     }
                 ],
             ),

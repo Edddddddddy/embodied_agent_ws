@@ -43,6 +43,52 @@ class EnrollmentSession:
     collected: int = 0
 
 
+@dataclass(frozen=True)
+class SpeakerScoreDecision:
+    speaker_id: str
+    confidence: float
+    second_best_score: float
+    margin: float
+    matched: bool
+    reason: str
+
+
+def classify_speaker_scores(
+    scores: dict[str, float], *, threshold: float, min_margin: float
+) -> SpeakerScoreDecision:
+    """把实际余弦分数转换为可解释的身份决策。
+
+    单看 top-1 超阈值仍可能把两个相似声纹混淆；margin 约束要求第一名明显
+    高于第二名。歧义时宁可返回 unknown，也不把 A 用户的偏好写进 B 的画像。
+    """
+
+    ranked = sorted(
+        (
+            (speaker_id, float(score))
+            for speaker_id, score in scores.items()
+            if speaker_id and math.isfinite(float(score))
+        ),
+        key=lambda item: item[1],
+        reverse=True,
+    )
+    if not ranked:
+        return SpeakerScoreDecision("unknown", 0.0, 0.0, 0.0, False, "no_scores")
+    speaker_id, best_score = ranked[0]
+    second_best = ranked[1][1] if len(ranked) > 1 else 0.0
+    margin = best_score - second_best if len(ranked) > 1 else best_score
+    if best_score < threshold:
+        reason = "below_threshold"
+    elif len(ranked) > 1 and margin < min_margin:
+        reason = "ambiguous_match"
+    else:
+        return SpeakerScoreDecision(
+            speaker_id, best_score, second_best, margin, True, "matched"
+        )
+    return SpeakerScoreDecision(
+        "unknown", best_score, second_best, margin, False, reason
+    )
+
+
 class SpeakerIdentityNode(Node):
     """声纹识别 sidecar。
 
@@ -64,6 +110,7 @@ class SpeakerIdentityNode(Node):
         self.declare_parameter("sherpa_model", "")
         self.declare_parameter("sherpa_speaker_file", "")
         self.declare_parameter("sherpa_threshold", 0.6)
+        self.declare_parameter("sherpa_min_margin", 0.05)
         self.declare_parameter("sherpa_num_threads", 2)
         self.declare_parameter("sherpa_provider", "cpu")
         self.declare_parameter("enroll_dir", "~/.ros/embodied_agent/speaker_samples")
@@ -103,7 +150,21 @@ class SpeakerIdentityNode(Node):
         if self._published_start:
             return
         self._published_start = True
-        self._publish_identity(self._mock_identity(reason="startup"))
+        if self._mode == "mock":
+            self._publish_identity(self._mock_identity(reason="startup"))
+            return
+        # sherpa 模式必须等真实语音 embedding；启动时发布 mock 用户会在第一句
+        # 语音之前错误加载/写入 demo_user 的个人记忆。
+        self._publish_identity(
+            {
+                "speaker_id": "unknown",
+                "confidence": 0.0,
+                "enrolled": False,
+                "model": "sherpa-onnx",
+                "reason": "awaiting_audio",
+                "rms": 0.0,
+            }
+        )
 
     def _on_audio(self, message):
         with self._lock:
@@ -183,7 +244,7 @@ class SpeakerIdentityNode(Node):
             return
         extractor = sherpa_onnx.SpeakerEmbeddingExtractor(config)
         manager = sherpa_onnx.SpeakerEmbeddingManager(extractor.dim)
-        registered = 0
+        embeddings_by_speaker = {}
         for speaker_id, wav_path in self._read_speaker_file(speaker_file):
             try:
                 samples, sample_rate = self._read_wav_mono(wav_path, np)
@@ -191,16 +252,26 @@ class SpeakerIdentityNode(Node):
                 stream.accept_waveform(sample_rate=sample_rate, waveform=samples)
                 stream.input_finished()
                 embedding = extractor.compute(stream)
-                if manager.add(speaker_id, embedding):
-                    registered += 1
+                embeddings_by_speaker.setdefault(speaker_id, []).append(embedding)
             except Exception as exc:
                 self.get_logger().warning(f"failed to enroll speaker sample {wav_path}: {exc}")
-        if registered <= 0:
+        registered_speakers = 0
+        registered_samples = 0
+        for speaker_id, embeddings in embeddings_by_speaker.items():
+            # Sherpa manager 支持同一 speaker 的 embedding list；按人聚合后一次 add，
+            # 才能真正利用注册流程采集的 3 段样本，而不是静默只保留第一段。
+            if manager.add(speaker_id, embeddings):
+                registered_speakers += 1
+                registered_samples += len(embeddings)
+        if registered_speakers <= 0:
             self.get_logger().warning("no speaker samples were enrolled for sherpa identity")
             return
         self._sherpa_extractor = extractor
         self._sherpa_manager = manager
-        self.get_logger().info(f"sherpa speaker identity loaded: {registered} sample(s)")
+        self.get_logger().info(
+            "sherpa speaker identity loaded: "
+            f"{registered_speakers} speaker(s), {registered_samples} sample(s)"
+        )
 
     def _identify_with_sherpa(self, rms: float, pcm: bytes) -> dict:
         if self._sherpa_extractor is None or self._sherpa_manager is None:
@@ -224,15 +295,25 @@ class SpeakerIdentityNode(Node):
             stream.input_finished()
             embedding = self._sherpa_extractor.compute(stream)
             threshold = float(self.get_parameter("sherpa_threshold").value)
-            speaker_id = self._sherpa_manager.search(embedding, threshold=threshold)
-            if not speaker_id:
-                speaker_id = "unknown"
+            min_margin = float(self.get_parameter("sherpa_min_margin").value)
+            scores = {
+                speaker_id: self._sherpa_manager.score(speaker_id, embedding)
+                for speaker_id in self._sherpa_manager.all_speakers
+            }
+            decision = classify_speaker_scores(
+                scores, threshold=threshold, min_margin=min_margin
+            )
             return {
-                "speaker_id": speaker_id,
-                "confidence": threshold if speaker_id != "unknown" else 0.0,
-                "enrolled": speaker_id != "unknown",
+                "speaker_id": decision.speaker_id,
+                # confidence 必须是模型实际相似度，不能再用配置 threshold 冒充。
+                "confidence": round(decision.confidence, 4),
+                "second_best_score": round(decision.second_best_score, 4),
+                "score_margin": round(decision.margin, 4),
+                "threshold": threshold,
+                "min_margin": min_margin,
+                "enrolled": decision.matched,
                 "model": "sherpa-onnx",
-                "reason": "matched" if speaker_id != "unknown" else "below_threshold",
+                "reason": decision.reason,
                 "rms": round(rms, 5),
             }
         except Exception as exc:

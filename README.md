@@ -19,7 +19,7 @@
 - ROS 2 工程化：自定义 msg/action、C++ ActionGuard、typed action bridge、Lifecycle、BehaviorTree.CPP、pluginlib executor。
 - 仿真动作：前进、后退、左转、右转、停止、原地转圈、绕圈、走正方形、演示动作序列。
 - 语音导航：支持“去门口/前往书桌/回到起点”等语义目标点导航，以及“依次去门口、书桌、起点/开始巡航”等多目标点巡航命令；执行中说“取消导航”会绕过 FIFO，抢占当前 Nav2 goal。
-- 用户记忆：支持 `/agent/speaker_identity` 声纹身份事件、按用户保存本地偏好/行为习惯，并在 Agent 推理前注入用户画像；声纹 sidecar 支持 mock 和 sherpa-onnx 接入 seam。
+- 用户记忆：支持 `/agent/speaker_identity` 声纹身份事件、按用户保存本地偏好/行为习惯，并在 Agent 推理前注入用户画像；声纹 sidecar 已实跑 Sherpa-ONNX 3D-Speaker embedding、真实相似度与 top-1 margin 歧义保护。
 - 验收脚本：提供 mock、在线、离线、Gazebo、真实麦克风连续控制等多层验收入口。
 
 说明：当前导航能力分三层验收：`navigation-demo` 用 mock/Gazebo executor 做可观测运动；
@@ -108,6 +108,19 @@ bash scripts/setup_offline_runtime.sh
 [huakunyang/SummerTTS](https://github.com/huakunyang/SummerTTS)，本项目默认仍用
 Sherpa-TTS 作为稳定 fallback，需要时可通过 `tts_provider:=summer` 切换。
 当前离线运行时固定版本见 [docs/OFFLINE_RUNTIME_VERSIONS.md](docs/OFFLINE_RUNTIME_VERSIONS.md)。
+
+可选真实声纹运行时：
+
+```bash
+bash scripts/setup_sherpa_speaker_runtime.sh
+bash scripts/acceptance_test.sh speaker-runtime
+# 证据：logs/speaker_runtime_report.json
+#       logs/speaker_identity_ros_report.json
+```
+
+该验收使用真实 Sherpa 模型和 ROS PCM sidecar，但默认样本是同一录音的注册/查询，
+只证明运行时与接口闭环，不代表多人准确率。真人使用前仍需通过“注册声纹”采集每位用户多段样本，
+再单独评估 FAR/FRR 和环境鲁棒性。
 
 llama.cpp 推理层可以先单独验收，避免把 ASR、TTS、Gazebo 的问题混在一起排查：
 
@@ -235,6 +248,7 @@ mock 验收：
 ```bash
 bash scripts/acceptance_test.sh speaker-memory-mock
 bash scripts/acceptance_test.sh speaker-enroll
+bash scripts/acceptance_test.sh speaker-runtime
 ```
 
 真实 sherpa-onnx 声纹接入需要准备 speaker embedding 模型和注册样本文件，然后启动时开启：

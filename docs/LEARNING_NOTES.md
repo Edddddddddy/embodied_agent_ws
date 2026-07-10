@@ -324,11 +324,19 @@
 - `src/embodied_online_agent/embodied_online_agent/online_agent_node.py`
 - `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py`
 - `tests/integration/test_speaker_memory_mock.py`
+- `tests/integration/test_sherpa_speaker_identity_ros.py`
+- `scripts/setup_sherpa_speaker_runtime.sh`
+- `scripts/probe_sherpa_speaker_runtime.py`
 
 设计方式：
 
 - 声纹识别被做成 sidecar：订阅 `/audio/clean_pcm` 和 `/audio/speech_ended`，发布 `/agent/speaker_identity`。
 - 声纹录入通过 `/agent/speaker_enroll_request` 触发，sidecar 把后续语音段保存成 wav 样本并维护 `speakers.txt`。
+- Sherpa backend 按 speaker 聚合多段 embedding 后一次注册到
+  `SpeakerEmbeddingManager`，确保注册时采集的 3 段样本都参与模板，而非只保留第一段。
+- 匹配时遍历 `all_speakers` 获取真实 `score`，发布 top-1 confidence、第二名分数和
+  score margin；低于阈值或 top-1/top-2 过近均返回 `unknown`。
+- Sherpa 模式启动时只发布 `awaiting_audio/unknown`，不会用 demo mock 身份抢先加载个人记忆。
 - Agent 只消费稳定 JSON identity，不直接绑定某个模型库。
 - `UserMemoryStore` 按 `speaker_id` 保存本地 profile，包括用户名、偏好、常用动作、最近交互。
 - Agent 推理前把当前用户画像追加进 system prompt，但动作仍必须经过 ActionGuard。
@@ -352,15 +360,24 @@
 - 直接接 mem0/Letta/Zep：记忆能力强，但偏 Web Agent/服务端框架，当前 ROS2 端侧项目会变重。
 - 使用 SpeechBrain/pyannote：模型能力成熟，但依赖 PyTorch 或 HuggingFace 模型，部署复杂。
 - 当前方案：mock 可自动验收，sherpa-onnx seam 可接真实端侧声纹，和已有离线技术栈一致。
+- 当前实测：官方 3D-Speaker 中文 ONNX 已完成真实 CPU embedding 与 ROS sidecar 自匹配；
+  仍未完成多人、多房间数据集上的 FAR/FRR 评估，因此不宣称“声纹准确率已达生产级”。
+- 模型与 API 选型参考 Sherpa-ONNX 官方
+  [Speaker Identification](https://k2-fsa.github.io/sherpa/onnx/speaker-identification/index.html)；
+  setup 脚本固定官方模型 URL 与 SHA256，避免模型文件悄然变化。
 
 验收方式：
 
 ```bash
 bash scripts/acceptance_test.sh speaker-memory-mock
 bash scripts/acceptance_test.sh speaker-enroll
+bash scripts/setup_sherpa_speaker_runtime.sh
+bash scripts/acceptance_test.sh speaker-runtime
 ```
 
-该验收证明：speaker identity 进入 Agent、用户偏好落盘、偏好能影响后续动作参数、动作执行后更新用户行为统计，并且声纹录入 seam 能采集样本文件。
+这些验收分别证明：speaker identity 进入 Agent、用户偏好落盘、偏好能影响后续动作参数、
+动作执行后更新用户行为统计、录入流程能采集样本，以及真实 Sherpa embedding 能经 ROS
+sidecar 输出实际相似度。多人准确率仍需另建注册/查询数据集评估。
 
 ## 10. 离线 Agent：Sherpa、llama.cpp、Sherpa-TTS/SummerTTS 与双缓冲
 

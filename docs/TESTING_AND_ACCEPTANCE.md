@@ -229,6 +229,8 @@ bash scripts/acceptance_test.sh voice-readiness
 ```bash
 bash scripts/acceptance_test.sh speaker-memory-mock
 bash scripts/acceptance_test.sh speaker-enroll
+bash scripts/setup_sherpa_speaker_runtime.sh
+bash scripts/acceptance_test.sh speaker-runtime
 ```
 
 通过后说明：
@@ -240,7 +242,16 @@ bash scripts/acceptance_test.sh speaker-enroll
 - 低置信度 speaker identity 会被拒绝写入个人 profile；普通动作链路继续可用，但不会更新
   `unknown.json` 这类共享记忆文件，避免声纹误识别污染用户画像。
 - `/agent/speaker_enroll_request` 能触发 sidecar 收集 3 段 wav 样本并维护 speaker-file。
-- 该验收不依赖真实声纹模型；真实 sherpa-onnx 声纹需要另行准备 speaker embedding 模型和注册 wav。
+- `speaker-memory-mock/speaker-enroll` 不依赖真实模型；`speaker-runtime` 会加载官方
+  3D-Speaker 中文 ONNX，先做真实 embedding 自匹配，再通过 ROS `/audio/clean_pcm` 和
+  `/audio/speech_ended` 驱动 sidecar，验证 `/agent/speaker_identity` 发布实际相似度。
+- 真实报告分别写入 `logs/speaker_runtime_report.json` 和
+  `logs/speaker_identity_ros_report.json`。报告明确标记
+  `multi_speaker_accuracy_evaluated=false`：同一 WAV 自匹配只能证明运行时闭环，不能证明
+  多用户 FAR/FRR 或噪声鲁棒性。
+- top-1 分数虽然过阈值，但若与第二名的 margin 小于 `sherpa_min_margin`，身份仍返回
+  `unknown/ambiguous_match`，避免错误加载或污染他人记忆。
+
 `navigation-demo` 额外证明“去门口”和“依次去门口、书桌、起点”能被 online/offline
 Agent 解析成 `navigate_to / follow_waypoints`，并通过 typed Action 驱动仿真 executor。
 `nav2-bridge` 进一步验证语义坐标真正进入 `NavigateToPose / FollowWaypoints` goal；
