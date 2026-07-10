@@ -566,7 +566,13 @@ bash scripts/acceptance_test.sh speaker-enroll
   场景几何，这是为了降低 Gazebo/Nav2 bringup 的不确定性；项目负责维护演示入口、
   map/world 文件、目标点配置和语音到 Nav2 action 的链路。
 - `nav2-turtlebot3` 重型验收会启动真实 TurtleBot3/Nav2 仿真，注入语音文本命令，
-  等待目标点导航/巡航 result，并检查 `/odom` 运动证据。
+  等待目标点导航/巡航 result，并检查 `/odom` 运动证据；探针还订阅 `/map`、`/scan`，
+  发布 AMCL 初始位姿并验证 `map→base_link` 定位 TF。
+- 重型探针通过 `GetState` 服务等待 `bt_navigator`（巡航时还包括
+  `waypoint_follower`）进入 Lifecycle ACTIVE 后才发 goal。只看到 action server 名称
+  不代表它已经激活；旧做法会在启动窗口收到 `Action server is inactive` 拒绝。
+- `logs/nav2_turtlebot3_voice_report.json` 保存地图元数据、激光帧数、定位 TF、Nav2
+  result 数量和 odom 位移，使“真实 Nav2 跑过”成为可复查证据。
 - `test_continuous_navigation_queue.py` 是介于普通连续队列测试和真实 Nav2 重型测试之间的
   自动回归：它验证一次唤醒后，多目标点导航和巡航命令都能进入连续队列，并按 request_id
   对应到 ROS 2 Action result；同时验证运行中语音取消会抢占，而不是排队等待。

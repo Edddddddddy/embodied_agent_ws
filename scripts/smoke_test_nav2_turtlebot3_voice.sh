@@ -50,4 +50,5 @@ if ! timeout "${NAV2_TURTLEBOT3_TIMEOUT:-420}" \
   exit 1
 fi
 
-echo "PASS: voice text command -> Nav2 TurtleBot3 target navigation and patrol"
+echo "PASS: voice text command -> Nav2 TurtleBot3 target navigation (optional patrol)"
+echo "Evidence: $WORKSPACE/logs/nav2_turtlebot3_voice_report.json"

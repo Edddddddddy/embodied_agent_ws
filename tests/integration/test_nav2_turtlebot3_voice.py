@@ -12,12 +12,24 @@ import json
 import math
 import threading
 import time
+from pathlib import Path
 
 import rclpy
 from geometry_msgs.msg import PoseWithCovarianceStamped
-from nav_msgs.msg import Odometry
+from lifecycle_msgs.msg import State
+from lifecycle_msgs.srv import GetState
+from nav_msgs.msg import OccupancyGrid, Odometry
 from rclpy.node import Node
+from rclpy.qos import (
+    DurabilityPolicy,
+    QoSProfile,
+    ReliabilityPolicy,
+    qos_profile_sensor_data,
+)
+from rclpy.time import Time
+from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
+from tf2_ros import Buffer, TransformListener
 
 
 class Nav2TurtleBot3VoiceProbe(Node):
@@ -30,9 +42,26 @@ class Nav2TurtleBot3VoiceProbe(Node):
         self.candidates = []
         self.results = []
         self.positions = []
+        self.map_metadata = None
+        self.scan_count = 0
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+        self.bt_state_client = self.create_client(GetState, "/bt_navigator/get_state")
+        self.waypoint_state_client = self.create_client(
+            GetState, "/waypoint_follower/get_state"
+        )
         self.create_subscription(String, "/agent/action_candidate", self._on_candidate, 10)
         self.create_subscription(String, "/robot/action_result", self._on_result, 10)
         self.create_subscription(Odometry, "/odom", self._on_odom, 10)
+        map_qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self.create_subscription(OccupancyGrid, "/map", self._on_map, map_qos)
+        self.create_subscription(
+            LaserScan, "/scan", self._on_scan, qos_profile_sensor_data
+        )
 
     def _on_candidate(self, message):
         self.candidates.append(json.loads(message.data))
@@ -43,6 +72,23 @@ class Nav2TurtleBot3VoiceProbe(Node):
     def _on_odom(self, message):
         position = message.pose.pose.position
         self.positions.append((position.x, position.y))
+
+    def _on_map(self, message):
+        self.map_metadata = {
+            "frame_id": message.header.frame_id,
+            "width": message.info.width,
+            "height": message.info.height,
+            "resolution": message.info.resolution,
+        }
+
+    def _on_scan(self, _message):
+        self.scan_count += 1
+
+    def localized_base_frame(self):
+        for base_frame in ("base_link", "base_footprint"):
+            if self.tf_buffer.can_transform("map", base_frame, Time()):
+                return base_frame
+        return None
 
 
 def wait_until(predicate, timeout, description):
@@ -104,6 +150,21 @@ def publish_initial_pose(node, x, y, yaw):
         time.sleep(0.2)
 
 
+def wait_for_lifecycle_active(client, timeout, node_name):
+    """等待 Nav2 Lifecycle 真正 ACTIVE，避免 action server 尚未激活就发 goal。"""
+
+    if not client.wait_for_service(timeout_sec=timeout):
+        raise TimeoutError(f"{node_name} lifecycle service unavailable")
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        future = client.call_async(GetState.Request())
+        wait_until(future.done, min(2.0, max(0.1, deadline - time.monotonic())), node_name)
+        if future.result().current_state.id == State.PRIMARY_STATE_ACTIVE:
+            return
+        time.sleep(0.2)
+    raise TimeoutError(f"{node_name} did not reach ACTIVE")
+
+
 def run_command(node, text, candidate_name, timeout):
     before = len(node.results)
     node.text_pub.publish(String(data=text))
@@ -144,13 +205,26 @@ def main():
                 node.text_pub.get_subscription_count() > 0
                 and node.count_publishers("/robot/action_result") > 0
                 and node.positions
+                and node.map_metadata is not None
+                and node.scan_count > 0
             ),
             60.0,
             "voice/Nav2/TurtleBot3 topics were not ready",
         )
         time.sleep(2.0)
         publish_initial_pose(node, args.initial_x, args.initial_y, args.initial_yaw)
-        time.sleep(3.0)
+        wait_until(
+            lambda: node.localized_base_frame() is not None,
+            20.0,
+            "AMCL localization did not produce map->base transform",
+        )
+        localized_frame = node.localized_base_frame()
+        localization = node.tf_buffer.lookup_transform("map", localized_frame, Time())
+        wait_for_lifecycle_active(node.bt_state_client, 30.0, "bt_navigator")
+        if not args.skip_patrol:
+            wait_for_lifecycle_active(
+                node.waypoint_state_client, 30.0, "waypoint_follower"
+            )
 
         navigate_candidate = run_command(
             node, "去门口", "navigate_to", args.navigate_timeout
@@ -168,15 +242,34 @@ def main():
                 node, "依次去门口、书桌、起点", "follow_waypoints", args.patrol_timeout
             )
 
-        print(json.dumps({
+        report = {
             "navigate_to": navigate_candidate.get("arguments", {}),
             "follow_waypoints": (
                 None if patrol_candidate is None else patrol_candidate.get("arguments", {})
             ),
             "result_count": len(node.results),
             "distance_m": round(traveled_distance(node.positions), 3),
+            "map": node.map_metadata,
+            "scan_count": node.scan_count,
+            "localization": {
+                "parent_frame": localization.header.frame_id,
+                "child_frame": localization.child_frame_id,
+                "x": round(localization.transform.translation.x, 3),
+                "y": round(localization.transform.translation.y, 3),
+            },
             "status": "PASS",
-        }, ensure_ascii=False, indent=2))
+        }
+        output_path = (
+            Path(__file__).resolve().parents[2]
+            / "logs"
+            / "nav2_turtlebot3_voice_report.json"
+        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        print(f"Evidence: {output_path}")
     finally:
         executor.shutdown()
         node.destroy_node()

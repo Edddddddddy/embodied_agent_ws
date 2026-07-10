@@ -251,6 +251,23 @@ cancel request。结构化结果写入 `logs/nav2_bridge_report.json`。
 运行中的 `navigate_to` 必须先返回取消，`cancel_navigation` 自身返回成功，不能等当前
 导航完成后才从 FIFO 取出。
 
+真实 TurtleBot3/Nav2 重型验收：
+
+```bash
+# 快速实机仿真证据：只跑一个目标点
+SKIP_PATROL=1 bash scripts/acceptance_test.sh nav2-turtlebot3
+
+# 完整目标点 + 多点巡航
+bash scripts/acceptance_test.sh nav2-turtlebot3
+```
+
+探针在发 goal 前必须同时确认 `/map`、`/scan`、`/odom`、AMCL
+`map→base_link`（或 `base_footprint`）以及 `bt_navigator` Lifecycle ACTIVE。
+这是硬 readiness gate，不用固定 sleep 猜启动时间。通过后生成
+`logs/nav2_turtlebot3_voice_report.json`，记录地图尺寸、激光帧数、定位 TF、
+导航结果和里程计位移；设置 `SKIP_PATROL=1` 时报告中的巡航字段为 `null`，
+不能据此宣称已实跑完整巡航。
+
 ### 2.1.1 Sherpa-ONNX ASR-only 真实部署检查
 
 如果只想先验证离线 ASR 推理框架，不想下载/编译完整离线 LLM/TTS 栈，运行：

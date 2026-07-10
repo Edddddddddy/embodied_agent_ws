@@ -548,6 +548,8 @@ bash scripts/acceptance_test.sh navigation-demo
 bash scripts/acceptance_test.sh nav2-bridge
 bash scripts/acceptance_test.sh nav2-preflight
 bash scripts/acceptance_test.sh nav2-turtlebot3
+# 重型证据：logs/nav2_turtlebot3_voice_report.json
+# 包含 map 元数据、scan 计数、AMCL map→base_link、Nav2 result、odom 位移
 bash scripts/acceptance_test.sh continuous-nav2-offline
 
 # Gazebo 语音到仿真运动
