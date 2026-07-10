@@ -26,6 +26,7 @@ add_library(embodied_agent_core
   src/hardware_protocol.cpp
   src/hardware_transport.cpp
   src/robot_command_adapter.cpp
+  src/typed_action_client_contract.cpp
 )
 target_include_directories(embodied_agent_core PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -55,6 +56,8 @@ ament_target_dependencies(
   typed_action_bridge embodied_agent_interfaces rclcpp rclcpp_action std_msgs)
 
 add_executable(typed_action_demo_client src/typed_action_demo_client.cpp)
+target_link_libraries(
+  typed_action_demo_client embodied_agent_core nlohmann_json::nlohmann_json)
 ament_target_dependencies(
   typed_action_demo_client embodied_agent_interfaces rclcpp rclcpp_action)
 
@@ -216,6 +219,9 @@ if(BUILD_TESTING)
   target_link_libraries(test_hardware_protocol embodied_agent_core)
   ament_add_gtest(test_hardware_transport test/test_hardware_transport.cpp)
   target_link_libraries(test_hardware_transport embodied_agent_core)
+  ament_add_gtest(
+    test_typed_action_client_contract test/test_typed_action_client_contract.cpp)
+  target_link_libraries(test_typed_action_client_contract embodied_agent_core)
 endif()
 
 ament_export_include_directories(include)

@@ -22,6 +22,8 @@
 - `src/embodied_agent_interfaces/action/ExecuteRobotCommand.action`
 - `src/embodied_agent_cpp/src/typed_action_bridge_node.cpp`
 - `src/embodied_agent_cpp/src/typed_action_demo_client.cpp`
+- `src/embodied_agent_cpp/include/embodied_agent_cpp/typed_action_client_contract.hpp`
+- `scripts/audit_cpp_action_reports.py`
 - `src/embodied_simulation/src/simulation_control_node.cpp`
 
 设计方式：
@@ -30,8 +32,11 @@
 - C++ ActionGuard 将动作候选转为强类型 `RobotCommand`。
 - typed action bridge 将 `RobotCommand` 发送为 `ExecuteRobotCommand` goal。
 - `typed_action_demo_client` 是面试/调试用最小 C++ action client：从命令行构造
-  `RobotCommand`，直接发送 action goal，打印 feedback/result 并用结果决定进程退出码。
+  `RobotCommand`，直接发送 action goal，打印 feedback/result 并用结果决定进程退出码；
+  它还支持定时取消、结果等待超时和 `CPP_ACTION_REPORT` 结构化报告。
 - simulation executor 返回 feedback/result，并驱动 `/cmd_vel`。
+- 终态契约把 `STATUS_SUCCEEDED/CANCELED/TIMED_OUT/BLOCKED` 映射成稳定业务结果；
+  特别区分服务端执行超时和客户端等待超时，避免排障时把通信故障错判成机器人执行失败。
 
 为什么这样设计：
 
@@ -45,7 +50,8 @@
 - 只用 service：适合短请求，不适合持续动作和取消。
 - 只用字符串事件 topic：开发快，但类型不安全，后期维护和测试成本高。
 - 保留一个独立 demo client：比 bridge 更适合讲解 rclcpp_action 的 goal/feedback/result
-  生命周期，也能在没有 Agent 的情况下单独验证 action server。
+  生命周期，也能在没有 Agent 的情况下单独验证 action server。结构化审计比日志关键字
+  `grep` 更可靠，可供 CI 或发布门禁消费。
 
 ## 2. ActionGuard：LLM 输出和机器人执行之间的安全边界
 

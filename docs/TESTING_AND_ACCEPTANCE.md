@@ -402,9 +402,21 @@ bash scripts/acceptance_test.sh cpp-action-client
 ```
 
 该模式启动 mock `simulation_control` action server，然后运行
-`ros2 run embodied_agent_cpp typed_action_demo_client move 0.10 0.20`。
-它专门用于展示 C++ `rclcpp_action` client 如何构造 `RobotCommand`、发送
-`ExecuteRobotCommand` goal、接收 feedback/result，并根据 result 退出。
+三个隔离的 `typed_action_demo_client` 场景。它专门用于展示 C++
+`rclcpp_action` client 如何构造 `RobotCommand`、发送 `ExecuteRobotCommand`
+goal、观察 feedback/result，并验证以下终态：
+
+- 短动作：`SUCCEEDED + STATUS_SUCCEEDED(1)`。
+- 客户端原生取消：`CANCELED + STATUS_CANCELED(3)`。
+- 服务端硬超时：`ABORTED + STATUS_TIMED_OUT(4)`。
+
+脚本同时监听 `.../_action/feedback` wire topic，并生成
+`logs/cpp_action_lifecycle_report.json`。因此 PASS 不再依赖单条日志
+`grep`，而是由 `scripts/audit_cpp_action_reports.py` 对 goal 接受、反馈、
+业务错误码、传输终态和预期结果做结构化审计。
+
+注意：`client_timed_out` 表示客户端等待结果超时，属于通信/调度故障；
+`timed_out` 表示服务端执行超时，两者不能混为一谈。
 
 ### 2.3 Gazebo 仿真验收
 

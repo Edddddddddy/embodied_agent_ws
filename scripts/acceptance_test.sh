@@ -75,7 +75,7 @@ Automated modes:
   demo-evidence-checklist Summarize automatic/live/visual demo evidence into JSON/Markdown
   wsl-microphone-preflight PulseAudio/WSLg microphone capture check before live demos
   gazebo              Typed Action physical motion verification
-  cpp-action-client   C++ rclcpp_action demo client sends typed command to simulation server
+  cpp-action-client   Verify C++ typed Action success/feedback/cancel/timeout lifecycle
   gazebo-voice        Offline synthesized speech through typed Action to Gazebo
   gazebo-voice-online Online voice provider through typed Action to Gazebo
   all                 Run all automated release gates; excludes interactive microphone

@@ -149,6 +149,8 @@ flowchart LR
 | --- | --- |
 | bridge 文件 | `src/embodied_agent_cpp/src/typed_action_bridge_node.cpp` |
 | demo client 文件 | `src/embodied_agent_cpp/src/typed_action_demo_client.cpp` |
+| 客户端终态契约 | `src/embodied_agent_cpp/include/embodied_agent_cpp/typed_action_client_contract.hpp` |
+| 结构化审计 | `scripts/audit_cpp_action_reports.py` |
 | action 定义 | `src/embodied_agent_interfaces/action/ExecuteRobotCommand.action` |
 | msg 定义 | `src/embodied_agent_interfaces/msg/RobotCommand.msg` |
 | 技术点 | `rclcpp_action` client、goal/feedback/result、可取消长动作 |
@@ -158,14 +160,18 @@ flowchart LR
 - bridge 把 `/robot/action_command_typed` 转换成 `ExecuteRobotCommand` goal。
 - demo client 用于面试和调试：不启动 Agent，也可以直接证明 action server 能执行动作。
 - 长动作不用 service，是因为 service 不适合表达持续执行、反馈和取消。
+- `complete()` 统一生成 `CPP_ACTION_REPORT`，`mark_client_timeout()` 明确标记客户端
+  等待超时；服务端 `STATUS_TIMED_OUT` 则保留为独立的 `timed_out` 业务终态。
 
 推荐现场讲法：
 
 ```bash
-ros2 run embodied_agent_cpp typed_action_demo_client --ros-args -p command:=move
+bash scripts/acceptance_test.sh cpp-action-client
 ```
 
-然后打开 demo client 代码说明 `send_goal_options`、feedback callback、result callback。
+然后打开 demo client 代码说明 `build_command()`、`run()` 中的
+`SendGoalOptions`、feedback/result callback、定时 cancel，以及 `complete()`；
+最后展示 `logs/cpp_action_lifecycle_report.json` 中的成功/取消/超时证据。
 
 ## 8. 仿真执行：Action server、BehaviorTree、pluginlib
 

@@ -552,6 +552,10 @@ bash scripts/acceptance_test.sh continuous-nav2-offline
 # Gazebo 语音到仿真运动
 bash scripts/acceptance_test.sh gazebo-voice
 bash scripts/acceptance_test.sh gazebo-voice-online
+
+# C++ ROS 2 Action 生命周期：成功、feedback、取消、服务端超时
+bash scripts/acceptance_test.sh cpp-action-client
+# 结构化证据：logs/cpp_action_lifecycle_report.json
 ```
 
 完整 release gate：
