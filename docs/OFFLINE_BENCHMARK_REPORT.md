@@ -22,6 +22,7 @@ logs/offline_evidence_audit.json
 默认报告可以证明模型资产、运行时版本和 deterministic parser 评估；如果没有运行
 `offline-latency` / `llama-decode-benchmark` 或对应 `--run-*` 参数前，它会提示不要宣称
 首 token、首音频或 tokens/s 指标已在当前机器复现。
+同时，`benchmark_gap_plan` 会列出缺失指标对应的下一条可执行命令，便于按报告逐项补齐证据。
 
 `offline_showcase_report.json` 还包含 `claim_evidence` 指标证据矩阵，用于把每项能力标成
 `proven`、`missing`、`not_reproduced` 或 `not_default`。汇报时优先引用这张矩阵：

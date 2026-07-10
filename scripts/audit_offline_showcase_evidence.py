@@ -52,6 +52,100 @@ def _claim_statuses(report: dict[str, Any]) -> dict[str, str]:
     return statuses
 
 
+def _gap(
+    key: str,
+    title: str,
+    status: str,
+    command: str,
+    *,
+    proves: list[str],
+    required_for_claim: bool = True,
+    note: str = "",
+) -> dict[str, Any]:
+    item: dict[str, Any] = {
+        "key": key,
+        "title": title,
+        "status": status,
+        "command": command,
+        "proves": proves,
+        "required_for_claim": required_for_claim,
+    }
+    if note:
+        item["note"] = note
+    return item
+
+
+def _benchmark_gap_plan(
+    *,
+    latency_status: str,
+    llama_bench_status: str,
+    instruction_following_status: str,
+    asr_tts_status: str,
+    claim_statuses: dict[str, str],
+) -> list[dict[str, Any]]:
+    """Return executable next steps for missing offline evidence.
+
+    离线部署最容易被面试追问的不是“有没有脚本”，而是“这个指标有没有真实测量”。
+    这里把缺失证据转成可执行命令，避免 README/简历里的 tokens/s、首 token、
+    指令遵循率等说法停留在叙述层。
+    """
+
+    plan: list[dict[str, Any]] = []
+    if latency_status != "proven":
+        plan.append(
+            _gap(
+                "latency",
+                "LLM 首 token 与默认 TTS 首音频延迟",
+                latency_status,
+                "bash scripts/acceptance_test.sh offline-latency",
+                proves=["llm_first_token_latency", "sherpa_tts_first_audio"],
+            )
+        )
+    if llama_bench_status != "proven":
+        plan.append(
+            _gap(
+                "llama_decode_benchmark",
+                "llama.cpp CPU decode tokens/s",
+                llama_bench_status,
+                "bash scripts/acceptance_test.sh llama-decode-benchmark",
+                proves=["llama_decode_speed"],
+            )
+        )
+    if instruction_following_status != "proven":
+        plan.append(
+            _gap(
+                "instruction_following",
+                "离线 LLM 指令遵循准确率",
+                instruction_following_status,
+                "bash scripts/acceptance_test.sh instruction-following-eval",
+                proves=["offline_llm_instruction_following"],
+            )
+        )
+    if asr_tts_status != "proven":
+        plan.append(
+            _gap(
+                "asr_tts_benchmark",
+                "Sherpa ASR/TTS realtime factor",
+                asr_tts_status,
+                "OFFLINE_SHOWCASE_RUN_ASR_TTS=true bash scripts/acceptance_test.sh offline-showcase-report",
+                proves=["asr_tts_realtime_factor"],
+            )
+        )
+    if claim_statuses.get("lora_training") in {None, "missing", "not_reproduced"}:
+        plan.append(
+            _gap(
+                "lora_training",
+                "LLaMA-Factory LoRA 训练复现证据",
+                str(claim_statuses.get("lora_training", "not_reproduced")),
+                "bash scripts/acceptance_test.sh instruction-following-lora-candidates",
+                proves=["lora_training_dataset_candidates"],
+                required_for_claim=False,
+                note="该命令只导出失败样例候选集；真正宣称 LoRA 训练还需要训练日志、checkpoint 和 eval JSON。",
+            )
+        )
+    return plan
+
+
 def audit_report(
     report: dict[str, Any],
     *,
@@ -125,6 +219,14 @@ def audit_report(
             warnings.append("asr_tts_benchmark:not_measured")
     elif asr_tts_status != "proven":
         blockers.append("asr_tts_benchmark:measured_but_failed")
+
+    benchmark_gap_plan = _benchmark_gap_plan(
+        latency_status=latency_status,
+        llama_bench_status=llama_bench_status,
+        instruction_following_status=instruction_following_status,
+        asr_tts_status=asr_tts_status,
+        claim_statuses=claim_statuses,
+    )
 
     warnings.append("lora_training:not_reproduced_in_current_evidence")
     warnings.append("summertts:not_default_low_latency_provider")
@@ -217,6 +319,7 @@ def audit_report(
         "blockers": blockers,
         "warnings": warnings,
         "evidence": evidence,
+        "benchmark_gap_plan": benchmark_gap_plan,
         "claim_guidance": claim_guidance,
     }
 

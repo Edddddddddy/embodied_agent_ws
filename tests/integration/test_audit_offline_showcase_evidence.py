@@ -106,6 +106,12 @@ def test_offline_evidence_audit_warns_when_latency_is_not_measured(tmp_path):
     assert audit["evidence"]["claim_evidence"]["status"] == "proven"
     assert audit["evidence"]["claim_evidence"]["items"]["lora_training"] == "not_reproduced"
     assert "claim_evidence:llama_decode_speed:missing" in audit["warnings"]
+    gap_by_key = {item["key"]: item for item in audit["benchmark_gap_plan"]}
+    assert gap_by_key["latency"]["command"] == "bash scripts/acceptance_test.sh offline-latency"
+    assert gap_by_key["llama_decode_benchmark"]["command"] == "bash scripts/acceptance_test.sh llama-decode-benchmark"
+    assert gap_by_key["instruction_following"]["command"] == "bash scripts/acceptance_test.sh instruction-following-eval"
+    assert gap_by_key["asr_tts_benchmark"]["proves"] == ["asr_tts_realtime_factor"]
+    assert gap_by_key["lora_training"]["required_for_claim"] is False
     assert any("不要说" in item and "首 token" in item for item in audit["claim_guidance"])
 
 
@@ -220,3 +226,5 @@ def test_offline_evidence_audit_warns_when_instruction_following_score_is_low(tm
     assert audit["evidence"]["instruction_following"]["status"] == "proven"
     assert audit["evidence"]["instruction_following"]["model_score"] == 0.25
     assert "instruction_following:model_score_below_0.70" in audit["warnings"]
+    gap_keys = {item["key"] for item in audit["benchmark_gap_plan"]}
+    assert "instruction_following" not in gap_keys

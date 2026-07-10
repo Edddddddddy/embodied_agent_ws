@@ -134,6 +134,7 @@ bash scripts/acceptance_test.sh offline-latency
 `logs/offline_evidence_audit.json`。报告中的 `claim_evidence` 会逐项标记 Q8 模型资产、
 deterministic parser、首 token、TTS 首音频、tokens/s、LoRA 训练等证据状态，明确哪些指标
 已有证据、哪些只能作为后续计划，避免把 LoRA/真实延迟/ASR-TTS benchmark 等未复现项说成已完成。
+报告中的 `benchmark_gap_plan` 会把缺失证据转换成下一条可执行补证命令。
 演示前如需把 tokens/s 直接写进离线展示报告，可运行：
 
 ```bash
