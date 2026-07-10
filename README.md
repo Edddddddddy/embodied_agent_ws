@@ -109,6 +109,20 @@ bash scripts/setup_offline_runtime.sh
 Sherpa-TTS 作为稳定 fallback，需要时可通过 `tts_provider:=summer` 切换。
 当前离线运行时固定版本见 [docs/OFFLINE_RUNTIME_VERSIONS.md](docs/OFFLINE_RUNTIME_VERSIONS.md)。
 
+LoRA → GGUF → Q8_0 可复现流水线：
+
+```bash
+bash scripts/setup_lora_toolchain.sh --dry-run
+bash scripts/acceptance_test.sh lora-q8-pipeline
+# 完成数据审核并准备训练算力后才执行：
+bash scripts/setup_lora_toolchain.sh
+bash scripts/build_qwen_lora_q8.sh --execute
+```
+
+当前报告为 `pipeline_ready_not_executed`：配置与转换/量化入口已闭环，但 8 条 seed
+只验证格式，尚无本项目 LoRA adapter/F16/Q8 训练产物，不能宣称微调准确率或压缩比例。
+边界与产物规则见 [training/README.md](training/README.md)。
+
 可选真实声纹运行时：
 
 ```bash
@@ -573,6 +587,9 @@ bash scripts/acceptance_test.sh gazebo-voice-online
 # C++ ROS 2 Action 生命周期：成功、feedback、取消、服务端超时
 bash scripts/acceptance_test.sh cpp-action-client
 # 结构化证据：logs/cpp_action_lifecycle_report.json
+
+# LoRA/合并/GGUF/Q8 流水线 dry-run 与证据边界
+bash scripts/acceptance_test.sh lora-q8-pipeline
 ```
 
 完整 release gate：

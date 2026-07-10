@@ -1,0 +1,10 @@
+### 将训练出的 LoRA adapter 合并回 Hugging Face 基座，供 llama.cpp 转 GGUF。
+model_name_or_path: Qwen/Qwen3-0.6B
+adapter_name_or_path: outputs/qwen3-0.6b-robot-lora
+template: qwen3_nothink
+finetuning_type: lora
+trust_remote_code: true
+export_dir: outputs/qwen3-0.6b-robot-merged
+export_size: 2
+export_device: cpu
+export_legacy_format: false

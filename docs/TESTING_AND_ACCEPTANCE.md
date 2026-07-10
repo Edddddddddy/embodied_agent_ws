@@ -419,6 +419,32 @@ Sherpa-TTS 合成命令音频
 
 详细说明见 [SHERPA_ONNX_DEPLOYMENT.md](SHERPA_ONNX_DEPLOYMENT.md)。
 
+### 2.1.2 LoRA、GGUF 与 Q8 流水线
+
+```bash
+bash scripts/setup_lora_toolchain.sh --dry-run
+bash scripts/acceptance_test.sh lora-q8-pipeline
+```
+
+默认只做 dry-run 和静态审计，报告写入 `logs/lora_q8_pipeline_report.json`。
+通过表示训练、合并、HF→F16 GGUF、Q8_0 和严格审计五个命令已经连通，不表示训练已执行。
+
+只有准备好人工审核数据和训练环境后才运行：
+
+```bash
+bash scripts/setup_lora_toolchain.sh
+bash scripts/build_qwen_lora_q8.sh --execute
+```
+
+严格通过标准：
+
+- `outputs/qwen3-0.6b-robot-lora/adapter_config.json` 与 `trainer_state.json` 存在。
+- F16/Q8 两个文件具有 `GGUF` magic。
+- 报告状态为 `training_and_artifacts_verified`，并按实际字节数计算体积比例。
+- 再用独立 `robot_instruction_eval.jsonl` 运行指令遵循评估；量化成功本身不等于准确率达标。
+
+当前仓库阶段状态是 `pipeline_ready_not_executed`，必须保留这条边界说明。
+
 ### 2.2 Python/C++ 单元测试
 
 ```bash

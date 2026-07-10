@@ -1,4 +1,4 @@
-### LLaMA-Factory training placeholder; review and expand the dataset before running.
+### LLaMA-Factory SFT/LoRA configuration. Seed data only validates the pipeline.
 model_name_or_path: Qwen/Qwen3-0.6B
 trust_remote_code: true
 stage: sft

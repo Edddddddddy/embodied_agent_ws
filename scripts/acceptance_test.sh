@@ -69,6 +69,7 @@ Automated modes:
   instruction-following-eval Evaluate offline LLM instruction following with llama.cpp
   instruction-following-lora-candidates Export failed instruction-following cases for LoRA review
   instruction-following-lora-review Init/apply human review for approved LoRA dataset
+  lora-q8-pipeline    Dry-run LoRA merge -> GGUF -> Q8 pipeline and artifact audit
   asr-nlu-samples-to-eval Convert live ASR/NLU sample JSONL into reviewable eval candidates
   asr-nlu-candidate-eval Evaluate parser accuracy on reviewable ASR/NLU eval candidates
   release-gate        Job-showcase core 5-command gate with logs/acceptance_report.json
@@ -445,6 +446,7 @@ case "$LEVEL" in
     fi
     python3 scripts/review_lora_candidates.py "${LORA_REVIEW_ARGS[@]}"
     ;;
+  lora-q8-pipeline) bash scripts/build_qwen_lora_q8.sh --dry-run ;;
   asr-nlu-samples-to-eval)
     ASR_NLU_EVAL_OUTPUT="${ASR_NLU_EVAL_OUTPUT:-logs/asr_nlu_eval_candidates.jsonl}"
     if [[ "${ASR_NLU_SAMPLES_SYNTHETIC:-true}" == "true" ]]; then
