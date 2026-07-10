@@ -460,6 +460,10 @@ ASR_NLU_CANDIDATE_SYNTHETIC=false \
   bash scripts/acceptance_test.sh asr-nlu-candidate-eval
 ```
 
+候选评估报告会输出 `failure_analysis`，把失败样本分成 `no_action_produced`、
+`multi_command_count_mismatch`、`action_name_mismatch`、`action_argument_mismatch`
+等类型，并给出下一步应补归一化词表、slot 解析、多命令样本还是人工审核评估集。
+
 另开一个终端做人工验收统计：
 
 ```bash

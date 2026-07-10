@@ -199,7 +199,9 @@ ASR_NLU_CANDIDATE_SYNTHETIC=false \
 ```
 
 这个报告用于现场复盘和规则/轻量 NLU 迭代，不替代人工审核；只有确认过的样本才建议合入
-`training/robot_instruction_eval.jsonl`。
+`training/robot_instruction_eval.jsonl`。报告中的 `failure_analysis` 会统计
+`no_action_produced`、`multi_command_count_mismatch`、`action_name_mismatch`、
+`action_argument_mismatch` 等失败类型，并给出下一步改进建议。
 
 ### 2.1 无外部依赖基础验收
 

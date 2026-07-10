@@ -16,8 +16,14 @@ from typing import Any
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-if str(SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPT_DIR))
+WORKSPACE = SCRIPT_DIR.parent
+for import_path in (
+    SCRIPT_DIR,
+    WORKSPACE / "src" / "embodied_online_agent",
+):
+    path_text = str(import_path)
+    if path_text not in sys.path:
+        sys.path.insert(0, path_text)
 
 from evaluate_instruction_parser import _actions_equal, _canonical, _parse_actions  # noqa: E402
 
@@ -58,6 +64,96 @@ def _read_candidate_cases(path: Path) -> tuple[list[dict[str, Any]], int]:
             }
         )
     return cases, skipped
+
+
+def _action_names(actions: list[dict[str, Any]]) -> list[str]:
+    return [str(action.get("name") or "") for action in actions if action.get("name")]
+
+
+def _classify_failure(
+    *,
+    expected_actions: list[dict[str, Any]],
+    actual_actions: list[dict[str, Any]],
+    tags: list[str],
+    source: str,
+    nlu_reason: str,
+) -> str:
+    if not actual_actions and expected_actions:
+        return "no_action_produced"
+    if actual_actions and not expected_actions:
+        return "unexpected_action_produced"
+    expected_names = _action_names(expected_actions)
+    actual_names = _action_names(actual_actions)
+    if len(expected_actions) > 1 and len(actual_actions) != len(expected_actions):
+        return "multi_command_count_mismatch"
+    if expected_names != actual_names:
+        return "action_name_mismatch"
+    if expected_actions != actual_actions:
+        return "action_argument_mismatch"
+    if "needs_review" in set(tags):
+        return "review_label_inconsistent"
+    if source == "none" or nlu_reason == "low_confidence":
+        return "low_confidence_fallback_needed"
+    return "unknown_mismatch"
+
+
+def _improvement_plan(failure_counts: dict[str, int], tag_stats: dict[str, dict[str, int]]) -> list[dict[str, Any]]:
+    plan: list[dict[str, Any]] = []
+    if failure_counts.get("no_action_produced"):
+        plan.append(
+            {
+                "area": "coverage",
+                "reason": "no_action_produced",
+                "next_action": "把对应 ASR final 加入 command_normalization 或 CommandNLU 训练/规则样本。",
+            }
+        )
+    if failure_counts.get("multi_command_count_mismatch"):
+        plan.append(
+            {
+                "area": "multi_command",
+                "reason": "multi_command_count_mismatch",
+                "next_action": "补充分隔词、顺序词和多动作 span 样本，优先覆盖“然后/再/先…最后…”。",
+            }
+        )
+    if failure_counts.get("action_name_mismatch"):
+        plan.append(
+            {
+                "area": "intent",
+                "reason": "action_name_mismatch",
+                "next_action": "检查意图词表和同义词归一化，必要时把失败样本加入正式 eval 集。",
+            }
+        )
+    if failure_counts.get("action_argument_mismatch"):
+        plan.append(
+            {
+                "area": "slots",
+                "reason": "action_argument_mismatch",
+                "next_action": "检查时长、角度、速度 slot 解析和短命令补全默认值。",
+            }
+        )
+    weak_tags = [
+        tag
+        for tag, stats in sorted(tag_stats.items())
+        if stats["total"] and stats["passed"] < stats["total"]
+    ]
+    if weak_tags:
+        plan.append(
+            {
+                "area": "eval_dataset",
+                "reason": "weak_tags",
+                "tags": weak_tags,
+                "next_action": "优先复核这些 tag 下的真实 ASR 样本，确认 expected_actions 后合入训练/回归集。",
+            }
+        )
+    if not plan:
+        plan.append(
+            {
+                "area": "maintenance",
+                "reason": "no_current_failures",
+                "next_action": "继续采集真实 ASR final，定期运行 asr-nlu-candidate-eval 防止回归。",
+            }
+        )
+    return plan
 
 
 def evaluate_candidates(path: str | Path, *, output: str | Path = "") -> dict[str, Any]:
@@ -101,10 +197,29 @@ def evaluate_candidates(path: str | Path, *, output: str | Path = "") -> dict[st
             "expected_actions": item["expected_actions"],
             "actual_actions": item["actual_actions"],
             "nlu_reason": item.get("nlu_reason", ""),
+            "failure_type": _classify_failure(
+                expected_actions=item["expected_actions"],
+                actual_actions=item["actual_actions"],
+                tags=item["tags"],
+                source=item["source"],
+                nlu_reason=item.get("nlu_reason", ""),
+            ),
         }
         for item in cases
         if not item["passed"]
     ]
+    failure_counts: dict[str, int] = {}
+    for item in failed_cases:
+        failure_type = item["failure_type"]
+        failure_counts[failure_type] = failure_counts.get(failure_type, 0) + 1
+    tag_accuracy = {
+        tag: {
+            "passed": stats["passed"],
+            "total": stats["total"],
+            "accuracy": round(stats["passed"] / stats["total"], 4),
+        }
+        for tag, stats in sorted(tag_stats.items())
+    }
     report = {
         "schema_version": 1,
         "input": str(input_path),
@@ -113,13 +228,10 @@ def evaluate_candidates(path: str | Path, *, output: str | Path = "") -> dict[st
         "accuracy": round(passed_count / total, 4) if total else 0.0,
         "skipped_lines": skipped,
         "review_state_counts": dict(sorted(review_state_counts.items())),
-        "tag_accuracy": {
-            tag: {
-                "passed": stats["passed"],
-                "total": stats["total"],
-                "accuracy": round(stats["passed"] / stats["total"], 4),
-            }
-            for tag, stats in sorted(tag_stats.items())
+        "tag_accuracy": tag_accuracy,
+        "failure_analysis": {
+            "failure_counts": dict(sorted(failure_counts.items())),
+            "improvement_plan": _improvement_plan(failure_counts, tag_stats),
         },
         "failed_cases": failed_cases,
         "cases": cases,

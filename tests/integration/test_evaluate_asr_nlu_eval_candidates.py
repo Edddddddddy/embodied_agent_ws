@@ -80,4 +80,11 @@ def test_candidate_eval_report_scores_parser_against_review_candidates(tmp_path)
     assert summary["total"] == 2
     assert summary["accuracy"] == 0.5
     assert report["failed_cases"][0]["id"] == "real_asr_fail"
+    assert report["failed_cases"][0]["failure_type"] == "action_argument_mismatch"
+    assert report["failure_analysis"]["failure_counts"] == {
+        "action_argument_mismatch": 1
+    }
+    plan = report["failure_analysis"]["improvement_plan"]
+    assert any(item["area"] == "slots" for item in plan)
+    assert any(item["area"] == "eval_dataset" for item in plan)
     assert report["cases"][0]["source"] == "nlu"
