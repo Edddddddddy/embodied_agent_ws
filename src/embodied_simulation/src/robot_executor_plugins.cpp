@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <limits>
 #include <memory>
@@ -290,15 +291,26 @@ public:
 
   void stop() override
   {
-    bool canceled = false;
-    if (navigate_goal_handle_) {
-      navigate_client_->async_cancel_goal(navigate_goal_handle_);
+    NavigateGoalHandle::SharedPtr navigate_handle;
+    FollowGoalHandle::SharedPtr follow_handle;
+    {
+      std::lock_guard<std::mutex> lock(goal_mutex_);
+      navigate_handle = navigate_goal_handle_;
+      follow_handle = follow_goal_handle_;
       navigate_goal_handle_.reset();
+      follow_goal_handle_.reset();
+      // 递增代次后，晚到的旧 result callback 只能被丢弃，不能覆盖下一条
+      // Nav2 goal 的 active/detail 状态。
+      ++navigate_generation_;
+      ++follow_generation_;
+    }
+    bool canceled = false;
+    if (navigate_handle) {
+      navigate_client_->async_cancel_goal(navigate_handle);
       canceled = true;
     }
-    if (follow_goal_handle_) {
-      follow_client_->async_cancel_goal(follow_goal_handle_);
-      follow_goal_handle_.reset();
+    if (follow_handle) {
+      follow_client_->async_cancel_goal(follow_handle);
       canceled = true;
     }
     active_.store(false);
@@ -356,10 +368,31 @@ private:
     NavigateToPose::Goal goal;
     goal.pose = places_.to_pose_stamped(target);
     goal.pose.header.stamp = node_->now();
+    std::uint64_t generation = 0;
+    {
+      std::lock_guard<std::mutex> lock(goal_mutex_);
+      generation = ++navigate_generation_;
+      navigate_goal_handle_.reset();
+    }
     rclcpp_action::Client<NavigateToPose>::SendGoalOptions options;
     options.goal_response_callback =
-      [this, target](const NavigateGoalHandle::SharedPtr & handle) {
-        navigate_goal_handle_ = handle;
+      [this, target, generation](const NavigateGoalHandle::SharedPtr & handle) {
+        bool stale = false;
+        {
+          std::lock_guard<std::mutex> lock(goal_mutex_);
+          stale = generation != navigate_generation_;
+          if (!stale) {
+            navigate_goal_handle_ = handle;
+          }
+        }
+        if (stale) {
+          // stop() 可能发生在 goal response 到达之前；此时仍要取消刚被 Nav2
+          // 接受的旧 goal，不能只忽略回调而留下后台“幽灵导航”。
+          if (handle) {
+            navigate_client_->async_cancel_goal(handle);
+          }
+          return;
+        }
         active_.store(handle != nullptr);
         if (handle) {
           set_external_state(
@@ -372,8 +405,14 @@ private:
         }
       };
     options.result_callback =
-      [this, target](const NavigateGoalHandle::WrappedResult & result) {
-        navigate_goal_handle_.reset();
+      [this, target, generation](const NavigateGoalHandle::WrappedResult & result) {
+        {
+          std::lock_guard<std::mutex> lock(goal_mutex_);
+          if (generation != navigate_generation_) {
+            return;
+          }
+          navigate_goal_handle_.reset();
+        }
         active_.store(false);
         set_external_state(
           state_from_result_code(result.code),
@@ -412,10 +451,29 @@ private:
       pose.header.stamp = node_->now();
       goal.poses.push_back(pose);
     }
+    std::uint64_t generation = 0;
+    {
+      std::lock_guard<std::mutex> lock(goal_mutex_);
+      generation = ++follow_generation_;
+      follow_goal_handle_.reset();
+    }
     rclcpp_action::Client<FollowWaypoints>::SendGoalOptions options;
     options.goal_response_callback =
-      [this, waypoints](const FollowGoalHandle::SharedPtr & handle) {
-        follow_goal_handle_ = handle;
+      [this, waypoints, generation](const FollowGoalHandle::SharedPtr & handle) {
+        bool stale = false;
+        {
+          std::lock_guard<std::mutex> lock(goal_mutex_);
+          stale = generation != follow_generation_;
+          if (!stale) {
+            follow_goal_handle_ = handle;
+          }
+        }
+        if (stale) {
+          if (handle) {
+            follow_client_->async_cancel_goal(handle);
+          }
+          return;
+        }
         active_.store(handle != nullptr);
         if (handle) {
           set_external_state(
@@ -428,8 +486,14 @@ private:
         }
       };
     options.result_callback =
-      [this, waypoints](const FollowGoalHandle::WrappedResult & result) {
-        follow_goal_handle_.reset();
+      [this, waypoints, generation](const FollowGoalHandle::WrappedResult & result) {
+        {
+          std::lock_guard<std::mutex> lock(goal_mutex_);
+          if (generation != follow_generation_) {
+            return;
+          }
+          follow_goal_handle_.reset();
+        }
         active_.store(false);
         set_external_state(
           state_from_result_code(result.code),
@@ -532,6 +596,9 @@ private:
   rclcpp_action::Client<FollowWaypoints>::SharedPtr follow_client_;
   NavigateGoalHandle::SharedPtr navigate_goal_handle_;
   FollowGoalHandle::SharedPtr follow_goal_handle_;
+  std::mutex goal_mutex_;
+  std::uint64_t navigate_generation_{0};
+  std::uint64_t follow_generation_{0};
   std::unique_ptr<rclcpp::executors::SingleThreadedExecutor> executor_;
   std::thread spin_thread_;
   std::atomic_bool active_{false};

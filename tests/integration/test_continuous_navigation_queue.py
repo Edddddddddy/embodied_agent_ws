@@ -158,6 +158,58 @@ def main():
         if execution_events.count("started") < 3 or execution_events.count("finished") < 3:
             raise RuntimeError(f"execution events missing: {node.execution_events}")
 
+        # 再启动一个 3 秒导航，并在执行中说“取消导航”。取消必须绕过 FIFO，
+        # 当前 navigate_to 应返回失败/取消，cancel_navigation 自身应成功。
+        candidate_count = len(node.candidates)
+        node.text_pub.publish(String(data="去门口"))
+        wait_until(
+            lambda: len(node.candidates) > candidate_count
+            and node.candidates[-1].get("name") == "navigate_to",
+            10.0,
+            "active navigation was not started for cancel scenario",
+        )
+        active_navigation = node.candidates[-1]
+        time.sleep(0.2)
+        node.text_pub.publish(String(data="取消导航"))
+        wait_until(
+            lambda: any(
+                candidate.get("name") == "cancel_navigation"
+                for candidate in node.candidates[candidate_count + 1 :]
+            ),
+            5.0,
+            "cancel_navigation was queued behind the active goal",
+        )
+        cancel_candidate = next(
+            candidate
+            for candidate in reversed(node.candidates)
+            if candidate.get("name") == "cancel_navigation"
+        )
+        wait_until(
+            lambda: any(
+                result.get("command_id") == active_navigation["request_id"]
+                and result.get("success") is False
+                for result in node.results
+            )
+            and any(
+                result.get("command_id") == cancel_candidate["request_id"]
+                and result.get("success") is True
+                for result in node.results
+            ),
+            10.0,
+            "navigation cancel results were not correlated",
+        )
+        cancel_clear_events = [
+            event
+            for event in node.queue_events
+            if event.get("event") == "clear" and event.get("text") == "取消导航"
+        ]
+        if not cancel_clear_events or (
+            cancel_clear_events[-1].get("reason") != "priority_navigation_cancel"
+        ):
+            raise RuntimeError(
+                f"navigation cancel priority was not observable: {cancel_clear_events}"
+            )
+
         print(
             json.dumps(
                 {
@@ -167,6 +219,11 @@ def main():
                     "command_ids": command_ids,
                     "result_ids": result_ids,
                     "nlu_events": len(nlu_events),
+                    "navigation_cancel": {
+                        "active_command_id": active_navigation["request_id"],
+                        "cancel_command_id": cancel_candidate["request_id"],
+                        "priority_latency_budget_s": 5.0,
+                    },
                     "status": "PASS",
                 },
                 ensure_ascii=False,

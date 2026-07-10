@@ -243,6 +243,13 @@ bash scripts/acceptance_test.sh speaker-enroll
 - 该验收不依赖真实声纹模型；真实 sherpa-onnx 声纹需要另行准备 speaker embedding 模型和注册 wav。
 `navigation-demo` 额外证明“去门口”和“依次去门口、书桌、起点”能被 online/offline
 Agent 解析成 `navigate_to / follow_waypoints`，并通过 typed Action 驱动仿真 executor。
+`nav2-bridge` 进一步验证语义坐标真正进入 `NavigateToPose / FollowWaypoints` goal；
+它还保持一个运行中的 home goal，注入“取消导航”，要求 fake Nav2 server 实际收到
+cancel request。结构化结果写入 `logs/nav2_bridge_report.json`。
+
+`continuous-navigation` 会在 online/offline 两种连续会话中验证取消优先级：
+运行中的 `navigate_to` 必须先返回取消，`cancel_navigation` 自身返回成功，不能等当前
+导航完成后才从 FIFO 取出。
 
 ### 2.1.1 Sherpa-ONNX ASR-only 真实部署检查
 

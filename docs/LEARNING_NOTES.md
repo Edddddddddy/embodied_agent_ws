@@ -543,7 +543,11 @@ bash scripts/acceptance_test.sh speaker-enroll
   `places.yaml` 的 canonical place 完全一致，避免“语音能解析但 Nav2 不认地点”的漂移。
 - mock/Gazebo executor 用“运动窗口”模拟导航和巡航，确保 `/cmd_vel`、Action feedback、Action result 可观测。
 - `Nav2RobotExecutor` 作为 pluginlib 插件调用 Nav2 `NavigateToPose / FollowWaypoints` action；
-  `nav2-bridge` 用 fake Nav2 action server 自动验证 goal 内容。
+  `nav2-bridge` 用 fake Nav2 action server 自动验证 goal 内容和底层 cancel request。
+- 连续控制中，“取消导航”属于控制面指令：online/offline Agent 会清理待执行队列、唤醒
+  正在等待 result 的 sequence，并立即发布 `CANCEL_NAVIGATION`，而不是排到 FIFO 尾部。
+- Nav2 executor 的 goal handle 由互斥锁和 generation 保护；取消或新 goal 会递增代次，
+  晚到的旧 result callback 不得清空新 goal 或覆盖新的执行状态。
 - `RobotExecutor::external_action_update()` 让 Nav2 action result 反向驱动本项目
   `ExecuteRobotCommand` 的 result，避免只按本地 `duration_s` 假完成。
 - `RobotExecutor::external_action_detail()` 是配套的可观测性 seam：Nav2 插件记录
@@ -565,7 +569,7 @@ bash scripts/acceptance_test.sh speaker-enroll
   等待目标点导航/巡航 result，并检查 `/odom` 运动证据。
 - `test_continuous_navigation_queue.py` 是介于普通连续队列测试和真实 Nav2 重型测试之间的
   自动回归：它验证一次唤醒后，多目标点导航和巡航命令都能进入连续队列，并按 request_id
-  对应到 ROS 2 Action result。
+  对应到 ROS 2 Action result；同时验证运行中语音取消会抢占，而不是排队等待。
 - `continuous_nav2_voice_control.sh` 面向现场真实麦克风演示：它在 TurtleBot3/Nav2
   bringup 之上打开在线/离线 Agent 的连续语音模式，让用户一次唤醒后连续说多个目标点命令。
 - `publish_nav2_initial_pose.py` 在演示启动后重复发布 AMCL `/initialpose`，降低现场

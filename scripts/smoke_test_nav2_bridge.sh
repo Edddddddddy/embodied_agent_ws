@@ -49,5 +49,6 @@ if ! timeout 45 python3 "$WORKSPACE/tests/integration/test_nav2_bridge_sequence.
   cat "$LOG_FILE" >&2
   exit 1
 fi
-echo "PASS: voice nav command -> Nav2 NavigateToPose/FollowWaypoints action goals"
+echo "PASS: voice nav/patrol/cancel -> Nav2 typed Action lifecycle"
+echo "Evidence: $WORKSPACE/logs/nav2_bridge_report.json"
 exit 0

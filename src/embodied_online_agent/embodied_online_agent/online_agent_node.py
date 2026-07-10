@@ -27,6 +27,7 @@ from .continuous_voice import ContinuousCommandQueue, ContinuousVoiceSession
 from .continuous_voice import CommandExecutionTracker, QueueSnapshot
 from .command_normalizer import CommandNormalizer
 from .metrics import LatencyTracker
+from .navigation_phrases import is_navigation_cancel
 from .protocol import SentenceChunker, TaggedStreamParser
 from .recognition_retry import RecognitionRetryTracker
 from .types import ActionCommand
@@ -457,19 +458,32 @@ class OnlineAgentNode(Node):
             self._publish_state("listening")
             return
         if self._continuous_enabled:
-            if decision.priority_stop:
+            priority_navigation_cancel = is_navigation_cancel(command)
+            if decision.priority_stop or priority_navigation_cancel:
+                cancel_reason = (
+                    "priority_stop"
+                    if decision.priority_stop
+                    else "priority_navigation_cancel"
+                )
                 dropped = self._command_queue.clear()
                 self._publish_queue_event(
                     "clear",
                     command,
-                    QueueSnapshot(True, self._command_queue.size(), dropped),
-                    priority_stop=True,
+                    QueueSnapshot(
+                        True, self._command_queue.size(), dropped, cancel_reason
+                    ),
+                    priority_stop=decision.priority_stop,
                 )
-                self.action_sequencer.cancel("priority_stop")
-                self.get_logger().info("priority stop received; cancelling current sequence")
+                self.action_sequencer.cancel(cancel_reason)
+                self.get_logger().info(
+                    f"{cancel_reason} received; cancelling current sequence"
+                )
                 if dropped:
                     self.get_logger().info(f"cleared {dropped} queued command(s)")
-                self._publish_actions([ActionCommand("stop", {})])
+                priority_action = "stop" if decision.priority_stop else "cancel_navigation"
+                # 取消导航属于控制面指令：必须绕过 FIFO 和 Action result 等待，
+                # 否则它会排在当前导航之后，语义上等于“导航结束后再取消”。
+                self._publish_actions([ActionCommand(priority_action, {})])
                 self._publish_state("listening")
                 return
             self._enqueue_continuous_command(command)

@@ -19,6 +19,7 @@ from embodied_online_agent.command_nlu import CommandNLU
 from embodied_online_agent.command_normalizer import CommandNormalizer
 from embodied_online_agent.continuous_voice import ContinuousCommandQueue, ContinuousVoiceSession
 from embodied_online_agent.continuous_voice import CommandExecutionTracker, QueueSnapshot
+from embodied_online_agent.navigation_phrases import is_navigation_cancel
 from embodied_online_agent.protocol import SentenceChunker, TaggedStreamParser
 from embodied_online_agent.recognition_retry import RecognitionRetryTracker
 from embodied_online_agent.types import ActionCommand
@@ -555,19 +556,31 @@ class OfflineAgentNode(Node):
             self._publish_state("listening")
             return
         if self._continuous_enabled:
-            if decision.priority_stop:
+            priority_navigation_cancel = is_navigation_cancel(command)
+            if decision.priority_stop or priority_navigation_cancel:
+                cancel_reason = (
+                    "priority_stop"
+                    if decision.priority_stop
+                    else "priority_navigation_cancel"
+                )
                 dropped = self._command_queue.clear()
                 self._publish_queue_event(
                     "clear",
                     command,
-                    QueueSnapshot(True, self._command_queue.size(), dropped),
-                    priority_stop=True,
+                    QueueSnapshot(
+                        True, self._command_queue.size(), dropped, cancel_reason
+                    ),
+                    priority_stop=decision.priority_stop,
                 )
-                self._action_sequencer.cancel("priority_stop")
-                self.get_logger().info("priority stop received; cancelling current sequence")
+                self._action_sequencer.cancel(cancel_reason)
+                self.get_logger().info(
+                    f"{cancel_reason} received; cancelling current sequence"
+                )
                 if dropped:
                     self.get_logger().info(f"cleared {dropped} queued command(s)")
-                self._publish_actions([ActionCommand("stop", {})])
+                priority_action = "stop" if decision.priority_stop else "cancel_navigation"
+                # 控制面取消不能进入普通队列，否则正在执行的 Nav2 goal 无法被及时抢占。
+                self._publish_actions([ActionCommand(priority_action, {})])
                 self._publish_state("listening")
                 return
             self._enqueue_continuous_command(command)

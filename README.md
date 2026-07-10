@@ -18,7 +18,7 @@
 - 识别鲁棒性：支持唤醒词别名、轻量 NLU 多命令识别、模糊命令归一化、短命令补全、重复 ASR final 过滤、语气词过滤、会话超时。
 - ROS 2 工程化：自定义 msg/action、C++ ActionGuard、typed action bridge、Lifecycle、BehaviorTree.CPP、pluginlib executor。
 - 仿真动作：前进、后退、左转、右转、停止、原地转圈、绕圈、走正方形、演示动作序列。
-- 语音导航：支持“去门口/前往书桌/回到起点”等语义目标点导航，以及“依次去门口、书桌、起点/开始巡航”等多目标点巡航命令。
+- 语音导航：支持“去门口/前往书桌/回到起点”等语义目标点导航，以及“依次去门口、书桌、起点/开始巡航”等多目标点巡航命令；执行中说“取消导航”会绕过 FIFO，抢占当前 Nav2 goal。
 - 用户记忆：支持 `/agent/speaker_identity` 声纹身份事件、按用户保存本地偏好/行为习惯，并在 Agent 推理前注入用户画像；声纹 sidecar 支持 mock 和 sherpa-onnx 接入 seam。
 - 验收脚本：提供 mock、在线、离线、Gazebo、真实麦克风连续控制等多层验收入口。
 
@@ -283,6 +283,7 @@ Nav2 action bridge 验收（无需完整地图，用 fake Nav2 action server）�
 
 ```bash
 bash scripts/acceptance_test.sh nav2-bridge
+# 证据：logs/nav2_bridge_report.json（目标点、巡航、底层 cancel request）
 ```
 
 Nav2/TurtleBot3 完整 bringup 前置检查：
