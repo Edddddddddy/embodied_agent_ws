@@ -99,6 +99,11 @@ TEST(ActionValidatorTest, ValidatesNavigationTargetsAndWaypointLoops)
     R"({"name":"navigate_to","arguments":{"target":"server_room"}})");
   EXPECT_FALSE(unsupported.valid);
   EXPECT_EQ(unsupported.error, "unsupported navigation target");
+
+  // unreachable_zone 是显式的失败恢复测试点；它必须通过协议校验，
+  // 让 Nav2 规划器产生真实 aborted，而不是在 ActionGuard 层提前伪造失败。
+  EXPECT_TRUE(validator.validate(
+      R"({"name":"navigate_to","arguments":{"target":"unreachable_zone"}})").valid);
 }
 
 TEST(ActionValidatorTest, ValidatesCancelNavigation)

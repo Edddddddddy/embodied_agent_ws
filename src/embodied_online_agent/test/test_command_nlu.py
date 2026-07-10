@@ -91,6 +91,12 @@ def test_nlu_extracts_navigation_and_waypoint_patrol():
         "cancel_navigation"
     ]
 
+    unreachable = CommandNLU().parse("去封闭区")
+    assert unreachable.commands[0].actions[0].arguments == {
+        "target": "unreachable_zone"
+    }
+    assert unreachable.commands[0].slots == {"place": "unreachable_zone"}
+
 
 def test_nlu_treats_natural_multi_target_navigation_as_waypoint_patrol():
     for text in (

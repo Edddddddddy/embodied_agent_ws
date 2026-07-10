@@ -16,6 +16,8 @@ PLACE_ALIASES: dict[str, tuple[str, ...]] = {
     "living_room": ("客厅", "大厅", "livingroom"),
     "kitchen": ("厨房", "kitchen"),
     "charging_station": ("充电区", "充电桩", "充电站", "charger"),
+    # 仅用于 Nav2 失败恢复验收：坐标故意配置在演示地图外，不能用于普通演示路线。
+    "unreachable_zone": ("封闭区", "不可达区", "禁区", "unreachable"),
     "waypoint_a": ("a点", "A点", "一号点", "1号点"),
     "waypoint_b": ("b点", "B点", "二号点", "2号点"),
     "waypoint_c": ("c点", "C点", "三号点", "3号点"),

@@ -68,7 +68,8 @@
 
 优化：
 
-- 继续丰富固定 Gazebo world、map、waypoint assets，例如增加障碍物、房间语义和更多目标点。
+- 已用 `nav2-resilience` 验证运行时动态插入障碍后的全局重规划，以及地图外目标的
+  `aborted/error_code` 反馈；后续可继续丰富房间语义和更多业务目标点。
 - 继续强化 RViz 展示脚本，突出 TF、map、path、goal 和导航状态。
 - 继续把 Nav2 result 与 `/diagnostics`、planner/controller 日志关联，形成更细粒度报告。
 

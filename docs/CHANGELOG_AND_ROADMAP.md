@@ -23,6 +23,7 @@
 | 真实 Nav2 验收修复 | 跑通 TurtleBot3/Nav2 目标点导航与多目标点巡航 | 修复官方 launch 布尔参数、AMCL initialpose 和导航长动作超时；`nav2-turtlebot3` PASS |
 | 真实麦克风 Nav2 连续导航 | 支持一次唤醒后连续说多个目标点/巡航命令并进入 Nav2 队列执行 | 新增 `continuous-nav2-offline/online`、AMCL initialpose 辅助脚本和 live-check 入口 |
 | 连续导航队列回归 | 自动验证连续会话中目标点导航与多目标点巡航不会丢队列 | 新增 `continuous-navigation`，覆盖多目标点 NLU、队列元数据和 request_id/result 关联 |
+| Nav2 韧性重型验收 | 用真实 Gazebo/雷达/costmap 证明动态重规划和不可达失败反馈 | 新增 `nav2-resilience`，动态插入前方障碍、比较全局路径净空，并验证地图外目标 aborted 与停车 |
 | Nav2 现场验收增强 | 让真实麦克风辅助计分更贴近导航目标 | `continuous-nav2-live-check` 额外要求出现 `navigate_to` 与 `follow_waypoints` |
 | 真实麦克风验收留证 | 让现场验收结果可保存、可复查 | `CONTINUOUS_LIVE_CHECK_REPORT=...` 可导出 live-check 证据报告 |
 | 真实麦克风报告复核 | 让现场报告可以脱离仿真环境二次判定 | 新增 `continuous-live-report` / `continuous-nav2-live-report` |

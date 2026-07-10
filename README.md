@@ -336,10 +336,15 @@ Nav2/TurtleBot3 真实仿真重型验收（会启动 Gazebo/Nav2，耗时数分�
 
 ```bash
 bash scripts/acceptance_test.sh nav2-turtlebot3
+bash scripts/acceptance_test.sh nav2-resilience
 ```
 
 该模式会先发布 AMCL `/initialpose`，并使用较长的 `nav_action_timeout_s` 等待真实
 Nav2 action result，避免按普通短动作提前取消导航。
+其中 `nav2-resilience` 会在机器人开始导航后，通过 `ros_gz_sim create` 把 0.2m 方块
+插入当前全局路径的前方 inflation 区，要求新路径净空增加且最终到达；随后发送地图外
+测试点“封闭区”，要求 Nav2 返回带 error code 的失败并使 `/cmd_vel` 归零。证据写入
+`logs/nav2_resilience_report.json`。
 
 在线接口最小 token 验证：
 

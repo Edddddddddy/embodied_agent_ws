@@ -51,6 +51,12 @@ class FakeNav2BridgeProbe(Node):
     def _execute_navigate(self, goal_handle):
         self.navigate_goals.append(goal_handle.request.pose)
         pose = goal_handle.request.pose.pose.position
+        if abs(pose.x - 4.0) < 1e-6 and abs(pose.y - 4.0) < 1e-6:
+            goal_handle.abort()
+            result = NavigateToPose.Result()
+            result.error_code = 42
+            result.error_msg = "planner_no_path"
+            return result
         if abs(pose.x) < 1e-6 and abs(pose.y) < 1e-6:
             # home 目标故意保持运行，用于证明上层“取消导航”会到达真正的
             # NavigateToPose cancel 协议，而不只是让 Agent 本地队列停止等待。
@@ -220,6 +226,37 @@ def main():
         if node.navigate_cancel_requests < 1:
             raise RuntimeError("fake Nav2 server did not observe a cancel request")
 
+        node.text_pub.publish(String(data="去封闭区"))
+        wait_until(
+            lambda: any(
+                candidate.get("arguments", {}).get("target") == "unreachable_zone"
+                for candidate in node.candidates
+            ),
+            10.0,
+            "unreachable semantic target was not published",
+        )
+        unreachable_candidate = next(
+            candidate for candidate in reversed(node.candidates)
+            if candidate.get("arguments", {}).get("target") == "unreachable_zone"
+        )
+        wait_until(
+            lambda: any(
+                result.get("command_id") == unreachable_candidate["request_id"]
+                for result in node.results
+            ),
+            10.0,
+            "aborted Nav2 goal did not propagate a result",
+        )
+        unreachable_result = next(
+            result for result in reversed(node.results)
+            if result.get("command_id") == unreachable_candidate["request_id"]
+        )
+        if unreachable_result.get("success") is not False:
+            raise RuntimeError(f"unreachable goal unexpectedly succeeded: {unreachable_result}")
+        detail = str(unreachable_result.get("message") or "")
+        if "aborted" not in detail or "error_code=42" not in detail or "planner_no_path" not in detail:
+            raise RuntimeError(f"Nav2 failure detail was lost: {unreachable_result}")
+
         report = {
                     "navigate_pose": {
                         "frame_id": pose.header.frame_id,
@@ -237,6 +274,10 @@ def main():
                         "cancel_command_id": cancel_candidate["request_id"],
                         "nav2_cancel_requests": node.navigate_cancel_requests,
                         "home_goal_canceled": node.home_goal_canceled.is_set(),
+                    },
+                    "unreachable_goal": {
+                        "command_id": unreachable_candidate["request_id"],
+                        "result": unreachable_result,
                     },
                     "status": "PASS",
                 }

@@ -54,6 +54,7 @@ bash scripts/acceptance_test.sh --help
 | `nav2-assets` | 自动/Nav2 | 审计语义地点、Nav2 launch、RViz 展示配置和 map/world 资产边界 |
 | `nav2-stage` | 自动/Nav2 | 语音导航阶段门禁：解析、连续队列、Nav2 bridge、preflight |
 | `nav2-turtlebot3` | 重型/Nav2/Gazebo | 启动官方 Nav2 TurtleBot3 仿真，注入语音文本，验证目标点导航/巡航 result 与 odom |
+| `nav2-resilience` | 重型/Nav2/Gazebo | 动态插入前方障碍验证全局重规划，并验证地图外目标失败与停车 |
 | `gazebo` | 自动/仿真 | typed Action 到 Gazebo 运动验证 |
 | `gazebo-voice` | 自动/仿真 | 离线合成语音到 Gazebo 动作 |
 | `gazebo-voice-online` | 自动/联网/仿真 | 在线 provider 到 Gazebo 动作 |
@@ -217,6 +218,7 @@ bash scripts/acceptance_test.sh nav2-bridge
 bash scripts/acceptance_test.sh nav2-preflight
 bash scripts/acceptance_test.sh nav2-assets
 bash scripts/acceptance_test.sh nav2-turtlebot3
+bash scripts/acceptance_test.sh nav2-resilience
 bash scripts/acceptance_test.sh continuous-multi-command
 bash scripts/acceptance_test.sh continuous-navigation
 bash scripts/acceptance_test.sh continuous-queue-full
@@ -275,6 +277,9 @@ SKIP_PATROL=1 bash scripts/acceptance_test.sh nav2-turtlebot3
 
 # 完整目标点 + 多点巡航
 bash scripts/acceptance_test.sh nav2-turtlebot3
+
+# 动态障碍重规划 + 地图外目标失败反馈
+bash scripts/acceptance_test.sh nav2-resilience
 ```
 
 探针在发 goal 前必须同时确认 `/map`、`/scan`、`/odom`、AMCL
@@ -283,6 +288,12 @@ bash scripts/acceptance_test.sh nav2-turtlebot3
 `logs/nav2_turtlebot3_voice_report.json`，记录地图尺寸、激光帧数、定位 TF、
 导航结果和里程计位移；设置 `SKIP_PATROL=1` 时报告中的巡航字段为 `null`，
 不能据此宣称已实跑完整巡航。
+
+`nav2-resilience` 不是 fake planner：它复用同一套 Gazebo、LaserScan、AMCL、全局/局部
+costmap 和 Nav2 bringup，在导航途中动态创建障碍模型。通过条件包括：障碍位于机器人
+前方至少 0.5m、插入前路径净空约 0.3m、重规划后净空至少增加 0.12m、目标最终成功；
+随后 `unreachable_zone` 必须进入真实 `NavigateToPose` 并返回 `aborted + error_code`，
+最终速度为零。报告为 `logs/nav2_resilience_report.json`。
 
 ### 2.1.1 Sherpa-ONNX ASR-only 真实部署检查
 

@@ -612,6 +612,14 @@ sidecar 输出实际相似度。多人准确率仍需另建注册/查询数据�
   不代表它已经激活；旧做法会在启动窗口收到 `Action server is inactive` 拒绝。
 - `logs/nav2_turtlebot3_voice_report.json` 保存地图元数据、激光帧数、定位 TF、Nav2
   result 数量和 odom 位移，使“真实 Nav2 跑过”成为可复查证据。
+- `nav2-resilience` 在导航运行中调用 `ros_gz_sim create`，把小型静态方块动态插入
+  当前全局路径前方的 inflation 区；它比较插入前后 `/plan` 到障碍中心的最小净空，
+  同时要求 NavigateToPose 成功，证明不是只看到雷达或只发布了模型。
+- `unreachable_zone` 是刻意放在地图外的测试目标：它通过 NLU 和 ActionGuard 白名单进入
+  真正的 Nav2 planner，再要求 `aborted/error_code` 反向传播并检查 `/cmd_vel=0`。这与在
+  Guard 层直接拒绝未知地点不同，前者验证的是导航失败恢复，后者验证的是输入协议安全。
+- `logs/nav2_resilience_report.json` 分别记录障碍前向投影、旧/新路径净空、规划帧数、
+  成功 result、不可达失败 detail 和最终速度，是动态避障/失败反馈的实际重型证据。
 - `test_continuous_navigation_queue.py` 是介于普通连续队列测试和真实 Nav2 重型测试之间的
   自动回归：它验证一次唤醒后，多目标点导航和巡航命令都能进入连续队列，并按 request_id
   对应到 ROS 2 Action result；同时验证运行中语音取消会抢占，而不是排队等待。
