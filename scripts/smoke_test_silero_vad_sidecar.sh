@@ -20,6 +20,8 @@ setsid ros2 run embodied_online_agent silero_vad --ros-args \
   -p sample_rate:=16000 \
   -p frame_ms:=32 \
   -p threshold:=0.5 \
+  -p speech_start_ms:=128.0 \
+  -p speech_end_threshold:=0.32 \
   >"$VAD_LOG" 2>&1 &
 VAD_PID=$!
 
@@ -52,9 +54,17 @@ ros2 param get /silero_vad enabled | grep -q "False" || {
   cat "$VAD_LOG" >&2
   exit 1
 }
+ros2 param get /silero_vad speech_start_ms | grep -q "128" || {
+  cat "$VAD_LOG" >&2
+  exit 1
+}
+ros2 param get /silero_vad speech_end_threshold | grep -q "0.32" || {
+  cat "$VAD_LOG" >&2
+  exit 1
+}
 ros2 topic list | grep -qx "/audio/vad_event" || {
   cat "$VAD_LOG" >&2
   exit 1
 }
 
-echo "PASS: optional Silero VAD sidecar launch seam is available without model dependencies"
+echo "PASS: Silero VAD sidecar seam exposes start debounce and threshold hysteresis"

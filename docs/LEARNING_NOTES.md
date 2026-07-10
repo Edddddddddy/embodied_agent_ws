@@ -152,6 +152,9 @@
   AudioFrontend 只发布 clean PCM，`silero_vad` sidecar 负责 endpoint；Silero 不可用但
   `webrtcvad` 可用时，`webrtc_vad` sidecar 接管 endpoint；都不可用时降级 energy VAD。
 - `scripts/setup_voice_vad_runtime.sh` 提供 WebRTC/Silero 可选依赖安装入口，支持 dry-run；
+- `StreamingVadEndpoint` 使用“连续帧起点确认 + 较低结束阈值”的状态机：起点去抖负责过滤
+  短噪声，阈值滞回负责避免概率在临界值附近反复切换。相比单一能量阈值，它更适合长时间
+  麦克风控制；相比直接调用模型工具函数，独立 endpoint 状态机更容易单测和替换 provider。
   它会安装 `embodied_online_agent[webrtc-vad]`、`embodied_online_agent[silero-vad]`
   对应 extra，并在安装后跑 provider preflight。
 - `voice_provider_preflight.py` 不只判断 PASS/BLOCKED，还会在 auto 降级或显式 provider

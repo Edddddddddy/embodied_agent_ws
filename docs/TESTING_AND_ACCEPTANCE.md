@@ -716,6 +716,10 @@ VOICE_CONTROL_PROFILE=low_gain bash scripts/acceptance_test.sh continuous-offlin
 WebRTC sidecar；两者都不可用时才打印 `vad:auto_fallback:energy:...` 并降级到
 energy VAD。`provider-preflight` 会同时输出 `recommendations`，例如推荐执行
 `bash scripts/setup_voice_vad_runtime.sh webrtc`，避免现场只看到缺包列表却不知道下一步。
+Silero/WebRTC sidecar 还会先等待连续人声达到 `VAD_SPEECH_START_MS`（默认 `96ms`）再发布
+`speech_started`，避免一次键盘声让状态停在 `speech_detected`。Silero 运行时使用
+`SILERO_VAD_THRESHOLD=0.5` 作为起始阈值、`SILERO_VAD_END_THRESHOLD=0.35` 作为保持阈值，
+形成阈值滞回；噪声环境误触发多时可提高起点确认时间，漏掉短命令时则适当降低。
 想强制验证某个 provider，可运行：
 
 ```bash

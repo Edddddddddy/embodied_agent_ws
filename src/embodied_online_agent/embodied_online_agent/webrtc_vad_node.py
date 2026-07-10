@@ -58,6 +58,7 @@ class WebRtcVadNode(Node):
                 sample_rate=int(self.get_parameter("sample_rate").value),
                 frame_ms=int(self.get_parameter("frame_ms").value),
                 threshold=0.5,
+                speech_start_ms=float(self.get_parameter("speech_start_ms").value),
                 speech_end_silence_s=float(
                     self.get_parameter("speech_end_silence_s").value
                 ),
@@ -82,6 +83,7 @@ class WebRtcVadNode(Node):
             "sample_rate": 16000,
             "frame_ms": 20,
             "aggressiveness": 2,
+            "speech_start_ms": 60.0,
             "speech_end_silence_s": 0.7,
             "min_utterance_ms": 100.0,
             "max_utterance_s": 12.0,

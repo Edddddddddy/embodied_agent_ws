@@ -58,6 +58,10 @@ class SileroVadNode(Node):
                 sample_rate=int(self.get_parameter("sample_rate").value),
                 frame_ms=int(self.get_parameter("frame_ms").value),
                 threshold=float(self.get_parameter("threshold").value),
+                speech_start_ms=float(self.get_parameter("speech_start_ms").value),
+                speech_end_threshold=float(
+                    self.get_parameter("speech_end_threshold").value
+                ),
                 speech_end_silence_s=float(
                     self.get_parameter("speech_end_silence_s").value
                 ),
@@ -82,6 +86,8 @@ class SileroVadNode(Node):
             "sample_rate": 16000,
             "frame_ms": 32,
             "threshold": 0.5,
+            "speech_start_ms": 96.0,
+            "speech_end_threshold": 0.35,
             "speech_end_silence_s": 0.4,
             "min_utterance_ms": 100.0,
             "max_utterance_s": 12.0,

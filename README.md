@@ -487,6 +487,10 @@ bash scripts/acceptance_test.sh continuous-live-check online
 连续语音默认偏向“完整优先”，减少“左转90度”只识别成“左转”的尾部漏识别：
 
 - `VAD_PROVIDER`：默认 `auto`，启动前优先检测 Silero VAD；不可用时尝试轻量 WebRTC VAD；
+- `VAD_SPEECH_START_MS`：Silero/WebRTC 需要连续人声达到该时长才发布 `speech_started`，默认
+  `96ms`，用于过滤键盘声、碰麦克风等单帧噪声；
+- `SILERO_VAD_END_THRESHOLD`：Silero 进入语音段后使用的较低结束阈值，默认 `0.35`，与
+  默认起始阈值 `0.5` 形成滞回，减少临界概率抖动导致的错误断句；
   两者都不可用时自动降级到 energy VAD 并打印原因。
 - `SPEECH_END_SILENCE_S`：VAD 判定一句话结束前等待的静音时长。
 - `ASR_COMMIT_DELAY_MS`：收到 `/audio/speech_ended` 后，Agent 再延迟提交 ASR final 的时间。

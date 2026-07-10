@@ -41,7 +41,7 @@ def test_streaming_endpoint_emits_start_and_end_for_complete_utterance():
     assert names == [VadEventName.SPEECH_STARTED, VadEventName.SPEECH_ENDED]
 
 
-def test_streaming_endpoint_drops_short_noise_without_end_event():
+def test_streaming_endpoint_drops_short_noise_without_unpaired_start_event():
     endpoint = StreamingVadEndpoint(
         ScriptedProbabilityProvider([0.9, 0.1, 0.1]),
         sample_rate=16000,
@@ -56,7 +56,64 @@ def test_streaming_endpoint_drops_short_noise_without_end_event():
     for _ in range(3):
         names.extend(event.name for event in endpoint.process_pcm(frame()))
 
-    assert names == [VadEventName.SPEECH_STARTED]
+    assert names == []
+
+
+def test_streaming_endpoint_debounces_single_frame_noise_before_start():
+    endpoint = StreamingVadEndpoint(
+        ScriptedProbabilityProvider([0.9, 0.1, 0.1]),
+        sample_rate=16000,
+        frame_ms=10,
+        threshold=0.5,
+        speech_start_ms=20.0,
+        speech_end_silence_s=0.02,
+        min_utterance_ms=20.0,
+        max_utterance_s=5.0,
+    )
+
+    events = []
+    for _ in range(3):
+        events.extend(endpoint.process_pcm(frame()))
+
+    assert events == []
+
+
+def test_streaming_endpoint_confirms_start_after_consecutive_speech_frames():
+    endpoint = StreamingVadEndpoint(
+        ScriptedProbabilityProvider([0.9, 0.8, 0.1, 0.1]),
+        sample_rate=16000,
+        frame_ms=10,
+        threshold=0.5,
+        speech_start_ms=20.0,
+        speech_end_silence_s=0.02,
+        min_utterance_ms=20.0,
+        max_utterance_s=5.0,
+    )
+
+    names = []
+    for _ in range(4):
+        names.extend(event.name for event in endpoint.process_pcm(frame()))
+
+    assert names == [VadEventName.SPEECH_STARTED, VadEventName.SPEECH_ENDED]
+
+
+def test_streaming_endpoint_uses_lower_end_threshold_to_avoid_probability_flapping():
+    endpoint = StreamingVadEndpoint(
+        ScriptedProbabilityProvider([0.8, 0.8, 0.4, 0.4, 0.1, 0.1]),
+        sample_rate=16000,
+        frame_ms=10,
+        threshold=0.5,
+        speech_end_threshold=0.35,
+        speech_end_silence_s=0.02,
+        min_utterance_ms=20.0,
+        max_utterance_s=5.0,
+    )
+
+    names = []
+    for _ in range(6):
+        names.extend(event.name for event in endpoint.process_pcm(frame()))
+
+    assert names == [VadEventName.SPEECH_STARTED, VadEventName.SPEECH_ENDED]
 
 
 def test_streaming_endpoint_forces_end_at_maximum_duration():

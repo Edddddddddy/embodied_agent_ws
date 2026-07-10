@@ -48,12 +48,14 @@ def generate_launch_description():
     speaker = LaunchConfiguration("speaker_enabled")
     vad_provider = LaunchConfiguration("vad_provider")
     speech_start_threshold = LaunchConfiguration("speech_start_threshold")
+    vad_speech_start_ms = LaunchConfiguration("vad_speech_start_ms")
     speech_end_silence_s = LaunchConfiguration("speech_end_silence_s")
     min_utterance_ms = LaunchConfiguration("min_utterance_ms")
     max_utterance_s = LaunchConfiguration("max_utterance_s")
     silero_model_path = LaunchConfiguration("silero_model_path")
     silero_use_onnx = LaunchConfiguration("silero_use_onnx")
     silero_threshold = LaunchConfiguration("silero_threshold")
+    silero_end_threshold = LaunchConfiguration("silero_end_threshold")
     kws_provider = LaunchConfiguration("kws_provider")
     sherpa_tokens = LaunchConfiguration("sherpa_tokens")
     sherpa_encoder = LaunchConfiguration("sherpa_encoder")
@@ -112,12 +114,14 @@ def generate_launch_description():
         DeclareLaunchArgument("speaker_enabled", default_value="false"),
         DeclareLaunchArgument("vad_provider", default_value="energy"),
         DeclareLaunchArgument("speech_start_threshold", default_value="0.018"),
+        DeclareLaunchArgument("vad_speech_start_ms", default_value="96.0"),
         DeclareLaunchArgument("speech_end_silence_s", default_value="0.4"),
         DeclareLaunchArgument("min_utterance_ms", default_value="100.0"),
         DeclareLaunchArgument("max_utterance_s", default_value="12.0"),
         DeclareLaunchArgument("silero_model_path", default_value=""),
         DeclareLaunchArgument("silero_use_onnx", default_value="true"),
         DeclareLaunchArgument("silero_threshold", default_value="0.5"),
+        DeclareLaunchArgument("silero_end_threshold", default_value="0.35"),
         DeclareLaunchArgument("kws_provider", default_value="none"),
         DeclareLaunchArgument("sherpa_tokens", default_value=""),
         DeclareLaunchArgument("sherpa_encoder", default_value=""),
@@ -217,12 +221,14 @@ def generate_launch_description():
                 "speaker_enabled": speaker,
                 "vad_provider": vad_provider,
                 "speech_start_threshold": speech_start_threshold,
+                "vad_speech_start_ms": vad_speech_start_ms,
                 "speech_end_silence_s": speech_end_silence_s,
                 "min_utterance_ms": min_utterance_ms,
                 "max_utterance_s": max_utterance_s,
                 "silero_model_path": silero_model_path,
                 "silero_use_onnx": silero_use_onnx,
                 "silero_threshold": silero_threshold,
+                "silero_end_threshold": silero_end_threshold,
                 "kws_provider": kws_provider,
                 "sherpa_tokens": sherpa_tokens,
                 "sherpa_encoder": sherpa_encoder,
@@ -268,12 +274,14 @@ def generate_launch_description():
                 "speaker_enabled": speaker,
                 "vad_provider": vad_provider,
                 "speech_start_threshold": speech_start_threshold,
+                "vad_speech_start_ms": vad_speech_start_ms,
                 "speech_end_silence_s": speech_end_silence_s,
                 "min_utterance_ms": min_utterance_ms,
                 "max_utterance_s": max_utterance_s,
                 "silero_model_path": silero_model_path,
                 "silero_use_onnx": silero_use_onnx,
                 "silero_threshold": silero_threshold,
+                "silero_end_threshold": silero_end_threshold,
                 "kws_provider": kws_provider,
                 "sherpa_tokens": sherpa_tokens,
                 "sherpa_encoder": sherpa_encoder,

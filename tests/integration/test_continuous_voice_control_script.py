@@ -21,12 +21,14 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
             "PULSE_CAPTURE_BRIDGE": "false",
             "VAD_PROVIDER": "silero",
             "SPEECH_START_THRESHOLD": "0.021",
+            "VAD_SPEECH_START_MS": "128",
             "SPEECH_END_SILENCE_S": "0.38",
             "MIN_UTTERANCE_MS": "240",
             "MAX_UTTERANCE_S": "7.5",
             "SILERO_VAD_MODEL_PATH": "/models/vad/silero_vad.onnx",
             "SILERO_VAD_USE_ONNX": "true",
             "SILERO_VAD_THRESHOLD": "0.61",
+            "SILERO_VAD_END_THRESHOLD": "0.33",
             "KWS_PROVIDER": "openwakeword",
             "SHERPA_KWS_TOKENS": "/models/kws/tokens.txt",
             "SHERPA_KWS_ENCODER": "/models/kws/encoder.onnx",
@@ -77,12 +79,14 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
     assert "PULSE_CAPTURE_BRIDGE=false" in result.stdout
     assert "VAD_PROVIDER=silero" in result.stdout
     assert "SPEECH_START_THRESHOLD=0.021" in result.stdout
+    assert "VAD_SPEECH_START_MS=128" in result.stdout
     assert "SPEECH_END_SILENCE_S=0.38" in result.stdout
     assert "MIN_UTTERANCE_MS=240" in result.stdout
     assert "MAX_UTTERANCE_S=7.5" in result.stdout
     assert "SILERO_VAD_MODEL_PATH=/models/vad/silero_vad.onnx" in result.stdout
     assert "SILERO_VAD_USE_ONNX=true" in result.stdout
     assert "SILERO_VAD_THRESHOLD=0.61" in result.stdout
+    assert "SILERO_VAD_END_THRESHOLD=0.33" in result.stdout
     assert "KWS_PROVIDER=openwakeword" in result.stdout
     assert "OPENWAKEWORD_MODELS=/models/kws/xiaozhi.onnx,/models/kws/nihaoxiaozhi.onnx" in result.stdout
     assert "OPENWAKEWORD_THRESHOLD=0.42" in result.stdout
@@ -108,12 +112,14 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
     assert "ASR_COMMIT_DELAY_MS=450" in result.stdout
     assert "wake_word_enabled:=false" in result.stdout
     assert "speech_start_threshold:=0.021" in result.stdout
+    assert "vad_speech_start_ms:=128" in result.stdout
     assert "speech_end_silence_s:=0.38" in result.stdout
     assert "min_utterance_ms:=240" in result.stdout
     assert "max_utterance_s:=7.5" in result.stdout
     assert "silero_model_path:=/models/vad/silero_vad.onnx" in result.stdout
     assert "silero_use_onnx:=true" in result.stdout
     assert "silero_threshold:=0.61" in result.stdout
+    assert "silero_end_threshold:=0.33" in result.stdout
     assert "continuous_command_queue_size:=12" in result.stdout
     assert "voice_session_timeout_s:=44" in result.stdout
     assert "continuous_command_max_age_s:=18" in result.stdout
