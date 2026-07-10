@@ -652,6 +652,14 @@ provider preflight。它会在缺少可选依赖时输出 `recommendations`，�
 VAD_PROVIDER=auto bash scripts/acceptance_test.sh provider-preflight
 ```
 
+演示前如果要把“成熟声学 VAD 已启用”作为硬门槛，可以运行严格稳定性预检。
+它要求 `VAD_PROVIDER=auto` 最终解析到 Silero 或 WebRTC；如果只能降级到 energy，
+会失败并给出安装建议：
+
+```bash
+VAD_PROVIDER=auto bash scripts/acceptance_test.sh voice-stability-preflight
+```
+
 也可以先 dry-run 看安装脚本将执行哪些命令：
 
 ```bash

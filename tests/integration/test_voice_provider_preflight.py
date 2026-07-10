@@ -62,8 +62,27 @@ def test_auto_vad_falls_back_to_energy_when_silero_dependencies_are_missing(tmp_
 
     assert report.ok
     assert report.vad_provider == "energy"
+    assert report.mature_vad_active is False
+    assert report.vad_maturity == "energy_fallback"
     assert any(item.startswith("vad:auto_fallback:energy:") for item in report.warnings)
     assert "bash scripts/setup_voice_vad_runtime.sh webrtc" in report.recommendations
+
+
+def test_require_mature_vad_blocks_energy_fallback(tmp_path):
+    report = preflight.check_voice_providers(
+        mode="offline",
+        vad_provider="auto",
+        kws_provider="none",
+        config_path=write_config(tmp_path / "agent.yaml"),
+        require_mature_vad=True,
+        module_finder=finder(),
+    )
+
+    assert not report.ok
+    assert report.vad_provider == "energy"
+    assert report.mature_vad_active is False
+    assert "vad:mature_provider_required" in report.blockers
+    assert "bash scripts/setup_voice_vad_runtime.sh all" in report.recommendations
 
 
 def test_auto_vad_falls_back_to_webrtc_when_silero_missing_but_webrtc_available(tmp_path):
@@ -77,6 +96,8 @@ def test_auto_vad_falls_back_to_webrtc_when_silero_missing_but_webrtc_available(
 
     assert report.ok
     assert report.vad_provider == "webrtc"
+    assert report.mature_vad_active is True
+    assert report.vad_maturity == "mature_acoustic_webrtc"
     assert any(item.startswith("vad:auto_fallback:webrtc:") for item in report.warnings)
     assert "bash scripts/setup_voice_vad_runtime.sh all" in report.recommendations
 
@@ -92,6 +113,8 @@ def test_auto_vad_selects_silero_when_dependencies_are_available(tmp_path):
 
     assert report.ok
     assert report.vad_provider == "silero"
+    assert report.mature_vad_active is True
+    assert report.vad_maturity == "mature_acoustic_silero"
     assert "vad:auto_selected:silero" in report.warnings
 
 

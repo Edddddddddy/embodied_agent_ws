@@ -56,6 +56,7 @@ Automated modes:
   kws-calibration     Dependency-free KWS score calibration smoke test
   voice-readiness     Dependency-free voice readiness smoke test
   provider-preflight  Optional VAD/KWS provider unit tests plus current-env preflight
+  voice-stability-preflight Strict preflight requiring Silero/WebRTC mature VAD
   voice-vad-runtime-dry-run Show optional WebRTC/Silero VAD install commands without installing
   voice-kws-runtime-dry-run Show optional openWakeWord/sherpa KWS install commands without installing
   voice-calibration-report Generate voice profile/threshold calibration report
@@ -330,6 +331,22 @@ case "$LEVEL" in
       --sherpa-keywords-file "${SHERPA_KWS_KEYWORDS_FILE:-}" \
       --openwakeword-models "${OPENWAKEWORD_MODELS:-}" \
       --livekit-wakeword-models "${LIVEKIT_WAKEWORD_MODELS:-}"
+    ;;
+  voice-stability-preflight)
+    python3 scripts/voice_provider_preflight.py \
+      --mode "${PROVIDER_PREFLIGHT_MODE:-offline}" \
+      --vad-provider "${VAD_PROVIDER:-auto}" \
+      --kws-provider "${KWS_PROVIDER:-none}" \
+      --silero-model-path "${SILERO_VAD_MODEL_PATH:-}" \
+      --silero-use-onnx "${SILERO_VAD_USE_ONNX:-true}" \
+      --sherpa-tokens "${SHERPA_KWS_TOKENS:-}" \
+      --sherpa-encoder "${SHERPA_KWS_ENCODER:-}" \
+      --sherpa-decoder "${SHERPA_KWS_DECODER:-}" \
+      --sherpa-joiner "${SHERPA_KWS_JOINER:-}" \
+      --sherpa-keywords-file "${SHERPA_KWS_KEYWORDS_FILE:-}" \
+      --openwakeword-models "${OPENWAKEWORD_MODELS:-}" \
+      --livekit-wakeword-models "${LIVEKIT_WAKEWORD_MODELS:-}" \
+      --require-mature-vad
     ;;
   voice-vad-runtime-dry-run)
     bash scripts/setup_voice_vad_runtime.sh "${VOICE_VAD_PROFILE:-all}" --dry-run

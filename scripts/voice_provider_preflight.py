@@ -32,6 +32,9 @@ class ProviderPreflightReport:
     blockers: tuple[str, ...]
     warnings: tuple[str, ...]
     recommendations: tuple[str, ...] = ()
+    mature_vad_active: bool = False
+    vad_maturity: str = "unknown"
+    stability_summary: str = ""
 
     @property
     def ok(self) -> bool:
@@ -126,6 +129,52 @@ def _append_once(items: list[str], item: str) -> None:
         items.append(item)
 
 
+def _vad_stability_fields(vad_provider: str) -> dict[str, object]:
+    if vad_provider == "silero":
+        return {
+            "mature_vad_active": True,
+            "vad_maturity": "mature_acoustic_silero",
+            "stability_summary": "Silero VAD is active; endpointing no longer depends only on energy threshold.",
+        }
+    if vad_provider == "webrtc":
+        return {
+            "mature_vad_active": True,
+            "vad_maturity": "mature_acoustic_webrtc",
+            "stability_summary": "WebRTC VAD is active; endpointing uses a mature acoustic VAD fallback.",
+        }
+    if vad_provider == "energy":
+        return {
+            "mature_vad_active": False,
+            "vad_maturity": "energy_fallback",
+            "stability_summary": "Energy VAD fallback is launchable but still environment-sensitive.",
+        }
+    return {
+        "mature_vad_active": False,
+        "vad_maturity": "unknown",
+        "stability_summary": f"Unknown VAD provider: {vad_provider}",
+    }
+
+
+def _build_report(
+    *,
+    vad_provider: str,
+    kws_provider: str,
+    config: Path,
+    blockers: list[str],
+    warnings: list[str],
+    recommendations: list[str],
+) -> ProviderPreflightReport:
+    return ProviderPreflightReport(
+        vad_provider=vad_provider,
+        kws_provider=kws_provider,
+        config_path=str(config),
+        blockers=tuple(blockers),
+        warnings=tuple(warnings),
+        recommendations=tuple(recommendations),
+        **_vad_stability_fields(vad_provider),
+    )
+
+
 def _silero_blockers(
     silero: Mapping[str, object],
     *,
@@ -162,6 +211,7 @@ def check_voice_providers(
     config_path: Path | None = None,
     vad_overrides: Mapping[str, object] | None = None,
     keyword_overrides: Mapping[str, object] | None = None,
+    require_mature_vad: bool = False,
     module_finder: Callable[[str], object | None] = importlib.util.find_spec,
 ) -> ProviderPreflightReport:
     config = config_path or _default_config(mode)
@@ -223,14 +273,18 @@ def check_voice_providers(
                 "bash scripts/setup_voice_vad_runtime.sh webrtc",
             )
 
+    if require_mature_vad and vad not in {"silero", "webrtc"}:
+        blockers.append("vad:mature_provider_required")
+        _append_once(recommendations, "bash scripts/setup_voice_vad_runtime.sh all")
+
     if kws in {"none", "disabled", "mock_text"}:
-        return ProviderPreflightReport(
-            vad,
-            kws,
-            str(config),
-            tuple(blockers),
-            tuple(warnings),
-            tuple(recommendations),
+        return _build_report(
+            vad_provider=vad,
+            kws_provider=kws,
+            config=config,
+            blockers=blockers,
+            warnings=warnings,
+            recommendations=recommendations,
         )
 
     if kws == "sherpa":
@@ -278,13 +332,13 @@ def check_voice_providers(
     else:
         warnings.append(f"kws:unknown_provider:{kws}")
 
-    return ProviderPreflightReport(
-        vad,
-        kws,
-        str(config),
-        tuple(blockers),
-        tuple(warnings),
-        tuple(recommendations),
+    return _build_report(
+        vad_provider=vad,
+        kws_provider=kws,
+        config=config,
+        blockers=blockers,
+        warnings=warnings,
+        recommendations=recommendations,
     )
 
 
@@ -293,8 +347,11 @@ def format_report(report: ProviderPreflightReport) -> str:
     lines = [
         f"{status}: voice provider preflight",
         f"  vad_provider: {report.vad_provider}",
+        f"  vad_maturity: {report.vad_maturity}",
+        f"  mature_vad_active: {str(report.mature_vad_active).lower()}",
         f"  kws_provider: {report.kws_provider}",
         f"  config: {report.config_path}",
+        f"  stability: {report.stability_summary}",
     ]
     if report.blockers:
         lines.append("  blockers:")
@@ -330,6 +387,11 @@ def main() -> None:
     parser.add_argument("--sherpa-keywords-file", default="")
     parser.add_argument("--openwakeword-models", default="")
     parser.add_argument("--livekit-wakeword-models", default="")
+    parser.add_argument(
+        "--require-mature-vad",
+        action="store_true",
+        help="Fail if auto/provider resolution falls back to energy VAD.",
+    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
@@ -351,6 +413,7 @@ def main() -> None:
             "openwakeword_models": args.openwakeword_models,
             "livekit_wakeword_models": args.livekit_wakeword_models,
         },
+        require_mature_vad=args.require_mature_vad,
     )
     if args.json:
         payload = asdict(report)
