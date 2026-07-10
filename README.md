@@ -546,6 +546,17 @@ bash scripts/acceptance_test.sh release-gate
 # 默认报告：logs/acceptance_report.json
 ```
 
+报告中的每条命令都会带 `evidence_kind`，用于区分：
+
+- `ci_compatible`：纯仓库/单测/解析证据，适合 CI。
+- `mock_ros`：ROS/mock 链路证据，不代表真实麦克风或 Gazebo 图形实测。
+- `local_preflight` / `local_runtime`：依赖本机 provider、模型或 ROS2 runtime 的本地证据。
+- `cpp_ros`：C++/ROS2 组件测试证据。
+
+顶层 `evidence_policy.manual_followups` 会列出还需要人工确认的真实演示项，例如
+`continuous-offline`、`gazebo`、`nav2-turtlebot3`。也就是说，自动 gate 是发布/演示前的
+可复查证据，不会把 mock 结果包装成真实麦克风或 Nav2 重型验收。
+
 演示前建议再跑一遍自动证据 gate：
 
 ```bash

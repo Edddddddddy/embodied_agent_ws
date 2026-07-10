@@ -105,6 +105,18 @@ bash scripts/acceptance_test.sh release-gate
 logs/acceptance_report.json
 ```
 
+报告还会写入 `evidence_summary` 和 `evidence_policy`：
+
+- `evidence_summary` 汇总当前 gate 中 `ci_compatible`、`mock_ros`、`local_runtime`
+  等证据类型数量；
+- 每条命令的 `evidence_kind` 表示它属于 CI 友好测试、mock ROS 链路、本地模型 runtime、
+  C++/ROS2 测试或混合证据；
+- `evidence_policy.manual_followups` 明确列出还需要人工实测的真实麦克风、Gazebo/RViz
+  或 Nav2 TurtleBot3 项目。
+
+因此，`release-gate` / `demo-gate` 是自动证据报告，不会替代 `continuous-offline`、
+`gazebo`、`nav2-turtlebot3` 这类现场验收。
+
 15 分钟汇报或现场演示前，建议再运行演示证据 gate：
 
 ```bash

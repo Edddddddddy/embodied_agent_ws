@@ -104,6 +104,50 @@ PROFILE_COMMANDS = {
     "full": FULL_COMMANDS,
 }
 
+EVIDENCE_KIND_BY_COMMAND = {
+    "python_repository_and_agent_units": "ci_compatible",
+    "cli_and_instruction_parser": "ci_compatible",
+    "continuous_voice_queue": "mock_ros",
+    "voice_navigation_demo": "mock_ros",
+    "offline_runtime_and_cpp_ros": "local_runtime",
+    "repository_and_offline_unit": "ci_compatible",
+    "acceptance_cli": "ci_compatible",
+    "instruction_parser_eval": "ci_compatible",
+    "continuous_mock": "mock_ros",
+    "continuous_multi_command": "mock_ros",
+    "navigation_demo": "mock_ros",
+    "offline_latency": "local_runtime",
+    "summer_tts_service": "local_runtime",
+    "cpp_ros_unit": "cpp_ros",
+    "demo_cli_readiness": "ci_compatible",
+    "voice_provider_readiness": "local_preflight",
+    "speaker_memory_preferences": "mock_ros",
+    "continuous_voice_demo": "mock_ros",
+    "navigation_and_offline_evidence": "mixed_evidence",
+}
+
+MANUAL_FOLLOWUPS_BY_PROFILE = {
+    "core": (
+        "continuous-offline",
+        "continuous-online",
+        "gazebo",
+        "nav2-turtlebot3",
+    ),
+    "demo": (
+        "continuous-offline",
+        "gazebo",
+        "nav2-stage",
+        "continuous-nav2-evidence offline",
+    ),
+    "full": (
+        "continuous-offline",
+        "continuous-online",
+        "gazebo",
+        "nav2-turtlebot3",
+        "continuous-nav2-evidence offline",
+    ),
+}
+
 
 @dataclass(frozen=True)
 class GateCommand:
@@ -114,6 +158,44 @@ class GateCommand:
 def _tail(text: str, max_lines: int) -> list[str]:
     lines = text.splitlines()
     return lines[-max_lines:]
+
+
+def _evidence_kind(command_name: str) -> str:
+    return EVIDENCE_KIND_BY_COMMAND.get(command_name, "unknown")
+
+
+def _evidence_summary(commands: list[GateCommand]) -> dict[str, int]:
+    summary: dict[str, int] = {}
+    for command in commands:
+        kind = _evidence_kind(command.name)
+        summary[kind] = summary.get(kind, 0) + 1
+    return dict(sorted(summary.items()))
+
+
+def _evidence_policy(profile: str) -> dict:
+    """Describe what the gate proves and what still needs human/live validation.
+
+    release/demo gate 主要用于固定自动证据。真实麦克风、Gazebo 图形和 Nav2 重型链路
+    仍受本机音频、图形和模型资产影响，不能被 dry-run 或 mock smoke 冒充。
+    """
+
+    return {
+        "profile": profile,
+        "automatic_report": "logs/demo_acceptance_report.json"
+        if profile == "demo"
+        else "logs/acceptance_report.json",
+        "evidence_kinds": {
+            "ci_compatible": "纯仓库/解析/单元测试，适合 CI 或快速本地门禁。",
+            "mock_ros": "不依赖真实麦克风或 Gazebo 图形的 ROS/mock 链路证据。",
+            "local_preflight": "本机 provider、音频、KWS 或模型依赖预检证据。",
+            "local_runtime": "依赖本机模型/ROS2 runtime 的本地证据，不默认放入 CI。",
+            "cpp_ros": "C++/ROS2 单测或组件测试证据。",
+            "mixed_evidence": "组合报告，可能混合 mock、preflight 和本地 runtime 证据。",
+        },
+        "requires_human_demo": True,
+        "manual_followups": list(MANUAL_FOLLOWUPS_BY_PROFILE[profile]),
+        "note": "自动 gate 不能替代真实麦克风、Gazebo/RViz 或 Nav2 TurtleBot3 人工演示证据。",
+    }
 
 
 def _run_command(command: GateCommand, *, root: Path, timeout_s: float, tail_lines: int) -> dict:
@@ -132,6 +214,7 @@ def _run_command(command: GateCommand, *, root: Path, timeout_s: float, tail_lin
     return {
         "name": command.name,
         "command": command.command,
+        "evidence_kind": _evidence_kind(command.name),
         "returncode": completed.returncode,
         "ok": completed.returncode == 0,
         "duration_s": round(elapsed, 2),
@@ -186,10 +269,13 @@ def main() -> None:
             "dry_run": True,
             "ok": True,
             "command_count": len(commands),
+            "evidence_summary": _evidence_summary(commands),
+            "evidence_policy": _evidence_policy(args.profile),
             "commands": [
                 {
                     "name": command.name,
                     "command": command.command,
+                    "evidence_kind": _evidence_kind(command.name),
                     "argv_preview": shlex.split(command.command),
                 }
                 for command in commands
@@ -226,6 +312,8 @@ def main() -> None:
             "command_count": len(commands),
             "passed_count": sum(1 for item in results if item["ok"]),
             "failed_count": sum(1 for item in results if not item["ok"]),
+            "evidence_summary": _evidence_summary(commands),
+            "evidence_policy": _evidence_policy(args.profile),
             "commands": results,
         }
 
