@@ -126,4 +126,6 @@ Nav2 目标点/巡航、附件/模式命令，以及否定、疑问和危险速�
 则可以引用本机 decode tokens/s、model_score 和 effective_score；否则仍只能说已有评估入口。
 SummerTTS 已完成服务化封装，但当前不作为默认低延迟 TTS。主要不足是 LoRA 微调和训练后
 大规模指令遵循精度仍需补完整训练日志与更大评估集。
+如需展示 SummerTTS 的低延迟改进，只建议引用 `summer-tts-cache-audit` 对固定短反馈语缓存
+命中的 roundtrip 证据，不应把它扩展成整句生成或默认首音频 `<300ms`。
 ```

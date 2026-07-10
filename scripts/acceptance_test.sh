@@ -24,6 +24,7 @@ Automated modes:
   summer-tts-smoke     Real SummerTTS synthesis verification
   summer-pseudo-tts    Real SummerTTS + pseudo-streaming double-buffer verification
   summer-tts-service   Resident C++ ROS SummerTTS service smoke
+  summer-tts-cache-audit Audit SummerTTS short-feedback cache latency evidence
   pseudo-tts          Dependency-free llama-style stream + pseudo TTS pipeline smoke
   sherpa-asr-preflight ASR-only check: sherpa_onnx import + ZipFormer model files
   sherpa-asr-smoke    ASR-only real decode on bundled ZipFormer test wav
@@ -276,6 +277,14 @@ case "$LEVEL" in
   summer-tts-smoke) check_summer_tts_runtime; python3 scripts/summer_tts_smoke.py ;;
   summer-pseudo-tts) check_summer_tts_runtime; python3 scripts/smoke_test_summer_pseudo_tts.py ;;
   summer-tts-service) bash scripts/smoke_test_summer_tts_service.sh ;;
+  summer-tts-cache-audit)
+    python3 scripts/audit_summer_tts_cache_evidence.py \
+      --input "${SUMMER_TTS_CACHE_PROBE_REPORT:-logs/summer_tts_service_probe.json}" \
+      --output "${SUMMER_TTS_CACHE_AUDIT_REPORT:-logs/summer_tts_cache_audit.json}" \
+      --target-roundtrip-ms "${SUMMER_TTS_CACHE_TARGET_MS:-300}" \
+      --min-pcm-bytes "${SUMMER_TTS_CACHE_MIN_PCM_BYTES:-1000}" \
+      ${SUMMER_TTS_CACHE_ALLOW_MISS:+--allow-cache-miss}
+    ;;
   pseudo-tts) python3 scripts/smoke_test_pseudo_streaming_tts.py ;;
   sherpa-asr-preflight) run_sherpa_asr_preflight ;;
   sherpa-asr-smoke) run_sherpa_asr_smoke ;;

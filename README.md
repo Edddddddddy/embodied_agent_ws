@@ -167,6 +167,7 @@ bash scripts/acceptance_test.sh summer-tts-preflight
 bash scripts/acceptance_test.sh summer-tts-smoke
 bash scripts/acceptance_test.sh summer-pseudo-tts
 bash scripts/acceptance_test.sh summer-tts-service
+bash scripts/acceptance_test.sh summer-tts-cache-audit
 ```
 
 `summer-pseudo-tts` 会使用真实 SummerTTS C++ 二进制合成短文本，再通过项目的
@@ -175,6 +176,9 @@ bash scripts/acceptance_test.sh summer-tts-service
 `/tts/synthesize` 合成，不再每句启动命令行进程；短文本反馈默认启用缓存，重复请求会在
 probe 输出中显示 `cache_hit=true`。该验收会强制要求重复短文本命中缓存，避免只验证
 “能合成”而没有证明缓存优化真正生效。
+如果已保存 `summer_tts_service_probe.py` 的 JSON 输出，`summer-tts-cache-audit` 会进一步审计
+缓存命中后的 roundtrip 是否满足短反馈语低延迟目标，并在报告中明确禁止把整句 SummerTTS
+生成过度宣称为默认 `<300ms` TTS。
 
 使用常驻 SummerTTS ROS 后端：
 
