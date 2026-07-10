@@ -597,7 +597,8 @@ CONTINUOUS_LIVE_CHECK_DURATION=240 bash scripts/acceptance_test.sh continuous-na
 如果 `/robot/action_result` 中出现 Nav2 detail，例如
 `nav2:navigate_to_pose:aborted target=door error_code=...` 或
 `nav2:follow_waypoints:canceled ... missed_waypoints=...`，报告会把它们解析到
-`navigation_failure_reasons`，方便复盘 planner/controller/waypoint 相关失败。
+`navigation_failure_reasons`，并附带 `failure_class` 与 `retry_hint`，方便复盘
+planner/controller/localization/waypoint/timeout/cancel 相关失败。
 如果需要留存验收证据，可以指定报告文件：
 
 ```bash

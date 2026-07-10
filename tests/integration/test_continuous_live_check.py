@@ -118,6 +118,8 @@ def test_live_check_report_extracts_nav2_failure_reasons():
             "target": "door",
             "error_code": "304",
             "error_msg": "planner_failed",
+            "failure_class": "planner_failed",
+            "retry_hint": "检查 map/goal 是否可达、全局代价地图和 planner server 日志。",
         },
         {
             "backend": "nav2",
@@ -125,12 +127,31 @@ def test_live_check_report_extracts_nav2_failure_reasons():
             "status": "canceled",
             "waypoints": "door,desk",
             "missed_waypoints": "1",
+            "failure_class": "canceled",
+            "retry_hint": "确认是否由语音 stop/cancel_navigation 或人工取消触发。",
         },
     ]
     assert report.action_result_samples[0]["message"].startswith("nav2:navigate_to_pose")
     assert live_check._parse_nav2_result_message(
         "nav2:navigate_to_pose:aborted target=desk error_code=12 error_msg=planner failed near obstacle"
     )["error_msg"] == "planner failed near obstacle"
+
+
+def test_nav2_failure_parser_classifies_common_failure_layers():
+    cases = {
+        "planner_failed": "nav2:navigate_to_pose:aborted target=door error_msg=planner_failed",
+        "controller_failed": "nav2:navigate_to_pose:aborted target=door error_msg=controller failed near obstacle",
+        "localization_lost": "nav2:navigate_to_pose:aborted target=door error_msg=tf transform unavailable",
+        "waypoint_missed": "nav2:follow_waypoints:aborted waypoints=door,desk missed_waypoints=1",
+        "timeout": "nav2:navigate_to_pose:timed_out target=door error_msg=timeout waiting for result",
+        "canceled": "nav2:navigate_to_pose:canceled target=door",
+    }
+
+    for expected, message in cases.items():
+        parsed = live_check._parse_nav2_result_message(message)
+        assert parsed is not None
+        assert parsed["failure_class"] == expected
+        assert parsed["retry_hint"]
 
 
 def test_live_check_report_requires_navigation_details_when_requested():

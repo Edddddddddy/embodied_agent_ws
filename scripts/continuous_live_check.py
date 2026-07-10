@@ -248,7 +248,72 @@ def _parse_nav2_result_message(message: str) -> dict | None:
         value = match.group(2).strip()
         if key and value:
             parsed[key] = value
+    parsed.update(_classify_nav2_failure(parsed))
     return parsed
+
+
+def _classify_nav2_failure(parsed: dict) -> dict[str, str]:
+    """Classify raw Nav2 result details into stable demo/debug categories.
+
+    Nav2 action result strings vary between planner/controller/localization plugins.
+    The live-check report should keep raw fields for evidence, but also provide a
+    stable `failure_class` so interview/demo debugging can say exactly which layer
+    failed without reverse-engineering free-form messages on the spot.
+    """
+
+    status = str(parsed.get("status", "")).lower()
+    action = str(parsed.get("action", "")).lower()
+    error_msg = str(parsed.get("error_msg", "")).lower()
+    error_code = str(parsed.get("error_code", "")).lower()
+    missed_waypoints = str(parsed.get("missed_waypoints", "")).strip()
+    combined = " ".join([status, action, error_msg, error_code])
+
+    if status == "succeeded":
+        return {"failure_class": "none", "retry_hint": "no retry needed"}
+    if "cancel" in combined:
+        return {
+            "failure_class": "canceled",
+            "retry_hint": "确认是否由语音 stop/cancel_navigation 或人工取消触发。",
+        }
+    if "timeout" in combined or "timed" in combined:
+        return {
+            "failure_class": "timeout",
+            "retry_hint": "检查目标点距离、Nav2 超时参数和机器人是否被障碍物卡住。",
+        }
+    if missed_waypoints and missed_waypoints not in {"0", "[]", "none"}:
+        return {
+            "failure_class": "waypoint_missed",
+            "retry_hint": "检查 waypoint 顺序、地图目标点和局部避障是否导致某些点被跳过。",
+        }
+    if "planner" in combined or "planning" in combined or "compute_path" in combined:
+        return {
+            "failure_class": "planner_failed",
+            "retry_hint": "检查 map/goal 是否可达、全局代价地图和 planner server 日志。",
+        }
+    if "controller" in combined or "control" in combined or "follow_path" in combined:
+        return {
+            "failure_class": "controller_failed",
+            "retry_hint": "检查局部代价地图、cmd_vel 输出、障碍物和 controller server 日志。",
+        }
+    if (
+        "localization" in combined
+        or "amcl" in combined
+        or "tf" in combined
+        or "transform" in combined
+    ):
+        return {
+            "failure_class": "localization_lost",
+            "retry_hint": "检查 /tf、/map->/odom、initial pose 和 AMCL/RViz 定位状态。",
+        }
+    if status == "aborted":
+        return {
+            "failure_class": "aborted_unknown",
+            "retry_hint": "查看 Nav2 planner/controller/bt_navigator 日志以定位具体 server。",
+        }
+    return {
+        "failure_class": "nav2_failure",
+        "retry_hint": "查看 Nav2 action result message 和相关 server 日志。",
+    }
 
 
 def _navigation_failure_reasons(results: list[dict]) -> list[dict]:
