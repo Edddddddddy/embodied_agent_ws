@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
+import argparse
 import json
 import threading
 import time
+from pathlib import Path
 
 import numpy as np
 import rclpy
@@ -56,10 +58,15 @@ def resample(pcm: bytes, source_rate: int, target_rate: int) -> bytes:
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output", type=Path, default=None)
+    args = parser.parse_args()
     model_dir = "/home/ubuntu/embodied_agent_ws/models/vits-melo-tts-zh_en"
     tts = SherpaVitsTts(model_dir, 2, 0, 1.0)
-    pcm = resample(tts.synthesize("小智向前走一秒"), tts.sample_rate, 16000)
-    pcm += bytes(16000)  # 0.5 s silence.
+    command_pcm = resample(tts.synthesize("小智向前走一秒"), tts.sample_rate, 16000)
+    # /audio/clean_pcm 使用 Best Effort QoS；按接近实时速度发布并保留前后静音，
+    # 避免验收探针自己挤爆订阅队列，导致“向前走一秒”的尾部音频被丢弃。
+    pcm = bytes(8000) + command_pcm + bytes(25600)
 
     rclpy.init()
     node = VoiceProbe()
@@ -75,7 +82,7 @@ def main():
             time.sleep(0.1)
         for offset in range(0, len(pcm), 3200):
             node.audio_pub.publish(UInt8MultiArray(data=list(pcm[offset : offset + 3200])))
-            time.sleep(0.02)
+            time.sleep(0.09)
         node.silence_pub.publish(Empty())
         if not node.done.wait(35.0):
             raise TimeoutError(
@@ -85,11 +92,26 @@ def main():
             word in node.final_text for word in ("向前", "前进")
         ):
             raise RuntimeError(f"unexpected ASR transcript: {node.final_text!r}")
-        print(json.dumps({
+        report = {
+            "schema_version": 1,
+            "scenario": "offline_voice_e2e_benchmark",
+            "measurement_scope": "speech_endpoint_to_first_tts_pcm_chunk",
+            "audio_delivery": "near_realtime_best_effort_ros_topic",
+            "targets": {"asr_finalize_ms": 600.0, "end_to_first_audio_ms": 3500.0},
+            "ok": bool(node.metrics and node.metrics.get("e2e_target_met")),
             "asr_text": node.final_text,
             "action_ack": node.ack,
             "metrics": node.metrics,
-        }, ensure_ascii=False, indent=2))
+        }
+        rendered = json.dumps(report, ensure_ascii=False, indent=2)
+        print(rendered)
+        if args.output is not None:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(rendered + "\n", encoding="utf-8")
+        if not report["ok"]:
+            raise RuntimeError(
+                "offline voice pipeline completed but missed the 3.5s first-audio target"
+            )
     finally:
         executor.shutdown()
         node.destroy_node()

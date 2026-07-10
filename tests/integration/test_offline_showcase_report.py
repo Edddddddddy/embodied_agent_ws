@@ -65,6 +65,37 @@ def _write_instruction_following_report(path: Path) -> None:
     )
 
 
+def _write_voice_e2e_report(path: Path) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "scenario": "offline_voice_e2e_benchmark",
+                "ok": True,
+                "asr_text": "向前走一秒",
+                "action_ack": {"action": "move", "status": "accepted"},
+                "metrics": {
+                    "asr_finalize_ms": 88.0,
+                    "llm_first_token_ms": 420.0,
+                    "end_to_first_audio_ms": 880.0,
+                    "turn_complete_ms": 1320.0,
+                    "asr_target_met": True,
+                    "e2e_target_met": True,
+                    "message_buffer_dropped": 0,
+                    "audio_buffer_dropped": 0,
+                    "tts_pipeline": {
+                        "first_text_to_first_audio_ms": 245.0,
+                        "message_buffer_dropped": 0,
+                        "audio_buffer_dropped": 0,
+                    },
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_offline_showcase_report_generates_json_and_markdown(tmp_path):
     json_output = tmp_path / "offline_showcase_report.json"
     md_output = tmp_path / "offline_showcase_report.md"
@@ -129,6 +160,8 @@ def test_offline_showcase_report_classifies_claim_evidence(tmp_path):
     assert by_key["llama_decode_speed"]["status"] == "missing"
     assert by_key["llm_first_token_latency"]["status"] == "missing"
     assert by_key["sherpa_tts_first_audio"]["status"] == "missing"
+    assert by_key["sherpa_tts_full_synthesis"]["status"] == "missing"
+    assert by_key["offline_voice_e2e"]["status"] == "missing"
     assert by_key["deterministic_parser_accuracy"]["status"] == "proven"
     assert any("LoRA" in item for item in claims["restricted_claims"])
     assert "指标证据矩阵" in markdown
@@ -219,3 +252,43 @@ def test_offline_showcase_report_can_include_llm_instruction_following(tmp_path)
     assert by_key["offline_llm_instruction_following"]["metric"]["model_score"] == 0.875
     assert following_output.is_file()
     assert "离线 LLM 指令遵循评估" in markdown
+
+
+def test_offline_showcase_report_can_include_real_voice_e2e_evidence(tmp_path):
+    json_output = tmp_path / "offline_showcase_report.json"
+    md_output = tmp_path / "offline_showcase_report.md"
+    voice_report = tmp_path / "offline_voice_e2e.json"
+    _write_voice_e2e_report(voice_report)
+
+    completed = subprocess.run(
+        [
+            "python3",
+            str(ROOT / "scripts" / "generate_offline_showcase_report.py"),
+            "--json-output",
+            str(json_output),
+            "--md-output",
+            str(md_output),
+            "--run-voice-e2e",
+            "--voice-e2e-input",
+            str(voice_report),
+        ],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stdout
+    report = json.loads(json_output.read_text(encoding="utf-8"))
+    by_key = {item["key"]: item for item in report["claim_evidence"]["items"]}
+
+    assert report["voice_e2e"]["ok"] is True
+    assert report["voice_e2e"]["payload"]["metrics"]["end_to_first_audio_ms"] == 880.0
+    assert by_key["offline_voice_e2e"]["status"] == "proven"
+    assert by_key["offline_voice_e2e"]["metric"]["turn_complete_ms"] == 1320.0
+    assert by_key["sherpa_tts_first_audio"]["status"] == "proven"
+    assert (
+        by_key["sherpa_tts_first_audio"]["metric"]["first_text_to_first_audio_ms"]
+        == 245.0
+    )

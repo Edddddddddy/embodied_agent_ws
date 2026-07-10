@@ -81,6 +81,7 @@ def _benchmark_gap_plan(
     llama_bench_status: str,
     instruction_following_status: str,
     asr_tts_status: str,
+    voice_e2e_status: str,
     claim_statuses: dict[str, str],
 ) -> list[dict[str, Any]]:
     """Return executable next steps for missing offline evidence.
@@ -98,7 +99,7 @@ def _benchmark_gap_plan(
                 "LLM 首 token 与默认 TTS 首音频延迟",
                 latency_status,
                 "bash scripts/acceptance_test.sh offline-latency",
-                proves=["llm_first_token_latency", "sherpa_tts_first_audio"],
+                proves=["llm_first_token_latency", "sherpa_tts_full_synthesis"],
             )
         )
     if llama_bench_status != "proven":
@@ -131,6 +132,16 @@ def _benchmark_gap_plan(
                 proves=["asr_tts_realtime_factor"],
             )
         )
+    if voice_e2e_status != "proven":
+        plan.append(
+            _gap(
+                "voice_e2e",
+                "离线 ASR→LLM→伪流式 TTS 端到首音频延迟",
+                voice_e2e_status,
+                "OFFLINE_SHOWCASE_RUN_VOICE_E2E=true bash scripts/acceptance_test.sh offline-showcase-report",
+                proves=["offline_voice_e2e"],
+            )
+        )
     if claim_statuses.get("lora_training") in {None, "missing", "not_reproduced"}:
         plan.append(
             _gap(
@@ -154,6 +165,7 @@ def audit_report(
     require_llama_bench: bool = False,
     require_instruction_following: bool = False,
     require_asr_tts: bool = False,
+    require_voice_e2e: bool = False,
 ) -> dict[str, Any]:
     blockers: list[str] = []
     warnings: list[str] = []
@@ -165,6 +177,7 @@ def audit_report(
     llama_bench = report.get("llama_decode_benchmark") or {}
     instruction_following = report.get("instruction_following") or {}
     asr_tts = report.get("asr_tts_benchmark") or {}
+    voice_e2e = report.get("voice_e2e") or {}
     claim_statuses = _claim_statuses(report)
 
     if not models.get("ok"):
@@ -220,11 +233,21 @@ def audit_report(
     elif asr_tts_status != "proven":
         blockers.append("asr_tts_benchmark:measured_but_failed")
 
+    voice_e2e_status = _status_from_executed_block(voice_e2e)
+    if voice_e2e_status == "missing":
+        if require_voice_e2e:
+            blockers.append("voice_e2e:required_but_not_measured")
+        else:
+            warnings.append("voice_e2e:not_measured")
+    elif voice_e2e_status != "proven":
+        blockers.append("voice_e2e:measured_but_failed")
+
     benchmark_gap_plan = _benchmark_gap_plan(
         latency_status=latency_status,
         llama_bench_status=llama_bench_status,
         instruction_following_status=instruction_following_status,
         asr_tts_status=asr_tts_status,
+        voice_e2e_status=voice_e2e_status,
         claim_statuses=claim_statuses,
     )
 
@@ -274,6 +297,11 @@ def audit_report(
             "status": asr_tts_status,
             "raw_status": asr_tts.get("status", "executed"),
         },
+        "voice_e2e": {
+            "status": voice_e2e_status,
+            "raw_status": voice_e2e.get("status", "executed"),
+            "metrics": _payload(voice_e2e).get("metrics", {}),
+        },
         "lora_training": {
             "status": "not_proven",
         },
@@ -309,6 +337,10 @@ def audit_report(
         claim_guidance.append("可以说：离线 LLM 指令遵循准确率已有 evaluate_instruction_following 证据。")
     else:
         claim_guidance.append("不要说：离线 LLM 指令遵循准确率已复现；除非先运行 instruction-following-eval 或 --run-instruction-following。")
+    if voice_e2e_status == "proven":
+        claim_guidance.append("可以说：离线真实 Agent 端到首音频延迟已有本机测量证据。")
+    else:
+        claim_guidance.append("不要说：离线端到端延迟 <3.5s 已复现；除非先运行 --run-voice-e2e。")
     claim_guidance.append("不要说：LoRA 微调、Q8 指令遵循 85% 等训练指标已经复现；当前证据只支撑工程接口与评估闭环。")
     claim_guidance.append("不要说：SummerTTS 是默认 <300ms 低延迟 TTS；当前低延迟默认仍以 Sherpa-TTS 为准。")
 
@@ -333,6 +365,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--require-llama-bench", action="store_true")
     parser.add_argument("--require-instruction-following", action="store_true")
     parser.add_argument("--require-asr-tts", action="store_true")
+    parser.add_argument("--require-voice-e2e", action="store_true")
     return parser.parse_args()
 
 
@@ -352,6 +385,7 @@ def main() -> None:
         require_llama_bench=args.require_llama_bench,
         require_instruction_following=args.require_instruction_following,
         require_asr_tts=args.require_asr_tts,
+        require_voice_e2e=args.require_voice_e2e,
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(audit, ensure_ascii=False, indent=2), encoding="utf-8")

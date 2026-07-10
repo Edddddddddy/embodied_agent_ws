@@ -394,12 +394,17 @@ bash scripts/acceptance_test.sh speaker-enroll
 - 双缓冲把 LLM 文本生成、TTS 合成与音频输出解耦。
 - latency 模块记录离线端到端耗时。
 - llama.cpp provider 额外记录首 token、token 数、tokens/s、错误原因，并合并到 `/offline_agent/metrics`。
+- `runtime_warmup_enabled` 在节点 ready 前用真实 system prompt 预热 llama.cpp，并预合成一个短 TTS；
+  llama-server 默认 `parallel=1`，让单用户语音 Agent 稳定复用公共提示词 KV cache。实测中这把真实
+  Agent 首 token 从冷启动约 4.9s 降至预热后的约 0.29–0.86s，代价是节点启动阶段多等待约 5s。
 - TTS pipeline 额外记录 `text_chunks`、`synth_calls`、`audio_chunks`、`first_text_to_first_audio_ms`，
   并合并到 `/offline_agent/metrics.tts_pipeline`。
 - `llama_cpp_preflight.py` 把 binary、模型文件、`/health`、`/v1/models`、低 token 流式 chat 分层验证。
 - `summer_tts_smoke.py` 把 SummerTTS 源码、二进制、模型和真实合成分层验证；`summer-pseudo-tts`
   再验证真实 SummerTTS 能接入项目双缓冲伪流式 pipeline。
-- `generate_offline_showcase_report.py` 汇总模型资产、运行时版本、parser accuracy、可选 latency/ASR/TTS benchmark；
+- `generate_offline_showcase_report.py` 汇总模型资产、运行时版本、parser accuracy、可选 latency/ASR/TTS/
+  真实 Agent E2E benchmark；`offline_latency_targets.py` 明确把非流式 `synthesize()` 计为整句合成耗时，
+  真正首音频只采用 `PseudoStreamingTtsPipeline` 发布第一块 PCM 的时间，避免指标命名失真；
   `audit_offline_showcase_evidence.py` 再审计这份报告，输出 `claim_guidance`，明确哪些指标已有证据、
   哪些只能作为后续计划。
 

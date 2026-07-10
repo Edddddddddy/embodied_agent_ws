@@ -62,6 +62,11 @@ class LlamaCppLlm:
     def last_metrics(self) -> dict:
         return self._last_metrics.as_dict()
 
+    def warmup(self, messages: Iterable[dict]) -> dict:
+        """Prime llama-server's model kernels and reusable system-prompt KV prefix."""
+        text = "".join(self.stream(messages))
+        return {"text": text, "metrics": self.last_metrics}
+
     def stream(self, messages: Iterable[dict]):
         message_list = list(messages)
         attempts = self._max_retries + 1

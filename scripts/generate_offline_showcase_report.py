@@ -204,7 +204,7 @@ def collect_latency(run_latency: bool, timeout_s: float) -> dict[str, Any]:
             "reason": "pass --run-latency to start/check llama.cpp and measure first token/TTS",
         }
     return _run_json_command(
-        [sys.executable, "scripts/offline_latency_targets.py", "--check"],
+        ["bash", "scripts/smoke_test_offline_latency.sh"],
         timeout_s=timeout_s,
     )
 
@@ -216,6 +216,61 @@ def collect_asr_tts_benchmark(run_asr_tts: bool, timeout_s: float) -> dict[str, 
             "reason": "pass --run-asr-tts to run Sherpa ASR/TTS benchmark",
         }
     return _run_json_command([sys.executable, "scripts/benchmark_offline.py"], timeout_s=timeout_s)
+
+
+def collect_voice_e2e(
+    run_voice_e2e: bool,
+    timeout_s: float,
+    input_report: str | None,
+    output_report: str,
+) -> dict[str, Any]:
+    """Collect metrics from the actual ASR -> LLM -> pseudo-streaming TTS pipeline."""
+    if not run_voice_e2e:
+        return {
+            "status": "not_run",
+            "reason": "pass --run-voice-e2e to measure the real offline Agent pipeline",
+        }
+
+    if input_report:
+        input_path = Path(input_report).expanduser()
+        if not input_path.is_absolute():
+            input_path = WORKSPACE / input_path
+        payload = json.loads(input_path.read_text(encoding="utf-8"))
+        return {
+            "command": ["reuse", str(input_path)],
+            "returncode": 0,
+            "ok": payload.get("ok") is True,
+            "payload": payload,
+        }
+
+    output_path = Path(output_report).expanduser()
+    if not output_path.is_absolute():
+        output_path = WORKSPACE / output_path
+    # 避免本轮执行失败时误读上一次成功报告，导致证据看起来仍然有效。
+    output_path.unlink(missing_ok=True)
+    env = os.environ.copy()
+    env["OFFLINE_VOICE_E2E_REPORT"] = str(output_path)
+    command = ["bash", "scripts/smoke_test_offline_voice_real.sh"]
+    completed = subprocess.run(
+        command,
+        cwd=WORKSPACE,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=timeout_s,
+        check=False,
+    )
+    if output_path.is_file():
+        payload = json.loads(output_path.read_text(encoding="utf-8"))
+    else:
+        payload = {"raw_output_tail": completed.stdout.splitlines()[-80:]}
+    return {
+        "command": command,
+        "returncode": completed.returncode,
+        "ok": completed.returncode == 0 and payload.get("ok") is True,
+        "payload": payload,
+    }
 
 
 def collect_llama_decode_benchmark(
@@ -315,6 +370,7 @@ def build_claim_evidence(report: dict[str, Any]) -> dict[str, Any]:
     asr_tts = report["asr_tts_benchmark"]
     llama_bench = report["llama_decode_benchmark"]
     instruction_following = report["instruction_following"]
+    voice_e2e = report["voice_e2e"]
     q8_model = _inventory_item(models, "llm_qwen3_0_6b_q8")
     tts_model = _inventory_item(models, "tts_sherpa_vits")
 
@@ -329,6 +385,14 @@ def build_claim_evidence(report: dict[str, Any]) -> dict[str, Any]:
     llama_bench_ok = _executed_ok(llama_bench)
     instruction_payload = _command_payload(instruction_following)
     instruction_ok = _executed_ok(instruction_following)
+    voice_e2e_payload = _command_payload(voice_e2e)
+    voice_e2e_ok = _executed_ok(voice_e2e) and voice_e2e_payload.get("ok") is True
+    voice_metrics = voice_e2e_payload.get("metrics")
+    if not isinstance(voice_metrics, dict):
+        voice_metrics = {}
+    voice_tts_metrics = voice_metrics.get("tts_pipeline")
+    if not isinstance(voice_tts_metrics, dict):
+        voice_tts_metrics = {}
     instruction_failed_cases = instruction_payload.get("failed_cases")
     if isinstance(instruction_failed_cases, list):
         instruction_failed_count = len(instruction_failed_cases)
@@ -395,21 +459,65 @@ def build_claim_evidence(report: dict[str, Any]) -> dict[str, Any]:
         ),
         _claim(
             "sherpa_tts_first_audio",
-            "Sherpa-TTS 首音频延迟",
+            "Sherpa-TTS 伪流式首音频延迟",
+            "proven"
+            if voice_e2e_ok
+            and voice_tts_metrics.get("first_text_to_first_audio_ms") is not None
+            else "missing",
+            "offline_voice_e2e" if voice_e2e_ok else "not_measured",
+            metric={
+                "provider": "sherpa",
+                "first_text_to_first_audio_ms": voice_tts_metrics.get(
+                    "first_text_to_first_audio_ms"
+                ),
+                "measurement": "first_sentence_enqueued_to_first_pcm_chunk_published",
+            }
+            if voice_tts_metrics
+            else None,
+            caveat="这是实际伪流式管线的首块 PCM，不是整句 synthesize() 完成耗时。",
+            next_step="运行 --run-voice-e2e，并保持默认 tts-provider=sherpa。",
+        ),
+        _claim(
+            "sherpa_tts_full_synthesis",
+            "Sherpa-TTS 短句整句合成耗时",
             "proven"
             if latency_ok
             and tts_latency.get("provider") == "sherpa"
-            and tts_latency.get("first_audio_ms") is not None
+            and tts_latency.get("synthesis_ms") is not None
             else "missing",
             "offline_latency_targets" if latency_ok else "not_measured",
             metric={
                 "provider": tts_latency.get("provider"),
-                "first_audio_ms": tts_latency.get("first_audio_ms"),
+                "synthesis_ms": tts_latency.get("synthesis_ms"),
                 "target_ms": tts_latency.get("target_ms"),
+                "measurement_kind": tts_latency.get("measurement_kind"),
             }
             if tts_latency
             else None,
+            caveat="provider 返回整句 PCM，因此这里只能证明短句整句合成耗时，不是首音频。",
             next_step="运行 offline-latency，并保持默认 tts-provider=sherpa。",
+        ),
+        _claim(
+            "offline_voice_e2e",
+            "离线语音 Agent 端到首音频延迟",
+            "proven"
+            if voice_e2e_ok
+            and voice_metrics.get("end_to_first_audio_ms") is not None
+            else "missing",
+            "offline_voice_e2e" if voice_e2e_ok else "not_measured",
+            metric={
+                "asr_finalize_ms": voice_metrics.get("asr_finalize_ms"),
+                "llm_first_token_ms": voice_metrics.get("llm_first_token_ms"),
+                "end_to_first_audio_ms": voice_metrics.get("end_to_first_audio_ms"),
+                "turn_complete_ms": voice_metrics.get("turn_complete_ms"),
+                "e2e_target_met": voice_metrics.get("e2e_target_met"),
+                "message_buffer_dropped": voice_metrics.get("message_buffer_dropped"),
+                "audio_buffer_dropped": voice_metrics.get("audio_buffer_dropped"),
+            }
+            if voice_metrics
+            else None,
+            caveat="从 speech endpoint 到第一块 TTS PCM 发布，来自真实 Agent 并行管线。",
+            next_step="运行 bash scripts/acceptance_test.sh offline-voice-e2e-report。",
         ),
         _claim(
             "asr_tts_realtime_factor",
@@ -503,6 +611,11 @@ def build_claim_evidence(report: dict[str, Any]) -> dict[str, Any]:
             f"model_score={instruction_payload.get('model_score')}，"
             f"effective_score={instruction_payload.get('effective_score')}。"
         )
+    if voice_e2e_ok:
+        allowed_claims.append(
+            "可以说：离线 ASR→LLM→伪流式 TTS 的端到首音频延迟已有真实 Agent 指标，"
+            f"end_to_first_audio≈{voice_metrics.get('end_to_first_audio_ms')} ms。"
+        )
 
     restricted_claims = [
         "不要说：LoRA 微调训练、checkpoint 和训练后准确率已经复现；当前报告没有这类证据。",
@@ -554,6 +667,12 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             args.timeout_s,
             args.instruction_following_input,
             args.instruction_following_output,
+        ),
+        "voice_e2e": collect_voice_e2e(
+            args.run_voice_e2e,
+            args.timeout_s,
+            args.voice_e2e_input,
+            args.voice_e2e_output,
         ),
     }
     report["claim_evidence"] = build_claim_evidence(report)
@@ -623,11 +742,12 @@ def render_markdown(report: dict[str, Any]) -> str:
             f"- llama.cpp decode benchmark：`{report['llama_decode_benchmark'].get('status', 'executed')}`",
             f"- 离线 LLM 指令遵循评估：`{report['instruction_following'].get('status', 'executed')}`",
             f"- ASR/TTS benchmark：`{report['asr_tts_benchmark'].get('status', 'executed')}`",
+            f"- 真实离线语音 E2E：`{report['voice_e2e'].get('status', 'executed')}`",
             "",
             "说明：默认报告不启动 llama.cpp 或真实 ASR/TTS benchmark。演示前可运行：",
             "",
             "```bash",
-            "python3 scripts/generate_offline_showcase_report.py --run-latency --run-llama-bench --run-instruction-following --run-asr-tts",
+            "python3 scripts/generate_offline_showcase_report.py --run-latency --run-llama-bench --run-instruction-following --run-asr-tts --run-voice-e2e",
             "```",
         ]
     )
@@ -682,6 +802,12 @@ def parse_args() -> argparse.Namespace:
         default="logs/instruction_following_report.json",
     )
     parser.add_argument("--run-asr-tts", action="store_true")
+    parser.add_argument("--run-voice-e2e", action="store_true")
+    parser.add_argument("--voice-e2e-input", help="reuse a saved offline voice E2E report")
+    parser.add_argument(
+        "--voice-e2e-output",
+        default="logs/offline_voice_e2e_report.json",
+    )
     return parser.parse_args()
 
 

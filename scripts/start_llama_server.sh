@@ -7,6 +7,7 @@ HOST="${LLAMA_HOST:-127.0.0.1}"
 PORT="${LLAMA_PORT:-8080}"
 CONTEXT="${LLAMA_CONTEXT:-2048}"
 THREADS="${LLAMA_THREADS:-8}"
+PARALLEL="${LLAMA_PARALLEL:-1}"
 GPU_LAYERS="${LLAMA_N_GPU_LAYERS:-0}"
 
 if [[ ! -x "$BIN" ]]; then
@@ -26,6 +27,7 @@ ARGS=(
   --port "$PORT"
   -c "$CONTEXT"
   -t "$THREADS"
+  --parallel "$PARALLEL"
   --jinja
 )
 
@@ -41,5 +43,5 @@ if [[ -n "${LLAMA_EXTRA_ARGS:-}" ]]; then
   ARGS+=("${EXTRA_ARGS[@]}")
 fi
 
-echo "Starting llama-server: model=$MODEL host=$HOST port=$PORT ctx=$CONTEXT threads=$THREADS gpu_layers=$GPU_LAYERS" >&2
+echo "Starting llama-server: model=$MODEL host=$HOST port=$PORT ctx=$CONTEXT threads=$THREADS parallel=$PARALLEL gpu_layers=$GPU_LAYERS" >&2
 exec "$BIN" "${ARGS[@]}"

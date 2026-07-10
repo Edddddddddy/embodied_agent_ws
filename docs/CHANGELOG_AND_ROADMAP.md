@@ -43,6 +43,8 @@
 | WebRTC VAD 运行时验收 | 让成熟 VAD 不只停留在 preflight | 新增 `webrtc-vad-sidecar`，验证 WebRTC VAD sidecar 可启动并接管 endpoint |
 | Sherpa KWS 部署闭环 | 让声学唤醒路径可复制验收 | `setup_voice_kws_runtime.sh sherpa` 生成 `logs/sherpa_kws.env`，`sherpa-kws-sidecar` 验证真实 KeywordSpotter 启动 |
 | KWS 阈值校准闭环 | 让现场 KWS 分数能直接变成下一轮参数 | `voice-calibration-report` 写出 `OPENWAKEWORD_THRESHOLD` / `LIVEKIT_WAKEWORD_THRESHOLD` 推荐值 |
+| Silero ONNX 轻量运行时 | 让成熟 VAD 不依赖 PyTorch 并具备真实推理证据 | 固定 v6.2.1 模型/哈希，纯 ONNX state/context 推理，ROS endpoint 与延迟报告通过 |
+| 离线性能证据收口 | 统一 ASR、LLM、TTS、tokens/s 和真实 E2E 指标 | 增加运行时预热、单槽 prompt cache、`offline-voice-e2e-report` 和严格证据审计；本轮端到首 PCM 多次运行约 1.32–2.11s |
 
 ## 2. 当前完成度结论
 
@@ -64,7 +66,8 @@
 - 当前硬件控制是预留/mock，不是实体机器人完整验收。
 - 当前已提供完整 TurtleBot3/Nav2 重型验收入口，但地图构建、复杂目标点规划和更复杂场景仍是后续增强。
 - 离线 LoRA 训练、量化指标可以作为规划和接口说明，不应夸大为已复现完整训练结果。
-- openWakeWord、LiveKit WakeWord、Silero VAD 是可选 seam/preflight，不是默认强依赖链路。
+- openWakeWord、LiveKit WakeWord 仍是可选 seam/preflight；Silero VAD 已有轻量 ONNX 真实运行时，
+  但模型仍保持可选下载，CI 不强制携带大模型资产。
 
 ## 3. 当前最有价值的验收证据
 

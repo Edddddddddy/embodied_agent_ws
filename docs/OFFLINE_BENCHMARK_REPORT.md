@@ -32,15 +32,15 @@ llama.cpp tokens/s、离线 LLM 指令遵循准确率等仍需要单独 benchmar
 演示前如果要补充真实延迟和 Sherpa ASR/TTS benchmark：
 
 ```bash
-python3 scripts/generate_offline_showcase_report.py --run-latency --run-llama-bench --run-asr-tts
+python3 scripts/generate_offline_showcase_report.py --run-latency --run-llama-bench --run-instruction-following --run-asr-tts --run-voice-e2e
 ```
 
 ## 1. 环境信息
 
 | 项目 | 记录 |
 | --- | --- |
-| 日期 | 见生成报告 `generated_at` |
-| 机器/CPU | 现场演示机器；如需精确记录可附 `lscpu` 输出 |
+| 日期 | 2026-07-10 |
+| 机器/CPU | WSL2，Intel Core i5-14400F，8 核 / 16 线程，约 8GB RAM |
 | OS / ROS 2 | Ubuntu 24.04 / ROS 2 Jazzy |
 | llama.cpp commit | 由 `scripts/offline_runtime_versions.py` 自动采集 |
 | GGUF 模型 | `models/Qwen3-0.6B-Q8_0.gguf` |
@@ -57,6 +57,7 @@ bash scripts/acceptance_test.sh llama-cpp-preflight
 bash scripts/acceptance_test.sh llama-cpp-smoke
 bash scripts/acceptance_test.sh llama-decode-benchmark
 bash scripts/acceptance_test.sh offline-latency
+bash scripts/acceptance_test.sh offline-voice-e2e-report
 bash scripts/benchmark_offline.sh
 bash scripts/acceptance_test.sh instruction-parser-eval
 bash scripts/acceptance_test.sh instruction-following-eval
@@ -69,13 +70,18 @@ bash scripts/acceptance_test.sh instruction-following-eval
 | 模型资产大小 | 记录即可 | 见 `logs/offline_showcase_report.md` | `offline-showcase-report` |
 | 运行时版本 | 固定版本匹配 | 见 `logs/offline_showcase_report.md` | `offline-showcase-report` |
 | 指标证据矩阵 | 区分可宣称/不可宣称 | 见 `claim_evidence` | `offline-showcase-report` + `offline-evidence-audit` |
-| LLM 首 token | ≤ 1000ms | 见真实延迟报告 | `offline-latency` 或 `--run-latency` |
-| 默认 TTS 首音频 | ≤ 300ms | 见真实延迟报告 | `offline-latency` 或 `--run-latency` |
-| llama.cpp tokens/s | 记录即可 | 见 `logs/llama_decode_benchmark.json` 或 `claim_evidence` | `llama-decode-benchmark` 或 `--run-llama-bench` |
-| ASR realtime factor | < 1.0 更好 | 见真实 benchmark | `benchmark_offline.sh` 或 `--run-asr-tts` |
-| TTS realtime factor | < 1.0 更好 | 见真实 benchmark | `benchmark_offline.sh` 或 `--run-asr-tts` |
+| LLM 短请求首 token | ≤ 1000ms | 229.46ms | `offline-latency` / `--run-latency` |
+| Sherpa 短句整句合成 | ≤ 600ms | 234.16ms | `offline-latency` / `--run-latency` |
+| llama.cpp CPU decode | ≥ 8.6 tokens/s | 16.4276 tokens/s（8 threads） | `llama-decode-benchmark` |
+| ASR realtime factor | < 1.0 | 0.0620 | `benchmark_offline.sh` / `--run-asr-tts` |
+| TTS realtime factor | < 1.0 | 0.9004 | `benchmark_offline.sh` / `--run-asr-tts` |
+| 真实 Agent 端点→首 PCM | < 3500ms | 最近一次 2113.83ms；本轮多次运行约 1.32–2.11s | `offline-voice-e2e-report` / `--run-voice-e2e` |
+| 真实 Agent LLM 首 token | ≤ 1000ms | 最近一次 864.12ms；预热后多次运行约 0.29–0.86s | `offline-voice-e2e-report` |
+| 伪流式首文本→首 PCM | 记录即可 | 585.36ms | `offline-voice-e2e-report` |
+| 整轮完成 | 记录即可 | 3631.22ms | `offline-voice-e2e-report` |
 | deterministic parser 动作准确率 | ≥ 95% | 当前代表集 39/39（100%） | `instruction-parser-eval` |
-| 离线 LLM 指令动作准确率 | ≥ 70% 起步 | 见 `logs/instruction_following_report.json` 或 `claim_evidence` | `instruction-following-eval` 或 `--run-instruction-following` |
+| 离线 LLM 原始指令动作准确率 | ≥ 70% 起步 | 3/8，37.5%，未达标 | `instruction-following-eval` / `--run-instruction-following` |
+| fallback/安全层后动作准确率 | ≥ 85% | 8/8，100% | 同上；不能冒充模型分数 |
 
 `instruction-following-eval` 输出两个分数：
 

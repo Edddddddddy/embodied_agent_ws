@@ -19,7 +19,8 @@ Automated modes:
   offline-runtime-versions Check pinned llama.cpp/SummerTTS/sherpa-onnx versions
   offline-showcase-report Generate offline deployment JSON/Markdown evidence report
   offline-evidence-audit Audit offline report evidence and over-claiming boundaries
-  offline-latency     Check llama.cpp first token <1s and default TTS first audio <300ms
+  offline-latency     Check llama.cpp first token and Sherpa short-sentence synthesis latency
+  offline-voice-e2e-report Real ZipFormer -> llama.cpp -> pseudo-streaming TTS latency evidence
   summer-tts-preflight Check SummerTTS source/binary/model runtime files
   summer-tts-smoke     Real SummerTTS synthesis verification
   summer-pseudo-tts    Real SummerTTS + pseudo-streaming double-buffer verification
@@ -224,6 +225,7 @@ case "$LEVEL" in
   online) run_online ;;
   offline) run_offline ;;
   offline-runtime-versions) python3 scripts/offline_runtime_versions.py --check ;;
+  offline-voice-e2e-report) bash scripts/smoke_test_offline_voice_real.sh ;;
   offline-showcase-report)
     REPORT_ARGS=()
     if [[ "${OFFLINE_SHOWCASE_RUN_LATENCY:-false}" == "true" ]]; then
@@ -250,6 +252,15 @@ case "$LEVEL" in
     if [[ "${OFFLINE_SHOWCASE_RUN_ASR_TTS:-false}" == "true" ]]; then
       REPORT_ARGS+=(--run-asr-tts)
     fi
+    if [[ "${OFFLINE_SHOWCASE_RUN_VOICE_E2E:-false}" == "true" ]]; then
+      REPORT_ARGS+=(--run-voice-e2e)
+    fi
+    if [[ -n "${OFFLINE_SHOWCASE_VOICE_E2E_INPUT:-}" ]]; then
+      REPORT_ARGS+=(--voice-e2e-input "$OFFLINE_SHOWCASE_VOICE_E2E_INPUT")
+    fi
+    if [[ -n "${OFFLINE_SHOWCASE_VOICE_E2E_OUTPUT:-}" ]]; then
+      REPORT_ARGS+=(--voice-e2e-output "$OFFLINE_SHOWCASE_VOICE_E2E_OUTPUT")
+    fi
     python3 scripts/generate_offline_showcase_report.py "${REPORT_ARGS[@]}"
     ;;
   offline-evidence-audit)
@@ -262,7 +273,8 @@ case "$LEVEL" in
       ${OFFLINE_EVIDENCE_REQUIRE_LATENCY:+--require-latency} \
       ${OFFLINE_EVIDENCE_REQUIRE_LLAMA_BENCH:+--require-llama-bench} \
       ${OFFLINE_EVIDENCE_REQUIRE_INSTRUCTION_FOLLOWING:+--require-instruction-following} \
-      ${OFFLINE_EVIDENCE_REQUIRE_ASR_TTS:+--require-asr-tts}
+      ${OFFLINE_EVIDENCE_REQUIRE_ASR_TTS:+--require-asr-tts} \
+      ${OFFLINE_EVIDENCE_REQUIRE_VOICE_E2E:+--require-voice-e2e}
     ;;
   offline-latency) check_llama_cpp_runtime; bash scripts/smoke_test_offline_latency.sh ;;
   llama-cpp-preflight) check_llama_cpp_runtime; bash scripts/smoke_test_llama_cpp.sh preflight ;;

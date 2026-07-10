@@ -13,7 +13,9 @@ from pathlib import Path
 
 WORKSPACE = Path(__file__).resolve().parents[1]
 LLM_FIRST_TOKEN_TARGET_MS = 1000.0
-TTS_FIRST_AUDIO_TARGET_MS = 300.0
+# 离线 Sherpa provider 当前返回整句 PCM；600ms 是短反馈整句合成门槛。
+# 在线流式 TTS 的 300ms 首包目标属于另一条链路，不能混用。
+TTS_SYNTHESIS_TARGET_MS = 600.0
 
 
 def _ensure_repo_import_path() -> None:
@@ -109,17 +111,20 @@ def measure_tts(provider: str, text: str, warmup: bool) -> dict[str, object]:
         tts.synthesize("好。")
     synth_started = time.perf_counter()
     pcm = tts.synthesize(text)
-    first_audio_ms = (time.perf_counter() - synth_started) * 1000.0
+    synthesis_ms = (time.perf_counter() - synth_started) * 1000.0
     return {
         "provider": provider,
         "text": text,
         "load_ms": round(load_ms, 2),
-        "first_audio_ms": round(first_audio_ms, 2),
-        "target_ms": TTS_FIRST_AUDIO_TARGET_MS,
+        # SherpaVitsTts.synthesize() 返回整句 PCM；这里不能把函数返回时间冒充流式首包。
+        "measurement_kind": "full_utterance_synthesis",
+        "first_audio_supported": False,
+        "synthesis_ms": round(synthesis_ms, 2),
+        "target_ms": TTS_SYNTHESIS_TARGET_MS,
         "pcm_bytes": len(pcm),
         "sample_rate": getattr(tts, "sample_rate", None),
         "warmup": warmup,
-        "ok": first_audio_ms <= TTS_FIRST_AUDIO_TARGET_MS and len(pcm) > 0,
+        "ok": synthesis_ms <= TTS_SYNTHESIS_TARGET_MS and len(pcm) > 0,
     }
 
 
@@ -138,7 +143,7 @@ def main() -> int:
     report: dict[str, object] = {
         "targets": {
             "llm_first_token_ms": LLM_FIRST_TOKEN_TARGET_MS,
-            "tts_first_audio_ms": TTS_FIRST_AUDIO_TARGET_MS,
+            "tts_full_synthesis_ms": TTS_SYNTHESIS_TARGET_MS,
         }
     }
     ok = True

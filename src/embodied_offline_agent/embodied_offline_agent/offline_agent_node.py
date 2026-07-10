@@ -145,6 +145,8 @@ class OfflineAgentNode(Node):
             self._command_worker_thread.start()
 
         self._asr, self._llm, self._tts = self._create_providers()
+        if self._mode == "offline" and self._param("runtime_warmup_enabled"):
+            self._warmup_runtime()
         if self._param("microphone_enabled"):
             self._asr.start(self._on_asr_partial, self._on_asr_final)
             self.create_subscription(UInt8MultiArray, "/audio/clean_pcm", self._on_audio, audio_qos)
@@ -198,6 +200,7 @@ class OfflineAgentNode(Node):
             "llm_timeout_s": 30.0,
             "llm_max_retries": 1,
             "llm_first_token_warn_ms": 1000.0,
+            "runtime_warmup_enabled": True,
             "tts_model_dir": "/home/ubuntu/embodied_agent_ws/models/vits-melo-tts-zh_en",
             "tts_provider": "sherpa",
             "tts_num_threads": 2,
@@ -305,6 +308,31 @@ class OfflineAgentNode(Node):
 
     def _tts_sample_rate(self):
         return int(getattr(self._tts, "sample_rate", self._param("tts_sample_rate")))
+
+    def _warmup_runtime(self):
+        """在节点 ready 前预热 LLM 公共提示前缀和 TTS，避免首条语音承担冷启动。"""
+        started = time.perf_counter()
+        llm_report = self._llm.warmup(
+            [
+                {
+                    "role": "system",
+                    "content": self._system_prompt_with_user_memory() + "\n/no_think",
+                },
+                {"role": "user", "content": "只回复：就绪。 /no_think"},
+            ]
+        )
+        tts_started = time.perf_counter()
+        warmup_pcm = self._tts.synthesize("好。")
+        report = {
+            "total_ms": round((time.perf_counter() - started) * 1000.0, 2),
+            "llm": llm_report.get("metrics", {}),
+            "tts_ms": round((time.perf_counter() - tts_started) * 1000.0, 2),
+            "tts_pcm_bytes": len(warmup_pcm),
+        }
+        self.get_logger().info(
+            "offline runtime warmup complete: "
+            + json.dumps(report, ensure_ascii=False)
+        )
 
     def _mock_asr_finals(self):
         scripted = str(self._param("mock_asr_finals") or "")

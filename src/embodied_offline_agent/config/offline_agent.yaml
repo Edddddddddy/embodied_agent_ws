@@ -38,6 +38,8 @@ offline_agent:
     llm_timeout_s: 30.0
     llm_max_retries: 1
     llm_first_token_warn_ms: 1000.0
+    # 单用户端侧 Agent 在 ready 前预热公共 system prompt 和 TTS，避免首条命令承担冷启动。
+    runtime_warmup_enabled: true
     # tts_provider=sherpa 是当前稳定默认值；切到 summer 时会调用
     # third_party/SummerTTS/build/tts_test，适合展示 C++ 离线 TTS runtime 接入。
     tts_provider: sherpa

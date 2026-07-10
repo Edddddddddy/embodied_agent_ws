@@ -368,7 +368,7 @@ def test_offline_runtime_versions_are_pinned_and_documented():
 
 
 def test_offline_latency_gate_remains_available_and_documented():
-    """LLM/TTS 延迟目标必须有可执行 gate，不能只停留在 README 声明。"""
+    """组件延迟和真实 Agent E2E 必须分开测量，不能把整句合成冒充首音频。"""
 
     acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
         encoding="utf-8"
@@ -381,16 +381,19 @@ def test_offline_latency_gate_remains_available_and_documented():
     )
 
     assert "offline-latency" in acceptance
+    assert "offline-voice-e2e-report" in acceptance
     assert "smoke_test_offline_latency.sh" in acceptance
     assert latency_probe.is_file()
     assert latency_smoke.is_file()
     probe_text = latency_probe.read_text(encoding="utf-8")
     assert "LLM_FIRST_TOKEN_TARGET_MS = 1000.0" in probe_text
-    assert "TTS_FIRST_AUDIO_TARGET_MS = 300.0" in probe_text
+    assert "TTS_SYNTHESIS_TARGET_MS = 600.0" in probe_text
+    assert '"measurement_kind": "full_utterance_synthesis"' in probe_text
     assert "--tts-provider" in probe_text
     assert "offline-latency" in readme
     assert "≤ 1000ms" in readme
-    assert "≤ 300ms" in readme
+    assert "≤ 600ms" in readme
+    assert "offline-voice-e2e-report" in readme
     assert "SummerTTS 命令行 provider" in testing_doc
     assert "tts_provider:=summer_ros" in testing_doc
 

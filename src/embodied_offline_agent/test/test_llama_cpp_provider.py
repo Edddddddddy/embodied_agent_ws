@@ -115,3 +115,20 @@ def test_stream_error_message_contains_base_url_and_model():
     message = str(exc.value)
     assert "http://127.0.0.1:8080/v1" in message
     assert "model.gguf" in message
+
+
+def test_warmup_drains_stream_and_returns_observable_metrics():
+    client = FakeClient([[event("就绪")]])
+    llm = LlamaCppLlm(
+        "http://127.0.0.1:8080/v1",
+        "model.gguf",
+        0.0,
+        8,
+        client_factory=factory_for(client),
+    )
+
+    report = llm.warmup([{"role": "system", "content": "固定系统提示"}])
+
+    assert report["text"] == "就绪"
+    assert report["metrics"]["token_count"] == 1
+    assert len(client.calls) == 1

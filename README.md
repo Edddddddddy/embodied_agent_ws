@@ -121,6 +121,7 @@ bash scripts/acceptance_test.sh offline-runtime-versions
 bash scripts/acceptance_test.sh offline-showcase-report
 bash scripts/acceptance_test.sh offline-evidence-audit
 bash scripts/acceptance_test.sh offline-latency
+bash scripts/acceptance_test.sh offline-voice-e2e-report
 ```
 
 `llama-cpp-preflight` 会检查 `llama-server` binary、Q8 GGUF 模型、`/health` 和 `/v1/models`；
@@ -132,7 +133,7 @@ bash scripts/acceptance_test.sh offline-latency
 用假 PCM 验证“LLM token 流 -> 短句切分 -> 伪流式 TTS 双缓冲 -> 音频块发布”的工程链路。
 `offline-evidence-audit` 会读取 `logs/offline_showcase_report.json`，输出
 `logs/offline_evidence_audit.json`。报告中的 `claim_evidence` 会逐项标记 Q8 模型资产、
-deterministic parser、首 token、TTS 首音频、tokens/s、LoRA 训练等证据状态，明确哪些指标
+deterministic parser、首 token、伪流式首音频、tokens/s、LoRA 训练等证据状态，明确哪些指标
 已有证据、哪些只能作为后续计划，避免把 LoRA/真实延迟/ASR-TTS benchmark 等未复现项说成已完成。
 报告中的 `benchmark_gap_plan` 会把缺失证据转换成下一条可执行补证命令。
 演示前如需把 tokens/s 直接写进离线展示报告，可运行：
@@ -150,11 +151,19 @@ OFFLINE_SHOWCASE_RUN_INSTRUCTION_FOLLOWING=true OFFLINE_SHOWCASE_INSTRUCTION_FOL
 OFFLINE_EVIDENCE_REQUIRE_INSTRUCTION_FOLLOWING=1 bash scripts/acceptance_test.sh offline-evidence-audit
 ```
 
+把真实 ZipFormer→llama.cpp→伪流式 Sherpa-TTS 指标写进统一报告：
+
+```bash
+bash scripts/acceptance_test.sh offline-voice-e2e-report
+OFFLINE_SHOWCASE_RUN_VOICE_E2E=true OFFLINE_SHOWCASE_VOICE_E2E_INPUT=logs/offline_voice_e2e_report.json bash scripts/acceptance_test.sh offline-showcase-report
+OFFLINE_EVIDENCE_REQUIRE_VOICE_E2E=1 bash scripts/acceptance_test.sh offline-evidence-audit
+```
+
 常用调参环境变量：
 
 ```bash
 LLAMA_THREADS=8 LLAMA_CONTEXT=2048 bash scripts/start_llama_server.sh
-LLAMA_EXTRA_ARGS="--parallel 1" bash scripts/acceptance_test.sh llama-cpp-smoke
+LLAMA_PARALLEL=1 bash scripts/acceptance_test.sh llama-cpp-smoke
 LLAMA_DECODE_MIN_TOKENS_PER_S=8.0 LLAMA_BENCH_NO_WARMUP=1 bash scripts/acceptance_test.sh llama-decode-benchmark
 INSTRUCTION_FOLLOWING_MINIMUM=0.70 INSTRUCTION_FOLLOWING_EFFECTIVE_MINIMUM=0.85 bash scripts/acceptance_test.sh instruction-following-eval
 ```
@@ -194,8 +203,9 @@ ros2 launch embodied_offline_agent offline_agent.launch.py \
 bash scripts/acceptance_test.sh offline-latency
 ```
 
-当前低延迟默认路径为 `llama.cpp + Sherpa-TTS`：验收要求 LLM 首 token ≤ 1000ms、
-TTS 首音频 ≤ 300ms。SummerTTS 目前通过命令行二进制接入，每句会重新启动进程并加载模型，
+当前低延迟默认路径为 `llama.cpp + Sherpa-TTS`：独立门禁要求 LLM 首 token ≤ 1000ms、
+Sherpa 短反馈整句合成 ≤ 600ms；真实首音频由 `offline-voice-e2e-report` 测量伪流式管线
+第一块 PCM，不能用整句 `synthesize()` 返回时间冒充。SummerTTS 目前通过命令行二进制接入，每句会重新启动进程并加载模型，
 适合展示 C++ 离线 TTS runtime，但不作为 `<300ms` 低延迟默认 TTS。`summer_ros`
 已经把 SummerTTS 做成常驻 C++ ROS 组件，消除了进程/模型重复加载，并对“好的/收到/正在执行”
 这类短文本做请求级缓存；未命中的长句瓶颈仍主要是 SummerTTS CPU infer 本身，后续若要继续冲

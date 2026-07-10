@@ -325,7 +325,7 @@ bash scripts/acceptance_test.sh offline-latency
 
 - `llm.first_token_ms <= 1000`。
 - `tts.provider == "sherpa"`。
-- `tts.first_audio_ms <= 300`。
+- `tts.synthesis_ms <= 600`（Sherpa 当前返回整句 PCM，因此这是离线短句整句合成门槛，不冒充在线流式首包）。
 - `ok == true`。
 
 该模式会启动或复用 `llama-server`，发送一次极短流式请求，并在常驻 Sherpa-TTS

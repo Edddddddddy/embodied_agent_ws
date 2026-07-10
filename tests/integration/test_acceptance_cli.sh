@@ -13,6 +13,8 @@ if [[ "$STATUS" -ne 0 ]]; then
 fi
 grep -q "all" <<<"$OUTPUT"
 grep -q "core" <<<"$OUTPUT"
+grep -q "offline-showcase-report" <<<"$OUTPUT"
+grep -q "offline-voice-e2e-report" <<<"$OUTPUT"
 grep -q "microphone-offline" <<<"$OUTPUT"
 grep -q "microphone-online" <<<"$OUTPUT"
 grep -q "continuous-live-check" <<<"$OUTPUT"

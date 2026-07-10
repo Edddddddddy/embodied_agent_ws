@@ -52,6 +52,7 @@ def _write_report(
         },
         "instruction_following": instruction_block,
         "asr_tts_benchmark": {"status": "not_run", "reason": "not measured in default report"},
+        "voice_e2e": {"status": "not_run", "reason": "not measured in default report"},
         "claim_evidence": {
             "schema_version": 1,
             "summary": {"proven": 2, "missing": 3, "not_reproduced": 1, "not_default": 1},
@@ -61,6 +62,7 @@ def _write_report(
                 {"key": "llama_decode_speed", "status": "missing"},
                 {"key": "llm_first_token_latency", "status": "missing"},
                 {"key": "offline_llm_instruction_following", "status": "missing"},
+                {"key": "offline_voice_e2e", "status": "missing"},
                 {"key": "lora_training", "status": "not_reproduced"},
                 {"key": "summertts_low_latency", "status": "not_default"},
             ],
@@ -103,6 +105,7 @@ def test_offline_evidence_audit_warns_when_latency_is_not_measured(tmp_path):
     assert audit["evidence"]["latency"]["status"] == "missing"
     assert audit["evidence"]["llama_decode_benchmark"]["status"] == "missing"
     assert audit["evidence"]["instruction_following"]["status"] == "missing"
+    assert audit["evidence"]["voice_e2e"]["status"] == "missing"
     assert audit["evidence"]["claim_evidence"]["status"] == "proven"
     assert audit["evidence"]["claim_evidence"]["items"]["lora_training"] == "not_reproduced"
     assert "claim_evidence:llama_decode_speed:missing" in audit["warnings"]
@@ -111,6 +114,7 @@ def test_offline_evidence_audit_warns_when_latency_is_not_measured(tmp_path):
     assert gap_by_key["llama_decode_benchmark"]["command"] == "bash scripts/acceptance_test.sh llama-decode-benchmark"
     assert gap_by_key["instruction_following"]["command"] == "bash scripts/acceptance_test.sh instruction-following-eval"
     assert gap_by_key["asr_tts_benchmark"]["proves"] == ["asr_tts_realtime_factor"]
+    assert gap_by_key["voice_e2e"]["proves"] == ["offline_voice_e2e"]
     assert gap_by_key["lora_training"]["required_for_claim"] is False
     assert any("不要说" in item and "首 token" in item for item in audit["claim_guidance"])
 
@@ -161,6 +165,30 @@ def test_offline_evidence_audit_can_require_llama_decode_benchmark(tmp_path):
     assert result.returncode == 1
     assert summary["status"] == "FAIL"
     assert "llama_decode_benchmark:required_but_not_measured" in summary["blockers"]
+
+
+def test_offline_evidence_audit_can_require_voice_e2e(tmp_path):
+    report = tmp_path / "offline_showcase_report.json"
+    _write_report(report)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--input",
+            str(report),
+            "--require-voice-e2e",
+        ],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    summary = json.loads(result.stdout)
+    assert result.returncode == 1
+    assert summary["status"] == "FAIL"
+    assert "voice_e2e:required_but_not_measured" in summary["blockers"]
 
 
 def test_offline_evidence_audit_can_require_instruction_following(tmp_path):
