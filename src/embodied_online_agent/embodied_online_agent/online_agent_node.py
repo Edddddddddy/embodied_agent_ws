@@ -13,7 +13,12 @@ from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Empty, String, UInt8MultiArray
 
 from .memory import ConversationMemory
-from .user_memory import SpeakerIdentity, UserMemoryStore, parse_memory_command
+from .user_memory import (
+    LowConfidenceSpeakerError,
+    SpeakerIdentity,
+    UserMemoryStore,
+    parse_memory_command,
+)
 from .action_sequence import SequentialActionPublisher
 from .command_completion import CommandCompleter
 from .command_fallback import parse_fallback_actions, should_block_model_actions
@@ -388,7 +393,7 @@ class OnlineAgentNode(Node):
 
     def _on_clear_memory(self, _message: Empty):
         self.memory.clear()
-        self.user_memory.clear(self._current_speaker)
+        self._try_user_memory_write(self.user_memory.clear, self._current_speaker)
         self.get_logger().info("conversation memory cleared")
 
     def _on_action_result(self, message: String):
@@ -491,8 +496,11 @@ class OnlineAgentNode(Node):
             else:
                 response = "我还没有可靠识别到当前用户，可以先说“记住我，我是某某”。"
         elif memory_command.kind == "clear":
-            self.user_memory.clear(identity)
-            response = "已清除当前用户的本地行为记忆。"
+            if identity.usable:
+                self._try_user_memory_write(self.user_memory.clear, identity)
+                response = "已清除当前用户的本地行为记忆。"
+            else:
+                response = "我还没有可靠识别当前用户，无法清除个人记忆。"
         elif memory_command.kind == "enroll_request":
             if identity.usable:
                 self._publish_speaker_enroll_request(
@@ -536,7 +544,7 @@ class OnlineAgentNode(Node):
         threading.Thread(
             target=self._speak_memory_response, args=(response,), daemon=True
         ).start()
-        self.user_memory.record_interaction(
+        self._record_user_interaction(
             identity,
             user_text=command,
             assistant_text=response,
@@ -713,7 +721,7 @@ class OnlineAgentNode(Node):
             assistant_text = "".join(spoken_parts).strip()
             self.response_pub.publish(String(data=assistant_text))
             self.memory.append_turn(user_text, assistant_text)
-            self.user_memory.record_interaction(
+            self._record_user_interaction(
                 self._current_speaker,
                 user_text=user_text,
                 assistant_text=assistant_text,
@@ -746,7 +754,7 @@ class OnlineAgentNode(Node):
         self.response_delta_pub.publish(String(data=response))
         self.response_pub.publish(String(data=response))
         report = self._publish_actions(actions)
-        self.user_memory.record_interaction(
+        self._record_user_interaction(
             self._current_speaker,
             user_text=user_text,
             assistant_text=response,
@@ -764,6 +772,20 @@ class OnlineAgentNode(Node):
                     ActionCommand(raw["name"], dict(raw.get("arguments") or {}))
                 )
         return actions
+
+    def _try_user_memory_write(self, operation, *args, **kwargs):
+        try:
+            return operation(*args, **kwargs)
+        except LowConfidenceSpeakerError as exc:
+            self.get_logger().debug(f"skipped user memory write: {exc}")
+            return None
+
+    def _record_user_interaction(self, identity, **kwargs):
+        return self._try_user_memory_write(
+            self.user_memory.record_interaction,
+            identity,
+            **kwargs,
+        )
 
     def _enqueue_continuous_command(self, command: str):
         nlu_result = self.command_nlu.parse(command)

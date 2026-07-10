@@ -121,13 +121,14 @@
 - 已有 speaker identity topic、user memory store、mock/sherpa seam 和记忆命令。
 - “慢一点/快一点/默认前进时长/默认转角”等偏好已经能在动作出口确定性影响
   `move/turn/arc` 参数，并且仍经过 ActionGuard。
-- 真实声纹默认链路、隐私边界、偏好冲突合并和可视化管理仍较浅。
+- 低置信度声纹会被归为 `unknown`，写个人画像时触发 `LowConfidenceSpeakerError`；
+  Agent 捕获后跳过记忆写入，避免误识别污染用户 profile。
+- 真实声纹默认链路、偏好冲突合并和可视化管理仍较浅。
 
 优化：
 
-- 明确用户画像 schema、导出/清理命令和低置信度保护策略。
+- 明确用户画像 schema、导出/清理命令和更细粒度隐私策略。
 - 增加用户记忆查看、导出、过期和冲突合并机制。
-- 低置信度声纹不写入个人记忆。
 
 ## 9. 文档丰富但入口偏多
 

@@ -14,6 +14,10 @@ _UNKNOWN_SPEAKER_ID = "unknown"
 _SAFE_ID_RE = re.compile(r"[^a-zA-Z0-9_\-\u4e00-\u9fff]+")
 
 
+class LowConfidenceSpeakerError(RuntimeError):
+    """Raised when a write would attach personal memory to an unreliable speaker."""
+
+
 @dataclass(frozen=True)
 class SpeakerIdentity:
     """声纹识别结果。
@@ -143,7 +147,7 @@ class UserMemoryStore:
     def enroll(
         self, identity: SpeakerIdentity | str | None, display_name: str
     ) -> UserProfile:
-        speaker_id = self._speaker_id(identity)
+        speaker_id = self._writable_speaker_id(identity)
         with self._lock:
             profile = self._load_profile(speaker_id)
             profile.display_name = display_name.strip() or profile.display_name
@@ -152,7 +156,7 @@ class UserMemoryStore:
             return profile
 
     def clear(self, identity: SpeakerIdentity | str | None) -> None:
-        speaker_id = self._speaker_id(identity)
+        speaker_id = self._writable_speaker_id(identity)
         with self._lock:
             path = self._profile_path(speaker_id)
             if path.exists():
@@ -161,7 +165,7 @@ class UserMemoryStore:
     def set_preference(
         self, identity: SpeakerIdentity | str | None, key: str, value: Any
     ) -> UserProfile:
-        speaker_id = self._speaker_id(identity)
+        speaker_id = self._writable_speaker_id(identity)
         with self._lock:
             profile = self._load_profile(speaker_id)
             profile.preferences[key] = value
@@ -178,7 +182,7 @@ class UserMemoryStore:
         actions: Optional[List[dict]] = None,
         success: Optional[bool] = None,
     ) -> UserProfile:
-        speaker_id = self._speaker_id(identity)
+        speaker_id = self._writable_speaker_id(identity)
         with self._lock:
             profile = self._load_profile(speaker_id)
             now = time.time()
@@ -259,6 +263,17 @@ class UserMemoryStore:
         if isinstance(identity, str) and identity.strip():
             return identity.strip()
         return _UNKNOWN_SPEAKER_ID
+
+    @staticmethod
+    def _writable_speaker_id(identity: SpeakerIdentity | str | None) -> str:
+        speaker_id = UserMemoryStore._speaker_id(identity)
+        if speaker_id == _UNKNOWN_SPEAKER_ID:
+            # 低置信度声纹最危险的不是“读不到记忆”，而是把 A 的偏好写进 unknown/B 的画像。
+            # 因此读路径允许 unknown 返回空摘要，写路径必须显式拒绝，由 Agent 决定是否提示用户。
+            raise LowConfidenceSpeakerError(
+                "low confidence speaker identity; refusing to write personal memory"
+            )
+        return speaker_id
 
 
 def parse_memory_command(text: str) -> Optional[MemoryCommand]:

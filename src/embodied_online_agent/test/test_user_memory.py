@@ -1,6 +1,7 @@
 import json
 
 from embodied_online_agent.user_memory import (
+    LowConfidenceSpeakerError,
     SpeakerIdentity,
     UserMemoryStore,
     parse_memory_command,
@@ -22,6 +23,37 @@ def test_speaker_identity_rejects_low_confidence():
 
     assert identity.speaker_id == "unknown"
     assert not identity.usable
+
+
+def test_user_memory_rejects_low_confidence_writes(tmp_path):
+    store = UserMemoryStore(str(tmp_path), max_recent=2)
+    identity = SpeakerIdentity.from_json(
+        json.dumps(
+            {
+                "speaker_id": "lcy",
+                "confidence": 0.2,
+                "enrolled": True,
+                "model": "mock",
+            }
+        ),
+        min_confidence=0.55,
+    )
+
+    assert store.prompt_summary(identity) == ""
+    for operation in (
+        lambda: store.enroll(identity, "小李"),
+        lambda: store.set_preference(identity, "movement_speed", "slow"),
+        lambda: store.record_interaction(identity, user_text="向前走"),
+        lambda: store.clear(identity),
+    ):
+        try:
+            operation()
+        except LowConfidenceSpeakerError as error:
+            assert "low confidence" in str(error)
+        else:
+            raise AssertionError("low-confidence speaker write was accepted")
+
+    assert not list(tmp_path.glob("*.json"))
 
 
 def test_user_memory_enroll_preference_and_prompt_summary(tmp_path):

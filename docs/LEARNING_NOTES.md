@@ -324,7 +324,8 @@
 - 声纹模型属于可替换能力，和 ASR/LLM/动作控制主链路解耦，降低演示风险。
 - 用户画像是长期稳定信息，不适合无限追加到普通对话历史里。
 - 记忆写入必须可控，不能完全交给 LLM 自行决定，否则容易把误识别或幻觉写入本地 profile。
-- 低置信度声纹返回 `unknown`，避免把 A 用户偏好误写到 B 用户。
+- 低置信度声纹返回 `unknown`；`UserMemoryStore` 对写操作增加 `LowConfidenceSpeakerError`
+  门控，Agent 捕获后跳过个人记忆写入，避免把 A 用户偏好误写到 B 用户。
 - 偏好只改写低层运动参数，且只在 speaker identity 可信时生效；真正的速度/时长边界继续由
   C++ ActionGuard 兜底，避免“记忆”绕过安全策略。
 

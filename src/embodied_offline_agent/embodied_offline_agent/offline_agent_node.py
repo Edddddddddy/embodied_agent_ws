@@ -23,6 +23,7 @@ from embodied_online_agent.protocol import SentenceChunker, TaggedStreamParser
 from embodied_online_agent.recognition_retry import RecognitionRetryTracker
 from embodied_online_agent.types import ActionCommand
 from embodied_online_agent.user_memory import (
+    LowConfidenceSpeakerError,
     SpeakerIdentity,
     UserMemoryStore,
     parse_memory_command,
@@ -461,7 +462,7 @@ class OfflineAgentNode(Node):
 
     def _on_clear(self, _message):
         self._memory.clear()
-        self._user_memory.clear(self._current_speaker)
+        self._try_user_memory_write(self._user_memory.clear, self._current_speaker)
 
     def _on_action_result(self, message):
         self._action_sequencer.notify_result(message.data)
@@ -566,8 +567,11 @@ class OfflineAgentNode(Node):
             else:
                 response = "我还没有可靠识别到当前用户，可以先说“记住我，我是某某”。"
         elif memory_command.kind == "clear":
-            self._user_memory.clear(identity)
-            response = "已清除当前用户的本地行为记忆。"
+            if identity.usable:
+                self._try_user_memory_write(self._user_memory.clear, identity)
+                response = "已清除当前用户的本地行为记忆。"
+            else:
+                response = "我还没有可靠识别当前用户，无法清除个人记忆。"
         elif memory_command.kind == "enroll_request":
             if identity.usable:
                 self._publish_speaker_enroll_request(
@@ -611,7 +615,7 @@ class OfflineAgentNode(Node):
         threading.Thread(
             target=self._speak_memory_response, args=(response,), daemon=True
         ).start()
-        self._user_memory.record_interaction(
+        self._record_user_interaction(
             identity,
             user_text=command,
             assistant_text=response,
@@ -767,7 +771,7 @@ class OfflineAgentNode(Node):
             assistant_text = "".join(speech_parts).strip()
             self._response_pub.publish(String(data=assistant_text))
             self._memory.append_turn(user_text, assistant_text)
-            self._user_memory.record_interaction(
+            self._record_user_interaction(
                 self._current_speaker,
                 user_text=user_text,
                 assistant_text=assistant_text,
@@ -815,7 +819,7 @@ class OfflineAgentNode(Node):
         self._response_delta_pub.publish(String(data=response))
         self._response_pub.publish(String(data=response))
         report = self._publish_actions(actions)
-        self._user_memory.record_interaction(
+        self._record_user_interaction(
             self._current_speaker,
             user_text=user_text,
             assistant_text=response,
@@ -836,6 +840,20 @@ class OfflineAgentNode(Node):
                     ActionCommand(raw["name"], dict(raw.get("arguments") or {}))
                 )
         return actions
+
+    def _try_user_memory_write(self, operation, *args, **kwargs):
+        try:
+            return operation(*args, **kwargs)
+        except LowConfidenceSpeakerError as exc:
+            self.get_logger().debug(f"skipped user memory write: {exc}")
+            return None
+
+    def _record_user_interaction(self, identity, **kwargs):
+        return self._try_user_memory_write(
+            self._user_memory.record_interaction,
+            identity,
+            **kwargs,
+        )
 
     def _enqueue_continuous_command(self, command):
         nlu_result = self._command_nlu.parse(command)

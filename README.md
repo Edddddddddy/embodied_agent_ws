@@ -211,6 +211,8 @@ bash scripts/acceptance_test.sh sherpa-asr-smoke
 - 在线/离线 Agent 订阅 `/agent/speaker_identity`，把当前用户画像从 `~/.ros/embodied_agent/users/` 加载进 prompt。
 - 支持语音/文本命令：“记住我，我是小李”“我喜欢慢一点”“我是谁”“清除我的记忆”。
 - 个性化偏好只作为 Agent 上下文，动作仍必须经过 ActionGuard 限幅和 ROS 2 Action 执行。
+- 低置信度或未注册声纹会被归为 `unknown`：Agent 可以继续执行普通控制命令，但不会把姓名、
+  偏好或动作统计写入个人 profile，避免误识别时污染其他用户记忆。
 
 mock 验收：
 
