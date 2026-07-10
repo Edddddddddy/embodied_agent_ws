@@ -487,11 +487,11 @@ bash scripts/acceptance_test.sh continuous-live-check online
 连续语音默认偏向“完整优先”，减少“左转90度”只识别成“左转”的尾部漏识别：
 
 - `VAD_PROVIDER`：默认 `auto`，启动前优先检测 Silero VAD；不可用时尝试轻量 WebRTC VAD；
+  两者都不可用时自动降级到 energy VAD 并打印原因。
 - `VAD_SPEECH_START_MS`：Silero/WebRTC 需要连续人声达到该时长才发布 `speech_started`，默认
   `96ms`，用于过滤键盘声、碰麦克风等单帧噪声；
 - `SILERO_VAD_END_THRESHOLD`：Silero 进入语音段后使用的较低结束阈值，默认 `0.35`，与
   默认起始阈值 `0.5` 形成滞回，减少临界概率抖动导致的错误断句；
-  两者都不可用时自动降级到 energy VAD 并打印原因。
 - `SPEECH_END_SILENCE_S`：VAD 判定一句话结束前等待的静音时长。
 - `ASR_COMMIT_DELAY_MS`：收到 `/audio/speech_ended` 后，Agent 再延迟提交 ASR final 的时间。
 - `VOICE_CONTROL_PROFILE`：`normal`、`quiet`、`low_gain`、`noisy_room` 四种预设。
@@ -688,6 +688,16 @@ bash scripts/setup_voice_vad_runtime.sh webrtc
 VAD_PROVIDER=auto bash scripts/acceptance_test.sh provider-preflight
 bash scripts/acceptance_test.sh webrtc-vad-sidecar
 ```
+
+安装纯 ONNX Silero VAD（固定 v6.2.1 模型和 SHA256，不安装 PyTorch）：
+
+```bash
+bash scripts/setup_voice_vad_runtime.sh silero
+bash scripts/acceptance_test.sh silero-vad-runtime
+```
+
+验收会生成 `logs/silero_vad_runtime.json`，记录模型哈希、ONNX Runtime 版本、真实测试语音的
+人声帧数以及单帧 mean/P95/max 推理耗时，并通过 ROS 2 sidecar 验证成对 endpoint 事件。
 
 如需同时准备 Silero 和 WebRTC：
 

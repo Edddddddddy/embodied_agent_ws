@@ -49,6 +49,7 @@ Automated modes:
   speaker-memory-mock Speaker identity and per-user memory smoke test
   speaker-enroll     Speaker enrollment request saves wav samples and speakers.txt
   vad-sidecar         Dependency-free Silero VAD sidecar seam smoke test
+  silero-vad-runtime  Real lightweight Silero ONNX inference and latency report
   webrtc-vad-sidecar  Installed WebRTC VAD sidecar runtime smoke test
   kws-sidecar         Dependency-free keyword wake sidecar seam smoke test
   sherpa-kws-sidecar  Installed Sherpa-ONNX KWS runtime startup smoke test
@@ -318,6 +319,12 @@ case "$LEVEL" in
   speaker-memory-mock) bash scripts/smoke_test_speaker_memory.sh online; bash scripts/smoke_test_speaker_memory.sh offline ;;
   speaker-enroll) bash scripts/smoke_test_speaker_enrollment.sh ;;
   vad-sidecar) bash scripts/smoke_test_silero_vad_sidecar.sh ;;
+  silero-vad-runtime)
+    python3 scripts/silero_onnx_smoke.py \
+      --model "${SILERO_VAD_MODEL_PATH:-models/silero_vad/silero_vad.onnx}" \
+      --output "${SILERO_VAD_REPORT:-logs/silero_vad_runtime.json}"
+    bash scripts/smoke_test_silero_vad_runtime.sh
+    ;;
   webrtc-vad-sidecar) bash scripts/smoke_test_webrtc_vad_sidecar.sh ;;
   kws-sidecar) bash scripts/smoke_test_keyword_wake_sidecar.sh ;;
   sherpa-kws-sidecar) bash scripts/smoke_test_sherpa_kws_sidecar.sh ;;
@@ -331,7 +338,7 @@ case "$LEVEL" in
       --mode "${PROVIDER_PREFLIGHT_MODE:-offline}" \
       --vad-provider "${VAD_PROVIDER:-auto}" \
       --kws-provider "${KWS_PROVIDER:-none}" \
-      --silero-model-path "${SILERO_VAD_MODEL_PATH:-}" \
+      --silero-model-path "${SILERO_VAD_MODEL_PATH:-$WORKSPACE/models/silero_vad/silero_vad.onnx}" \
       --silero-use-onnx "${SILERO_VAD_USE_ONNX:-true}" \
       --sherpa-tokens "${SHERPA_KWS_TOKENS:-}" \
       --sherpa-encoder "${SHERPA_KWS_ENCODER:-}" \
@@ -347,7 +354,7 @@ case "$LEVEL" in
       --mode "${PROVIDER_PREFLIGHT_MODE:-offline}" \
       --vad-provider "${VAD_PROVIDER:-auto}" \
       --kws-provider "${KWS_PROVIDER:-none}" \
-      --silero-model-path "${SILERO_VAD_MODEL_PATH:-}" \
+      --silero-model-path "${SILERO_VAD_MODEL_PATH:-$WORKSPACE/models/silero_vad/silero_vad.onnx}" \
       --silero-use-onnx "${SILERO_VAD_USE_ONNX:-true}" \
       --sherpa-tokens "${SHERPA_KWS_TOKENS:-}" \
       --sherpa-encoder "${SHERPA_KWS_ENCODER:-}" \

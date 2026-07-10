@@ -711,7 +711,7 @@ VOICE_CONTROL_PROFILE=quiet bash scripts/acceptance_test.sh continuous-offline
 VOICE_CONTROL_PROFILE=low_gain bash scripts/acceptance_test.sh continuous-offline
 ```
 
-连续语音脚本默认 `VAD_PROVIDER=auto`：如果本机安装了 `silero-vad` 和 `onnxruntime`，
+连续语音脚本默认 `VAD_PROVIDER=auto`：如果固定 Silero ONNX 模型和 `onnxruntime` 可用，
 会启动 Silero sidecar；如果 Silero 不可用但安装了 `webrtcvad`，会启动更轻量的
 WebRTC sidecar；两者都不可用时才打印 `vad:auto_fallback:energy:...` 并降级到
 energy VAD。`provider-preflight` 会同时输出 `recommendations`，例如推荐执行
@@ -739,9 +739,16 @@ bash scripts/acceptance_test.sh webrtc-vad-sidecar
 ```
 
 `webrtc-vad-sidecar` 会启动 C++ audio frontend 和 WebRTC VAD sidecar，要求当前环境已经安装
-`webrtcvad`。它比 `vad-sidecar` 更接近真实运行时：`vad-sidecar` 只验证 Silero sidecar
-的无依赖 seam，`webrtc-vad-sidecar` 则验证轻量成熟 VAD runtime 可以真正启动并接管
-`/audio/speech_started` / `/audio/speech_ended` 端点事件。
+`webrtcvad`。`vad-sidecar` 只验证无模型依赖的节点 seam；真实 Silero ONNX 验收使用：
+
+```bash
+bash scripts/setup_voice_vad_runtime.sh silero
+bash scripts/acceptance_test.sh silero-vad-runtime
+```
+
+后者先对固定测试语音执行真实 ONNX 推理并生成 `logs/silero_vad_runtime.json`，再启动 ROS 2
+sidecar，要求 `/audio/vad_event` 中出现成对的 `speech_started/speech_ended`。因此它同时证明
+模型、递归 state/context、推理延迟和 ROS endpoint 接口，而不仅是检查依赖是否存在。
 
 如果要同时准备 Silero 和 WebRTC：
 

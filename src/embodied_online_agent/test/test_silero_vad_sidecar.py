@@ -1,6 +1,8 @@
 import pytest
 
 from embodied_online_agent.silero_vad_sidecar import (
+    SileroOnnxVadProvider,
+    SileroVadProvider,
     StreamingVadEndpoint,
     VadEventName,
     WebRtcVadProvider,
@@ -21,6 +23,81 @@ class ScriptedProbabilityProvider:
 
 def frame(sample_count: int = 160) -> bytes:
     return b"\x01\x00" * sample_count
+
+
+def test_silero_onnx_provider_runs_stateful_32ms_frames_without_torch(tmp_path):
+    import numpy as np
+
+    model = tmp_path / "silero_vad.onnx"
+    model.write_bytes(b"onnx-stub")
+
+    class FakeSession:
+        def __init__(self):
+            self.calls = []
+
+        def run(self, _outputs, inputs):
+            self.calls.append(inputs)
+            return [
+                np.array([[0.75]], dtype=np.float32),
+                np.ones((2, 1, 128), dtype=np.float32),
+            ]
+
+    session = FakeSession()
+    provider = SileroOnnxVadProvider(
+        model_path=str(model), session_factory=lambda _path: session
+    )
+
+    probability = provider.speech_probability(frame(sample_count=512), 16000)
+    provider.speech_probability(b"\x02\x00" * 512, 16000)
+
+    assert probability == pytest.approx(0.75)
+    assert session.calls[0]["input"].shape == (1, 576)
+    assert session.calls[0]["state"].shape == (2, 1, 128)
+    assert int(session.calls[0]["sr"]) == 16000
+    assert np.all(
+        session.calls[1]["input"][0, :64]
+        == session.calls[0]["input"][0, -64:]
+    )
+
+
+def test_silero_provider_uses_lightweight_onnx_path_without_torch(tmp_path):
+    import numpy as np
+
+    model = tmp_path / "silero_vad.onnx"
+    model.write_bytes(b"onnx-stub")
+
+    class FakeSession:
+        def run(self, _outputs, inputs):
+            return [
+                np.array([[0.6]], dtype=np.float32),
+                inputs["state"],
+            ]
+
+    provider = SileroVadProvider(
+        use_onnx=True,
+        model_path=str(model),
+        session_factory=lambda _path: FakeSession(),
+    )
+
+    assert provider.speech_probability(frame(sample_count=512), 16000) == pytest.approx(
+        0.6
+    )
+
+
+def test_silero_onnx_provider_rejects_non_32ms_frame(tmp_path):
+    model = tmp_path / "silero_vad.onnx"
+    model.write_bytes(b"onnx-stub")
+
+    class FakeSession:
+        def run(self, _outputs, _inputs):
+            raise AssertionError("invalid frame must fail before inference")
+
+    provider = SileroOnnxVadProvider(
+        model_path=str(model), session_factory=lambda _path: FakeSession()
+    )
+
+    with pytest.raises(ValueError, match="512"):
+        provider.speech_probability(frame(sample_count=320), 16000)
 
 
 def test_streaming_endpoint_emits_start_and_end_for_complete_utterance():

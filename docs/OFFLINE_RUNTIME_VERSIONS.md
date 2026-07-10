@@ -10,6 +10,8 @@
 | `llama.cpp` | `https://github.com/ggml-org/llama.cpp.git` | `0eca4d490e591d4e93058d07540cf47278a72577` | 本地 Qwen GGUF 推理，提供 OpenAI-compatible streaming API |
 | `SummerTTS` | `https://github.com/huakunyang/SummerTTS.git` | `c90e0e8d31e09c98199ab9b5a605af74c179f811` | C++ 独立编译离线 TTS 后端 |
 | `sherpa-onnx` | PyPI / k2-fsa | `1.13.3` | ZipFormer ASR、Sherpa-TTS / speaker seam 的 Python runtime |
+| `Silero VAD` | `snakers4/silero-vad` | `v6.2.1`, SHA256 `1a153a22...d8788e3` | 纯 ONNX 连续语音端点检测 |
+| `onnxruntime` | PyPI | `1.27.0` | Silero VAD CPU 推理，不依赖 PyTorch |
 
 ## 部署入口
 
@@ -52,6 +54,7 @@ bash scripts/acceptance_test.sh summer-tts-preflight
 bash scripts/acceptance_test.sh summer-tts-smoke
 bash scripts/acceptance_test.sh summer-pseudo-tts
 bash scripts/acceptance_test.sh sherpa-asr-preflight
+bash scripts/acceptance_test.sh silero-vad-runtime
 ```
 
 ## 设计取舍

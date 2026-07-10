@@ -152,6 +152,9 @@
   AudioFrontend 只发布 clean PCM，`silero_vad` sidecar 负责 endpoint；Silero 不可用但
   `webrtcvad` 可用时，`webrtc_vad` sidecar 接管 endpoint；都不可用时降级 energy VAD。
 - `scripts/setup_voice_vad_runtime.sh` 提供 WebRTC/Silero 可选依赖安装入口，支持 dry-run；
+- Silero 默认使用项目内 `SileroOnnxVadProvider` 管理模型的递归 `state` 和 64-sample
+  context，16kHz 每 512 samples（32ms）推理一次。相比官方 PyTorch 包路径，端侧默认只需
+  约 2.2MiB ONNX 模型和 ONNX Runtime；模型版本、哈希与实测延迟由验收报告记录。
 - `StreamingVadEndpoint` 使用“连续帧起点确认 + 较低结束阈值”的状态机：起点去抖负责过滤
   短噪声，阈值滞回负责避免概率在临界值附近反复切换。相比单一能量阈值，它更适合长时间
   麦克风控制；相比直接调用模型工具函数，独立 endpoint 状态机更容易单测和替换 provider。
@@ -162,6 +165,8 @@
   “运行哪个 setup 脚本”，减少现场排障成本。
 - `webrtc-vad-sidecar` 是安装 WebRTC runtime 后的显式验收入口：它启动 C++ audio frontend
   和 `webrtc_vad` sidecar，确认端点事件由成熟 VAD 接管，而不只是检查 Python 包是否存在。
+- `silero-vad-runtime` 是更强的 Silero 验收：先使用真实语音测模型概率/单帧延迟，再向
+  ROS 2 sidecar 发布 PCM，要求输出成对 endpoint 事件。
 - `scripts/setup_voice_kws_runtime.sh` 提供 openWakeWord、sherpa-onnx KWS、LiveKit WakeWord
   的可选运行时入口；sherpa profile 会复用 ZipFormer ASR 模型路径，生成默认关键词文件，
   并写出 `logs/sherpa_kws.env`，方便后续 `source` 后直接跑 `provider-preflight`。

@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Protocol
+from typing import Callable, Protocol
 
 
 class VadEventName(str, Enum):
@@ -41,6 +41,107 @@ class SileroVadUnavailableError(RuntimeError):
 
 class WebRtcVadUnavailableError(RuntimeError):
     pass
+
+
+class SileroOnnxVadProvider:
+    """不依赖 PyTorch 的 Silero ONNX 流式推理 adapter。
+
+    Silero v6 的 ONNX 模型不是无状态分类器：每一帧都必须携带上一帧返回的 state，
+    同时拼接 64（16kHz）或 32（8kHz）个历史采样点。把状态封装在 provider 内部，
+    上层 endpoint 只需要处理人声概率，不会把模型细节泄漏到 ROS 节点。
+    """
+
+    _SAMPLES_PER_FRAME = {8000: 256, 16000: 512}
+    _CONTEXT_SAMPLES = {8000: 32, 16000: 64}
+
+    def __init__(
+        self,
+        *,
+        model_path: str,
+        session_factory: Callable[[str], object] | None = None,
+    ):
+        path = Path(model_path).expanduser()
+        if not path.exists():
+            raise SileroVadUnavailableError(f"Silero VAD model_path 不存在: {path}")
+        try:
+            import numpy as np
+        except Exception as error:  # pragma: no cover - 基础运行时异常
+            raise SileroVadUnavailableError("Silero ONNX 需要 numpy。") from error
+
+        self._np = np
+        self._session = (
+            session_factory(str(path))
+            if session_factory is not None
+            else self._create_session(str(path))
+        )
+        self._last_sample_rate = 0
+        self._reset_state(16000)
+
+    @staticmethod
+    def _create_session(model_path: str):
+        try:
+            import onnxruntime
+        except Exception as error:  # pragma: no cover - 真实运行时依赖检查
+            raise SileroVadUnavailableError(
+                "Silero ONNX 依赖未安装。请执行："
+                "bash scripts/setup_voice_vad_runtime.sh silero"
+            ) from error
+
+        options = onnxruntime.SessionOptions()
+        options.inter_op_num_threads = 1
+        options.intra_op_num_threads = 1
+        providers = None
+        if "CPUExecutionProvider" in onnxruntime.get_available_providers():
+            providers = ["CPUExecutionProvider"]
+        return onnxruntime.InferenceSession(
+            model_path,
+            sess_options=options,
+            providers=providers,
+        )
+
+    def _reset_state(self, sample_rate: int) -> None:
+        context_size = self._CONTEXT_SAMPLES[sample_rate]
+        self._state = self._np.zeros((2, 1, 128), dtype=self._np.float32)
+        self._context = self._np.zeros((1, context_size), dtype=self._np.float32)
+        self._last_sample_rate = sample_rate
+
+    def reset(self, sample_rate: int = 16000) -> None:
+        """在新音频流开始时清空递归状态，避免上一段语音影响下一段概率。"""
+        if sample_rate not in self._SAMPLES_PER_FRAME:
+            raise ValueError("Silero VAD sample_rate must be 8000 or 16000")
+        self._reset_state(sample_rate)
+
+    def speech_probability(self, pcm_frame: bytes, sample_rate: int) -> float:
+        if sample_rate not in self._SAMPLES_PER_FRAME:
+            raise ValueError("Silero VAD sample_rate must be 8000 or 16000")
+        expected_samples = self._SAMPLES_PER_FRAME[sample_rate]
+        audio = self._np.frombuffer(pcm_frame, dtype="<i2")
+        if audio.size != expected_samples:
+            raise ValueError(
+                "Silero VAD requires exactly "
+                f"{expected_samples} samples per frame at {sample_rate}Hz"
+            )
+        if self._last_sample_rate != sample_rate:
+            self._reset_state(sample_rate)
+
+        normalized = audio.astype(self._np.float32).reshape(1, -1) / 32768.0
+        model_input = self._np.concatenate((self._context, normalized), axis=1)
+        outputs = self._session.run(
+            None,
+            {
+                "input": model_input,
+                "state": self._state,
+                "sr": self._np.array(sample_rate, dtype=self._np.int64),
+            },
+        )
+        if len(outputs) < 2:
+            raise RuntimeError("Silero ONNX model must return probability and state")
+        probability, self._state = outputs[0], self._np.asarray(
+            outputs[1], dtype=self._np.float32
+        )
+        context_size = self._CONTEXT_SAMPLES[sample_rate]
+        self._context = model_input[:, -context_size:].copy()
+        return float(self._np.asarray(probability).reshape(-1)[0])
 
 
 class StreamingVadEndpoint:
@@ -175,14 +276,33 @@ class StreamingVadEndpoint:
 
 
 class SileroVadProvider:
-    """silero-vad Python 包 adapter。
+    """Silero provider facade：默认走轻量 ONNX，JIT 模式才使用官方 Python 包。
 
-    依赖是可选的：默认工程和 CI 不安装 torch/onnxruntime/silero-vad；连续语音脚本的
-    VAD_PROVIDER=auto 会在依赖可用时才切到 silero。如果用户显式启动 vad_provider:=silero
-    但依赖缺失，节点会给出可执行的安装提示。
+    依赖是可选的：默认 CI 不下载模型；连续语音脚本的 VAD_PROVIDER=auto 会在模型和
+    onnxruntime 都可用时才切到 Silero。这样端侧部署只增加约 2.2MiB 模型和 ONNX Runtime，
+    不需要为了 VAD 安装完整 PyTorch。
     """
 
-    def __init__(self, *, use_onnx: bool = True, model_path: str = ""):
+    def __init__(
+        self,
+        *,
+        use_onnx: bool = True,
+        model_path: str = "",
+        session_factory: Callable[[str], object] | None = None,
+    ):
+        self._onnx_provider = None
+        if use_onnx:
+            if not model_path:
+                raise SileroVadUnavailableError(
+                    "Silero ONNX model_path 为空。请执行："
+                    "bash scripts/setup_voice_vad_runtime.sh silero"
+                )
+            self._onnx_provider = SileroOnnxVadProvider(
+                model_path=model_path,
+                session_factory=session_factory,
+            )
+            return
+
         try:
             import numpy as np
             import torch
@@ -195,7 +315,7 @@ class SileroVadProvider:
 
         self._np = np
         self._torch = torch
-        kwargs = {"onnx": use_onnx}
+        kwargs = {"onnx": False}
         if model_path:
             path = Path(model_path).expanduser()
             if not path.exists():
@@ -209,6 +329,8 @@ class SileroVadProvider:
             self._model = load_silero_vad(**kwargs)
 
     def speech_probability(self, pcm_frame: bytes, sample_rate: int) -> float:
+        if self._onnx_provider is not None:
+            return self._onnx_provider.speech_probability(pcm_frame, sample_rate)
         audio = self._np.frombuffer(pcm_frame, dtype="<i2").astype("float32") / 32768.0
         tensor = self._torch.from_numpy(audio)
         with self._torch.no_grad():

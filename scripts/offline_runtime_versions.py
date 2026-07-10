@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.metadata
 import json
 import subprocess
@@ -15,6 +16,8 @@ EXPECTED = {
     "llama.cpp": "0eca4d490e591d4e93058d07540cf47278a72577",
     "SummerTTS": "c90e0e8d31e09c98199ab9b5a605af74c179f811",
     "sherpa-onnx": "1.13.3",
+    "onnxruntime": "1.27.0",
+    "Silero VAD model": "1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3",
 }
 
 
@@ -38,6 +41,16 @@ def _package_version(name: str) -> str | None:
         return importlib.metadata.version(name)
     except importlib.metadata.PackageNotFoundError:
         return None
+
+
+def _sha256(path: Path) -> str | None:
+    if not path.is_file():
+        return None
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _item(name: str, actual: str | None, path: Path | None = None) -> dict[str, object]:
@@ -64,6 +77,12 @@ def collect() -> dict[str, object]:
             WORKSPACE / "third_party" / "SummerTTS",
         ),
         _item("sherpa-onnx", _package_version("sherpa-onnx")),
+        _item("onnxruntime", _package_version("onnxruntime")),
+        _item(
+            "Silero VAD model",
+            _sha256(WORKSPACE / "models" / "silero_vad" / "silero_vad.onnx"),
+            WORKSPACE / "models" / "silero_vad" / "silero_vad.onnx",
+        ),
     ]
     return {"ok": all(bool(item["ok"]) for item in items), "items": items}
 

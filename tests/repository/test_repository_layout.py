@@ -835,6 +835,7 @@ def test_webrtc_vad_sidecar_remains_integrated_as_optional_voice_provider():
     assert "silero-vad" in setup_py
     assert "webrtc_vad = embodied_online_agent.webrtc_vad_node:main" in setup_py
     assert "class WebRtcVadProvider" in sidecar
+    assert "class SileroOnnxVadProvider" in sidecar
     assert "WebRTC VAD frame_ms must be one of [10, 20, 30]" in sidecar
     assert "executable=\"webrtc_vad\"" in online_launch
     assert "executable=\"webrtc_vad\"" in offline_launch
@@ -844,11 +845,16 @@ def test_webrtc_vad_sidecar_remains_integrated_as_optional_voice_provider():
     assert "webrtcvad_package_missing" in preflight
     assert "auto 会优先 Silero，其次 WebRTC，最后降级 energy" in continuous
     assert (ROOT / "scripts" / "setup_voice_vad_runtime.sh").is_file()
+    assert (ROOT / "scripts" / "silero_onnx_smoke.py").is_file()
+    assert (ROOT / "scripts" / "silero_ros_runtime_probe.py").is_file()
+    assert (ROOT / "scripts" / "smoke_test_silero_vad_runtime.sh").is_file()
     assert (ROOT / "scripts" / "smoke_test_webrtc_vad_sidecar.sh").is_file()
     assert "voice-vad-runtime-dry-run" in acceptance
     assert "webrtc-vad-sidecar" in acceptance
+    assert "silero-vad-runtime" in acceptance
     assert "setup_voice_vad_runtime.sh webrtc" in acceptance_doc
     assert "webrtc-vad-sidecar" in acceptance_doc
+    assert "silero-vad-runtime" in acceptance_doc
     assert "embodied_online_agent[webrtc-vad]" in acceptance_doc
 
 

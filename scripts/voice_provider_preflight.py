@@ -22,6 +22,7 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_SILERO_MODEL = ROOT / "models" / "silero_vad" / "silero_vad.onnx"
 
 
 @dataclass(frozen=True)
@@ -181,14 +182,17 @@ def _silero_blockers(
     module_finder: Callable[[str], object | None],
 ) -> tuple[str, ...]:
     blockers: list[str] = []
-    if not _has_module("silero_vad", module_finder):
+    use_onnx = _bool_value(silero.get("use_onnx", True), True)
+    if use_onnx:
+        # 纯 ONNX 路径由项目自己维护 state/context，不需要安装体积较大的 PyTorch。
+        if not _has_module("onnxruntime", module_finder):
+            blockers.append("vad:onnxruntime_package_missing")
+    elif not _has_module("silero_vad", module_finder):
         blockers.append("vad:silero_vad_package_missing")
-    if _bool_value(silero.get("use_onnx", True), True) and not _has_module(
-        "onnxruntime", module_finder
-    ):
-        blockers.append("vad:onnxruntime_package_missing")
     model_path = str(silero.get("model_path", "") or "").strip()
-    if model_path and _missing_paths([model_path]):
+    if use_onnx and not model_path:
+        blockers.append("vad:silero_model_path_empty")
+    elif model_path and _missing_paths([model_path]):
         blockers.append(f"vad:silero_model_missing:{model_path}")
     return tuple(blockers)
 
@@ -378,7 +382,7 @@ def main() -> None:
     parser.add_argument("--vad-provider", default="auto")
     parser.add_argument("--kws-provider", default="none")
     parser.add_argument("--config", type=Path, default=None)
-    parser.add_argument("--silero-model-path", default="")
+    parser.add_argument("--silero-model-path", default=str(DEFAULT_SILERO_MODEL))
     parser.add_argument("--silero-use-onnx", default="")
     parser.add_argument("--sherpa-tokens", default="")
     parser.add_argument("--sherpa-encoder", default="")
