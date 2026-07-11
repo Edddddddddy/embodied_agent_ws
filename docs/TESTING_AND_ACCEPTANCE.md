@@ -472,7 +472,7 @@ colcon test-result --verbose
 
 - 命令归一化、短命令补全、fallback parser。
 - 连续语音 session、重复过滤、filler 过滤、队列。
-- ActionGuard 限幅与 RobotCommandAdapter。
+- ActionGuard 对强类型 RobotCommand candidate 做白名单、字段约束与限幅。
 - BehaviorTree、executor、仿真控制逻辑。
 
 ### 2.2.1 C++ ROS 2 Action client 示例

@@ -15,8 +15,10 @@ import threading
 import time
 
 import rclpy
+from embodied_agent_interfaces.msg import RobotCommand
 from rclpy.node import Node
 from std_msgs.msg import String
+from typed_action_test_utils import candidate_dict
 
 
 FIRST_QUEUED_COMMAND = "左转九十度"
@@ -35,7 +37,7 @@ class ContinuousQueueFullProbe(Node):
         self.create_subscription(
             String, "/agent/recognition_feedback", self._on_feedback, 10
         )
-        self.create_subscription(String, "/agent/action_candidate", self._on_candidate, 10)
+        self.create_subscription(RobotCommand, "/agent/action_candidate", self._on_candidate, 10)
 
     def _on_queue(self, message):
         self.queue_events.append(json.loads(message.data))
@@ -44,7 +46,7 @@ class ContinuousQueueFullProbe(Node):
         self.feedback.append(json.loads(message.data))
 
     def _on_candidate(self, message):
-        self.candidates.append(json.loads(message.data))
+        self.candidates.append(candidate_dict(message))
 
 
 def wait_until(predicate, timeout, description):

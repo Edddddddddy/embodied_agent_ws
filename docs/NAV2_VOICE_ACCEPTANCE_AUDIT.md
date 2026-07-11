@@ -8,8 +8,8 @@
 | --- | --- | --- | --- |
 | 语音/文本命令能表达目标点导航 | `src/embodied_online_agent/embodied_online_agent/command_nlu.py`、`command_fallback.py` | `bash scripts/acceptance_test.sh continuous-navigation` | 已有自动化证据 |
 | 支持自然话术，例如“先去门口再去书桌最后回起点” | `command_nlu.py` 的自然多目标解析逻辑 | `bash scripts/acceptance_test.sh continuous-navigation-natural` | 已有自动化证据 |
-| 多目标点巡航输出 `follow_waypoints` | `command_nlu.py`、`src/embodied_agent_cpp/src/robot_command_adapter.cpp` | `continuous-navigation`、`continuous-navigation-natural` | 已有自动化证据 |
-| 所有动作经过 C++ ActionGuard 限幅与强类型转换 | `src/embodied_agent_cpp/src/action_guard_node.cpp`、`robot_command_adapter.cpp` | `bash scripts/smoke_test_typed_action.sh`、`colcon test --packages-select embodied_agent_cpp` | 已有自动化证据 |
+| 多目标点巡航输出 `follow_waypoints` | `command_nlu.py`、`ros_action_transport.py` | `continuous-navigation`、`continuous-navigation-natural` | 已有自动化证据 |
+| 所有动作经过 C++ ActionGuard 限幅与强类型校验 | `src/embodied_agent_cpp/src/action_guard_node.cpp`、`action_validator.cpp` | `bash scripts/smoke_test_typed_action.sh`、`colcon test --packages-select embodied_agent_cpp` | 已有自动化证据 |
 | 导航动作通过 ROS 2 Action 可反馈、可等待 result | `src/embodied_agent_cpp/src/typed_action_bridge_node.cpp`、`src/embodied_simulation/src/simulation_control_node.cpp` | `bash scripts/smoke_test_typed_action_server.sh` | 已有自动化证据 |
 | `navigate_to/follow_waypoints` 能转成 Nav2 Action goal | `src/embodied_simulation/src/nav2_action_bridge_node.cpp`、语义地点配置 | `bash scripts/acceptance_test.sh nav2-bridge` | 已有自动化证据 |
 | 真实 TurtleBot3/Nav2 仿真依赖和 launch 参数正确 | `src/embodied_simulation/launch/voice_nav2_turtlebot3.launch.py` | `bash scripts/acceptance_test.sh nav2-preflight` | 已有自动化证据 |

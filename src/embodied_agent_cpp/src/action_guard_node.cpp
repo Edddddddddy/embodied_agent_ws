@@ -7,7 +7,7 @@
 #include "rclcpp_lifecycle/lifecycle_node.hpp"
 #include "std_msgs/msg/string.hpp"
 
-#include "embodied_agent_cpp/robot_command_adapter.hpp"
+#include "embodied_agent_cpp/action_validator.hpp"
 #include "embodied_agent_interfaces/msg/robot_command.hpp"
 
 namespace embodied_agent_cpp
@@ -33,9 +33,11 @@ protected:
       "/robot/action_command_typed", 10);
     rejection_publisher_ = create_publisher<std_msgs::msg::String>(
       "/robot/action_rejected", 10);
-    candidate_subscription_ = create_subscription<std_msgs::msg::String>(
+    candidate_subscription_ = create_subscription<
+      embodied_agent_interfaces::msg::RobotCommand>(
       "/agent/action_candidate", 10,
-      [this](const std_msgs::msg::String::SharedPtr message) {
+      [this](
+        const embodied_agent_interfaces::msg::RobotCommand::SharedPtr message) {
         on_candidate(message);
       });
     command_sequence_ = 0;
@@ -85,17 +87,17 @@ private:
            lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE;
   }
 
-  void on_candidate(const std_msgs::msg::String::SharedPtr message)
+  void on_candidate(
+    const embodied_agent_interfaces::msg::RobotCommand::SharedPtr message)
   {
     if (!is_active()) {
       RCLCPP_DEBUG(get_logger(), "ignored action candidate while inactive");
       return;
     }
     const std::string command_id = "guard-" + std::to_string(++command_sequence_);
-    // ActionGuard 是 LLM 输出和机器人执行之间的安全边界：
-    // 这里只接受能通过 adapter 校验/限幅的候选动作，并只发布强类型 RobotCommand。
-    // 旧版 /robot/action_command 字符串命令已删除，避免仿真执行链路出现双入口。
-    auto result = adapter_.convert(message->data, command_id, "agent");
+    // ActionGuard 是 Agent 输出和机器人执行之间的安全边界。候选消息虽然已经
+    // 强类型化，数值范围、无关字段和动作白名单仍必须在 C++ 侧重新校验。
+    auto result = validator_.validate(*message, command_id, "agent");
     std_msgs::msg::String output;
     if (!result.valid) {
       output.data = result.error;
@@ -103,21 +105,22 @@ private:
       RCLCPP_WARN(get_logger(), "action rejected: %s", result.error.c_str());
       return;
     }
-    result.typed_command.header.stamp = now();
-    typed_command_publisher_->publish(result.typed_command);
+    result.command.header.stamp = now();
+    typed_command_publisher_->publish(result.command);
     RCLCPP_INFO(
       get_logger(), "action accepted: command_id=%s type=%u",
-      result.typed_command.command_id.c_str(), result.typed_command.action_type);
+      result.command.command_id.c_str(), result.command.action_type);
   }
 
-  RobotCommandAdapter adapter_;
+  ActionValidator validator_;
   std::atomic_uint64_t command_sequence_{0};
   rclcpp_lifecycle::LifecyclePublisher<
     embodied_agent_interfaces::msg::RobotCommand>::SharedPtr
     typed_command_publisher_;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::String>::SharedPtr
     rejection_publisher_;
-  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr candidate_subscription_;
+  rclcpp::Subscription<
+    embodied_agent_interfaces::msg::RobotCommand>::SharedPtr candidate_subscription_;
 };
 
 }  // namespace embodied_agent_cpp

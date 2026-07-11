@@ -46,6 +46,7 @@
 | KWS 阈值校准闭环 | 让现场 KWS 分数能直接变成下一轮参数 | `voice-calibration-report` 写出 `OPENWAKEWORD_THRESHOLD` / `LIVEKIT_WAKEWORD_THRESHOLD` 推荐值 |
 | Silero ONNX 轻量运行时 | 让成熟 VAD 不依赖 PyTorch 并具备真实推理证据 | 固定 v6.2.1 模型/哈希，纯 ONNX state/context 推理，ROS endpoint 与延迟报告通过 |
 | 离线性能证据收口 | 统一 ASR、LLM、TTS、tokens/s 和真实 E2E 指标 | 增加运行时预热、单槽 prompt cache、`offline-voice-e2e-report` 和严格证据审计；本轮端到首 PCM 多次运行约 1.32–2.11s |
+| 动作控制面全强类型化 | 删除 Agent→ActionGuard 的 JSON 适配层，让候选、受信命令、反馈和结果都使用自定义 ROS 2 接口 | 新增 `RobotCommandFeedback` / `RobotCommandResult`，Agent 直接发布 `RobotCommand`，C++ ActionGuard 直接校验字段；JSON 只保留在日志、指标和硬件协议边界 |
 
 ## 2. 当前完成度结论
 
@@ -53,7 +54,7 @@
 
 已具备的展示点：
 
-- ROS 2 C++ 节点：音频前端、ActionGuard、typed action bridge、仿真执行层。
+- ROS 2 C++ 节点：音频前端、ActionGuard、typed action bridge、仿真执行层；动作控制面不再依赖 JSON 字符串解析。
 - Python Agent：在线/离线 provider、连续语音会话、命令队列、LLM/TTS 编排。
 - 工程化接口：自定义 msg/action、Lifecycle、BehaviorTree.CPP、pluginlib。
 - 演示能力：真实麦克风连续语音、多动作序列、急停抢占、Gazebo 运动验证。

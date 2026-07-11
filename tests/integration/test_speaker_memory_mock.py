@@ -4,7 +4,9 @@ import time
 from pathlib import Path
 
 import rclpy
+from embodied_agent_interfaces.msg import RobotCommand
 from std_msgs.msg import String
+from typed_action_test_utils import candidate_dict
 
 
 def _spin_until(node, predicate, timeout_s=8.0):
@@ -24,7 +26,12 @@ def main():
     actions = []
     enroll_requests = []
     node.create_subscription(String, "/agent/response_text", lambda msg: responses.append(msg.data), 10)
-    node.create_subscription(String, "/agent/action_candidate", lambda msg: actions.append(msg.data), 10)
+    node.create_subscription(
+        RobotCommand,
+        "/agent/action_candidate",
+        lambda msg: actions.append(candidate_dict(msg)),
+        10,
+    )
     node.create_subscription(
         String,
         "/agent/speaker_enroll_request",
@@ -72,11 +79,11 @@ def main():
     assert _spin_until(node, lambda: any("当前用户" in item and "小李" in item for item in responses))
 
     text_pub.publish(String(data="向前走"))
-    assert _spin_until(node, lambda: any('"name": "move"' in item for item in actions))
+    assert _spin_until(node, lambda: any(item.get("name") == "move" for item in actions))
     assert any(
         payload.get("name") == "move"
         and payload.get("arguments", {}).get("linear_x") == 0.15
-        for payload in (json.loads(item) for item in actions)
+        for payload in actions
     ), "slow movement preference did not affect the next move command"
     profile_path = memory_dir / "lcy.json"
     assert _spin_until(

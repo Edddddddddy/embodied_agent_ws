@@ -21,8 +21,10 @@ sleep 3
 timeout 8 ros2 topic echo /robot/action_ack std_msgs/msg/String >"$ACK_LOG" &
 ECHO_PID=$!
 sleep 1
-ros2 topic pub --once /agent/action_candidate std_msgs/msg/String \
-  "{data: '{\"name\":\"move\",\"arguments\":{\"linear_x\":0.1,\"duration_s\":0.1}}'}" >/dev/null
+ros2 topic pub --once /agent/action_candidate \
+  embodied_agent_interfaces/msg/RobotCommand \
+  "{command_id: hardware-smoke, source: smoke, action_type: 2, linear_x: 0.1, duration_s: 0.1}" \
+  >/dev/null
 sleep 1
 grep -q '"action":"move"' "$ACK_LOG"
 grep -q '"source":"duration_elapsed"' "$ACK_LOG"

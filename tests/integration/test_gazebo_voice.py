@@ -9,12 +9,14 @@ import time
 
 import numpy as np
 import rclpy
+from embodied_agent_interfaces.msg import RobotCommandResult
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import Empty, String, UInt8MultiArray
 
 from embodied_offline_agent.providers.sherpa_tts import SherpaVitsTts
+from typed_action_test_utils import result_dict
 
 
 class VoiceGazeboProbe(Node):
@@ -41,7 +43,7 @@ class VoiceGazeboProbe(Node):
         self.create_subscription(String, "/agent/asr_final", self._on_asr, 10)
         self.create_subscription(String, "/robot/action_ack", self._on_ack, 10)
         self.create_subscription(
-            String, "/robot/action_result", self._on_result, 10
+            RobotCommandResult, "/robot/action_result", self._on_result, 10
         )
 
     def _on_odom(self, message):
@@ -62,7 +64,7 @@ class VoiceGazeboProbe(Node):
             self.action_ack = payload
 
     def _on_result(self, message):
-        self.action_result = json.loads(message.data)
+        self.action_result = result_dict(message)
 
 
 def resample(pcm, source_rate, target_rate):

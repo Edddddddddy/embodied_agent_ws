@@ -152,7 +152,7 @@ sequenceDiagram
 | 在线/离线 Agent | `online_agent_node.py`、`offline_agent_node.py` | `_on_asr_final()`、`_commit_asr_endpoint()`、`_run_turn()` |
 | 连续语音队列 | `src/embodied_online_agent/embodied_online_agent/continuous_voice.py` | `ContinuousVoiceSession`、`ContinuousCommandQueue` |
 | 动作解析 | `command_nlu.py`、`command_fallback.py`、`command_completion.py` | `CommandNLU.parse()`、`parse_fallback_actions()` |
-| C++ 安全边界 | `src/embodied_agent_cpp/src/action_guard_node.cpp`、`robot_command_adapter.cpp` | `on_candidate()`、`RobotCommandAdapter::convert()` |
+| C++ 安全边界 | `src/embodied_agent_cpp/src/action_guard_node.cpp`、`action_validator.cpp` | `on_candidate()`、`ActionValidator::validate()` |
 | ROS 2 Action client | `typed_action_bridge_node.cpp`、`typed_action_demo_client.cpp` | `feedback_callback`、`result_callback`、`TypedActionDemoClient::run()` |
 | ROS 2 Action server | `src/embodied_simulation/src/simulation_control_node.cpp` | `handle_goal()`、`update_active_action()`、`finish_active_action()` |
 | BT/pluginlib 执行 | `command_behavior_tree.cpp`、`robot_executor_plugins.cpp` | `CommandBehaviorTree::tick()`、`GazeboRobotExecutor`、`Nav2RobotExecutor` |

@@ -19,7 +19,9 @@ from embodied_agent_interfaces.msg import RobotCommand
 class LifecycleProbe(Node):
     def __init__(self):
         super().__init__("lifecycle_pipeline_probe")
-        self.candidate_pub = self.create_publisher(String, "/agent/action_candidate", 10)
+        self.candidate_pub = self.create_publisher(
+            RobotCommand, "/agent/action_candidate", 10
+        )
         self.scan_pub = self.create_publisher(LaserScan, "/scan", 10)
         self.typed_commands = []
         self.velocities = []
@@ -76,10 +78,12 @@ class LifecycleProbe(Node):
         return response.current_state.id
 
     def publish_candidate(self):
-        message = String()
-        message.data = (
-            '{"name":"move","arguments":{"linear_x":0.15,"duration_s":2.0}}'
-        )
+        message = RobotCommand()
+        message.command_id = "lifecycle-candidate"
+        message.source = "integration_test"
+        message.action_type = RobotCommand.MOVE
+        message.linear_x = 0.15
+        message.duration_s = 2.0
         self.candidate_pub.publish(message)
 
     def publish_scan(self, distance=2.0):

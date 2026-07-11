@@ -16,6 +16,11 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import rclpy
+from embodied_agent_interfaces.msg import RobotCommand, RobotCommandResult
+from embodied_online_agent.ros_action_transport import (
+    command_message_to_dict,
+    result_message_to_dict,
+)
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from std_msgs.msg import String
@@ -80,8 +85,12 @@ class LiveCheckNode(Node):
         self.create_subscription(String, "/agent/session_state", self._on_session, 10)
         self.create_subscription(String, "/agent/command_queue", self._on_queue, 10)
         self.create_subscription(String, "/agent/command_execution", self._on_execution, 10)
-        self.create_subscription(String, "/agent/action_candidate", self._on_candidate, 10)
-        self.create_subscription(String, "/robot/action_result", self._on_result, 10)
+        self.create_subscription(
+            RobotCommand, "/agent/action_candidate", self._on_candidate, 10
+        )
+        self.create_subscription(
+            RobotCommandResult, "/robot/action_result", self._on_result, 10
+        )
         self.create_subscription(
             String,
             "/agent/recognition_feedback",
@@ -107,8 +116,8 @@ class LiveCheckNode(Node):
     def _on_execution(self, message: String) -> None:
         self.execution_events.append(_json_dict(message.data))
 
-    def _on_candidate(self, message: String) -> None:
-        candidate = _json_dict(message.data)
+    def _on_candidate(self, message: RobotCommand) -> None:
+        candidate = command_message_to_dict(message)
         self.candidates.append(candidate)
         request_id = str(candidate.get("request_id") or "")
         if request_id and self._last_asr_at > 0.0:
@@ -116,8 +125,8 @@ class LiveCheckNode(Node):
         if request_id:
             self._candidate_name_by_id[request_id] = str(candidate.get("name") or "")
 
-    def _on_result(self, message: String) -> None:
-        result = _json_dict(message.data)
+    def _on_result(self, message: RobotCommandResult) -> None:
+        result = result_message_to_dict(message)
         command_id = str(result.get("command_id") or "")
         action_name = self._candidate_name_by_id.pop(command_id, "")
         if action_name:

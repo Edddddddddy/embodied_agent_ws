@@ -12,6 +12,7 @@ uint8 SET_MODE=6
 uint8 NAVIGATE_TO=7
 uint8 FOLLOW_WAYPOINTS=8
 uint8 CANCEL_NAVIGATION=9
+uint8 ARC=10
 uint8 action_type
 
 float64 linear_x

@@ -53,6 +53,8 @@ sequenceDiagram
 核心文件：
 
 - `msg/RobotCommand.msg`
+- `msg/RobotCommandFeedback.msg`
+- `msg/RobotCommandResult.msg`
 - `action/ExecuteRobotCommand.action`
 
 说明：
@@ -74,14 +76,14 @@ sequenceDiagram
 - `src/action_guard_node.cpp`
 - `src/typed_action_bridge_node.cpp`
 - `src/hardware_controller_node.cpp`
-- `src/robot_command_adapter.cpp`
 - `src/action_validator.cpp`
 
 说明：
 
 - `audio_frontend_node` 处理音频能量、VAD、endpoint、clean PCM 发布。
 - `action_guard_node` 是 LLM 输出到机器人执行之间的安全边界。
-- `typed_action_bridge_node` 把 topic 命令转换成 ROS 2 Action goal。
+- `typed_action_bridge_node` 把受信任命令转换成 ROS 2 Action goal，并把 feedback/result
+  映射为强类型观测消息。
 
 ### `embodied_online_agent`
 
@@ -162,10 +164,10 @@ sequenceDiagram
 | `/agent/session_state` | Agent → monitor | awake/sleeping 等会话状态 |
 | `/agent/command_queue` | Agent → monitor | enqueue/rejected/expired/clear |
 | `/agent/command_execution` | Agent → monitor | started/finished |
-| `/agent/action_candidate` | Agent → ActionGuard | 结构化动作候选 |
+| `/agent/action_candidate` | Agent → ActionGuard | `RobotCommand` 强类型候选 |
 | `/robot/action_command_typed` | ActionGuard → bridge | 强类型 RobotCommand |
-| `/robot/action_feedback` | bridge → monitor | Action feedback |
-| `/robot/action_result` | bridge/executor → Agent | Action result |
+| `/robot/action_feedback` | bridge → monitor | `RobotCommandFeedback` |
+| `/robot/action_result` | bridge → Agent | `RobotCommandResult` |
 | `/cmd_vel` | executor → Gazebo | 机器人速度命令 |
 | `robot/execute_command` | bridge → executor | ROS 2 Action |
 

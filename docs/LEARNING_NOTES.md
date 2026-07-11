@@ -19,6 +19,8 @@
 关键代码：
 
 - `src/embodied_agent_interfaces/msg/RobotCommand.msg`
+- `src/embodied_agent_interfaces/msg/RobotCommandFeedback.msg`
+- `src/embodied_agent_interfaces/msg/RobotCommandResult.msg`
 - `src/embodied_agent_interfaces/action/ExecuteRobotCommand.action`
 - `src/embodied_agent_cpp/src/typed_action_bridge_node.cpp`
 - `src/embodied_agent_cpp/src/typed_action_demo_client.cpp`
@@ -28,8 +30,8 @@
 
 设计方式：
 
-- Agent 先发布 `/agent/action_candidate`，内容是 LLM 或 fallback parser 生成的结构化动作候选。
-- C++ ActionGuard 将动作候选转为强类型 `RobotCommand`。
+- Agent 先把 LLM 或 fallback parser 的领域动作映射为强类型 `RobotCommand` candidate。
+- C++ ActionGuard 对 candidate 做白名单、字段约束和限幅，再发布受信任的 `RobotCommand`。
 - typed action bridge 将 `RobotCommand` 发送为 `ExecuteRobotCommand` goal。
 - `typed_action_demo_client` 是面试/调试用最小 C++ action client：从命令行构造
   `RobotCommand`，直接发送 action goal，打印 feedback/result 并用结果决定进程退出码；
@@ -58,15 +60,14 @@
 关键代码：
 
 - `src/embodied_agent_cpp/src/action_guard_node.cpp`
-- `src/embodied_agent_cpp/include/embodied_agent_cpp/robot_command_adapter.hpp`
-- `src/embodied_agent_cpp/src/robot_command_adapter.cpp`
 - `src/embodied_agent_cpp/include/embodied_agent_cpp/action_validator.hpp`
 - `src/embodied_agent_cpp/src/action_validator.cpp`
+- `src/embodied_online_agent/embodied_online_agent/ros_action_transport.py`
 
 设计方式：
 
 - 订阅 `/agent/action_candidate`。
-- 解析动作候选。
+- 接收强类型动作候选；不再解析 ROS topic 中的 JSON 字符串。
 - 校验动作类型、速度、时长、颜色、模式等字段。
 - 通过后发布 `/robot/action_command_typed` 强类型 ROS 2 msg。
 - 拒绝时发布 `/robot/action_rejected`。
@@ -76,6 +77,8 @@
 - 大模型输出不可完全信任，必须在进入机器人执行层前做白名单和限幅。
 - 删除旧字符串动作命令入口，避免仿真/硬件执行层出现双入口。
 - 使用 typed message，方便 C++、Action、仿真执行器稳定对接。
+- candidate 的 `ARC` 保留上层语义，ActionGuard 校验后规范化为执行层 `MOVE`，
+  兼顾报告可解释性和底层速度控制复用。
 
 方案对比：
 
@@ -568,8 +571,8 @@ sidecar 输出实际相似度。多人准确率仍需另建注册/查询数据�
 - `src/embodied_online_agent/embodied_online_agent/command_nlu.py`
 - `src/embodied_online_agent/embodied_online_agent/command_fallback.py`
 - `src/embodied_agent_interfaces/msg/RobotCommand.msg`
+- `src/embodied_online_agent/embodied_online_agent/ros_action_transport.py`
 - `src/embodied_agent_cpp/src/action_validator.cpp`
-- `src/embodied_agent_cpp/src/robot_command_adapter.cpp`
 - `src/embodied_simulation/include/embodied_simulation/nav2_places.hpp`
 - `src/embodied_simulation/config/places.yaml`
 - `src/embodied_simulation/rviz/voice_nav2_demo.rviz`

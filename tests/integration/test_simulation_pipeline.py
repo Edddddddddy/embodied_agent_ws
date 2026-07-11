@@ -7,16 +7,20 @@ import threading
 import time
 
 import rclpy
+from embodied_agent_interfaces.msg import RobotCommand
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
+from typed_action_test_utils import candidate_message
 
 
 class SimulationProbe(Node):
     def __init__(self):
         super().__init__("simulation_pipeline_probe")
-        self.action_pub = self.create_publisher(String, "/agent/action_candidate", 10)
+        self.action_pub = self.create_publisher(
+            RobotCommand, "/agent/action_candidate", 10
+        )
         self.scan_pub = self.create_publisher(LaserScan, "/scan", 10)
         self.last_velocity = None
         self.last_state = None
@@ -57,8 +61,7 @@ class SimulationProbe(Node):
         self.scan_pub.publish(message)
 
     def publish_action(self, name, arguments):
-        payload = json.dumps({"name": name, "arguments": arguments})
-        self.action_pub.publish(String(data=payload))
+        self.action_pub.publish(candidate_message(name, arguments))
 
 
 def wait_until(predicate, timeout, description, tick=None):

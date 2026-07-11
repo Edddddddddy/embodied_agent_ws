@@ -12,10 +12,12 @@ import time
 from pathlib import Path
 
 import rclpy
+from embodied_agent_interfaces.msg import RobotCommand, RobotCommandResult
 from nav2_msgs.action import FollowWaypoints, NavigateToPose
 from rclpy.action import ActionServer, CancelResponse
 from rclpy.node import Node
 from std_msgs.msg import String
+from typed_action_test_utils import candidate_dict, result_dict
 
 
 class FakeNav2BridgeProbe(Node):
@@ -29,8 +31,8 @@ class FakeNav2BridgeProbe(Node):
         self.navigate_cancel_requests = 0
         self.home_goal_running = threading.Event()
         self.home_goal_canceled = threading.Event()
-        self.create_subscription(String, "/agent/action_candidate", self._on_candidate, 10)
-        self.create_subscription(String, "/robot/action_result", self._on_result, 10)
+        self.create_subscription(RobotCommand, "/agent/action_candidate", self._on_candidate, 10)
+        self.create_subscription(RobotCommandResult, "/robot/action_result", self._on_result, 10)
         self.navigate_server = ActionServer(
             self,
             NavigateToPose,
@@ -43,10 +45,10 @@ class FakeNav2BridgeProbe(Node):
         )
 
     def _on_candidate(self, message):
-        self.candidates.append(json.loads(message.data))
+        self.candidates.append(candidate_dict(message))
 
     def _on_result(self, message):
-        self.results.append(json.loads(message.data))
+        self.results.append(result_dict(message))
 
     def _execute_navigate(self, goal_handle):
         self.navigate_goals.append(goal_handle.request.pose)

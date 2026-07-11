@@ -8,16 +8,20 @@ import threading
 import time
 
 import rclpy
+from embodied_agent_interfaces.msg import RobotCommand, RobotCommandResult
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
+from typed_action_test_utils import candidate_message, result_dict
 
 
 class GazeboProbe(Node):
     def __init__(self):
         super().__init__("gazebo_motion_probe")
-        self.action_pub = self.create_publisher(String, "/agent/action_candidate", 10)
+        self.action_pub = self.create_publisher(
+            RobotCommand, "/agent/action_candidate", 10
+        )
         self.position = None
         self.scan_received = False
         self.ack = None
@@ -28,7 +32,7 @@ class GazeboProbe(Node):
         self.create_subscription(LaserScan, "/scan", self._on_scan, 10)
         self.create_subscription(String, "/robot/action_ack", self._on_ack, 10)
         self.create_subscription(
-            String, "/robot/action_result", self._on_result, 10
+            RobotCommandResult, "/robot/action_result", self._on_result, 10
         )
         self.create_subscription(String, "/robot/bt_status", self._on_bt, 10)
 
@@ -45,7 +49,7 @@ class GazeboProbe(Node):
         self.ack = json.loads(message.data)
 
     def _on_result(self, message):
-        self.action_result = json.loads(message.data)
+        self.action_result = result_dict(message)
         if self.action_result.get("message") == "succeeded":
             self.move_result = self.action_result
 
@@ -55,8 +59,7 @@ class GazeboProbe(Node):
             self.move_bt_result = status
 
     def action(self, name, arguments):
-        data = json.dumps({"name": name, "arguments": arguments})
-        self.action_pub.publish(String(data=data))
+        self.action_pub.publish(candidate_message(name, arguments))
 
 
 def wait_until(predicate, timeout, description):

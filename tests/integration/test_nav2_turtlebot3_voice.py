@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 
 import rclpy
+from embodied_agent_interfaces.msg import RobotCommand, RobotCommandResult
 from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
 from lifecycle_msgs.msg import State
 from lifecycle_msgs.srv import GetState
@@ -31,6 +32,7 @@ from rclpy.time import Time
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
 from tf2_ros import Buffer, TransformListener
+from typed_action_test_utils import candidate_dict, result_dict
 
 
 class Nav2TurtleBot3VoiceProbe(Node):
@@ -54,8 +56,8 @@ class Nav2TurtleBot3VoiceProbe(Node):
         self.waypoint_state_client = self.create_client(
             GetState, "/waypoint_follower/get_state"
         )
-        self.create_subscription(String, "/agent/action_candidate", self._on_candidate, 10)
-        self.create_subscription(String, "/robot/action_result", self._on_result, 10)
+        self.create_subscription(RobotCommand, "/agent/action_candidate", self._on_candidate, 10)
+        self.create_subscription(RobotCommandResult, "/robot/action_result", self._on_result, 10)
         self.create_subscription(Odometry, "/odom", self._on_odom, 10)
         self.create_subscription(NavPath, "/plan", self._on_path, 10)
         self.create_subscription(Twist, "/cmd_vel", self._on_velocity, 10)
@@ -70,10 +72,10 @@ class Nav2TurtleBot3VoiceProbe(Node):
         )
 
     def _on_candidate(self, message):
-        self.candidates.append(json.loads(message.data))
+        self.candidates.append(candidate_dict(message))
 
     def _on_result(self, message):
-        self.results.append(json.loads(message.data))
+        self.results.append(result_dict(message))
 
     def _on_odom(self, message):
         position = message.pose.pose.position

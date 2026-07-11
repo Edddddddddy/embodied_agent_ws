@@ -14,6 +14,7 @@ from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
+from embodied_online_agent.ros_action_transport import command_message_to_dict
 
 
 class MicrophoneAcceptanceProbe(Node):
@@ -33,7 +34,7 @@ class MicrophoneAcceptanceProbe(Node):
         self.passed = threading.Event()
         self.create_subscription(String, "/agent/asr_final", self._on_asr, 10)
         self.create_subscription(
-            String, "/agent/action_candidate", self._on_candidate, 10
+            RobotCommand, "/agent/action_candidate", self._on_candidate, 10
         )
         self.create_subscription(
             RobotCommand, "/robot/action_command_typed", self._on_command, 10
@@ -52,7 +53,7 @@ class MicrophoneAcceptanceProbe(Node):
         print(f"[1/6] ASR final: {self.asr_text}", flush=True)
 
     def _on_candidate(self, message):
-        self.action_candidate = self._decode(message.data)
+        self.action_candidate = command_message_to_dict(message)
         print(f"[2/6] action candidate: {self.action_candidate}", flush=True)
 
     def _on_command(self, message):

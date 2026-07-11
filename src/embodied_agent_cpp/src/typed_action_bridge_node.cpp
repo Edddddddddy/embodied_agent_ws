@@ -5,10 +5,10 @@
 
 #include <embodied_agent_interfaces/action/execute_robot_command.hpp>
 #include <embodied_agent_interfaces/msg/robot_command.hpp>
-#include <nlohmann/json.hpp>
+#include <embodied_agent_interfaces/msg/robot_command_feedback.hpp>
+#include <embodied_agent_interfaces/msg/robot_command_result.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
-#include <std_msgs/msg/string.hpp>
 
 namespace embodied_agent_cpp
 {
@@ -25,9 +25,11 @@ public:
   {
     client_ = rclcpp_action::create_client<ExecuteRobotCommand>(
       this, "robot/execute_command");
-    feedback_pub_ = create_publisher<std_msgs::msg::String>(
+    feedback_pub_ = create_publisher<
+      embodied_agent_interfaces::msg::RobotCommandFeedback>(
       "robot/action_feedback", rclcpp::QoS(10).reliable());
-    result_pub_ = create_publisher<std_msgs::msg::String>(
+    result_pub_ = create_publisher<
+      embodied_agent_interfaces::msg::RobotCommandResult>(
       "robot/action_result", rclcpp::QoS(10).reliable());
     command_sub_ = create_subscription<
       embodied_agent_interfaces::msg::RobotCommand>(
@@ -43,13 +45,12 @@ private:
     std::uint8_t status,
     const std::string & message)
   {
-    std_msgs::msg::String output;
-    output.data = nlohmann::json{
-      {"command_id", command_id},
-      {"success", success},
-      {"status", status},
-      {"message", message},
-    }.dump();
+    embodied_agent_interfaces::msg::RobotCommandResult output;
+    output.header.stamp = now();
+    output.command_id = command_id;
+    output.success = success;
+    output.status = status;
+    output.message = message;
     result_pub_->publish(output);
   }
 
@@ -84,13 +85,12 @@ private:
       [this, command_id](
         GoalHandle::SharedPtr,
         const std::shared_ptr<const ExecuteRobotCommand::Feedback> feedback) {
-        std_msgs::msg::String output;
-        output.data = nlohmann::json{
-          {"command_id", command_id},
-          {"phase", feedback->phase},
-          {"progress", feedback->progress},
-          {"detail", feedback->detail},
-        }.dump();
+        embodied_agent_interfaces::msg::RobotCommandFeedback output;
+        output.header.stamp = now();
+        output.command_id = command_id;
+        output.phase = feedback->phase;
+        output.progress = feedback->progress;
+        output.detail = feedback->detail;
         feedback_pub_->publish(output);
       };
     options.result_callback =
@@ -112,8 +112,10 @@ private:
   rclcpp_action::Client<ExecuteRobotCommand>::SharedPtr client_;
   rclcpp::Subscription<embodied_agent_interfaces::msg::RobotCommand>::SharedPtr
     command_sub_;
-  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr feedback_pub_;
-  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr result_pub_;
+  rclcpp::Publisher<
+    embodied_agent_interfaces::msg::RobotCommandFeedback>::SharedPtr feedback_pub_;
+  rclcpp::Publisher<
+    embodied_agent_interfaces::msg::RobotCommandResult>::SharedPtr result_pub_;
 };
 
 }  // namespace embodied_agent_cpp

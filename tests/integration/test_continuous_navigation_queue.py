@@ -16,8 +16,10 @@ import threading
 import time
 
 import rclpy
+from embodied_agent_interfaces.msg import RobotCommand, RobotCommandResult
 from rclpy.node import Node
 from std_msgs.msg import String
+from typed_action_test_utils import candidate_dict, result_dict
 
 
 class ContinuousNavigationProbe(Node):
@@ -29,14 +31,14 @@ class ContinuousNavigationProbe(Node):
         self.execution_events = []
         self.recognition_feedback = []
         self.results = []
-        self.create_subscription(String, "/agent/action_candidate", self._on_candidate, 10)
+        self.create_subscription(RobotCommand, "/agent/action_candidate", self._on_candidate, 10)
         self.create_subscription(String, "/agent/command_queue", self._on_queue, 10)
         self.create_subscription(String, "/agent/command_execution", self._on_execution, 10)
         self.create_subscription(String, "/agent/recognition_feedback", self._on_recognition, 10)
-        self.create_subscription(String, "/robot/action_result", self._on_result, 10)
+        self.create_subscription(RobotCommandResult, "/robot/action_result", self._on_result, 10)
 
     def _on_candidate(self, message):
-        self.candidates.append(json.loads(message.data))
+        self.candidates.append(candidate_dict(message))
 
     def _on_queue(self, message):
         self.queue_events.append(json.loads(message.data))
@@ -48,7 +50,7 @@ class ContinuousNavigationProbe(Node):
         self.recognition_feedback.append(json.loads(message.data))
 
     def _on_result(self, message):
-        self.results.append(json.loads(message.data))
+        self.results.append(result_dict(message))
 
 
 def wait_until(predicate, timeout, description):

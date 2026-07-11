@@ -8,6 +8,7 @@ from typing import Iterable
 
 import rclpy
 from ament_index_python.packages import get_package_share_directory
+from embodied_agent_interfaces.msg import RobotCommand, RobotCommandResult
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Empty, String, UInt8MultiArray
@@ -30,6 +31,7 @@ from .metrics import LatencyTracker
 from .navigation_phrases import is_navigation_cancel
 from .protocol import SentenceChunker, TaggedStreamParser
 from .recognition_retry import RecognitionRetryTracker
+from .ros_action_transport import action_command_to_message, command_message_to_dict
 from .types import ActionCommand
 from .transcript_stabilizer import TranscriptStabilizer
 from .user_preferences import apply_user_preferences
@@ -112,7 +114,7 @@ class OnlineAgentNode(Node):
         self.response_pub = self.create_publisher(String, "/agent/response_text", 10)
         self.response_delta_pub = self.create_publisher(String, "/agent/response_delta", 10)
         self.action_candidate_pub = self.create_publisher(
-            String, "/agent/action_candidate", 10
+            RobotCommand, "/agent/action_candidate", 10
         )
         self.state_pub = self.create_publisher(String, "/agent/state", 10)
         self.wake_event_pub = self.create_publisher(String, "/agent/wake_event", 10)
@@ -137,7 +139,9 @@ class OnlineAgentNode(Node):
             String, "/agent/speaker_identity", self._on_speaker_identity, 10
         )
         self.create_subscription(Empty, "/agent/clear_memory", self._on_clear_memory, 10)
-        self.create_subscription(String, "/robot/action_result", self._on_action_result, 10)
+        self.create_subscription(
+            RobotCommandResult, "/robot/action_result", self._on_action_result, 10
+        )
         if self._continuous_enabled:
             self._command_worker_thread = threading.Thread(
                 target=self._run_command_worker, daemon=True
@@ -428,8 +432,13 @@ class OnlineAgentNode(Node):
         self._try_user_memory_write(self.user_memory.clear, self._current_speaker)
         self.get_logger().info("conversation memory cleared")
 
-    def _on_action_result(self, message: String):
-        self.action_sequencer.notify_result(message.data)
+    def _on_action_result(self, message: RobotCommandResult):
+        self.action_sequencer.notify_result(
+            message.command_id,
+            message.success,
+            message.message,
+            status=message.status,
+        )
 
     def _on_speaker_identity(self, message: String):
         identity = SpeakerIdentity.from_json(
@@ -963,9 +972,13 @@ class OnlineAgentNode(Node):
     def _publish_actions(self, actions):
         action_list = apply_user_preferences(actions, self._current_user_preferences())
 
-        def publish_payload(payload: str):
-            self.action_candidate_pub.publish(String(data=payload))
-            self.get_logger().info(f"action candidate: {payload}")
+        def publish_payload(action: ActionCommand):
+            message = action_command_to_message(action, source="online_agent")
+            self.action_candidate_pub.publish(message)
+            self.get_logger().info(
+                "action candidate: "
+                + json.dumps(command_message_to_dict(message), ensure_ascii=False)
+            )
 
         report = self.action_sequencer.publish(
             action_list,

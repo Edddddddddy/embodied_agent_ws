@@ -7,6 +7,8 @@ find_package(std_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/RobotCommand.msg"
+  "msg/RobotCommandFeedback.msg"
+  "msg/RobotCommandResult.msg"
   "srv/SynthesizeSpeech.srv"
   "action/ExecuteRobotCommand.action"
   DEPENDENCIES std_msgs

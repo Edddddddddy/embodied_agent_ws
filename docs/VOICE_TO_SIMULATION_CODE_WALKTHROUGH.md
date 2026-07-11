@@ -127,7 +127,7 @@ flowchart LR
 | --- | --- |
 | 动作候选发布 | `online_agent_node.py`、`offline_agent_node.py` |
 | 安全校验 | `src/embodied_agent_cpp/src/action_guard_node.cpp` |
-| typed 转换 | `src/embodied_agent_cpp/src/robot_command_adapter.cpp` |
+| 领域动作→ROS msg | `src/embodied_online_agent/embodied_online_agent/ros_action_transport.py` |
 | 校验器 | `src/embodied_agent_cpp/src/action_validator.cpp` |
 | 主要接口 | `/agent/action_candidate` → `/robot/action_command_typed`，拒绝时 `/robot/action_rejected` |
 | 技术点 | C++ lifecycle node、白名单、限幅、typed msg、安全边界 |
@@ -136,7 +136,8 @@ flowchart LR
 
 - LLM/NLU 输出永远不被直接信任。
 - ActionGuard 做动作类型白名单、速度/角速度/时长限幅、参数默认值和拒绝原因输出。
-- 删除或弱化旧 JSON 字符串控制入口后，核心执行链路统一到强类型 `RobotCommand.msg`。
+- Agent candidate、guarded command、Action feedback/result 均使用自定义 msg；JSON 只用于
+  人类可读日志和报告序列化，不再作为机器人控制接口。
 
 讲解重点：
 
@@ -153,6 +154,7 @@ flowchart LR
 | 结构化审计 | `scripts/audit_cpp_action_reports.py` |
 | action 定义 | `src/embodied_agent_interfaces/action/ExecuteRobotCommand.action` |
 | msg 定义 | `src/embodied_agent_interfaces/msg/RobotCommand.msg` |
+| feedback/result msg | `RobotCommandFeedback.msg`、`RobotCommandResult.msg` |
 | 技术点 | `rclcpp_action` client、goal/feedback/result、可取消长动作 |
 
 设计说明：

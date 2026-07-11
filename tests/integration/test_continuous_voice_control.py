@@ -6,9 +6,15 @@ import threading
 import time
 
 import rclpy
+from embodied_agent_interfaces.msg import (
+    RobotCommand,
+    RobotCommandFeedback,
+    RobotCommandResult,
+)
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from std_msgs.msg import String
+from typed_action_test_utils import candidate_dict, result_dict
 
 
 class ContinuousVoiceProbe(Node):
@@ -37,10 +43,12 @@ class ContinuousVoiceProbe(Node):
             String, "/agent/recognition_feedback", self._on_feedback, 10
         )
         self.create_subscription(
-            String, "/agent/action_candidate", self._on_candidate, 10
+            RobotCommand, "/agent/action_candidate", self._on_candidate, 10
         )
-        self.create_subscription(String, "/robot/action_result", self._on_result, 10)
-        self.create_subscription(String, "/robot/action_feedback", self._on_feedback_event, 10)
+        self.create_subscription(RobotCommandResult, "/robot/action_result", self._on_result, 10)
+        self.create_subscription(
+            RobotCommandFeedback, "/robot/action_feedback", self._on_feedback_event, 10
+        )
         self.create_subscription(Twist, "/cmd_vel", self._on_velocity, 10)
 
     def _on_state(self, message):
@@ -62,13 +70,20 @@ class ContinuousVoiceProbe(Node):
         self.recognition_feedback.append(json.loads(message.data))
 
     def _on_candidate(self, message):
-        self.candidates.append(json.loads(message.data))
+        self.candidates.append(candidate_dict(message))
 
     def _on_result(self, message):
-        self.results.append(json.loads(message.data))
+        self.results.append(result_dict(message))
 
     def _on_feedback_event(self, message):
-        self.feedback.append(json.loads(message.data))
+        self.feedback.append(
+            {
+                "command_id": message.command_id,
+                "phase": message.phase,
+                "progress": message.progress,
+                "detail": message.detail,
+            }
+        )
 
     def _on_velocity(self, message):
         self.velocities.append((message.linear.x, message.angular.z))

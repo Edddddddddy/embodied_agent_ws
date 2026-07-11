@@ -195,6 +195,40 @@ def test_llama_cpp_deployment_entrypoints_remain_available():
     assert "timeout_s" in provider_text
 
 
+def test_robot_action_transport_is_fully_typed_without_legacy_json_adapter():
+    """控制接口必须保持 typed；JSON 只能用于日志/报告，不能重新进入机器人链路。"""
+
+    interfaces = ROOT / "src" / "embodied_agent_interfaces" / "msg"
+    for name in (
+        "RobotCommand.msg",
+        "RobotCommandFeedback.msg",
+        "RobotCommandResult.msg",
+    ):
+        assert (interfaces / name).is_file()
+
+    cpp = ROOT / "src" / "embodied_agent_cpp"
+    guard = (cpp / "src" / "action_guard_node.cpp").read_text(encoding="utf-8")
+    bridge = (cpp / "src" / "typed_action_bridge_node.cpp").read_text(
+        encoding="utf-8"
+    )
+    sequencer = (
+        ROOT
+        / "src"
+        / "embodied_online_agent"
+        / "embodied_online_agent"
+        / "action_sequence.py"
+    ).read_text(encoding="utf-8")
+
+    assert "Subscription<\n    embodied_agent_interfaces::msg::RobotCommand>" in guard
+    assert "RobotCommandFeedback" in bridge
+    assert "RobotCommandResult" in bridge
+    assert "nlohmann/json" not in bridge
+    assert "json.loads" not in sequencer
+    assert "_legacy_results" not in sequencer
+    assert not (cpp / "src" / "robot_command_adapter.cpp").exists()
+    assert not (cpp / "include" / "embodied_agent_cpp" / "robot_command_adapter.hpp").exists()
+
+
 def test_offline_voice_e2e_reuses_an_existing_llama_server():
     """聚合报告连续跑 latency/E2E 时不能重复绑定 8080 端口。"""
     script = (ROOT / "scripts" / "smoke_test_offline_voice_real.sh").read_text(

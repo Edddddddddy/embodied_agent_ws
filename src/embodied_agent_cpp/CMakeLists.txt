@@ -25,7 +25,6 @@ add_library(embodied_agent_core
   src/audio_processing.cpp
   src/hardware_protocol.cpp
   src/hardware_transport.cpp
-  src/robot_command_adapter.cpp
   src/typed_action_client_contract.cpp
 )
 target_include_directories(embodied_agent_core PUBLIC
@@ -51,9 +50,8 @@ ament_target_dependencies(
   action_guard embodied_agent_interfaces lifecycle_msgs rclcpp rclcpp_lifecycle std_msgs)
 
 add_executable(typed_action_bridge src/typed_action_bridge_node.cpp)
-target_link_libraries(typed_action_bridge nlohmann_json::nlohmann_json)
 ament_target_dependencies(
-  typed_action_bridge embodied_agent_interfaces rclcpp rclcpp_action std_msgs)
+  typed_action_bridge embodied_agent_interfaces rclcpp rclcpp_action)
 
 add_executable(typed_action_demo_client src/typed_action_demo_client.cpp)
 target_link_libraries(
@@ -213,8 +211,6 @@ if(BUILD_TESTING)
   target_link_libraries(test_audio_processing embodied_agent_core)
   ament_add_gtest(test_action_validator test/test_action_validator.cpp)
   target_link_libraries(test_action_validator embodied_agent_core)
-  ament_add_gtest(test_robot_command_adapter test/test_robot_command_adapter.cpp)
-  target_link_libraries(test_robot_command_adapter embodied_agent_core)
   ament_add_gtest(test_hardware_protocol test/test_hardware_protocol.cpp)
   target_link_libraries(test_hardware_protocol embodied_agent_core)
   ament_add_gtest(test_hardware_transport test/test_hardware_transport.cpp)

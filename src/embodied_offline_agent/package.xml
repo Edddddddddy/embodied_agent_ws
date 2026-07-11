@@ -8,6 +8,7 @@
   <buildtool_depend>ament_python</buildtool_depend>
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>embodied_online_agent</exec_depend>
+  <exec_depend>embodied_agent_interfaces</exec_depend>
   <exec_depend>embodied_agent_cpp</exec_depend>
   <exec_depend>nav2_lifecycle_manager</exec_depend>
   <exec_depend>python3-numpy</exec_depend>

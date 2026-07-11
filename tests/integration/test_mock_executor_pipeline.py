@@ -6,17 +6,19 @@ import threading
 import time
 
 import rclpy
+from embodied_agent_interfaces.msg import RobotCommand, RobotCommandResult
 from diagnostic_msgs.msg import DiagnosticArray
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from std_msgs.msg import String
+from typed_action_test_utils import candidate_message, result_dict
 
 
 class MockExecutorProbe(Node):
     def __init__(self):
         super().__init__("mock_executor_probe")
         self.candidate_pub = self.create_publisher(
-            String, "/agent/action_candidate", 10
+            RobotCommand, "/agent/action_candidate", 10
         )
         self.velocities = []
         self.ack = None
@@ -26,7 +28,7 @@ class MockExecutorProbe(Node):
         self.create_subscription(Twist, "/cmd_vel", self._on_velocity, 10)
         self.create_subscription(String, "/robot/action_ack", self._on_ack, 10)
         self.create_subscription(
-            String, "/robot/action_result", self._on_result, 10
+            RobotCommandResult, "/robot/action_result", self._on_result, 10
         )
         self.create_subscription(String, "/robot/bt_status", self._on_bt, 10)
         self.create_subscription(
@@ -42,7 +44,7 @@ class MockExecutorProbe(Node):
             self.ack = payload
 
     def _on_result(self, message):
-        payload = json.loads(message.data)
+        payload = result_dict(message)
         if payload.get("message") == "succeeded":
             self.result = payload
 
@@ -82,11 +84,9 @@ def main():
             "mock executor pipeline was not discovered",
         )
         time.sleep(0.5)
-        command = {
-            "name": "move",
-            "arguments": {"linear_x": 0.15, "duration_s": 0.3},
-        }
-        node.candidate_pub.publish(String(data=json.dumps(command)))
+        node.candidate_pub.publish(
+            candidate_message("move", {"linear_x": 0.15, "duration_s": 0.3})
+        )
         wait_until(
             lambda: node.result is not None
             and node.bt_status is not None

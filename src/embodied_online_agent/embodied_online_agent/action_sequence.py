@@ -1,4 +1,3 @@
-import json
 import threading
 import time
 from dataclasses import dataclass
@@ -28,27 +27,32 @@ class SequentialActionPublisher:
         self._result_count = 0
         self._last_result: dict | None = None
         self._results_by_id: dict[str, dict] = {}
-        self._legacy_results: list[dict] = []
         self._cancel_generation = 0
         self._cancel_reason = "cancelled"
         self._request_sequence = 0
 
-    def notify_result(self, serialized_result: str) -> None:
-        try:
-            result = json.loads(serialized_result)
-        except json.JSONDecodeError:
+    def notify_result(
+        self,
+        command_id: str,
+        success: bool,
+        message: str,
+        *,
+        status: int = 0,
+    ) -> None:
+        """接收强类型 Action 终态；无 command_id 的旧顺序兼容路径已删除。"""
+
+        if not command_id:
             return
-        if not isinstance(result, dict) or "success" not in result:
-            return
+        result = {
+            "command_id": command_id,
+            "success": bool(success),
+            "status": int(status),
+            "message": message,
+        }
         with self._condition:
             self._result_count += 1
             self._last_result = result
-            command_id = str(result.get("command_id") or "")
-            if command_id:
-                self._results_by_id[command_id] = result
-            else:
-                # 兼容旧单测/旧节点：没有 command_id 时仍可按到达顺序唤醒。
-                self._legacy_results.append(result)
+            self._results_by_id[command_id] = result
             self._condition.notify_all()
 
     def cancel(self, reason: str = "cancelled") -> None:
@@ -66,7 +70,7 @@ class SequentialActionPublisher:
     def publish(
         self,
         actions: Iterable[ActionCommand],
-        publish_payload: Callable[[str], None],
+        publish_payload: Callable[[ActionCommand], None],
         *,
         wait_for_results: bool,
     ) -> SequencePublishReport:
@@ -84,8 +88,9 @@ class SequentialActionPublisher:
                     return SequencePublishReport(
                         published, completed, True, self._cancel_reason
                     )
-                payload, request_id = self._payload_with_request_id(action)
-            publish_payload(json.dumps(payload, ensure_ascii=False))
+                command = self._command_with_request_id(action)
+                request_id = command.request_id
+            publish_payload(command)
             published += 1
             if not wait_for_results:
                 continue
@@ -95,24 +100,21 @@ class SequentialActionPublisher:
                 continue
             if reason == self._cancel_reason:
                 return SequencePublishReport(published, completed, True, reason)
-            stop_payload, _ = self._payload_with_request_id(ActionCommand("stop", {}))
-            publish_payload(json.dumps(stop_payload, ensure_ascii=False))
+            publish_payload(self._command_with_request_id(ActionCommand("stop", {})))
             return SequencePublishReport(published + 1, completed, True, reason)
         return SequencePublishReport(published, completed, False)
 
-    def _payload_with_request_id(self, action: ActionCommand) -> tuple[dict, str]:
-        payload = action.as_dict()
-        request_id = str(payload.get("request_id") or "")
+    def _command_with_request_id(self, action: ActionCommand) -> ActionCommand:
+        request_id = action.request_id
         if not request_id:
             self._request_sequence += 1
             request_id = f"agent-action-{self._request_sequence}"
-            payload["request_id"] = request_id
-        return payload, request_id
+        return ActionCommand(action.name, dict(action.arguments), request_id)
 
     def _wait_for_result(self, request_id: str, generation: int) -> tuple[bool, str]:
         deadline = time.monotonic() + max(0.0, self.result_timeout_s)
         with self._condition:
-            while request_id not in self._results_by_id and not self._legacy_results:
+            while request_id not in self._results_by_id:
                 if self._cancel_generation != generation:
                     return False, self._cancel_reason
                 remaining = deadline - time.monotonic()
@@ -121,11 +123,7 @@ class SequentialActionPublisher:
                 self._condition.wait(timeout=remaining)
             if self._cancel_generation != generation:
                 return False, self._cancel_reason
-            result = (
-                self._results_by_id.pop(request_id)
-                if request_id in self._results_by_id
-                else self._legacy_results.pop(0)
-            )
+            result = self._results_by_id.pop(request_id)
         if result.get("success") is True:
             return True, str(result.get("message", "succeeded"))
         return False, str(result.get("message", "action_failed"))

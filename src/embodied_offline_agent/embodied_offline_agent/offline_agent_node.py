@@ -7,6 +7,7 @@ from pathlib import Path
 
 import rclpy
 from ament_index_python.packages import get_package_share_directory
+from embodied_agent_interfaces.msg import RobotCommand, RobotCommandResult
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Empty, String, UInt8MultiArray
@@ -22,6 +23,10 @@ from embodied_online_agent.continuous_voice import CommandExecutionTracker, Queu
 from embodied_online_agent.navigation_phrases import is_navigation_cancel
 from embodied_online_agent.protocol import SentenceChunker, TaggedStreamParser
 from embodied_online_agent.recognition_retry import RecognitionRetryTracker
+from embodied_online_agent.ros_action_transport import (
+    action_command_to_message,
+    command_message_to_dict,
+)
 from embodied_online_agent.types import ActionCommand
 from embodied_online_agent.transcript_stabilizer import TranscriptStabilizer
 from embodied_online_agent.user_memory import (
@@ -114,7 +119,9 @@ class OfflineAgentNode(Node):
         self._asr_final_pub = self.create_publisher(String, "/agent/asr_final", 10)
         self._response_delta_pub = self.create_publisher(String, "/agent/response_delta", 10)
         self._response_pub = self.create_publisher(String, "/agent/response_text", 10)
-        self._action_pub = self.create_publisher(String, "/agent/action_candidate", 10)
+        self._action_pub = self.create_publisher(
+            RobotCommand, "/agent/action_candidate", 10
+        )
         self._state_pub = self.create_publisher(String, "/agent/state", 10)
         self._wake_event_pub = self.create_publisher(String, "/agent/wake_event", 10)
         self._session_state_pub = self.create_publisher(String, "/agent/session_state", 10)
@@ -144,7 +151,9 @@ class OfflineAgentNode(Node):
             String, "/agent/speaker_identity", self._on_speaker_identity, 10
         )
         self.create_subscription(Empty, "/agent/clear_memory", self._on_clear, 10)
-        self.create_subscription(String, "/robot/action_result", self._on_action_result, 10)
+        self.create_subscription(
+            RobotCommandResult, "/robot/action_result", self._on_action_result, 10
+        )
         if self._continuous_enabled:
             self._command_worker_thread = threading.Thread(
                 target=self._run_command_worker, daemon=True
@@ -525,7 +534,12 @@ class OfflineAgentNode(Node):
         self._try_user_memory_write(self._user_memory.clear, self._current_speaker)
 
     def _on_action_result(self, message):
-        self._action_sequencer.notify_result(message.data)
+        self._action_sequencer.notify_result(
+            message.command_id,
+            message.success,
+            message.message,
+            status=message.status,
+        )
 
     def _on_speaker_identity(self, message):
         identity = SpeakerIdentity.from_json(
@@ -1051,8 +1065,13 @@ class OfflineAgentNode(Node):
     def _publish_actions(self, actions):
         action_list = apply_user_preferences(actions, self._current_user_preferences())
 
-        def publish_payload(payload):
-            self._action_pub.publish(String(data=payload))
+        def publish_payload(action: ActionCommand):
+            message = action_command_to_message(action, source="offline_agent")
+            self._action_pub.publish(message)
+            self.get_logger().info(
+                "action candidate: "
+                + json.dumps(command_message_to_dict(message), ensure_ascii=False)
+            )
 
         report = self._action_sequencer.publish(
             action_list,

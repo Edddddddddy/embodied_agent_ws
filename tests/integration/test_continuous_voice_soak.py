@@ -11,8 +11,10 @@ import threading
 import time
 
 import rclpy
+from embodied_agent_interfaces.msg import RobotCommand, RobotCommandResult
 from rclpy.node import Node
 from std_msgs.msg import String
+from typed_action_test_utils import candidate_dict, result_dict
 
 
 COMMANDS = [
@@ -44,8 +46,8 @@ class ContinuousSoakProbe(Node):
         self.create_subscription(
             String, "/agent/command_execution", self._on_execution, 10
         )
-        self.create_subscription(String, "/agent/action_candidate", self._on_candidate, 10)
-        self.create_subscription(String, "/robot/action_result", self._on_result, 10)
+        self.create_subscription(RobotCommand, "/agent/action_candidate", self._on_candidate, 10)
+        self.create_subscription(RobotCommandResult, "/robot/action_result", self._on_result, 10)
 
     def _on_session(self, message):
         self.session_states.append(message.data)
@@ -60,10 +62,10 @@ class ContinuousSoakProbe(Node):
         self.execution_events.append(json.loads(message.data))
 
     def _on_candidate(self, message):
-        self.candidates.append(json.loads(message.data))
+        self.candidates.append(candidate_dict(message))
 
     def _on_result(self, message):
-        self.results.append(json.loads(message.data))
+        self.results.append(result_dict(message))
 
 
 def wait_until(predicate, timeout, description):

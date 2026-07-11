@@ -13,6 +13,16 @@ from pathlib import Path
 from typing import Any
 
 import rclpy
+from embodied_agent_interfaces.msg import (
+    RobotCommand,
+    RobotCommandFeedback,
+    RobotCommandResult,
+)
+from embodied_online_agent.ros_action_transport import (
+    command_message_to_dict,
+    feedback_message_to_dict,
+    result_message_to_dict,
+)
 from rclpy.node import Node
 from std_msgs.msg import String
 
@@ -461,15 +471,20 @@ class ContinuousVoiceMonitor(Node):
         self.create_subscription(
             String, "/agent/command_execution", self._on_execution, 10
         )
-        self.create_subscription(String, "/agent/action_candidate", self._on_action, 10)
         self.create_subscription(
-            String, "/robot/action_feedback", self._on_action_feedback, 10
+            RobotCommand, "/agent/action_candidate", self._on_action, 10
+        )
+        self.create_subscription(
+            RobotCommandFeedback,
+            "/robot/action_feedback",
+            self._on_action_feedback,
+            10,
         )
         self.create_subscription(
             String, "/agent/recognition_feedback", self._on_feedback, 10
         )
         self.create_subscription(
-            String, "/robot/action_result", self._on_action_result, 10
+            RobotCommandResult, "/robot/action_result", self._on_action_result, 10
         )
         self.create_subscription(String, "/robot/action_ack", self._on_action_ack, 10)
 
@@ -519,15 +534,17 @@ class ContinuousVoiceMonitor(Node):
         self._stats.record_execution(message.data)
         self._emit(format_execution_event(message.data))
 
-    def _on_action(self, message: String) -> None:
+    def _on_action(self, message: RobotCommand) -> None:
+        serialized = json.dumps(command_message_to_dict(message), ensure_ascii=False)
         if self._sample_recorder is not None:
             self._sample_recorder.record_json_event(
-                "action_candidate", "/agent/action_candidate", message.data
+                "action_candidate", "/agent/action_candidate", serialized
             )
-        self._emit(format_action_candidate(message.data))
+        self._emit(format_action_candidate(serialized))
 
-    def _on_action_feedback(self, message: String) -> None:
-        self._emit(format_action_feedback(message.data))
+    def _on_action_feedback(self, message: RobotCommandFeedback) -> None:
+        serialized = json.dumps(feedback_message_to_dict(message), ensure_ascii=False)
+        self._emit(format_action_feedback(serialized))
 
     def _on_feedback(self, message: String) -> None:
         self._stats.record_recognition_feedback(message.data)
@@ -537,19 +554,23 @@ class ContinuousVoiceMonitor(Node):
             )
         self._emit(format_recognition_feedback(message.data))
 
-    def _handle_result(self, message: String, *, topic: str, kind: str) -> None:
-        self._stats.record_result(message.data)
+    def _handle_result(self, serialized: str, *, topic: str, kind: str) -> None:
+        self._stats.record_result(serialized)
         if self._sample_recorder is not None:
-            self._sample_recorder.record_json_event(kind, topic, message.data)
-        self._emit(format_action_result(message.data))
+            self._sample_recorder.record_json_event(kind, topic, serialized)
+        self._emit(format_action_result(serialized))
 
-    def _on_action_result(self, message: String) -> None:
+    def _on_action_result(self, message: RobotCommandResult) -> None:
         self._handle_result(
-            message, topic="/robot/action_result", kind="action_result"
+            json.dumps(result_message_to_dict(message), ensure_ascii=False),
+            topic="/robot/action_result",
+            kind="action_result",
         )
 
     def _on_action_ack(self, message: String) -> None:
-        self._handle_result(message, topic="/robot/action_ack", kind="action_ack")
+        self._handle_result(
+            message.data, topic="/robot/action_ack", kind="action_ack"
+        )
 
     def emit_summary(self) -> None:
         self._emit(self._stats.format_summary())

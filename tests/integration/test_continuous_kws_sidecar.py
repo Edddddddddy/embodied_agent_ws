@@ -6,9 +6,11 @@ import threading
 import time
 
 import rclpy
+from embodied_agent_interfaces.msg import RobotCommand, RobotCommandResult
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from std_msgs.msg import String
+from typed_action_test_utils import candidate_dict, result_dict
 
 
 class ContinuousKwsProbe(Node):
@@ -23,8 +25,8 @@ class ContinuousKwsProbe(Node):
         self.velocities = []
         self.create_subscription(String, "/agent/kws_event", self._on_kws_event, 10)
         self.create_subscription(String, "/agent/wake_event", self._on_wake_event, 10)
-        self.create_subscription(String, "/agent/action_candidate", self._on_candidate, 10)
-        self.create_subscription(String, "/robot/action_result", self._on_result, 10)
+        self.create_subscription(RobotCommand, "/agent/action_candidate", self._on_candidate, 10)
+        self.create_subscription(RobotCommandResult, "/robot/action_result", self._on_result, 10)
         self.create_subscription(Twist, "/cmd_vel", self._on_velocity, 10)
 
     def _on_kws_event(self, message):
@@ -34,10 +36,10 @@ class ContinuousKwsProbe(Node):
         self.wake_events.append(json.loads(message.data))
 
     def _on_candidate(self, message):
-        self.candidates.append(json.loads(message.data))
+        self.candidates.append(candidate_dict(message))
 
     def _on_result(self, message):
-        self.results.append(json.loads(message.data))
+        self.results.append(result_dict(message))
 
     def _on_velocity(self, message):
         self.velocities.append((message.linear.x, message.angular.z))
