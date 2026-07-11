@@ -179,7 +179,7 @@ class OfflineAgentNode(Node):
             "wake_word_aliases": ["小志", "小治", "晓智", "晓志"],
             "wake_active_timeout_s": 10.0,
             "memory_path": "~/.ros/embodied_agent/offline_memory.json",
-            "memory_max_turns": 6,
+            "memory_max_turns": 3,
             "user_memory_dir": "~/.ros/embodied_agent/users",
             "user_memory_max_recent": 8,
             "user_memory_retention_days": 90.0,
@@ -323,17 +323,9 @@ class OfflineAgentNode(Node):
         return int(getattr(self._tts, "sample_rate", self._param("tts_sample_rate")))
 
     def _warmup_runtime(self):
-        """在节点 ready 前预热 LLM 公共提示前缀和 TTS，避免首条语音承担冷启动。"""
+        """在 ready 前预热真实 system+history 前缀，避免首条语音承担 prefill。"""
         started = time.perf_counter()
-        llm_report = self._llm.warmup(
-            [
-                {
-                    "role": "system",
-                    "content": self._system_prompt_with_user_memory() + "\n/no_think",
-                },
-                {"role": "user", "content": "只回复：就绪。 /no_think"},
-            ]
-        )
+        llm_report = self._llm.warmup(self._llm_messages("只回复：就绪。"))
         tts_started = time.perf_counter()
         warmup_pcm = self._tts.synthesize("好。")
         report = {
@@ -345,6 +337,14 @@ class OfflineAgentNode(Node):
         self.get_logger().info(
             "offline runtime warmup complete: "
             + json.dumps(report, ensure_ascii=False)
+        )
+
+    def _llm_messages(self, user_text):
+        # ConversationMemory 中保存原始模型协议输出，使该列表能与 server slot 的
+        # token 前缀精确对齐；不要在这里只给当前 user 临时追加不同的后缀。
+        return self._memory.prompt_messages(
+            self._system_prompt_with_user_memory() + "\n/no_think",
+            user_text,
         )
 
     def _mock_asr_finals(self):
@@ -819,20 +819,15 @@ class OfflineAgentNode(Node):
         chunker = SentenceChunker(self._param("tts_chunk_max_chars"))
         speech_parts = []
         model_actions = []
+        raw_output_parts = []
+        protocol_errors = []
         self._publish_state("thinking")
         try:
-            messages = [
-                {
-                    "role": "system",
-                    "content": self._system_prompt_with_user_memory()
-                    + "\n/no_think",
-                }
-            ]
-            messages.extend(self._memory.messages())
-            messages.append({"role": "user", "content": user_text + " /no_think"})
+            messages = self._llm_messages(user_text)
             latency.mark_llm_start()
             first_token = True
             for token in self._llm.stream(messages):
+                raw_output_parts.append(token)
                 if first_token:
                     latency.mark_first_token()
                     first_token = False
@@ -845,8 +840,10 @@ class OfflineAgentNode(Node):
                         if not tts_pipeline.put_text(sentence):
                             raise TimeoutError("message double buffer remained full")
                 model_actions.extend(events.actions)
+                protocol_errors.extend(events.errors)
             final = parser.finish()
             model_actions.extend(final.actions)
+            protocol_errors.extend(final.errors)
             fallback_actions = parse_fallback_actions(user_text)
             if fallback_actions:
                 self._publish_actions(fallback_actions)
@@ -870,7 +867,17 @@ class OfflineAgentNode(Node):
             tts_metrics = tts_pipeline.close_and_wait(timeout_s=60.0)
             assistant_text = "".join(speech_parts).strip()
             self._response_pub.publish(String(data=assistant_text))
-            self._memory.append_turn(user_text, assistant_text)
+            raw_output = "".join(raw_output_parts).strip()
+            cached_output = (
+                raw_output
+                if raw_output and not protocol_errors
+                else f"<speech>{assistant_text}</speech>"
+            )
+            self._memory.append_turn(
+                user_text,
+                assistant_text,
+                model_output=cached_output,
+            )
             self._record_user_interaction(
                 self._current_speaker,
                 user_text=user_text,

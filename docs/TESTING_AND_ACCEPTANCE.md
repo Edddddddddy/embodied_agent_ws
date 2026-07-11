@@ -35,7 +35,7 @@ bash scripts/acceptance_test.sh --help
 | `offline-showcase-report` | 自动/报告 | 汇总模型大小、运行时版本、指令解析准确率和 `claim_evidence` 指标证据矩阵，输出离线展示 JSON/Markdown 报告 |
 | `offline-evidence-audit` | 自动/报告 | 审计离线报告的证据强度，透传缺失/未复现指标，输出哪些指标可宣称、哪些仍缺真实 benchmark |
 | `llama-decode-benchmark` | 自动/本地模型 | 调用 llama.cpp `llama-bench` 测量 CPU decode tokens/s，输出 `logs/llama_decode_benchmark.json` |
-| `offline-latency` | 自动/本地模型 | 检查 llama.cpp 首 token ≤ 1s、默认 Sherpa-TTS 首音频 ≤ 300ms |
+| `offline-latency` | 自动/本地模型 | 预热真实 system+3 轮历史前缀，测量 warm turn 首 token P95，并检查 Sherpa 短句整句合成；输出 `logs/offline_latency_report.json` |
 | `instruction-eval-dataset` | 自动/数据集 | 校验轻量机器人指令评估集 schema、动作名和标签 |
 | `instruction-parser-eval` | 自动/数据集 | 在评估集上计算 deterministic parser 动作准确率和 tag 维度分数 |
 | `instruction-following-eval` | 自动/本地模型 | 真实调用 llama.cpp，评估离线 LLM 对 `<speech>/<action>` 协议和动作输出的遵循度 |
@@ -364,7 +364,8 @@ bash scripts/acceptance_test.sh summer-tts-service
 - 完整离线 Agent 想切换常驻 C++ service：启动时设置 `tts_provider:=summer_ros`。
 - SummerTTS 命令行 provider 每句会启动进程并加载模型；`summer_ros` 已消除这部分开销，
   并缓存短文本反馈；但未命中的 SummerTTS CPU infer 仍明显高于 Sherpa-TTS，因此
-  `offline-latency` 的 `<300ms` TTS 指标仍以默认 Sherpa-TTS provider 为准。
+  `offline-latency` 的 Sherpa 指标是 `<600ms` 短反馈整句合成；伪流式首块 PCM
+  必须以 `offline-voice-e2e-report` 为证，不能用整句返回时间替代。
 
 ### 2.1.3 离线低延迟指标验收
 
@@ -374,14 +375,16 @@ bash scripts/acceptance_test.sh offline-latency
 
 通过标准：
 
-- `llm.first_token_ms <= 1000`。
+- `llm.p95_first_token_ms <= 1000`；冷启动 warmup 单独记录，不混入交互门禁。
 - `tts.provider == "sherpa"`。
 - `tts.synthesis_ms <= 600`（Sherpa 当前返回整句 PCM，因此这是离线短句整句合成门槛，不冒充在线流式首包）。
 - `ok == true`。
 
-该模式会启动或复用 `llama-server`，发送一次极短流式请求，并在常驻 Sherpa-TTS
-provider 上合成短句。它验证的是当前离线 Agent 默认低延迟路径，而不是 SummerTTS
-命令行封装路径。
+该模式会启动或复用 `llama-server`，用项目真实 system prompt、3 轮有界历史先预热
+KV 前缀，再测量 3 个连续 warm turn，并在常驻 Sherpa-TTS provider 上合成短句。
+报告同时保存 prompt/completion token、首 token、API decode 估算与冷 warmup，避免把
+SSE chunk 数冒充 token 数。它验证的是当前离线 Agent 默认低延迟路径，而不是
+SummerTTS 命令行封装路径。
 
 ### 2.1.1 llama.cpp 推理层验收
 

@@ -732,14 +732,17 @@ class OnlineAgentNode(Node):
         chunker = SentenceChunker(self._param("tts_chunk_max_chars"))
         spoken_parts = []
         model_actions = []
+        raw_output_parts = []
+        protocol_errors = []
         first_token = True
 
         try:
-            messages = [{"role": "system", "content": self._system_prompt_with_user_memory()}]
-            messages.extend(self.memory.messages())
-            messages.append({"role": "user", "content": user_text})
+            messages = self.memory.prompt_messages(
+                self._system_prompt_with_user_memory(), user_text
+            )
             self.metrics.mark_llm_requested()
             for token in self.llm.stream(messages):
+                raw_output_parts.append(token)
                 if first_token:
                     self.metrics.mark_llm_first_token()
                     first_token = False
@@ -754,11 +757,13 @@ class OnlineAgentNode(Node):
                             self._publish_state("speaking")
                         text_queue.put(speakable)
                 model_actions.extend(events.actions)
+                protocol_errors.extend(events.errors)
                 for error in events.errors:
                     self.get_logger().warning(error)
 
             final_events = parser.finish()
             model_actions.extend(final_events.actions)
+            protocol_errors.extend(final_events.errors)
             fallback_actions = parse_fallback_actions(user_text)
             if fallback_actions:
                 self._publish_actions(fallback_actions)
@@ -793,7 +798,17 @@ class OnlineAgentNode(Node):
 
             assistant_text = "".join(spoken_parts).strip()
             self.response_pub.publish(String(data=assistant_text))
-            self.memory.append_turn(user_text, assistant_text)
+            raw_output = "".join(raw_output_parts).strip()
+            cached_output = (
+                raw_output
+                if raw_output and not protocol_errors
+                else f"<speech>{assistant_text}</speech>"
+            )
+            self.memory.append_turn(
+                user_text,
+                assistant_text,
+                model_output=cached_output,
+            )
             self._record_user_interaction(
                 self._current_speaker,
                 user_text=user_text,

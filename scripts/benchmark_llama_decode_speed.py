@@ -183,11 +183,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", default="logs/llama_decode_benchmark.json")
     parser.add_argument("--prompt-tokens", type=int, default=64)
     parser.add_argument("--generation-tokens", type=int, default=32)
-    parser.add_argument("--repetitions", type=int, default=1)
+    parser.add_argument("--repetitions", type=int, default=3)
     parser.add_argument("--threads", type=int, default=8)
     parser.add_argument("--gpu-layers", type=int, default=0)
     parser.add_argument("--timeout-s", type=float, default=300.0)
-    parser.add_argument("--minimum-decode-tokens-per-s", type=float, default=0.0)
+    parser.add_argument("--minimum-decode-tokens-per-s", type=float, default=8.6)
     parser.add_argument(
         "--no-warmup",
         action="store_true",

@@ -35,7 +35,7 @@ def _write_llama_bench_json(path: Path) -> None:
     )
 
 
-def _write_instruction_following_report(path: Path) -> None:
+def _write_instruction_following_report(path: Path, model_score: float = 0.875) -> None:
     path.write_text(
         json.dumps(
             {
@@ -44,10 +44,10 @@ def _write_instruction_following_report(path: Path) -> None:
                 "dataset": "training/robot_dialogue_seed.jsonl",
                 "model": "Qwen3-0.6B-Q8_0.gguf",
                 "base_url": "http://127.0.0.1:8080/v1",
-                "model_passed": 7,
+                "model_passed": round(model_score * 8),
                 "effective_passed": 8,
                 "total": 8,
-                "model_score": 0.875,
+                "model_score": model_score,
                 "effective_score": 1.0,
                 "failure_counts": {"model_action_mismatch": 1},
                 "failed_cases": [
@@ -252,6 +252,40 @@ def test_offline_showcase_report_can_include_llm_instruction_following(tmp_path)
     assert by_key["offline_llm_instruction_following"]["metric"]["model_score"] == 0.875
     assert following_output.is_file()
     assert "离线 LLM 指令遵循评估" in markdown
+
+
+def test_offline_showcase_report_restricts_unproven_85pct_claim(tmp_path):
+    source = tmp_path / "instruction_following.low.json"
+    output = tmp_path / "instruction_following.reused.json"
+    json_output = tmp_path / "showcase.json"
+    md_output = tmp_path / "showcase.md"
+    _write_instruction_following_report(source, model_score=0.375)
+
+    completed = subprocess.run(
+        [
+            "python3",
+            str(ROOT / "scripts" / "generate_offline_showcase_report.py"),
+            "--json-output",
+            str(json_output),
+            "--md-output",
+            str(md_output),
+            "--run-instruction-following",
+            "--instruction-following-input",
+            str(source),
+            "--instruction-following-output",
+            str(output),
+        ],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stdout
+    report = json.loads(json_output.read_text(encoding="utf-8"))
+    restricted = report["claim_evidence"]["restricted_claims"]
+    assert any("实测仅为 0.3750" in item for item in restricted)
 
 
 def test_offline_showcase_report_can_include_real_voice_e2e_evidence(tmp_path):

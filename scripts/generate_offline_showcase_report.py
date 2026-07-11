@@ -303,12 +303,43 @@ def collect_instruction_following(
             "status": "not_run",
             "reason": "pass --run-instruction-following to evaluate offline LLM instruction following",
         }
-    command = [sys.executable, "scripts/evaluate_instruction_following.py"]
+    # 真实评测通过 wrapper 自主管理 llama-server；复用报告时不应为纯解析启动模型。
+    command = (
+        [sys.executable, "scripts/evaluate_instruction_following.py"]
+        if input_report
+        else ["bash", "scripts/evaluate_instruction_following.sh"]
+    )
     if input_report:
         command.extend(["--input-report", input_report])
     if output_report:
         command.extend(["--output", output_report])
-    return _run_json_command(command, timeout_s=timeout_s)
+    output_path = Path(output_report).expanduser()
+    if not output_path.is_absolute():
+        output_path = WORKSPACE / output_path
+    input_path = Path(input_report).expanduser() if input_report else None
+    if input_path is not None and not input_path.is_absolute():
+        input_path = WORKSPACE / input_path
+    if input_path is None or input_path.resolve() != output_path.resolve():
+        output_path.unlink(missing_ok=True)
+    completed = subprocess.run(
+        command,
+        cwd=WORKSPACE,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=timeout_s,
+        check=False,
+    )
+    if output_path.is_file():
+        payload = json.loads(output_path.read_text(encoding="utf-8"))
+    else:
+        payload = {"raw_output_tail": completed.stdout.splitlines()[-80:]}
+    return {
+        "command": command,
+        "returncode": completed.returncode,
+        "ok": completed.returncode == 0 and payload.get("error") is None,
+        "payload": payload,
+    }
 
 
 def _inventory_item(models: dict[str, Any], key: str) -> dict[str, Any] | None:
@@ -619,7 +650,6 @@ def build_claim_evidence(report: dict[str, Any]) -> dict[str, Any]:
 
     restricted_claims = [
         "不要说：LoRA 微调训练、checkpoint 和训练后准确率已经复现；当前报告没有这类证据。",
-        "不要说：Q8 指令遵循精度约 85% 已复现；除非补充离线 LLM 指令评估报告。",
         "不要说：SummerTTS 是默认 <300ms TTS；当前低延迟默认仍以 Sherpa-TTS 为主。",
     ]
     if not llama_bench_ok:
@@ -627,7 +657,15 @@ def build_claim_evidence(report: dict[str, Any]) -> dict[str, Any]:
             2,
             "不要说：llama.cpp CPU decode 已达到某个 tokens/s；除非报告中出现真实 llama-bench benchmark。",
         )
-    if not instruction_ok:
+    if instruction_ok and instruction_payload.get("model_score") is not None:
+        model_score = float(instruction_payload.get("model_score") or 0.0)
+        if model_score < 0.85:
+            restricted_claims.insert(
+                1,
+                "不要说：Q8 原始模型指令遵循约 85% 已复现；"
+                f"当前严格 model_score 实测仅为 {model_score:.4f}。",
+            )
+    else:
         restricted_claims.insert(
             2,
             "不要说：离线 LLM 指令遵循准确率已经复现；除非报告中出现 instruction-following eval。",

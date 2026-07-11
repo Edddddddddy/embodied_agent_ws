@@ -163,6 +163,23 @@ bash scripts/acceptance_test.sh offline-voice-e2e-report
 deterministic parser、首 token、伪流式首音频、tokens/s、LoRA 训练等证据状态，明确哪些指标
 已有证据、哪些只能作为后续计划，避免把 LoRA/真实延迟/ASR-TTS benchmark 等未复现项说成已完成。
 报告中的 `benchmark_gap_plan` 会把缺失证据转换成下一条可执行补证命令。
+
+2026-07-11 本机阶段实测（i5-14400F、Qwen3-0.6B Q8_0、CPU）如下；这些是报告值，
+不是简历目标值：
+
+| 指标 | 实测 |
+| --- | ---: |
+| warm Agent turn 首 token 中位数 / P95 | `≈536 / 560 ms` |
+| Agent API completion decode 估算中位数 | `≈28.9 tokens/s` |
+| `llama-bench` 独立 decode | `≈37.2 tokens/s` |
+| Sherpa 短句整句合成 | `≈199 ms` |
+| Sherpa ASR / TTS realtime factor | `≈0.036 / 0.414` |
+| speech endpoint → 第一块 TTS PCM | `≈861 ms` |
+| 离线 LLM 严格协议 / 工程出口动作分数 | `0.375 / 1.0` |
+
+`offline-latency` 会写出 `logs/offline_latency_report.json`。冷 prompt prefill 在节点 ready
+前由 warmup 承担，不混入 warm turn P95；`llama-bench` 是纯 decode 证据，Agent API decode
+则根据服务端返回的 completion token usage 估算，两者测量范围不同。
 演示前如需把 tokens/s 直接写进离线展示报告，可运行：
 
 ```bash

@@ -11,6 +11,16 @@ def event(text):
     )
 
 
+def usage_event(prompt_tokens, completion_tokens):
+    return SimpleNamespace(
+        choices=[],
+        usage=SimpleNamespace(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+        ),
+    )
+
+
 class FakeCompletions:
     def __init__(self, parent):
         self._parent = parent
@@ -39,7 +49,7 @@ def factory_for(client):
 
 
 def test_stream_yields_tokens_and_records_metrics():
-    client = FakeClient([[event("好"), event("的")]])
+    client = FakeClient([[event("好"), event("的"), usage_event(120, 3)]])
     llm = LlamaCppLlm(
         "http://127.0.0.1:8080/v1",
         "Qwen3-0.6B-Q8_0.gguf",
@@ -52,11 +62,16 @@ def test_stream_yields_tokens_and_records_metrics():
 
     call = client.calls[0]
     assert call["stream"] is True
+    assert call["stream_options"] == {"include_usage": True}
     assert call["model"] == "Qwen3-0.6B-Q8_0.gguf"
     assert call["extra_body"]["chat_template_kwargs"]["enable_thinking"] is False
-    assert llm.last_metrics["token_count"] == 2
+    assert llm.last_metrics["stream_chunks"] == 2
+    assert llm.last_metrics["prompt_tokens"] == 120
+    assert llm.last_metrics["completion_tokens"] == 3
+    assert llm.last_metrics["token_count"] == 3
     assert llm.last_metrics["first_token_ms"] is not None
     assert llm.last_metrics["tokens_per_s"] is not None
+    assert llm.last_metrics["decode_tokens_per_s"] is not None
 
 
 def test_stream_retries_before_any_token_is_emitted():

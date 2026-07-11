@@ -36,12 +36,37 @@ class ConversationMemory:
         with self._lock:
             return [dict(item) for item in self._messages]
 
-    def append_turn(self, user_text: str, assistant_text: str) -> None:
+    def prompt_messages(
+        self, system_content: str, user_content: str
+    ) -> List[Dict[str, str]]:
+        """构造稳定的 system→history→user 前缀，供 llama.cpp KV cache 复用。"""
         with self._lock:
+            history = [dict(item) for item in self._messages]
+        return [
+            {"role": "system", "content": system_content},
+            *history,
+            {"role": "user", "content": user_content},
+        ]
+
+    def append_turn(
+        self,
+        user_text: str,
+        assistant_text: str,
+        *,
+        model_output: str | None = None,
+    ) -> None:
+        with self._lock:
+            # 发送给模型的历史尽量保存模型原始协议文本，使下一次请求与 llama.cpp
+            # slot 中的已生成 token 保持一致，从而延长 KV cache 公共前缀。
+            assistant_content = (
+                model_output.strip()
+                if model_output is not None and model_output.strip()
+                else assistant_text
+            )
             self._messages.extend(
                 [
                     {"role": "user", "content": user_text},
-                    {"role": "assistant", "content": assistant_text},
+                    {"role": "assistant", "content": assistant_content},
                 ]
             )
             self._messages = self._messages[-self.max_messages :]
@@ -60,4 +85,3 @@ class ConversationMemory:
             encoding="utf-8",
         )
         os.replace(temporary, self.path)
-

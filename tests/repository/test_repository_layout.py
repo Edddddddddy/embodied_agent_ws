@@ -195,6 +195,20 @@ def test_llama_cpp_deployment_entrypoints_remain_available():
     assert "timeout_s" in provider_text
 
 
+def test_offline_voice_e2e_reuses_an_existing_llama_server():
+    """聚合报告连续跑 latency/E2E 时不能重复绑定 8080 端口。"""
+    script = (ROOT / "scripts" / "smoke_test_offline_voice_real.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'SERVER_PID=""' in script
+    assert 'if ! curl -fsS "$BASE_URL/health"' in script
+    assert '[[ -z "$SERVER_PID" ]] || kill "$SERVER_PID"' in script
+    assert 'memory_path:="$MEMORY_DIR/conversation.json"' in script
+    assert 'user_memory_dir:="$MEMORY_DIR/users"' in script
+    assert "/agent/clear_memory" not in script
+
+
 def test_instruction_following_lora_review_workflow_remains_available():
     """失败样例只能先进入候选集；人工审核后才允许导出 approved LoRA 数据集。"""
 

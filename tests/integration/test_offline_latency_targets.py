@@ -26,3 +26,22 @@ def test_non_streaming_tts_is_reported_as_full_synthesis_not_first_audio(monkeyp
     assert report["first_audio_supported"] is False
     assert report["synthesis_ms"] >= 0.0
     assert "first_audio_ms" not in report
+
+
+def test_llm_runtime_summary_uses_warm_turn_p95_not_cold_warmup():
+    report = latency.summarize_llm_samples(
+        [
+            {"first_token_ms": 95.0, "decode_tokens_per_s": 30.0},
+            {"first_token_ms": 420.0, "decode_tokens_per_s": 28.0},
+            {"first_token_ms": 390.0, "decode_tokens_per_s": 29.0},
+        ],
+        warmup={"first_token_ms": 3900.0},
+        target_ms=1000.0,
+    )
+
+    assert report["measurement_kind"] == "warm_agent_turn_after_prefix_warmup"
+    assert report["first_token_ms"] == 420.0
+    assert report["median_first_token_ms"] == 390.0
+    assert report["median_decode_tokens_per_s"] == 29.0
+    assert report["warmup"]["first_token_ms"] == 3900.0
+    assert report["ok"] is True

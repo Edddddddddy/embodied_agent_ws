@@ -324,7 +324,10 @@ def audit_report(
     if latency_status == "proven":
         claim_guidance.append("可以说：本机离线延迟目标已有真实测量证据。")
     else:
-        claim_guidance.append("不要说：本机 llama.cpp 首 token <1s 或 TTS 首音频 <300ms 已复现；除非先运行 offline-latency/--run-latency。")
+        claim_guidance.append(
+            "不要说：本机 warm Agent turn 首 token <1s 或 Sherpa 短句整句合成 <600ms "
+            "已复现；除非先运行 offline-latency/--run-latency。"
+        )
     if asr_tts_status == "proven":
         claim_guidance.append("可以说：Sherpa ASR/TTS benchmark 已在当前环境真实测量。")
     else:

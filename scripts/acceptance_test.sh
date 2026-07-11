@@ -289,7 +289,7 @@ case "$LEVEL" in
     check_llama_cpp_runtime
     require_file third_party/llama.cpp/build/bin/llama-bench
     python3 scripts/benchmark_llama_decode_speed.py \
-      --minimum-decode-tokens-per-s "${LLAMA_DECODE_MIN_TOKENS_PER_S:-0}" \
+      --minimum-decode-tokens-per-s "${LLAMA_DECODE_MIN_TOKENS_PER_S:-8.6}" \
       ${LLAMA_BENCH_NO_WARMUP:+--no-warmup}
     ;;
   summer-tts-preflight) check_summer_tts_runtime; python3 scripts/summer_tts_smoke.py --preflight-only ;;

@@ -22,7 +22,8 @@ offline_agent:
     # 离线/在线共用同一份错词表，避免两条链路行为不一致。
     command_normalization_path: ""
     memory_path: "~/.ros/embodied_agent/offline_memory.json"
-    memory_max_turns: 6
+    # 边缘端保留 3 轮短期对话；长期偏好由独立用户记忆保存，避免历史滑窗拖慢 prompt prefill。
+    memory_max_turns: 3
     system_prompt_path: ""
     asr_model_dir: "/home/ubuntu/embodied_agent_ws/models/sherpa-onnx-streaming-zipformer-small-bilingual-zh-en-2023-02-16"
     asr_num_threads: 2

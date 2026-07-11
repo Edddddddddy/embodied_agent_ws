@@ -445,10 +445,14 @@ sidecar 输出实际相似度。多人准确率仍需另建注册/查询数据�
   LLM 文字增量先经 `SentenceChunker` 切成短句，TTS worker 合成 PCM，audio worker 再按小块发布。
 - 双缓冲把 LLM 文本生成、TTS 合成与音频输出解耦。
 - latency 模块记录离线端到端耗时。
-- llama.cpp provider 额外记录首 token、token 数、tokens/s、错误原因，并合并到 `/offline_agent/metrics`。
-- `runtime_warmup_enabled` 在节点 ready 前用真实 system prompt 预热 llama.cpp，并预合成一个短 TTS；
-  llama-server 默认 `parallel=1`，让单用户语音 Agent 稳定复用公共提示词 KV cache。实测中这把真实
-  Agent 首 token 从冷启动约 4.9s 降至预热后的约 0.29–0.86s，代价是节点启动阶段多等待约 5s。
+- llama.cpp provider 请求流式 usage，分别记录 `stream_chunks`、`prompt_tokens`、
+  `completion_tokens`、首 token 和 decode 估算；SSE chunk 数不再冒充 token 数。
+- `runtime_warmup_enabled` 在节点 ready 前预热真实 `system + 已加载短期历史` 前缀，并预合成
+  一个短 TTS；ConversationMemory 保存模型原始 `<speech>/<action>` 协议输出，使下一轮 chat
+  template 与 server slot 中的生成 token 保持一致。离线短期历史限制为 3 轮，长期偏好由用户画像保存。
+- llama-server 默认 `parallel=1`，让单用户语音 Agent 复用 KV cache。2026-07-11 本机实测：
+  冷 prefill 约 4s（节点 ready 前承担），warm Agent turn 首 token 中位数约 `536ms`、P95
+  约 `560ms`，API decode 估算中位数约 `28.9 tokens/s`。
 - TTS pipeline 额外记录 `text_chunks`、`synth_calls`、`audio_chunks`、`first_text_to_first_audio_ms`，
   并合并到 `/offline_agent/metrics.tts_pipeline`。
 - `llama_cpp_preflight.py` 把 binary、模型文件、`/health`、`/v1/models`、低 token 流式 chat 分层验证。
@@ -469,6 +473,9 @@ sidecar 输出实际相似度。多人准确率仍需另建注册/查询数据�
 - 推理层独立预检可以快速判断问题在模型服务、ASR、TTS 还是 ROS 控制链路，避免完整 demo 失败时只能猜。
 - 离线展示最怕“工程接口接了”和“指标已复现”混在一起讲；证据审计脚本把未运行的 latency、
   ASR/TTS benchmark、LoRA 训练指标显式标成 warning，帮助汇报时守住边界。
+- `llama-bench` 的纯 decode 与 Agent API 长 prompt 指标必须分开：前者证明模型/CPU 上限，
+  后者包含 prompt cache、历史滑窗和服务协议开销。本机同轮报告分别约为 `37.2` 与
+  `28.9 tokens/s`，不能选择更高数字冒充端到端吞吐。
 - SummerTTS 是 C++ 项目，适合展示“端侧 C++ 运行时嵌入”；命令行 provider 保证部署简单，
   常驻 ROS component 则展示了更工程化的低耦合封装，并减少每句进程启动和模型加载开销。
 - 短文本缓存只覆盖“收到/好的/正在执行”等反馈语，长句不缓存，避免内存被长音频占满；这属于工程优化，
