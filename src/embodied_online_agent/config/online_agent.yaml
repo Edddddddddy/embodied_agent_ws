@@ -16,6 +16,9 @@ online_agent:
     continuous_command_queue_size: 8
     continuous_command_max_age_s: 30.0
     speech_endpoint_events_enabled: true
+    # final 仅比最新 partial 少安全控制槽位时，保守恢复数字/角度/颜色等尾部。
+    asr_partial_merge_enabled: true
+    asr_partial_max_age_s: 2.0
     external_wake_event_enabled: true
     command_normalization_enabled: true
     command_normalization_feedback_enabled: true

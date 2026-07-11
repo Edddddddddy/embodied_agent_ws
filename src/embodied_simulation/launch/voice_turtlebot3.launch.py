@@ -87,6 +87,8 @@ def generate_launch_description():
     command_completion_enabled = LaunchConfiguration("command_completion_enabled")
     asr_commit_delay_ms = LaunchConfiguration("asr_commit_delay_ms")
     asr_hotwords_score = LaunchConfiguration("asr_hotwords_score")
+    asr_partial_merge_enabled = LaunchConfiguration("asr_partial_merge_enabled")
+    asr_partial_max_age_s = LaunchConfiguration("asr_partial_max_age_s")
     use_typed_actions = LaunchConfiguration("use_typed_actions")
     use_behavior_tree = LaunchConfiguration("use_behavior_tree")
     executor_plugin = LaunchConfiguration("executor_plugin")
@@ -154,6 +156,8 @@ def generate_launch_description():
         DeclareLaunchArgument("command_completion_enabled", default_value="true"),
         DeclareLaunchArgument("asr_commit_delay_ms", default_value="0"),
         DeclareLaunchArgument("asr_hotwords_score", default_value="3.0"),
+        DeclareLaunchArgument("asr_partial_merge_enabled", default_value="true"),
+        DeclareLaunchArgument("asr_partial_max_age_s", default_value="2.0"),
         DeclareLaunchArgument("use_typed_actions", default_value="true"),
         DeclareLaunchArgument("use_behavior_tree", default_value="true"),
         DeclareLaunchArgument(
@@ -261,6 +265,8 @@ def generate_launch_description():
                 "command_normalization_path": command_normalization_path,
                 "command_completion_enabled": command_completion_enabled,
                 "asr_commit_delay_ms": asr_commit_delay_ms,
+                "asr_partial_merge_enabled": asr_partial_merge_enabled,
+                "asr_partial_max_age_s": asr_partial_max_age_s,
                 "hardware_enabled": "false",
                 "lifecycle_autostart": lifecycle_autostart,
             },
@@ -315,6 +321,8 @@ def generate_launch_description():
                 "command_completion_enabled": command_completion_enabled,
                 "asr_commit_delay_ms": asr_commit_delay_ms,
                 "asr_hotwords_score": asr_hotwords_score,
+                "asr_partial_merge_enabled": asr_partial_merge_enabled,
+                "asr_partial_max_age_s": asr_partial_max_age_s,
                 "hardware_enabled": "false",
                 "lifecycle_autostart": lifecycle_autostart,
             },

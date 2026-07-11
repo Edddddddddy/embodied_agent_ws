@@ -191,6 +191,8 @@ def evaluate(
         "action_success_rate": round(action_success_rate, 4),
         "unexpected_candidates": unexpected_candidates,
         "false_trigger_rate": round(false_trigger_rate, 4),
+        # 单独展示 partial 恢复次数：它是鲁棒性证据，不计作额外 ASR 或动作。
+        "asr_final_recovery_count": int(report.get("asr_final_recovery_count", 0)),
         "latency": latency_values,
         "text_matches": text_matches,
         "observed_candidate_sequence": observed_candidates,

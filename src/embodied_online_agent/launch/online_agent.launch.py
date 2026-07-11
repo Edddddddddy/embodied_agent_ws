@@ -58,6 +58,8 @@ def generate_launch_description():
     command_normalization_path = LaunchConfiguration("command_normalization_path")
     command_completion_enabled = LaunchConfiguration("command_completion_enabled")
     asr_commit_delay_ms = LaunchConfiguration("asr_commit_delay_ms")
+    asr_partial_merge_enabled = LaunchConfiguration("asr_partial_merge_enabled")
+    asr_partial_max_age_s = LaunchConfiguration("asr_partial_max_age_s")
     hardware_backend = LaunchConfiguration("hardware_backend")
     hardware_enabled = LaunchConfiguration("hardware_enabled")
     lifecycle_autostart = LaunchConfiguration("lifecycle_autostart")
@@ -121,6 +123,8 @@ def generate_launch_description():
             DeclareLaunchArgument("command_normalization_path", default_value=""),
             DeclareLaunchArgument("command_completion_enabled", default_value="true"),
             DeclareLaunchArgument("asr_commit_delay_ms", default_value="0"),
+            DeclareLaunchArgument("asr_partial_merge_enabled", default_value="true"),
+            DeclareLaunchArgument("asr_partial_max_age_s", default_value="2.0"),
             DeclareLaunchArgument("hardware_backend", default_value="mock"),
             DeclareLaunchArgument("hardware_enabled", default_value="true"),
             DeclareLaunchArgument("lifecycle_autostart", default_value="true"),
@@ -176,6 +180,12 @@ def generate_launch_description():
                         ),
                         "asr_commit_delay_ms": ParameterValue(
                             asr_commit_delay_ms, value_type=int
+                        ),
+                        "asr_partial_merge_enabled": ParameterValue(
+                            asr_partial_merge_enabled, value_type=bool
+                        ),
+                        "asr_partial_max_age_s": ParameterValue(
+                            asr_partial_max_age_s, value_type=float
                         ),
                     },
                 ],

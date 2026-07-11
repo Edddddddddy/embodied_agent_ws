@@ -190,6 +190,8 @@
 - `continuous_voice_control.sh` 默认 `APPLY_VOICE_CALIBRATION=auto`：如果
   `logs/voice_calibration.env` 存在，会在 profile 默认值计算前加载；如果用户显式传入
   `VOICE_CONTROL_PROFILE/SPEECH_START_THRESHOLD/VAD_PROVIDER` 等关键变量，则显式值优先。
+- `transcript_stabilizer.py` 保存同一 utterance 的最新 ASR partial；final 严格截短且尾部是
+  可解释控制槽位时才恢复，并通过 `asr_final_recovered` feedback 留证。
 
 为什么这样设计：
 
@@ -202,6 +204,8 @@
 - KWS 单独做 runtime setup，是因为“唤醒词检测”比文本触发更接近真实机器人交互；openWakeWord
   适合快速准备 Python runtime，sherpa KWS 则能复用离线 ASR 运行时资产。
 - VAD 和 commit 分离，便于定位“音频没听到”和“ASR final 太早”两类问题。
+- partial/final 合并放在 Agent 入口而不是 ASR provider 内，在线 Qwen 与离线 ZipFormer
+  共用同一安全策略，provider 仍只负责忠实上报模型结果。
 - 成熟 VAD 做成 sidecar，而不是塞进 PortAudio 回调线程，是为了避免模型推理阻塞音频采集。
 
 方案对比：
@@ -211,6 +215,8 @@
 - profile + commit delay：保留可调空间，适合不同环境。
 - auto Silero/WebRTC sidecar：Silero 判断更稳但依赖较重，WebRTC VAD 更轻、更易部署但只有二分类；
   降级 energy VAD 保证基础演示不被可选依赖卡死。
+- 直接采用最长 partial：召回高但可能恢复模型中途幻觉；当前实现要求 final 前缀关系、2 秒新鲜度和
+  安全槽位白名单，牺牲部分召回换取动作安全。
 
 ## 6. 短命令补全与模糊归一化
 
@@ -219,6 +225,7 @@
 - `src/embodied_online_agent/embodied_online_agent/command_normalizer.py`
 - `src/embodied_online_agent/config/command_normalization_zh.yaml`
 - `src/embodied_online_agent/embodied_online_agent/command_completion.py`
+- `src/embodied_online_agent/embodied_online_agent/transcript_stabilizer.py`
 - `src/embodied_online_agent/test/test_command_completion.py`
 
 设计方式：

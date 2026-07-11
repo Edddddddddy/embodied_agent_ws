@@ -55,6 +55,30 @@ def test_live_check_report_passes_when_required_evidence_is_present():
     assert report.action_candidate_names["move"] == 1
 
 
+def test_live_check_report_counts_partial_final_recovery_feedback():
+    node = live_check.LiveCheckNode()
+    node._on_recognition_feedback(
+        types.SimpleNamespace(
+            data=json.dumps(
+                {
+                    "status": "asr_final_recovered",
+                    "original_final": "把灯",
+                    "recovered": "把灯设成蓝色",
+                },
+                ensure_ascii=False,
+            )
+        )
+    )
+
+    report = node.build_report(
+        live_check.LiveCheckThresholds(min_asr=0, min_candidates=0, min_success=0)
+    )
+
+    assert report.recognition_feedback_count == 1
+    assert report.asr_final_recovery_count == 1
+    assert report.recognition_feedback_samples[0]["recovered"] == "把灯设成蓝色"
+
+
 def test_live_check_report_requires_navigation_candidates():
     node = live_check.LiveCheckNode()
     node.asr.extend(["小智", "去门口", "前往书桌", "依次去门口书桌起点"])

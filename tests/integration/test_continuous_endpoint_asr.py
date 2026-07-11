@@ -16,9 +16,9 @@ from std_msgs.msg import Empty, String
 
 EXPECTED_ASR = [
     "小智", "向前走一秒", "左转", "前进", "后退一秒",
-    "把灯", "我九十", "退出",
+    "把灯设成蓝色", "把灯", "我九十", "退出",
 ]
-EXPECTED_CANDIDATES = ["move", "turn", "move", "move"]
+EXPECTED_CANDIDATES = ["move", "turn", "move", "move", "set_led"]
 
 
 class EndpointAsrProbe(Node):
@@ -103,7 +103,7 @@ def main():
         publish_endpoint(node, 1)
         wait_until(lambda: "awake" in node.session_states, 5.0, "wake ASR final missing")
 
-        publish_endpoint(node, 4)
+        publish_endpoint(node, 5)
         wait_until(
             lambda: len(node.candidates) >= len(EXPECTED_CANDIDATES),
             25.0,
@@ -115,7 +115,20 @@ def main():
             "endpoint ASR commands did not reach robot action results",
         )
 
-        # 缺颜色/方向的真人 ASR 样本必须提示重说，不能让 LLM 猜动作。
+        recovered = [
+            item for item in node.recognition_feedback
+            if item.get("status") == "asr_final_recovered"
+        ]
+        if not any(
+            item.get("original_final") == "把灯"
+            and item.get("recovered") == "把灯设成蓝色"
+            for item in recovered
+        ):
+            raise RuntimeError(
+                f"safe partial tail was not recovered: {node.recognition_feedback}"
+            )
+
+        # 无可信 partial 的缺颜色/方向样本必须提示重说，不能让 LLM 猜动作。
         publish_endpoint(node, 2)
         wait_until(
             lambda: {
@@ -206,6 +219,7 @@ def main():
                         event.get("event") for event in node.execution_events
                     ],
                     "completed_commands": sorted(completed_pairs),
+                    "partial_recovery_count": len(recovered),
                     "incomplete_retry_reasons": sorted(retry_reasons),
                     "asr_endpoint_count": len(endpoint_feedback),
                     "asr_commit_count": len(commit_feedback),

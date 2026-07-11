@@ -59,6 +59,8 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
             "COMMAND_COMPLETION_ENABLED": "false",
             "ASR_COMMIT_DELAY_MS": "450",
             "ASR_HOTWORDS_SCORE": "3.4",
+            "ASR_PARTIAL_MERGE_ENABLED": "false",
+            "ASR_PARTIAL_MAX_AGE_S": "1.7",
         }
     )
 
@@ -112,6 +114,8 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
     assert "COMMAND_COMPLETION_ENABLED=false" in result.stdout
     assert "ASR_COMMIT_DELAY_MS=450" in result.stdout
     assert "ASR_HOTWORDS_SCORE=3.4" in result.stdout
+    assert "ASR_PARTIAL_MERGE_ENABLED=false" in result.stdout
+    assert "ASR_PARTIAL_MAX_AGE_S=1.7" in result.stdout
     assert "wake_word_enabled:=false" in result.stdout
     assert "speech_start_threshold:=0.021" in result.stdout
     assert "vad_speech_start_ms:=128" in result.stdout
@@ -133,6 +137,8 @@ def test_continuous_voice_control_prints_resolved_config_without_microphone():
     assert "command_completion_enabled:=false" in result.stdout
     assert "asr_commit_delay_ms:=450" in result.stdout
     assert "asr_hotwords_score:=3.4" in result.stdout
+    assert "asr_partial_merge_enabled:=false" in result.stdout
+    assert "asr_partial_max_age_s:=1.7" in result.stdout
     assert "sherpa_tokens:=/models/kws/tokens.txt" in result.stdout
     assert "openwakeword_models:=/models/kws/xiaozhi.onnx,/models/kws/nihaoxiaozhi.onnx" in result.stdout
     assert "openwakeword_threshold:=0.42" in result.stdout

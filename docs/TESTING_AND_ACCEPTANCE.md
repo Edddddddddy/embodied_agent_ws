@@ -936,10 +936,11 @@ VOICE_CONTROL_PROFILE=noisy_room bash scripts/acceptance_test.sh continuous-offl
 
 ### 5.2 “左转90度”只识别成“左转”
 
-当前链路有两层保护：
+当前链路有三层保护：
 
 1. endpoint 更稳：`SPEECH_END_SILENCE_S` 和 `ASR_COMMIT_DELAY_MS`。
-2. 命令补全：裸 `左转/右转/前进/后退` 补成默认演示动作。
+2. partial/final 保守合并：只恢复同一 utterance 中新鲜的数字、角度、颜色等安全槽位尾部。
+3. 命令补全：裸 `左转/右转/前进/后退` 补成默认演示动作。
 
 建议：
 
@@ -947,7 +948,9 @@ VOICE_CONTROL_PROFILE=noisy_room bash scripts/acceptance_test.sh continuous-offl
 SPEECH_END_SILENCE_S=0.85 ASR_COMMIT_DELAY_MS=500 bash scripts/acceptance_test.sh continuous-offline
 ```
 
-如果 monitor 输出 `completed_missing_slot`，说明短命令补全已经生效。
+如果 monitor 输出 `[asr-recover]`，说明 partial 恢复已生效；输出 `completed_missing_slot`
+则说明 final 没有可用 partial，短命令补全兜底已生效。180 秒报告会额外记录
+`asr_final_recovery_count`，用于区分“模型 final 原本完整”和“由稳定层恢复”。
 
 ### 5.3 一句话里多个命令没有顺序执行
 

@@ -44,6 +44,9 @@ class LiveCheckReport:
     final_cmd_vel_zero: bool
     ok: bool
     missing: list[str]
+    recognition_feedback_count: int = 0
+    asr_final_recovery_count: int = 0
+    recognition_feedback_samples: list[dict] = field(default_factory=list)
     asr_samples: list[str] = field(default_factory=list)
     action_candidate_samples: list[dict] = field(default_factory=list)
     action_result_samples: list[dict] = field(default_factory=list)
@@ -66,6 +69,7 @@ class LiveCheckNode(Node):
         self.results: list[dict] = []
         self.velocities: list[tuple[float, float]] = []
         self.metrics: list[dict] = []
+        self.recognition_feedback: list[dict] = []
         self.started_at = time.monotonic()
         self._last_asr_at = 0.0
         self._candidate_asr_at: dict[str, float] = {}
@@ -78,6 +82,12 @@ class LiveCheckNode(Node):
         self.create_subscription(String, "/agent/command_execution", self._on_execution, 10)
         self.create_subscription(String, "/agent/action_candidate", self._on_candidate, 10)
         self.create_subscription(String, "/robot/action_result", self._on_result, 10)
+        self.create_subscription(
+            String,
+            "/agent/recognition_feedback",
+            self._on_recognition_feedback,
+            10,
+        )
         self.create_subscription(String, "/agent/metrics", self._on_metrics, 10)
         # 在线与离线 Agent 为避免指标语义混淆使用了不同 topic；评测探针同时监听，
         # 让同一套 benchmark 能覆盖两条链路，而不是让离线报告悄悄缺失延迟数据。
@@ -129,6 +139,11 @@ class LiveCheckNode(Node):
     def _on_metrics(self, message: String) -> None:
         self.metrics.append(_json_dict(message.data))
 
+    def _on_recognition_feedback(self, message: String) -> None:
+        payload = _json_dict(message.data)
+        if payload:
+            self.recognition_feedback.append(payload)
+
     def build_report(self, thresholds: LiveCheckThresholds) -> LiveCheckReport:
         success_count = sum(1 for result in self.results if result.get("success") is True)
         enqueue_count = sum(1 for event in self.queue_events if event.get("event") == "enqueue")
@@ -156,6 +171,11 @@ class LiveCheckNode(Node):
             checks["navigate_to target observed"] = _has_navigate_target(self.candidates)
             checks["follow_waypoints waypoints observed"] = _has_waypoint_patrol(self.candidates)
         missing = [name for name, passed in checks.items() if not passed]
+        recovery_count = sum(
+            1
+            for item in self.recognition_feedback
+            if item.get("status") == "asr_final_recovered"
+        )
         return LiveCheckReport(
             asr_count=len(self.asr),
             action_candidate_count=len(self.candidates),
@@ -169,6 +189,9 @@ class LiveCheckNode(Node):
             final_cmd_vel_zero=final_zero,
             ok=not missing,
             missing=missing,
+            recognition_feedback_count=len(self.recognition_feedback),
+            asr_final_recovery_count=recovery_count,
+            recognition_feedback_samples=_tail(self.recognition_feedback),
             asr_samples=_tail(self.asr),
             action_candidate_samples=_tail(self.candidates),
             action_result_samples=_tail(self.results),
@@ -224,6 +247,9 @@ def evaluate_report(report: LiveCheckReport, thresholds: LiveCheckThresholds) ->
         final_cmd_vel_zero=report.final_cmd_vel_zero,
         ok=not missing,
         missing=missing,
+        recognition_feedback_count=report.recognition_feedback_count,
+        asr_final_recovery_count=report.asr_final_recovery_count,
+        recognition_feedback_samples=report.recognition_feedback_samples,
         asr_samples=report.asr_samples,
         action_candidate_samples=report.action_candidate_samples,
         action_result_samples=report.action_result_samples,
@@ -396,6 +422,11 @@ def load_report(path: str) -> LiveCheckReport:
         final_cmd_vel_zero=bool(_required(payload, "final_cmd_vel_zero")),
         ok=bool(_required(payload, "ok")),
         missing=_required_str_list(payload, "missing"),
+        recognition_feedback_count=int(payload.get("recognition_feedback_count", 0)),
+        asr_final_recovery_count=int(payload.get("asr_final_recovery_count", 0)),
+        recognition_feedback_samples=_optional_dict_list(
+            payload, "recognition_feedback_samples"
+        ),
         asr_samples=_required_str_list(payload, "asr_samples"),
         action_candidate_samples=_required_dict_list(
             payload, "action_candidate_samples"

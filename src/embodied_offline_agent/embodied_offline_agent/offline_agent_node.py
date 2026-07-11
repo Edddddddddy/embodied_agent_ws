@@ -23,6 +23,7 @@ from embodied_online_agent.navigation_phrases import is_navigation_cancel
 from embodied_online_agent.protocol import SentenceChunker, TaggedStreamParser
 from embodied_online_agent.recognition_retry import RecognitionRetryTracker
 from embodied_online_agent.types import ActionCommand
+from embodied_online_agent.transcript_stabilizer import TranscriptStabilizer
 from embodied_online_agent.user_memory import (
     LowConfidenceSpeakerError,
     SpeakerIdentity,
@@ -95,6 +96,10 @@ class OfflineAgentNode(Node):
         self._command_nlu = CommandNLU(
             enabled=bool(self._param("command_nlu_enabled")),
             min_confidence=float(self._param("command_nlu_min_confidence")),
+        )
+        self._transcript_stabilizer = TranscriptStabilizer(
+            enabled=bool(self._param("asr_partial_merge_enabled")),
+            max_age_s=float(self._param("asr_partial_max_age_s")),
         )
         self._action_sequencer = SequentialActionPublisher(
             self._param("action_sequence_wait_timeout_s")
@@ -221,6 +226,7 @@ class OfflineAgentNode(Node):
             "summer_tts_service_length_scale": 0.0,
             "mock_token_delay_s": 0.0,
             "mock_asr_finals": "",
+            "mock_asr_partials": "",
             "action_sequence_wait_timeout_s": 12.0,
             "continuous_control_enabled": False,
             "voice_session_timeout_s": 60.0,
@@ -229,6 +235,8 @@ class OfflineAgentNode(Node):
             "continuous_duplicate_window_s": 1.2,
             "speech_endpoint_events_enabled": True,
             "asr_commit_delay_ms": 0,
+            "asr_partial_merge_enabled": True,
+            "asr_partial_max_age_s": 2.0,
             "external_wake_event_enabled": True,
         }
         for name, value in defaults.items():
@@ -249,7 +257,9 @@ class OfflineAgentNode(Node):
 
     def _create_providers(self):
         if self._mode == "mock":
-            return MockOfflineAsr(self._mock_asr_finals()), MockOfflineLlm(self._param("mock_token_delay_s")), MockOfflineTts(self._param("tts_sample_rate"))
+            return MockOfflineAsr(
+                self._mock_asr_finals(), self._mock_asr_partials()
+            ), MockOfflineLlm(self._param("mock_token_delay_s")), MockOfflineTts(self._param("tts_sample_rate"))
         if self._mode != "offline":
             raise ValueError("mode must be 'mock' or 'offline'")
         # Native model wheels are intentionally optional in mock mode.
@@ -341,6 +351,12 @@ class OfflineAgentNode(Node):
         scripted = str(self._param("mock_asr_finals") or "")
         return [item.strip() for item in scripted.split("|") if item.strip()]
 
+    def _mock_asr_partials(self):
+        scripted = str(self._param("mock_asr_partials") or "")
+        if not scripted:
+            return []
+        return ["" if item.strip() in {"", "-"} else item.strip() for item in scripted.split("|")]
+
     def _hotwords_file(self):
         configured = self._param("asr_hotwords_file")
         if configured:
@@ -362,6 +378,7 @@ class OfflineAgentNode(Node):
     def _on_speech_started(self, _message):
         if self._is_busy() and not self._continuous_enabled:
             return
+        self._transcript_stabilizer.clear()
         self._publish_state("speech_detected")
 
     def _on_speech_ended(self, _message):
@@ -441,19 +458,31 @@ class OfflineAgentNode(Node):
     def _on_asr_partial(self, text):
         if self._is_busy() and not self._continuous_enabled:
             return
+        self._transcript_stabilizer.observe_partial(text)
         self._asr_partial_pub.publish(String(data=text))
 
     def _on_asr_final(self, text):
         if self._is_busy() and not self._continuous_enabled:
+            self._transcript_stabilizer.clear()
             self.get_logger().warning(
                 "offline agent busy; suppressing overlapping ASR final"
             )
             return
+        stabilized = self._transcript_stabilizer.finalize(text)
+        if stabilized.recovered:
+            self._recognition_feedback_pub.publish(
+                String(data=stabilized.to_feedback_json())
+            )
+            self.get_logger().info(
+                f"recovered ASR final from partial: '{text}' -> '{stabilized.text}'"
+            )
+        text = stabilized.text
         self._latency.mark_asr_final()
         self._asr_final_pub.publish(String(data=text))
         self._accept_transcript(text)
 
     def _on_text(self, message):
+        self._transcript_stabilizer.clear()
         self._latency = OfflineLatency()
         self._latency.mark_silence()
         self._latency.mark_asr_final()

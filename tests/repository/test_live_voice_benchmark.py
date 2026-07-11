@@ -26,6 +26,7 @@ def _report(duration: float = 180.0) -> dict:
     return {
         "duration_s": duration,
         "capture_source": "real_microphone",
+        "asr_final_recovery_count": 2,
         "asr_samples": [f"命令{index}" for index in range(10)],
         "action_candidate_samples": [
             {"name": "move" if index % 2 == 0 else "turn"} for index in range(10)
@@ -60,6 +61,7 @@ def test_benchmark_passes_complete_three_minute_evidence() -> None:
     assert result["latency"]["asr_to_first_token_ms"]["p95_ms"] == 500.0
     assert result["latency"]["asr_final_to_action_result_ms"]["p95_ms"] == 1800.0
     assert result["evidence_scope"] == "operator_declared_real_microphone"
+    assert result["asr_final_recovery_count"] == 2
 
 
 def test_benchmark_marks_short_run_and_false_trigger_as_incomplete() -> None:

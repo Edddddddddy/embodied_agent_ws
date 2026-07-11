@@ -564,6 +564,9 @@ bash scripts/acceptance_test.sh continuous-live-check online
   默认起始阈值 `0.5` 形成滞回，减少临界概率抖动导致的错误断句；
 - `SPEECH_END_SILENCE_S`：VAD 判定一句话结束前等待的静音时长。
 - `ASR_COMMIT_DELAY_MS`：收到 `/audio/speech_ended` 后，Agent 再延迟提交 ASR final 的时间。
+- `ASR_PARTIAL_MERGE_ENABLED`：默认开启；final 是最新 partial 的严格前缀时，只补回
+  时间、角度、次数、颜色、地点等安全控制槽位，不覆盖普通聊天。
+- `ASR_PARTIAL_MAX_AGE_S`：partial 可参与恢复的最大新鲜度，默认 `2.0s`。
 - `VOICE_CONTROL_PROFILE`：`normal`、`quiet`、`low_gain`、`noisy_room` 四种预设。
   - `low_gain` 用于 WSL/笔记本麦克风输入很低的场景，例如 `rms≈0.002`、`peak<300` 且 `speech=False`。
 
@@ -575,6 +578,9 @@ VOICE_CONTROL_PROFILE=low_gain bash scripts/acceptance_test.sh continuous-offlin
 VAD_PROVIDER=silero bash scripts/acceptance_test.sh continuous-offline
 ASR_COMMIT_DELAY_MS=500 bash scripts/acceptance_test.sh continuous-offline
 ```
+
+发生安全恢复时 monitor 会打印 `[asr-recover] 把灯 -> 把灯设成蓝色`，真人留证报告中的
+`asr_final_recovery_count` 会记录次数；没有可信 partial 时仍进入缺槽位重试，不猜测动作。
 
 如果 ASR 仍然只输出“左转/前进”，命令补全层会按演示默认语义执行：
 

@@ -189,6 +189,10 @@ def format_recognition_feedback(serialized: str) -> str:
         original = payload.get("original", "")
         completed = payload.get("completed", "")
         return f"[complete] {original} -> {completed}"
+    if payload.get("status") == "asr_final_recovered":
+        original = payload.get("original_final", "")
+        recovered = payload.get("recovered", "")
+        return f"[asr-recover] {original} -> {recovered}"
     if payload.get("status") == "nlu_parsed":
         batch_id = payload.get("batch_id", "?")
         commands = payload.get("commands") or []
@@ -286,6 +290,7 @@ class MonitorStats:
     ignored: int = 0
     normalized: int = 0
     completed: int = 0
+    recovered: int = 0
     enqueued: int = 0
     rejected: int = 0
     expired: int = 0
@@ -320,6 +325,8 @@ class MonitorStats:
             self.normalized += 1
         elif status == "completed":
             self.completed += 1
+        elif status == "asr_final_recovered":
+            self.recovered += 1
         elif status == "retry":
             self.retry += 1
         elif status == "session_timeout":
@@ -362,6 +369,7 @@ class MonitorStats:
             f"timeout={self.timeout} "
             f"asr={self.asr} ignored={self.ignored} "
             f"normalized={self.normalized} completed={self.completed} "
+            f"recovered={self.recovered} "
             f"enqueued={self.enqueued} "
             f"rejected={self.rejected} expired={self.expired} started={self.started} "
             f"finished={self.finished} succeeded={self.succeeded} failed={self.failed}"

@@ -31,6 +31,7 @@ from .navigation_phrases import is_navigation_cancel
 from .protocol import SentenceChunker, TaggedStreamParser
 from .recognition_retry import RecognitionRetryTracker
 from .types import ActionCommand
+from .transcript_stabilizer import TranscriptStabilizer
 from .user_preferences import apply_user_preferences
 from .wake_event_input import parse_external_wake_event
 from .providers.mock import MockAsr, MockLlm, MockTts
@@ -86,6 +87,10 @@ class OnlineAgentNode(Node):
         self.command_nlu = CommandNLU(
             enabled=bool(self._param("command_nlu_enabled")),
             min_confidence=float(self._param("command_nlu_min_confidence")),
+        )
+        self.transcript_stabilizer = TranscriptStabilizer(
+            enabled=bool(self._param("asr_partial_merge_enabled")),
+            max_age_s=float(self._param("asr_partial_max_age_s")),
         )
         self.action_sequencer = SequentialActionPublisher(
             self._param("action_sequence_wait_timeout_s")
@@ -228,6 +233,7 @@ class OnlineAgentNode(Node):
             "tts_first_audio_target_ms": 300.0,
             "mock_token_delay_s": 0.0,
             "mock_asr_finals": "",
+            "mock_asr_partials": "",
             "online_warmup_enabled": True,
             "action_sequence_wait_timeout_s": 12.0,
             "continuous_control_enabled": False,
@@ -237,6 +243,8 @@ class OnlineAgentNode(Node):
             "continuous_duplicate_window_s": 1.2,
             "speech_endpoint_events_enabled": True,
             "asr_commit_delay_ms": 0,
+            "asr_partial_merge_enabled": True,
+            "asr_partial_max_age_s": 2.0,
             "external_wake_event_enabled": True,
         }
         for name, value in defaults.items():
@@ -266,7 +274,7 @@ class OnlineAgentNode(Node):
     def _create_providers(self):
         if self.mode == "mock":
             return (
-                MockAsr(self._mock_asr_finals()),
+                MockAsr(self._mock_asr_finals(), self._mock_asr_partials()),
                 MockLlm(self._param("mock_token_delay_s")),
                 MockTts(self._param("tts_sample_rate")),
             )
@@ -296,9 +304,17 @@ class OnlineAgentNode(Node):
         scripted = str(self._param("mock_asr_finals") or "")
         return [item.strip() for item in scripted.split("|") if item.strip()]
 
+    def _mock_asr_partials(self):
+        scripted = str(self._param("mock_asr_partials") or "")
+        if not scripted:
+            return []
+        # “-”保留与 finals 的位置对齐，但表示本轮没有 partial。
+        return ["" if item.strip() in {"", "-"} else item.strip() for item in scripted.split("|")]
+
     def _on_asr_partial(self, text: str):
         if self._is_busy() and not self._continuous_enabled:
             return
+        self.transcript_stabilizer.observe_partial(text)
         self.asr_partial_pub.publish(String(data=text))
 
     def _on_clean_audio(self, message: UInt8MultiArray):
@@ -312,6 +328,8 @@ class OnlineAgentNode(Node):
     def _on_speech_started(self, _message: Empty):
         if self._is_busy() and not self._continuous_enabled:
             return
+        # speech_started 是 utterance 边界，先清掉异常遗留的上一句 partial。
+        self.transcript_stabilizer.clear()
         self._publish_state("speech_detected")
 
     def _on_speech_ended(self, _message: Empty):
@@ -354,12 +372,23 @@ class OnlineAgentNode(Node):
 
     def _on_asr_final(self, text: str):
         if self._is_busy() and not self._continuous_enabled:
+            self.transcript_stabilizer.clear()
             self.get_logger().warning("agent is busy; suppressing overlapping ASR final")
             return
+        stabilized = self.transcript_stabilizer.finalize(text)
+        if stabilized.recovered:
+            self.recognition_feedback_pub.publish(
+                String(data=stabilized.to_feedback_json())
+            )
+            self.get_logger().info(
+                f"recovered ASR final from partial: '{text}' -> '{stabilized.text}'"
+            )
+        text = stabilized.text
         self.asr_final_pub.publish(String(data=text))
         self._accept_transcript(text)
 
     def _on_text_input(self, message: String):
+        self.transcript_stabilizer.clear()
         self.asr_final_pub.publish(String(data=message.data))
         self._accept_transcript(message.data)
 

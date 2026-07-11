@@ -142,6 +142,22 @@ def test_monitor_formats_command_completion_feedback():
     assert monitor.format_recognition_feedback(feedback) == "[complete] 左转 -> 左转九十度"
 
 
+def test_monitor_formats_partial_final_recovery_feedback():
+    feedback = json.dumps(
+        {
+            "status": "asr_final_recovered",
+            "original_final": "把灯",
+            "recovered": "把灯设成蓝色",
+        },
+        ensure_ascii=False,
+    )
+
+    assert (
+        monitor.format_recognition_feedback(feedback)
+        == "[asr-recover] 把灯 -> 把灯设成蓝色"
+    )
+
+
 def test_monitor_formats_asr_endpoint_and_commit_feedback():
     endpoint = json.dumps(
         {"status": "asr_endpoint", "source": "speech_ended", "delay_ms": 300},
@@ -257,7 +273,7 @@ def test_monitor_stats_summarizes_long_running_session():
     stats.record_result(json.dumps({"success": True, "message": "succeeded"}))
 
     assert stats.format_summary() == (
-        "[summary] wake=1 sleep=1 retry=1 timeout=1 asr=1 ignored=1 normalized=1 completed=0 enqueued=1 rejected=1 expired=1 "
+        "[summary] wake=1 sleep=1 retry=1 timeout=1 asr=1 ignored=1 normalized=1 completed=0 recovered=0 enqueued=1 rejected=1 expired=1 "
         "started=1 finished=1 succeeded=1 failed=0\n"
         "[advice] 出现 queue_full：请放慢连续说话节奏，或适当增大 CONTINUOUS_COMMAND_QUEUE_SIZE。\n"
         "[advice] 有命令过期：机器人执行较慢或说话过快，可缩短演示话术或增大 CONTINUOUS_COMMAND_MAX_AGE。"
