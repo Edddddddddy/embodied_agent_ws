@@ -203,6 +203,7 @@ publisher 关闭前发布 `ComponentHealth.STATE_STOPPED`，覆盖 transient-loc
 
 - `src/embodied_agent_core/embodied_agent_core/agent_parameters.py`
 - `src/embodied_agent_core/embodied_agent_core/agent_launch_contract.py`
+- `src/embodied_agent_core/embodied_agent_core/voice_frontend_launch_contract.py`
 - `src/embodied_online_agent/embodied_online_agent/online_agent_node.py`
 - `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py`
 - `src/embodied_online_agent/launch/online_agent.launch.py`
@@ -221,6 +222,9 @@ publisher 关闭前发布 `ComponentHealth.STATE_STOPPED`，覆盖 transient-loc
   为等待尾部而延迟 commit 时，partial 反而先过期。
 - `agent_launch_contract.py` 从同一 schema 生成 launch 默认值和带明确 ROS 类型的
   `ParameterValue`，并为 Gazebo/Nav2 生成相同的 include 转发表。
+- `voice_frontend_launch_contract.py` 进一步把 audio frontend、Silero/WebRTC VAD、KWS、
+  speaker identity 的参数声明和 Node 构造收进一个深模块。在线/离线 launch 从数百行
+  重复装配缩减为 provider、TTS、Lifecycle 和硬件拓扑说明。
 - 配置优先级是“节点 schema → provider YAML → launch 覆盖”。YAML 只保留模型 endpoint、
   路径、线程数等 provider 配置；会话/队列/记忆默认值不再复制。
 
@@ -232,6 +236,8 @@ publisher 关闭前发布 `ComponentHealth.STATE_STOPPED`，覆盖 transient-loc
   也避免部分节点已经 ready 后系统才退化。
 - 上层仿真只透传现场经常调整的体验参数；模型细节留在 provider profile，使 launch 保持
   “编排进程拓扑”的职责，而不是变成几百行万能参数总线。
+- 共享 contract 只接收 `config` 和 `capture_default`，没有读取在线/离线 provider 对象；
+  这条窄接口避免共享模块反向依赖具体 Agent 包。
 
 方案对比：
 

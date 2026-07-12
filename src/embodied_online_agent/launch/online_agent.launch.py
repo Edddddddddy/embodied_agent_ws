@@ -4,7 +4,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
-from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import LifecycleNode, Node
 from launch_ros.parameter_descriptions import ParameterValue
 
@@ -13,43 +13,16 @@ from embodied_agent_core.agent_launch_contract import (
     agent_control_parameter_overrides,
     declare_agent_control_arguments,
 )
+from embodied_agent_core.voice_frontend_launch_contract import (
+    declare_voice_frontend_arguments,
+    voice_frontend_nodes,
+)
 
 
 def generate_launch_description():
     config = LaunchConfiguration("config")
     agent_config = agent_control_configurations()
     microphone_enabled = agent_config["microphone_enabled"]
-    capture_enabled = LaunchConfiguration("capture_enabled")
-    speaker_enabled = LaunchConfiguration("speaker_enabled")
-    vad_provider = LaunchConfiguration("vad_provider")
-    speech_start_threshold = LaunchConfiguration("speech_start_threshold")
-    vad_speech_start_ms = LaunchConfiguration("vad_speech_start_ms")
-    speech_end_silence_s = LaunchConfiguration("speech_end_silence_s")
-    min_utterance_ms = LaunchConfiguration("min_utterance_ms")
-    max_utterance_s = LaunchConfiguration("max_utterance_s")
-    silero_model_path = LaunchConfiguration("silero_model_path")
-    silero_use_onnx = LaunchConfiguration("silero_use_onnx")
-    silero_threshold = LaunchConfiguration("silero_threshold")
-    silero_end_threshold = LaunchConfiguration("silero_end_threshold")
-    kws_provider = LaunchConfiguration("kws_provider")
-    sherpa_tokens = LaunchConfiguration("sherpa_tokens")
-    sherpa_encoder = LaunchConfiguration("sherpa_encoder")
-    sherpa_decoder = LaunchConfiguration("sherpa_decoder")
-    sherpa_joiner = LaunchConfiguration("sherpa_joiner")
-    sherpa_keywords_file = LaunchConfiguration("sherpa_keywords_file")
-    openwakeword_models = LaunchConfiguration("openwakeword_models")
-    openwakeword_threshold = LaunchConfiguration("openwakeword_threshold")
-    livekit_wakeword_models = LaunchConfiguration("livekit_wakeword_models")
-    livekit_wakeword_threshold = LaunchConfiguration("livekit_wakeword_threshold")
-    speaker_identity_enabled = LaunchConfiguration("speaker_identity_enabled")
-    speaker_identity_mode = LaunchConfiguration("speaker_identity_mode")
-    speaker_identity_sherpa_model = LaunchConfiguration("speaker_identity_sherpa_model")
-    speaker_identity_sherpa_file = LaunchConfiguration("speaker_identity_sherpa_file")
-    speaker_identity_min_margin = LaunchConfiguration("speaker_identity_min_margin")
-    audio_enhancer = LaunchConfiguration("audio_enhancer")
-    aec_enabled = LaunchConfiguration("aec_enabled")
-    noise_suppression_enabled = LaunchConfiguration("noise_suppression_enabled")
-    auto_gain_enabled = LaunchConfiguration("auto_gain_enabled")
     hardware_backend = LaunchConfiguration("hardware_backend")
     hardware_enabled = LaunchConfiguration("hardware_enabled")
     lifecycle_autostart = LaunchConfiguration("lifecycle_autostart")
@@ -70,37 +43,7 @@ def generate_launch_description():
             ),
             # 节点 schema 是默认值的单一权威来源；launch 只负责部署期显式覆盖。
             *declare_agent_control_arguments("online"),
-            DeclareLaunchArgument("capture_enabled", default_value=microphone_enabled),
-            DeclareLaunchArgument("speaker_enabled", default_value="false"),
-            DeclareLaunchArgument("vad_provider", default_value="energy"),
-            DeclareLaunchArgument("speech_start_threshold", default_value="0.018"),
-            DeclareLaunchArgument("vad_speech_start_ms", default_value="96.0"),
-            DeclareLaunchArgument("speech_end_silence_s", default_value="0.4"),
-            DeclareLaunchArgument("min_utterance_ms", default_value="100.0"),
-            DeclareLaunchArgument("max_utterance_s", default_value="12.0"),
-            DeclareLaunchArgument("silero_model_path", default_value=""),
-            DeclareLaunchArgument("silero_use_onnx", default_value="true"),
-            DeclareLaunchArgument("silero_threshold", default_value="0.5"),
-            DeclareLaunchArgument("silero_end_threshold", default_value="0.35"),
-            DeclareLaunchArgument("kws_provider", default_value="none"),
-            DeclareLaunchArgument("sherpa_tokens", default_value=""),
-            DeclareLaunchArgument("sherpa_encoder", default_value=""),
-            DeclareLaunchArgument("sherpa_decoder", default_value=""),
-            DeclareLaunchArgument("sherpa_joiner", default_value=""),
-            DeclareLaunchArgument("sherpa_keywords_file", default_value=""),
-            DeclareLaunchArgument("openwakeword_models", default_value=""),
-            DeclareLaunchArgument("openwakeword_threshold", default_value="0.5"),
-            DeclareLaunchArgument("livekit_wakeword_models", default_value=""),
-            DeclareLaunchArgument("livekit_wakeword_threshold", default_value="0.5"),
-            DeclareLaunchArgument("speaker_identity_enabled", default_value="false"),
-            DeclareLaunchArgument("speaker_identity_mode", default_value="mock"),
-            DeclareLaunchArgument("speaker_identity_sherpa_model", default_value=""),
-            DeclareLaunchArgument("speaker_identity_sherpa_file", default_value=""),
-            DeclareLaunchArgument("speaker_identity_min_margin", default_value="0.05"),
-            DeclareLaunchArgument("audio_enhancer", default_value="nlms"),
-            DeclareLaunchArgument("aec_enabled", default_value="true"),
-            DeclareLaunchArgument("noise_suppression_enabled", default_value="false"),
-            DeclareLaunchArgument("auto_gain_enabled", default_value="false"),
+            *declare_voice_frontend_arguments(microphone_enabled),
             DeclareLaunchArgument("hardware_backend", default_value="mock"),
             DeclareLaunchArgument("hardware_enabled", default_value="true"),
             DeclareLaunchArgument("lifecycle_autostart", default_value="true"),
@@ -120,154 +63,7 @@ def generate_launch_description():
                     {"agent_lifecycle_autostart": False},
                 ],
             ),
-            Node(
-                package="embodied_voice_frontend",
-                executable="speaker_identity",
-                name="speaker_identity",
-                output="screen",
-                condition=IfCondition(speaker_identity_enabled),
-                parameters=[
-                    {
-                        "mode": speaker_identity_mode,
-                        "sherpa_model": speaker_identity_sherpa_model,
-                        "sherpa_speaker_file": speaker_identity_sherpa_file,
-                        "sherpa_min_margin": ParameterValue(
-                            speaker_identity_min_margin, value_type=float
-                        ),
-                    }
-                ],
-            ),
-            Node(
-                package="embodied_agent_cpp",
-                executable="audio_frontend",
-                name="audio_frontend",
-                output="screen",
-                parameters=[
-                    config,
-                    {
-                        "capture_enabled": ParameterValue(
-                            capture_enabled, value_type=bool
-                        ),
-                        "speaker_enabled": ParameterValue(
-                            speaker_enabled, value_type=bool
-                        ),
-                        "vad_provider": vad_provider,
-                        "vad_rms_threshold": ParameterValue(
-                            speech_start_threshold, value_type=float
-                        ),
-                        "speech_end_silence_s": ParameterValue(
-                            speech_end_silence_s, value_type=float
-                        ),
-                        "min_utterance_ms": ParameterValue(
-                            min_utterance_ms, value_type=float
-                        ),
-                        "max_utterance_s": ParameterValue(
-                            max_utterance_s, value_type=float
-                        ),
-                        "audio_enhancer": audio_enhancer,
-                        "aec_enabled": ParameterValue(aec_enabled, value_type=bool),
-                        "noise_suppression_enabled": ParameterValue(
-                            noise_suppression_enabled, value_type=bool
-                        ),
-                        "auto_gain_enabled": ParameterValue(
-                            auto_gain_enabled, value_type=bool
-                        ),
-                        "endpoint_events_enabled": ParameterValue(
-                            PythonExpression([
-                                "'", vad_provider,
-                                "' != 'silero' and '", vad_provider, "' != 'webrtc'",
-                            ]),
-                            value_type=bool,
-                        ),
-                    },
-                ],
-            ),
-            Node(
-                package="embodied_voice_frontend",
-                executable="webrtc_vad",
-                name="webrtc_vad",
-                output="screen",
-                condition=IfCondition(
-                    PythonExpression(["'", vad_provider, "' == 'webrtc'"])
-                ),
-                parameters=[
-                    config,
-                    {
-                        "speech_start_ms": ParameterValue(
-                            vad_speech_start_ms, value_type=float
-                        ),
-                        "speech_end_silence_s": ParameterValue(
-                            speech_end_silence_s, value_type=float
-                        ),
-                        "min_utterance_ms": ParameterValue(
-                            min_utterance_ms, value_type=float
-                        ),
-                        "max_utterance_s": ParameterValue(
-                            max_utterance_s, value_type=float
-                        ),
-                    },
-                ],
-            ),
-            Node(
-                package="embodied_voice_frontend",
-                executable="silero_vad",
-                name="silero_vad",
-                output="screen",
-                condition=IfCondition(
-                    PythonExpression(["'", vad_provider, "' == 'silero'"])
-                ),
-                parameters=[
-                    config,
-                    {
-                        "model_path": silero_model_path,
-                        "use_onnx": ParameterValue(silero_use_onnx, value_type=bool),
-                        "threshold": ParameterValue(silero_threshold, value_type=float),
-                        "speech_start_ms": ParameterValue(
-                            vad_speech_start_ms, value_type=float
-                        ),
-                        "speech_end_threshold": ParameterValue(
-                            silero_end_threshold, value_type=float
-                        ),
-                        "speech_end_silence_s": ParameterValue(
-                            speech_end_silence_s, value_type=float
-                        ),
-                        "min_utterance_ms": ParameterValue(
-                            min_utterance_ms, value_type=float
-                        ),
-                        "max_utterance_s": ParameterValue(
-                            max_utterance_s, value_type=float
-                        ),
-                    },
-                ],
-            ),
-            Node(
-                package="embodied_voice_frontend",
-                executable="keyword_wake",
-                name="keyword_wake",
-                output="screen",
-                condition=IfCondition(
-                    PythonExpression(["'", kws_provider, "' != 'none'"])
-                ),
-                parameters=[
-                    config,
-                    {
-                        "mode": kws_provider,
-                        "sherpa_tokens": sherpa_tokens,
-                        "sherpa_encoder": sherpa_encoder,
-                        "sherpa_decoder": sherpa_decoder,
-                        "sherpa_joiner": sherpa_joiner,
-                        "sherpa_keywords_file": sherpa_keywords_file,
-                        "openwakeword_models": openwakeword_models,
-                        "openwakeword_threshold": ParameterValue(
-                            openwakeword_threshold, value_type=float
-                        ),
-                        "livekit_wakeword_models": livekit_wakeword_models,
-                        "livekit_wakeword_threshold": ParameterValue(
-                            livekit_wakeword_threshold, value_type=float
-                        ),
-                    },
-                ],
-            ),
+            *voice_frontend_nodes(config),
             LifecycleNode(
                 package="embodied_agent_cpp",
                 executable="action_guard",

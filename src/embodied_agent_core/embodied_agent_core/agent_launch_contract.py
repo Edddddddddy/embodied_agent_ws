@@ -84,7 +84,7 @@ FORWARDED_AGENT_ARGUMENT_NAMES = (
 )
 
 
-def _launch_default(value: Any) -> str:
+def launch_default(value: Any) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
     return str(value)
@@ -97,7 +97,7 @@ def declare_agent_control_arguments(profile: str):
     return [
         DeclareLaunchArgument(
             spec.name,
-            default_value=_launch_default(defaults[spec.name]),
+            default_value=launch_default(defaults[spec.name]),
             description=spec.description,
         )
         for spec in AGENT_CONTROL_ARGUMENTS
@@ -115,7 +115,7 @@ def declare_forwarded_agent_arguments(
     return [
         DeclareLaunchArgument(
             name,
-            default_value=_launch_default(defaults[name]),
+            default_value=launch_default(defaults[name]),
             description=specs[name].description,
         )
         for name in FORWARDED_AGENT_ARGUMENT_NAMES

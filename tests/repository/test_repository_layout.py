@@ -85,6 +85,33 @@ def test_agent_core_is_the_one_way_shared_dependency():
         assert (VOICE_FRONTEND_ROOT / adapter).is_file()
 
 
+def test_online_and_offline_launch_share_voice_frontend_contract():
+    """provider launch 只编排 Agent 特有能力，不复制前端节点和参数映射。"""
+    contract = CORE_ROOT / "voice_frontend_launch_contract.py"
+    assert contract.is_file()
+    contract_text = contract.read_text(encoding="utf-8")
+    for executable in (
+        'executable="speaker_identity"',
+        'executable="audio_frontend"',
+        'executable="webrtc_vad"',
+        'executable="silero_vad"',
+        'executable="keyword_wake"',
+    ):
+        assert executable in contract_text
+
+    for package_name, launch_name in (
+        ("embodied_online_agent", "online_agent.launch.py"),
+        ("embodied_offline_agent", "offline_agent.launch.py"),
+    ):
+        launch = (
+            ROOT / "src" / package_name / "launch" / launch_name
+        ).read_text(encoding="utf-8")
+        assert "declare_voice_frontend_arguments" in launch
+        assert "voice_frontend_nodes" in launch
+        assert 'executable="audio_frontend"' not in launch
+        assert 'executable="silero_vad"' not in launch
+
+
 def test_integration_probes_are_not_mixed_with_user_scripts():
     misplaced = sorted((ROOT / "scripts").glob("test_*"))
     assert misplaced == [], f"测试探针应放入 tests/integration: {misplaced}"
@@ -461,7 +488,6 @@ def test_summer_tts_deployment_entrypoints_remain_available():
     offline_launch = (
         ROOT / "src" / "embodied_offline_agent" / "launch" / "offline_agent.launch.py"
     ).read_text(encoding="utf-8")
-
     assert setup_script.is_file()
     assert smoke_script.is_file()
     assert pseudo_script.is_file()
@@ -1082,6 +1108,9 @@ def test_webrtc_vad_sidecar_remains_integrated_as_optional_voice_provider():
     offline_launch = (
         ROOT / "src" / "embodied_offline_agent" / "launch" / "offline_agent.launch.py"
     ).read_text(encoding="utf-8")
+    frontend_launch = (CORE_ROOT / "voice_frontend_launch_contract.py").read_text(
+        encoding="utf-8"
+    )
     preflight = (ROOT / "scripts" / "voice_provider_preflight.py").read_text(
         encoding="utf-8"
     )
@@ -1102,10 +1131,10 @@ def test_webrtc_vad_sidecar_remains_integrated_as_optional_voice_provider():
     assert "class WebRtcVadProvider" in sidecar
     assert "class SileroOnnxVadProvider" in sidecar
     assert "WebRTC VAD frame_ms must be one of [10, 20, 30]" in sidecar
-    assert "executable=\"webrtc_vad\"" in online_launch
-    assert "executable=\"webrtc_vad\"" in offline_launch
-    assert "' != 'silero' and '" in online_launch
-    assert "' != 'silero' and '" in offline_launch
+    assert "executable=\"webrtc_vad\"" in frontend_launch
+    assert "' != 'silero' and '" in frontend_launch
+    for launch in (online_launch, offline_launch):
+        assert "voice_frontend_nodes" in launch
     assert "vad:auto_fallback:webrtc" in preflight
     assert "webrtcvad_package_missing" in preflight
     assert "auto 会优先 Silero，其次 WebRTC，最后降级 energy" in continuous
