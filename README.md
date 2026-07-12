@@ -592,6 +592,7 @@ bash scripts/acceptance_test.sh continuous-live-check online
   时间、角度、次数、颜色、地点等安全控制槽位，不覆盖普通聊天。
 - `ASR_PARTIAL_MAX_AGE_S`：partial 可参与恢复的最大新鲜度，默认 `2.0s`。
 - `VOICE_CONTROL_PROFILE`：`normal`、`quiet`、`low_gain`、`noisy_room` 四种预设。
+  - 四种预设由 `scripts/voice_control_profile.sh` 统一解析；普通控制和 Nav2 仅选择不同场景基线，避免参数表漂移。
   - `low_gain` 用于 WSL/笔记本麦克风输入很低的场景，例如 `rms≈0.002`、`peak<300` 且 `speech=False`。
 
 示例：

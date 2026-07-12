@@ -763,6 +763,16 @@ sidecar 输出实际相似度。多人准确率仍需另建注册/查询数据�
 - 直接引入完整 Nav2：功能强，但本项目目标不是复杂导航，成本过高。
 - 轻量 BT + pluginlib：足够展示工程规范，同时保持项目可跑通。
 
+### 真实语音部署 profile
+
+- `scripts/voice_control_profile.sh` 是 `normal/quiet/low_gain/noisy_room` 的唯一默认值解析器。
+- `continuous_voice_control.sh` 选择 `control` 场景，Nav2 入口选择 `navigation` 场景；后者只延长
+  会话和命令有效期，不复制整套 VAD 参数表。
+- profile 只提供稳定默认值，校准文件和用户显式环境变量仍可覆盖，形成
+  “代码默认值 < 场景 profile < 现场校准/显式覆盖”的配置优先级。
+
+这样既保留现场调参能力，又避免两个入口对同一个 `low_gain` 名称产生不同且无法追踪的含义。
+
 ## 12. 测试体系
 
 关键代码：

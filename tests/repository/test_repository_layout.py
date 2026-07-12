@@ -90,6 +90,25 @@ def test_integration_probes_are_not_mixed_with_user_scripts():
     assert misplaced == [], f"测试探针应放入 tests/integration: {misplaced}"
 
 
+def test_live_voice_entrypoints_share_one_profile_resolver():
+    """普通控制与 Nav2 可以覆盖场景基线，但不能复制四套麦克风 profile。"""
+    resolver = ROOT / "scripts" / "voice_control_profile.sh"
+    assert resolver.is_file()
+    resolver_text = resolver.read_text(encoding="utf-8")
+    assert "apply_voice_control_profile_defaults" in resolver_text
+    for profile in ("normal", "quiet", "low_gain", "noisy_room"):
+        assert profile in resolver_text
+
+    for name, scenario in (
+        ("continuous_voice_control.sh", "control"),
+        ("continuous_nav2_voice_control.sh", "navigation"),
+    ):
+        text = (ROOT / "scripts" / name).read_text(encoding="utf-8")
+        assert 'source "$WORKSPACE/scripts/voice_control_profile.sh"' in text
+        assert f'apply_voice_control_profile_defaults "{scenario}"' in text
+        assert 'case "$VOICE_CONTROL_PROFILE"' not in text
+
+
 def test_critical_full_chain_probes_remain_discoverable():
     integration = ROOT / "tests" / "integration"
     required = {
