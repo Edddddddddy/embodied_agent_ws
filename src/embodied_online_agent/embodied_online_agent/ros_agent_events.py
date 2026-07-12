@@ -11,7 +11,7 @@ from embodied_agent_interfaces.msg import (
 from rclpy.node import Node
 from std_msgs.msg import String
 
-from .agent_control_plane import TranscriptControlDecision
+from .agent_control_plane import CommandEnqueueDecision, TranscriptControlDecision
 from .continuous_voice import QueueSnapshot
 from .ros_event_transport import (
     execution_event_to_message,
@@ -168,3 +168,19 @@ class RosAgentEventPublisher:
             self.publish_queue(decision.queue_event)
         if decision.state:
             self.publish_state(decision.state)
+
+    def publish_enqueue_decision(self, decision: CommandEnqueueDecision) -> None:
+        """按 NLU → queue → recognition → state 的稳定顺序发布入队结果。"""
+
+        if decision.nlu_result is not None and decision.nlu_result.accepted:
+            self.publish_nlu(
+                decision.source_text,
+                decision.nlu_result,
+                decision.batch_id,
+                source=decision.source,
+            )
+        for event in decision.queue_events:
+            self.publish_queue(event)
+        for payload in decision.recognition_feedback:
+            self.publish_recognition(payload)
+        self.publish_state(decision.state)

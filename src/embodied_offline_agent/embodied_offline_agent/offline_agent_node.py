@@ -25,7 +25,9 @@ from embodied_online_agent.agent_control_plane import (
     AgentControlPlane,
     AgentControlPlaneConfig,
 )
+from embodied_online_agent.agent_execution_runtime import AgentExecutionRuntime
 from embodied_online_agent.agent_parameters import declare_agent_parameters
+from embodied_online_agent.asr_endpoint_runtime import AsrEndpointRuntime
 from embodied_online_agent.command_fallback import parse_fallback_actions, should_block_model_actions
 from embodied_online_agent.continuous_voice import QueueSnapshot
 from embodied_online_agent.protocol import SentenceChunker, TaggedStreamParser
@@ -60,11 +62,7 @@ class OfflineAgentNode(Node):
         self._agent_parameters = declare_agent_parameters(self, "offline")
         self._mode = self._param("mode")
         self._stopping = False
-        self._busy = False
-        self._state_lock = threading.Lock()
-        self._last_asr_commit_monotonic = 0.0
         self._continuous_enabled = bool(self._param("continuous_control_enabled"))
-        self._command_worker_thread = None
         self._latency = OfflineLatency()
         self._asr_events: queue.Queue[tuple[str, bytes | None]] = queue.Queue(maxsize=64)
 
@@ -128,15 +126,32 @@ class OfflineAgentNode(Node):
         self.create_subscription(
             RobotCommandResult, "/robot/action_result", self._on_action_result, 10
         )
-        if self._continuous_enabled:
-            self._command_worker_thread = threading.Thread(
-                target=self._run_command_worker, daemon=True
-            )
-            self._command_worker_thread.start()
-
         self._asr, self._llm, self._tts = self._create_providers()
         if self._mode == "offline" and self._param("runtime_warmup_enabled"):
             self._warmup_runtime()
+        self._execution = AgentExecutionRuntime(
+            self._control,
+            execute_item=self._run_queued_turn,
+            publish_execution=self._events.publish_execution,
+            publish_queue=self._events.publish_queue,
+            on_error=lambda error: self.get_logger().error(
+                f"continuous command failed: {error}"
+            ),
+        )
+        self._asr_endpoint = AsrEndpointRuntime(
+            delay_ms=self._param("asr_commit_delay_ms"),
+            blocked=lambda: self._execution.is_busy()
+            and not self._continuous_enabled,
+            commit=lambda: self._enqueue_asr(("commit", None), preserve=True),
+            on_endpoint=self._on_asr_endpoint,
+            on_commit=self._events.publish_asr_commit,
+            on_duplicate=lambda source: self.get_logger().debug(
+                f"ignored duplicate ASR commit from {source}"
+            ),
+            on_error=lambda error: self.get_logger().error(
+                f"ASR endpoint commit failed: {error}"
+            ),
+        )
         if self._param("microphone_enabled"):
             self._asr.start(self._on_asr_partial, self._on_asr_final)
             self.create_subscription(UInt8MultiArray, "/audio/clean_pcm", self._on_audio, audio_qos)
@@ -147,6 +162,7 @@ class OfflineAgentNode(Node):
             self._asr_thread.start()
         else:
             self._asr_thread = None
+        self._execution.start()
         self._publish_state("listening")
         self._events.publish_ready(
             f"provider_mode={self._mode};microphone={self._param('microphone_enabled')}"
@@ -300,35 +316,13 @@ class OfflineAgentNode(Node):
         self._commit_asr_endpoint("speech_ended")
 
     def _commit_asr_endpoint(self, source):
-        if self._is_busy() and not self._continuous_enabled:
-            return
-        now = time.monotonic()
-        if now - self._last_asr_commit_monotonic < 0.05:
-            self.get_logger().debug(f"ignored duplicate ASR commit from {source}")
-            return
-        self._last_asr_commit_monotonic = now
+        self._asr_endpoint.request(source)
+
+    def _on_asr_endpoint(self, source, delay_ms):
+        # 每个 utterance 建立独立延迟对象，端点时刻是离线 E2E 的统一起点。
         self._latency = OfflineLatency()
         self._latency.mark_silence()
-        delay_ms = max(0, int(self._param("asr_commit_delay_ms")))
-        self._publish_asr_endpoint_feedback(source, delay_ms)
-        if delay_ms > 0:
-            # 离线 ZipFormer 也可能在端点刚触发时漏掉尾部数字/量词；
-            # commit delay 让最后一小段音频先进入 ASR 队列，再统一提交 final。
-            timer = threading.Timer(
-                delay_ms / 1000.0, self._enqueue_delayed_asr_commit, args=(source,)
-            )
-            timer.daemon = True
-            timer.start()
-            return
-        self._enqueue_delayed_asr_commit(source)
-
-    def _enqueue_delayed_asr_commit(self, source):
-        if self._stopping:
-            return
-        if self._is_busy() and not self._continuous_enabled:
-            return
-        self._publish_asr_commit_feedback(source)
-        self._enqueue_asr(("commit", None), preserve=True)
+        self._events.publish_asr_endpoint(source, delay_ms)
 
     def _enqueue_asr(self, event, preserve=False):
         try:
@@ -365,8 +359,7 @@ class OfflineAgentNode(Node):
                 self._asr_events.task_done()
 
     def _is_busy(self):
-        with self._state_lock:
-            return self._busy
+        return self._execution.is_busy()
 
     def _on_asr_partial(self, text):
         if self._is_busy() and not self._continuous_enabled:
@@ -482,11 +475,9 @@ class OfflineAgentNode(Node):
         if self._continuous_enabled:
             self._enqueue_continuous_command(command)
             return
-        with self._state_lock:
-            if self._busy:
-                self.get_logger().warning("offline agent busy; overlapping utterance dropped")
-                return
-            self._busy = True
+        if not self._execution.try_begin_turn():
+            self.get_logger().warning("offline agent busy; overlapping utterance dropped")
+            return
         turn_latency = self._latency
         threading.Thread(
             target=self._run_turn, args=(command, turn_latency), daemon=True
@@ -517,43 +508,6 @@ class OfflineAgentNode(Node):
             )
         except Exception as exc:
             self.get_logger().warning(f"memory response TTS failed: {exc}")
-
-    def _run_command_worker(self):
-        while not self._stopping:
-            try:
-                item = self._control.command_queue.get(
-                    timeout=0.1,
-                    on_stale=self._publish_stale_command_event,
-                )
-            except queue.Empty:
-                continue
-            try:
-                with self._state_lock:
-                    self._busy = True
-                # execution 事件给 continuous monitor 使用，用于区分“已入队”和“正在执行”。
-                self._publish_execution_event(
-                    self._control.execution_started(item)
-                )
-                self._run_queued_turn(item)
-                self._publish_execution_event(
-                    self._control.execution_finished(
-                        item, success=True, reason="completed"
-                    )
-                )
-            except Exception as exc:
-                self._publish_execution_event(
-                    self._control.execution_finished(
-                        item, success=False, reason=str(exc)
-                    )
-                )
-                raise
-            finally:
-                self._control.command_queue.task_done()
-
-    def _publish_stale_command_event(self, item):
-        self._publish_command_queue_payload(
-            self._control.queue_expired(item)
-        )
 
     def _run_turn(self, user_text, latency):
         tts_pipeline = PseudoStreamingTtsPipeline(
@@ -651,9 +605,10 @@ class OfflineAgentNode(Node):
             tts_pipeline.abort()
             self.get_logger().error(f"offline turn failed: {exc}")
             self._publish_state("error")
+            if self._execution.is_worker_thread():
+                raise
         finally:
-            with self._state_lock:
-                self._busy = False
+            self._execution.finish_turn()
             if not self._stopping:
                 self._publish_state("listening")
 
@@ -714,71 +669,24 @@ class OfflineAgentNode(Node):
         )
 
     def _enqueue_continuous_command(self, command):
-        nlu_result = self._control.command_nlu.parse(command)
-        if nlu_result.accepted:
-            batch_id = self._control.next_nlu_batch_id()
-            self._publish_nlu_feedback(command, nlu_result, batch_id)
-            for index, parsed in enumerate(nlu_result.commands, start=1):
-                metadata = {
-                    "batch_id": batch_id,
-                    "batch_index": index,
-                    "batch_size": len(nlu_result.commands),
-                    "source_text": command,
-                    "nlu_intent": parsed.intent,
-                    "nlu_confidence": round(parsed.confidence, 3),
-                }
-                context = {
-                    **metadata,
-                    "latency": self._latency,
-                    "preparsed_actions": [action.as_dict() for action in parsed.actions],
-                }
-                snapshot = self._control.command_queue.put(
-                    parsed.span_text, context=context, metadata=metadata
-                )
-                self._publish_queue_event("enqueue", parsed.span_text, snapshot)
-                if not snapshot.accepted:
-                    self._publish_queue_rejected_recognition(parsed.span_text, snapshot)
-                    self._publish_state("queue_full")
-                    return
-            self._publish_state("queued")
-            return
-
-        if nlu_result.retry_prompt:
-            # 缺方向/颜色时不能静默猜槽位，也不应花数秒调用 LLM；保留会话并提示重说。
-            self._publish_nlu_retry(command, nlu_result)
-            self._publish_state("retry_listening")
-            return
-
-        snapshot = self._control.command_queue.put(command, context=self._latency)
-        self._publish_queue_event("enqueue", command, snapshot)
-        if snapshot.accepted:
+        decision = self._control.enqueue_command(
+            command,
+            context_extras={"latency": self._latency},
+            fallback_context=self._latency,
+        )
+        self._events.publish_enqueue_decision(decision)
+        if decision.status == "queued":
             self.get_logger().info(
-                f"continuous command queued: size={snapshot.size}, text={command}"
+                f"continuous command queued: size={decision.queue_size}, text={command}"
             )
-            self._publish_state("queued")
-        else:
+        elif decision.status == "retry":
             self.get_logger().warning(
-                f"continuous command queue rejected input: {snapshot.reason}"
+                f"incomplete voice command: reason={decision.reason}, text={command}"
             )
-            self._publish_queue_rejected_recognition(command, snapshot)
-            self._publish_state("queue_full")
-
-    def _publish_nlu_retry(self, command, nlu_result):
-        payload = {
-            "status": "retry",
-            "reason": nlu_result.reason,
-            "transcript": command,
-            "prompt": nlu_result.retry_prompt,
-        }
-        self._publish_recognition_payload(payload)
-        self.get_logger().warning(
-            f"incomplete voice command: reason={nlu_result.reason}, text={command}"
-        )
-
-    def _publish_nlu_feedback(self, command, nlu_result, batch_id):
-        self._events.publish_nlu(
-            command, nlu_result, batch_id, source="offline"
-        )
+        elif decision.status == "rejected":
+            self.get_logger().warning(
+                f"continuous command queue rejected input: {decision.reason}"
+            )
 
     def _publish_actions(self, actions):
         action_list = apply_user_preferences(actions, self._current_user_preferences())
@@ -809,16 +717,8 @@ class OfflineAgentNode(Node):
         return dict(self._user_memory.profile(self._current_speaker).preferences)
 
     def _should_wait_for_action_results(self, action_list):
-        if len(action_list) > 1:
-            return True
-        # 连续控制的 worker 必须等单动作 result 后再消费下一条命令。
-        # 这样长时间语音输入时，普通动作会串行完成，而不是被后续 Action goal 抢占。
-        # 优先级 stop 可能在 ROS 回调线程中发布，仍保持 fire-and-forget 以避免阻塞 result 回调。
-        return (
-            bool(action_list)
-            and self._continuous_enabled
-            and self._command_worker_thread is not None
-            and threading.current_thread() is self._command_worker_thread
+        return self._execution.should_wait_for_action_results(
+            len(action_list)
         )
 
     def _system_prompt_with_user_memory(self):
@@ -849,39 +749,19 @@ class OfflineAgentNode(Node):
         payload = self._control.queue_event(
             event, text, snapshot, priority_stop=priority_stop
         )
-        self._publish_command_queue_payload(payload)
-
-    def _publish_command_queue_payload(self, payload):
         self._events.publish_queue(payload)
-
-    def _publish_execution_event(self, event):
-        self._events.publish_execution(event)
-
-    def _publish_ignored_recognition(self, transcript, reason):
-        self._events.publish_ignored(transcript, reason)
-
-    def _publish_queue_rejected_recognition(self, transcript, snapshot):
-        self._events.publish_queue_rejected(transcript, snapshot)
-
-    def _publish_asr_endpoint_feedback(self, source, delay_ms):
-        self._events.publish_asr_endpoint(source, delay_ms)
-
-    def _publish_asr_commit_feedback(self, source):
-        self._events.publish_asr_commit(source)
-
-    def _publish_session_timeout_feedback(self, transcript):
-        self._events.publish_session_timeout(transcript)
 
     def _publish_recognition_payload(self, payload):
         self._events.publish_recognition(payload)
 
     def shutdown(self):
         self._stopping = True
+        self._asr_endpoint.close()
+        self._action_sequencer.cancel("shutdown")
+        self._execution.stop()
         if self._asr_thread:
             self._enqueue_asr(("stop", None), preserve=True)
             self._asr_thread.join(timeout=2.0)
-        if self._command_worker_thread:
-            self._command_worker_thread.join(timeout=1.0)
 
 
 def main(args=None):

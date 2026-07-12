@@ -212,6 +212,8 @@ ActionGuard 方案对比：
 关键代码：
 
 - `src/embodied_online_agent/embodied_online_agent/continuous_voice.py`
+- `src/embodied_online_agent/embodied_online_agent/agent_execution_runtime.py`
+- `src/embodied_online_agent/embodied_online_agent/agent_control_plane.py`
 - `src/embodied_online_agent/embodied_online_agent/agent_control_plane.py`
 - `src/embodied_online_agent/embodied_online_agent/ros_agent_events.py`
 - `src/embodied_online_agent/embodied_online_agent/wakeword.py`
@@ -255,8 +257,12 @@ ActionGuard 方案对比：
 设计方式：
 
 - 普通命令进入 `ContinuousCommandQueue`，按 FIFO 顺序执行。
-- worker 线程逐条调用 `_run_turn()`。
+- `AgentControlPlane.enqueue_command()` 统一 NLU 拆批、batch metadata、retry 和 queue_full；
+  离线链路只通过私有 context 附加 latency，不得覆盖公共 batch 字段。
+- `AgentExecutionRuntime` 的 worker 逐条调用 provider 的 `_run_queued_turn()`。
 - 命令执行前发布 started，执行后发布 finished。
+- worker 用 `finally` 统一复位 busy；单条命令异常发布 `success=false` 后继续消费下一条，
+  避免 3～5 分钟演示被一次 TTS/LLM 异常永久终止。
 - `停下/急停` 是 priority stop：清空队列、取消当前 sequence、立即发布 stop。
 - 非优先命令设置 TTL，太旧会过期丢弃并上报。
 
@@ -282,6 +288,7 @@ ActionGuard 方案对比：
 - `src/embodied_agent_cpp/src/audio_processing.cpp`
 - `src/embodied_online_agent/embodied_online_agent/online_agent_node.py`
 - `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py`
+- `src/embodied_online_agent/embodied_online_agent/asr_endpoint_runtime.py`
 - `scripts/audio_frontend_calibration.py`
 - `scripts/voice_calibration_report.py`
 
@@ -313,7 +320,10 @@ ActionGuard 方案对比：
 - `sherpa-kws-sidecar` 会实际启动 `sherpa_onnx.KeywordSpotter`，证明声学 KWS 不只是
   参数 seam；默认关键词文件使用 `小 智` / `你 好 小 智` 这种 tokenized 写法，
   避免 sherpa 无法从 tokens.txt 编码整句中文。
-- Agent 收到 endpoint 后调用 ASR commit。
+- Agent 收到 endpoint 后交给 `AsrEndpointRuntime`：50ms 内重复端点只接受一次，延迟 timer
+  在节点关闭时统一取消，且非连续模式 busy 时不会误提交下一句。
+- runtime 只依赖 callback；在线 callback 直接调用 ASR commit，离线 callback 把 commit
+  放入音频处理队列，因此并发策略一致而 provider 传输方式保持独立。
 - `asr_commit_delay_ms` 允许在 endpoint 后等待少量时间，再提交 final。
 - `VOICE_CONTROL_PROFILE` 提供 normal、quiet、low_gain、noisy_room 四种参数预设。
 - `voice_calibration_report.py` 把 provider preflight、audio calibration、KWS score calibration

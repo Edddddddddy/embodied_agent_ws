@@ -127,6 +127,8 @@ sequenceDiagram
 - `embodied_online_agent/agent_parameters.py`
 - `embodied_online_agent/agent_launch_contract.py`
 - `embodied_online_agent/agent_control_plane.py`
+- `embodied_online_agent/agent_execution_runtime.py`
+- `embodied_online_agent/asr_endpoint_runtime.py`
 - `embodied_online_agent/ros_agent_events.py`
 - `embodied_online_agent/continuous_voice.py`
 - `embodied_online_agent/command_normalizer.py`
@@ -140,7 +142,11 @@ sequenceDiagram
 - 在线模式用于验证云端 ASR/LLM/TTS 的端到端链路。
 - mock 模式用于无密钥、无模型的自动测试。
 - `AgentControlPlane` 是在线/离线共用的领域控制面：统一参数映射、归一化、会话门控、
-  补全、重试、优先控制、队列和 batch id；不依赖 `rclpy`。
+  补全、重试、优先控制、NLU 拆批、队列和 batch id；不依赖 `rclpy`。
+- `AgentExecutionRuntime` 统一 busy 状态、连续队列 worker、started/finished 事件和异常
+  隔离；单条失败不会终止长时间控制，任何执行路径都会复位 busy。
+- `AsrEndpointRuntime` 统一 endpoint 去重、commit delay 和 timer 关闭；在线直接 commit
+  WebSocket，离线只替换为 ASR 队列事件 callback。
 - `RosAgentEventPublisher` 是独立 Adapter，统一 typed topic、时间戳和 QoS，避免两个
   主节点分别维护一组 publisher。
 - `agent_parameters.py` 是在线/离线节点参数的单一权威来源：公共控制面与 provider

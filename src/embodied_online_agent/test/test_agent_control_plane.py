@@ -111,3 +111,59 @@ def test_normalization_can_be_disabled_without_changing_transcript():
         item.get("status") == "normalized"
         for item in decision.recognition_feedback
     )
+
+
+def test_enqueue_command_builds_one_observable_nlu_batch():
+    control = AgentControlPlane(_config())
+
+    decision = control.enqueue_command(
+        "向右转然后向前走一秒",
+        context_extras={
+            "provider_marker": "offline-latency",
+            "batch_id": "provider-must-not-override-public-metadata",
+        },
+    )
+
+    assert decision.status == "queued"
+    assert decision.state == "queued"
+    assert decision.batch_id == "online-nlu-1"
+    assert [event.text for event in decision.queue_events] == [
+        "向右转",
+        "向前走一秒",
+    ]
+    first = control.command_queue.get()
+    assert first.context["batch_index"] == 1
+    assert first.context["batch_id"] == "online-nlu-1"
+    assert first.context["provider_marker"] == "offline-latency"
+    assert first.context["preparsed_actions"][0]["name"] == "turn"
+
+
+def test_enqueue_retry_and_queue_full_have_stable_feedback():
+    control = AgentControlPlane(replace(_config(), queue_size=1))
+
+    retry = control.enqueue_command("把灯")
+    assert retry.status == "retry"
+    assert retry.recognition_feedback[0]["status"] == "retry"
+
+    accepted = control.enqueue_command("向前走一秒")
+    rejected = control.enqueue_command("向右转")
+    assert accepted.status == "queued"
+    assert rejected.status == "rejected"
+    assert rejected.queue_events[-1].event == "rejected"
+    assert rejected.recognition_feedback[0] == {
+        "status": "queue_rejected",
+        "reason": "queue_full",
+        "transcript": "向右转",
+        "queue_size": 1,
+    }
+
+
+def test_enqueue_fallback_preserves_provider_context_when_nlu_disabled():
+    control = AgentControlPlane(replace(_config(), command_nlu_enabled=False))
+    marker = object()
+
+    decision = control.enqueue_command("普通聊天", fallback_context=marker)
+    queued = control.command_queue.get()
+
+    assert decision.status == "queued"
+    assert queued.context is marker

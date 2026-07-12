@@ -793,18 +793,21 @@ def test_continuous_mode_does_not_drop_busy_asr_or_endpoint_commits():
     ]
     for source_path in agent_sources:
         source = source_path.read_text(encoding="utf-8")
-        for function_name in ("_commit_asr_endpoint", "_on_asr_final"):
-            match = re.search(
-                rf"def {function_name}\([^)]*\):(?P<body>.*?)(?=\n    def |\n\nclass |\Z)",
-                source,
-                flags=re.S,
-            )
-            assert match is not None, f"{function_name} missing in {source_path}"
-            body = match.group("body")
-            assert "self._is_busy()" in body, f"{function_name} lost busy guard"
-            assert "not self._continuous_enabled" in body, (
-                f"{function_name} must not suppress continuous-mode ASR in {source_path}"
-            )
+        match = re.search(
+            r"def _on_asr_final\([^)]*\):(?P<body>.*?)(?=\n    def |\n\nclass |\Z)",
+            source,
+            flags=re.S,
+        )
+        assert match is not None, f"_on_asr_final missing in {source_path}"
+        body = match.group("body")
+        assert "self._is_busy()" in body
+        assert "not self._continuous_enabled" in body
+
+        # endpoint 的 busy/continuous gate 已下沉到共享 runtime 构造参数；节点 wrapper
+        # 只负责转发 source，避免 online/offline 再复制计时与 timer 状态机。
+        assert "self._asr_endpoint.request(source)" in source
+        assert "blocked=lambda: self._execution.is_busy()" in source
+        assert "and not self._continuous_enabled" in source
 
 
 def test_continuous_voice_state_machine_remains_shared_by_online_and_offline_agents():
@@ -857,6 +860,29 @@ def test_continuous_voice_state_machine_remains_shared_by_online_and_offline_age
     for node in (online_agent, offline_agent):
         assert "AgentControlPlane" in node
         assert "RosAgentEventPublisher" in node
+        assert "AgentExecutionRuntime" in node
+        assert "AsrEndpointRuntime" in node
+        assert "def _run_command_worker" not in node
+        assert ".command_nlu.parse(command)" not in node
+        assert "threading.Timer(" not in node
+
+    execution_runtime = (
+        ROOT
+        / "src"
+        / "embodied_online_agent"
+        / "embodied_online_agent"
+        / "agent_execution_runtime.py"
+    ).read_text(encoding="utf-8")
+    endpoint_runtime = (
+        ROOT
+        / "src"
+        / "embodied_online_agent"
+        / "embodied_online_agent"
+        / "asr_endpoint_runtime.py"
+    ).read_text(encoding="utf-8")
+    assert "class AgentExecutionRuntime" in execution_runtime
+    assert "class AsrEndpointRuntime" in endpoint_runtime
+    assert "def enqueue_command(" in control_plane
 
 
 def test_ros_dds_env_disables_fastdds_shm_by_default_for_wsl_demos():

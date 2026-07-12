@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Mapping
 
 from .command_completion import CommandCompleter
 from .command_nlu import CommandNLU
@@ -106,6 +106,22 @@ class TranscriptControlDecision:
     dropped: int = 0
 
 
+@dataclass(frozen=True)
+class CommandEnqueueDecision:
+    """一条会话命令经过 NLU、拆批和有界队列后的完整领域结果。"""
+
+    status: str
+    state: str
+    source: str
+    source_text: str
+    queue_events: tuple[object, ...] = field(default_factory=tuple)
+    recognition_feedback: tuple[dict, ...] = field(default_factory=tuple)
+    nlu_result: object | None = None
+    batch_id: str = ""
+    queue_size: int = 0
+    reason: str = ""
+
+
 class AgentControlPlane:
     """拥有与 provider 无关的状态，并生成统一的命令生命周期事件。"""
 
@@ -152,6 +168,116 @@ class AgentControlPlane:
     def next_nlu_batch_id(self) -> str:
         self._nlu_batch_sequence += 1
         return f"{self.source}-nlu-{self._nlu_batch_sequence}"
+
+    def enqueue_command(
+        self,
+        command: str,
+        *,
+        context_extras: Mapping[str, Any] | None = None,
+        fallback_context: object | None = None,
+    ) -> CommandEnqueueDecision:
+        """用统一 NLU/批次/FIFO 规则把命令放入连续控制队列。
+
+        ``context_extras`` 仅携带 provider 私有上下文（例如离线 latency 对象）；公开的
+        batch metadata 始终由控制面生成，防止 online/offline 对同一句话产生不同队列语义。
+        """
+
+        nlu_result = self.command_nlu.parse(command)
+        if nlu_result.accepted:
+            batch_id = self.next_nlu_batch_id()
+            events = []
+            extras = dict(context_extras or {})
+            for index, parsed in enumerate(nlu_result.commands, start=1):
+                metadata = {
+                    "batch_id": batch_id,
+                    "batch_index": index,
+                    "batch_size": len(nlu_result.commands),
+                    "source_text": command,
+                    "nlu_intent": parsed.intent,
+                    "nlu_confidence": round(parsed.confidence, 3),
+                }
+                context = {
+                    **extras,
+                    **metadata,
+                    "preparsed_actions": [
+                        action.as_dict() for action in parsed.actions
+                    ],
+                }
+                snapshot = self.command_queue.put(
+                    parsed.span_text,
+                    context=context,
+                    metadata=metadata,
+                )
+                events.append(self.queue_event("enqueue", parsed.span_text, snapshot))
+                if not snapshot.accepted:
+                    return CommandEnqueueDecision(
+                        "rejected",
+                        "queue_full",
+                        self.source,
+                        command,
+                        tuple(events),
+                        (self._queue_rejected_feedback(parsed.span_text, snapshot),),
+                        nlu_result,
+                        batch_id,
+                        snapshot.size,
+                        snapshot.reason,
+                    )
+            return CommandEnqueueDecision(
+                "queued",
+                "queued",
+                self.source,
+                command,
+                tuple(events),
+                nlu_result=nlu_result,
+                batch_id=batch_id,
+                queue_size=self.command_queue.size(),
+            )
+
+        if nlu_result.retry_prompt:
+            feedback = {
+                "status": "retry",
+                "reason": nlu_result.reason,
+                "transcript": command,
+                "prompt": nlu_result.retry_prompt,
+            }
+            return CommandEnqueueDecision(
+                "retry",
+                "retry_listening",
+                self.source,
+                command,
+                recognition_feedback=(feedback,),
+                nlu_result=nlu_result,
+                reason=nlu_result.reason,
+            )
+
+        snapshot = self.command_queue.put(command, context=fallback_context)
+        event = self.queue_event("enqueue", command, snapshot)
+        feedback = ()
+        status = "queued"
+        state = "queued"
+        if not snapshot.accepted:
+            status = "rejected"
+            state = "queue_full"
+            feedback = (self._queue_rejected_feedback(command, snapshot),)
+        return CommandEnqueueDecision(
+            status,
+            state,
+            self.source,
+            command,
+            (event,),
+            feedback,
+            queue_size=snapshot.size,
+            reason=snapshot.reason,
+        )
+
+    @staticmethod
+    def _queue_rejected_feedback(text: str, snapshot: QueueSnapshot) -> dict:
+        return {
+            "status": "queue_rejected",
+            "reason": snapshot.reason,
+            "transcript": text,
+            "queue_size": snapshot.size,
+        }
 
     def accept_transcript(
         self, transcript: str, *, wake_word_required: bool
