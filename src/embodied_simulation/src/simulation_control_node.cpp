@@ -13,6 +13,7 @@
 
 #include <embodied_agent_interfaces/action/execute_robot_command.hpp>
 #include <embodied_agent_interfaces/msg/behavior_tree_status.hpp>
+#include <embodied_agent_interfaces/msg/component_health.hpp>
 #include <embodied_agent_interfaces/msg/robot_action_ack.hpp>
 #include <embodied_agent_interfaces/msg/simulation_state.hpp>
 #include <ament_index_cpp/get_package_share_directory.hpp>
@@ -95,6 +96,8 @@ protected:
       "robot/bt_status", embodied_agent_middleware::event_qos());
     diagnostics_pub_ = create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
       "diagnostics", embodied_agent_middleware::diagnostics_qos());
+    health_pub_ = create_publisher<embodied_agent_interfaces::msg::ComponentHealth>(
+      "system/component_health", embodied_agent_middleware::state_qos());
     use_behavior_tree_ = bool_parameter("use_behavior_tree", true);
     if (use_behavior_tree_) {
       const auto default_tree =
@@ -167,9 +170,13 @@ protected:
     action_ack_pub_->on_activate();
     bt_status_pub_->on_activate();
     diagnostics_pub_->on_activate();
+    health_pub_->on_activate();
     timer_->reset();
     diagnostics_timer_->reset();
     publish_mode();
+    publish_health(
+      embodied_agent_interfaces::msg::ComponentHealth::STATE_READY,
+      "executor_ready:" + executor_backend_);
     RCLCPP_INFO(get_logger(), "simulation control activated; mode=manual");
     return CallbackReturn::SUCCESS;
   }
@@ -194,6 +201,10 @@ protected:
     if (diagnostics_timer_) {
       diagnostics_timer_->cancel();
     }
+    publish_health(
+      embodied_agent_interfaces::msg::ComponentHealth::STATE_STOPPED,
+      "lifecycle_deactivated");
+    health_pub_->on_deactivate();
     diagnostics_pub_->on_deactivate();
     bt_status_pub_->on_deactivate();
     action_ack_pub_->on_deactivate();
@@ -716,6 +727,19 @@ private:
     mode_pub_->publish(message);
   }
 
+  void publish_health(const std::uint8_t state, const std::string & detail)
+  {
+    if (!health_pub_ || !health_pub_->is_activated()) {
+      return;
+    }
+    embodied_agent_interfaces::msg::ComponentHealth message;
+    message.stamp = now();
+    message.component = "simulation_control";
+    message.state = state;
+    message.detail = detail;
+    health_pub_->publish(message);
+  }
+
   void publish_zero_velocity()
   {
     if (!cmd_vel_pub_ || !cmd_vel_pub_->is_activated()) {
@@ -743,6 +767,10 @@ private:
     message.header.stamp = now();
     message.status.push_back(status);
     diagnostics_pub_->publish(message);
+    // readiness 使用周期心跳判断进程是否仍存活，不能只依赖启动时的一次 latched 状态。
+    publish_health(
+      embodied_agent_interfaces::msg::ComponentHealth::STATE_READY,
+      "executor_ready:" + executor_backend_);
   }
 
   void reset_interfaces()
@@ -761,6 +789,7 @@ private:
     emergency_sub_.reset();
     mode_sub_.reset();
     diagnostics_pub_.reset();
+    health_pub_.reset();
     bt_status_pub_.reset();
     action_ack_pub_.reset();
     state_pub_.reset();
@@ -828,6 +857,8 @@ private:
     bt_status_pub_;
   rclcpp_lifecycle::LifecyclePublisher<
     diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diagnostics_pub_;
+  rclcpp_lifecycle::LifecyclePublisher<
+    embodied_agent_interfaces::msg::ComponentHealth>::SharedPtr health_pub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr mode_sub_;
   rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr emergency_sub_;
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;

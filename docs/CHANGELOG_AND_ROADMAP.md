@@ -56,6 +56,7 @@
 | 仿真动作运行时收敛 | 缩小 Lifecycle 节点职责，消除定时动作、Nav2 result 与 BT 的平行状态机 | 新增 `ActiveActionRuntime`，统一进度、取消、超时、外部 result 和 BT 终态映射，并增加纯 C++ 单测 |
 | 控制命令启动可靠性 | 修复 DDS discovery 完成前 Guard 发布的 volatile 动作静默丢失 | 新增有界 TTL `GuardedCommandOutbox`；scheduler 匹配后 FIFO 转发，超时/满载明确拒绝，不回放陈旧动作 |
 | C++ 中间件契约收敛 | 清理跨节点散落的 QoS depth 与不一致策略 | 新增独立 `embodied_agent_middleware` 包，统一 command/event/state/sensor/audio/diagnostics QoS，并迁移控制主链路 |
+| 系统就绪状态收敛 | 替代 launch/test 中分散的固定 sleep、topic graph 猜测和日志字符串判断 | 新增 `ComponentHealth`、`SystemReadiness`、心跳超时聚合器和 profile 化启动门禁；保留音频/仿真数据质量探针 |
 
 ## 2. 当前完成度结论
 

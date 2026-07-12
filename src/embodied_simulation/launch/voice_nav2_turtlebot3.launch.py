@@ -194,6 +194,11 @@ def generate_launch_description():
                 "executor_plugin": "embodied_simulation/Nav2RobotExecutor",
                 "autostart": lifecycle_autostart,
                 "action_timeout_s": nav_action_timeout_s,
+                "readiness_profile": "voice_nav2",
+                "readiness_required_components": (
+                    "audio_frontend,agent,action_guard,"
+                    "typed_action_bridge,simulation_control"
+                ),
             },
         ),
         include_launch(

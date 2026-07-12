@@ -175,6 +175,7 @@ READINESS_DURATION="${CONTINUOUS_READINESS_DURATION:-3.0}"
 SIMULATION_READINESS_ENABLED="${SIMULATION_READINESS_ENABLED:-true}"
 SIMULATION_READINESS_REQUIRED="${SIMULATION_READINESS_REQUIRED:-true}"
 SIMULATION_READINESS_TIMEOUT="${SIMULATION_READINESS_TIMEOUT:-35.0}"
+SYSTEM_READINESS_TIMEOUT="${SYSTEM_READINESS_TIMEOUT:-35.0}"
 SIMULATION_CLEANUP_STALE="${SIMULATION_CLEANUP_STALE:-false}"
 source "$WORKSPACE/scripts/activate.sh"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((140 + $$ % 80))}"
@@ -487,6 +488,16 @@ if [[ "$MONITOR_ENABLED" == "true" ]]; then
 fi
 
 if [[ "$SIMULATION_READINESS_ENABLED" == "true" ]]; then
+  echo
+  echo "正在等待语音控制组件就绪（typed system readiness）..."
+  if ! python3 "$WORKSPACE/scripts/system_readiness_check.py" \
+    --timeout "$SYSTEM_READINESS_TIMEOUT" --profile voice_simulation; then
+    if [[ "$SIMULATION_READINESS_REQUIRED" == "true" ]]; then
+      exit 1
+    fi
+    echo "WARN: 组件 readiness 未通过，但当前配置允许继续。" >&2
+  fi
+
   echo
   echo "正在检查 Gazebo/TurtleBot3 小车模型 readiness（timeout=${SIMULATION_READINESS_TIMEOUT}s）..."
   if python3 "$WORKSPACE/scripts/simulation_readiness_check.py" \

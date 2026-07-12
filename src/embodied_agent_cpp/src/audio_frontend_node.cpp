@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "embodied_agent_interfaces/msg/audio_frontend_status.hpp"
+#include "embodied_agent_interfaces/msg/component_health.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/empty.hpp"
 #include "std_msgs/msg/u_int8_multi_array.hpp"
@@ -61,6 +62,15 @@ public:
     frontend_metrics_publisher_ =
       create_publisher<embodied_agent_interfaces::msg::AudioFrontendStatus>(
       "/audio/frontend_metrics", embodied_agent_middleware::state_qos());
+    health_publisher_ =
+      create_publisher<embodied_agent_interfaces::msg::ComponentHealth>(
+      "system/component_health", embodied_agent_middleware::state_qos());
+    health_timer_ = create_wall_timer(
+      std::chrono::seconds(1), [this]() {
+        publish_health(
+          capture_enabled_ || speaker_enabled_ ?
+          "portaudio_streams_ready" : "io_disabled_by_profile");
+      });
     tts_reference_subscription_ = create_subscription<std_msgs::msg::UInt8MultiArray>(
       "/audio/tts_pcm",
       embodied_agent_middleware::audio_qos(),
@@ -92,6 +102,7 @@ public:
     }
 
     if (!capture_enabled_ && !speaker_enabled_) {
+      publish_health("io_disabled_by_profile");
       RCLCPP_INFO(get_logger(), "audio frontend ready with capture and speaker disabled");
       return;
     }
@@ -143,6 +154,7 @@ public:
       capture_enabled_ ? "true" : "false",
       speaker_enabled_ ? "true" : "false",
       frame_ms_);
+    publish_health("portaudio_streams_ready");
   }
 
   ~AudioFrontendNode() override
@@ -151,6 +163,16 @@ public:
   }
 
 private:
+  void publish_health(const std::string & detail)
+  {
+    embodied_agent_interfaces::msg::ComponentHealth message;
+    message.stamp = now();
+    message.component = "audio_frontend";
+    message.state = embodied_agent_interfaces::msg::ComponentHealth::STATE_READY;
+    message.detail = detail;
+    health_publisher_->publish(message);
+  }
+
   void shutdown_audio()
   {
     if (input_stream_ != nullptr) {
@@ -384,6 +406,9 @@ private:
   rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr speech_ended_publisher_;
   rclcpp::Publisher<embodied_agent_interfaces::msg::AudioFrontendStatus>::SharedPtr
     frontend_metrics_publisher_;
+  rclcpp::Publisher<embodied_agent_interfaces::msg::ComponentHealth>::SharedPtr
+    health_publisher_;
+  rclcpp::TimerBase::SharedPtr health_timer_;
   rclcpp::Subscription<std_msgs::msg::UInt8MultiArray>::SharedPtr tts_reference_subscription_;
   rclcpp::Time last_metrics_publish_{0, 0, RCL_ROS_TIME};
 };

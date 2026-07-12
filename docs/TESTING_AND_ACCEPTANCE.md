@@ -83,6 +83,22 @@ bash scripts/acceptance_test.sh --help
 | `continuous-nav2-live-report` | 自动/复盘/Nav2 | 读取已保存的 Nav2 连续语音验收报告并重新判定 |
 | `all` | 自动/重型 | 全量自动 gate，不包含人工 microphone 模式 |
 
+### 1.1 三层 readiness 证据
+
+连续语音 launch 会先检查强类型系统状态：
+
+```bash
+python3 scripts/system_readiness_check.py --profile voice_simulation --timeout 35
+```
+
+`/system/readiness` 只回答 profile 所需的 Agent、音频前端、ActionGuard、Action bridge
+和 simulation control 是否都在周期发布健康心跳。随后仍会运行：
+
+- `simulation_readiness_check.py`：检查真实 `/odom`、`/scan`、`/cmd_vel` 和 Action Server；
+- `voice_control_readiness_check.py`：检查真实音量、VAD、丢帧和可选 KWS 分数。
+
+因此验收不会把“节点进程存在”误判为“麦克风和仿真功能可用”。
+
 ## 2. 推荐测试顺序
 
 ### 2.0 求职展示版 release gate

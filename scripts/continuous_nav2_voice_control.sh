@@ -87,6 +87,7 @@ PRINT_CONFIG="${CONTINUOUS_PRINT_CONFIG:-false}"
 PREFLIGHT_ENABLED="${CONTINUOUS_PREFLIGHT_ENABLED:-true}"
 READINESS_ENABLED="${CONTINUOUS_READINESS_ENABLED:-true}"
 READINESS_DURATION="${CONTINUOUS_READINESS_DURATION:-3.0}"
+SYSTEM_READINESS_TIMEOUT="${SYSTEM_READINESS_TIMEOUT:-60.0}"
 
 source "$WORKSPACE/scripts/activate.sh"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((220 + $$ % 60))}"
@@ -289,6 +290,11 @@ echo
 echo "等待 Nav2/AMCL 订阅 /initialpose，并发布初始位姿..."
 python3 "$WORKSPACE/scripts/publish_nav2_initial_pose.py" \
   --x "$INITIAL_X" --y "$INITIAL_Y" --yaw "$INITIAL_YAW"
+
+echo
+echo "正在等待语音/Nav2 组件就绪（typed system readiness）..."
+python3 "$WORKSPACE/scripts/system_readiness_check.py" \
+  --timeout "$SYSTEM_READINESS_TIMEOUT" --profile voice_nav2
 
 if [[ "$READINESS_ENABLED" == "true" ]]; then
   echo

@@ -1,6 +1,7 @@
 """Agent 控制面领域事件到 ROS 2 typed topic 的唯一 Adapter。"""
 
 from embodied_agent_interfaces.msg import (
+    ComponentHealth,
     CommandExecutionEvent,
     CommandQueueEvent,
     NluParseEvent,
@@ -25,8 +26,9 @@ from .ros_qos import command_event_qos, latched_state_qos
 class RosAgentEventPublisher:
     """统一控制面 topic、时间戳和 QoS，节点只表达业务事件。"""
 
-    def __init__(self, node: Node):
+    def __init__(self, node: Node, component_name: str = "agent"):
         self._node = node
+        self._component_name = component_name
         self._state = node.create_publisher(
             String, "/agent/state", latched_state_qos()
         )
@@ -52,12 +54,32 @@ class RosAgentEventPublisher:
         self._nlu = node.create_publisher(
             NluParseEvent, "/agent/nlu_parse", command_event_qos()
         )
+        self._health = node.create_publisher(
+            ComponentHealth, "system/component_health", latched_state_qos()
+        )
+        self._health_detail = None
+        self._health_timer = node.create_timer(1.0, self._publish_health_heartbeat)
 
     def _stamp(self):
         return self._node.get_clock().now().to_msg()
 
     def publish_state(self, state: str) -> None:
         self._state.publish(String(data=state))
+
+    def publish_ready(self, detail: str) -> None:
+        """Agent provider 完成创建/预热后发布统一组件就绪状态。"""
+        self._health_detail = detail
+        self._publish_health_heartbeat()
+
+    def _publish_health_heartbeat(self) -> None:
+        if self._health_detail is None:
+            return
+        message = ComponentHealth()
+        message.stamp = self._stamp()
+        message.component = self._component_name
+        message.state = ComponentHealth.STATE_READY
+        message.detail = self._health_detail
+        self._health.publish(message)
 
     def publish_session_event(self, event) -> None:
         self._wake.publish(

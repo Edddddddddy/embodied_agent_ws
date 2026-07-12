@@ -101,6 +101,8 @@ sequenceDiagram
 核心文件：
 
 - `include/embodied_agent_middleware/qos_profiles.hpp`
+- `include/embodied_agent_middleware/component_health_registry.hpp`
+- `src/system_readiness_node.cpp`
 - `test/test_qos_profiles.cpp`
 
 说明：
@@ -108,6 +110,8 @@ sequenceDiagram
 - command/event 使用 reliable + volatile；状态使用 reliable + transient-local。
 - scan/PCM 使用 best-effort，消费跟不上时丢旧帧而不是累积控制延迟。
 - 控制命令不使用 transient-local；启动发现窗口由有界 TTL outbox 处理，防止重放旧动作。
+- Agent、音频前端、ActionGuard、Action bridge 和 simulation control 周期发布
+  `ComponentHealth`；聚合器按 launch profile 生成 `SystemReadiness`，并用心跳超时识别已退出进程。
 
 ### `embodied_online_agent`
 
@@ -218,6 +222,8 @@ sequenceDiagram
 | `/robot/action_ack` | executor/hardware → monitor | `RobotActionAck`：后端接收或终态确认 |
 | `/robot/simulation_state` | executor → monitor | `SimulationState`：模式、雷达有效性和速度状态 |
 | `/robot/bt_status` | executor → monitor | `BehaviorTreeStatus`：BT 阶段与结果 |
+| `/system/component_health` | components → readiness | `ComponentHealth`：starting/ready/degraded/error/stopped 心跳 |
+| `/system/readiness` | readiness → scripts/UI | `SystemReadiness`：profile 必需组件、缺失项与 go/no-go 结论 |
 | `/diagnostics` | C++ scheduler → monitor | active command、pending 深度、取消和累计计数 |
 | `/cmd_vel` | executor → Gazebo | 机器人速度命令 |
 | `robot/execute_command` | bridge → executor | ROS 2 Action |

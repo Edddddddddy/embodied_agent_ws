@@ -528,6 +528,8 @@ def test_continuous_voice_control_waits_for_readiness_after_launch():
 
     assert "CONTINUOUS_READINESS_ENABLED" in content
     assert "voice_control_readiness_check.py" in content
+    assert "system_readiness_check.py" in content
+    assert "--profile voice_simulation" in content
     assert '--duration "$READINESS_DURATION"' in content
     assert "--require-kws" in content
     assert "系统已就绪，可以开始说：小智" in content
@@ -551,5 +553,14 @@ def test_online_and_offline_publish_queue_rejected_feedback():
 
     for path in files:
         content = path.read_text(encoding="utf-8")
-        assert '"status": "queue_rejected"' in content, path
         assert "_publish_queue_rejected_recognition" in content, path
+        assert "self._events.publish_queue_rejected" in content, path
+
+    shared_events = (
+        ROOT
+        / "src"
+        / "embodied_online_agent"
+        / "embodied_online_agent"
+        / "ros_agent_events.py"
+    ).read_text(encoding="utf-8")
+    assert '"status": "queue_rejected"' in shared_events

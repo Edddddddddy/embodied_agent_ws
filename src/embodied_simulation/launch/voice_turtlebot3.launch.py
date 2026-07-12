@@ -215,6 +215,11 @@ def generate_launch_description():
                 "executor_plugin": executor_plugin,
                 "autostart": lifecycle_autostart,
                 "use_composition": use_composition,
+                "readiness_profile": "voice_simulation",
+                "readiness_required_components": (
+                    "audio_frontend,agent,action_guard,"
+                    "typed_action_bridge,simulation_control"
+                ),
             },
         ),
         include_launch(

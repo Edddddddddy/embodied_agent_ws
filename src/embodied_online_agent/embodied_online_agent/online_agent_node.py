@@ -161,6 +161,9 @@ class OnlineAgentNode(Node):
             )
 
         self._publish_state("listening")
+        self._events.publish_ready(
+            f"provider_mode={self.mode};microphone={self._param('microphone_enabled')}"
+        )
         self.get_logger().info(
             f"online agent ready: mode={self.mode}, microphone={self._param('microphone_enabled')}"
         )

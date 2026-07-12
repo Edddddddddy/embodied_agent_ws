@@ -145,6 +145,9 @@ class OfflineAgentNode(Node):
         else:
             self._asr_thread = None
         self._publish_state("listening")
+        self._events.publish_ready(
+            f"provider_mode={self._mode};microphone={self._param('microphone_enabled')}"
+        )
         self.get_logger().info(
             f"offline agent ready: mode={self._mode}, microphone={self._param('microphone_enabled')}"
         )

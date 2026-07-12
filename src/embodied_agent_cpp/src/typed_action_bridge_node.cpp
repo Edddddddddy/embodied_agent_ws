@@ -11,6 +11,7 @@
 #include <diagnostic_msgs/msg/diagnostic_status.hpp>
 #include <diagnostic_msgs/msg/key_value.hpp>
 #include <embodied_agent_interfaces/action/execute_robot_command.hpp>
+#include <embodied_agent_interfaces/msg/component_health.hpp>
 #include <embodied_agent_interfaces/msg/robot_command.hpp>
 #include <embodied_agent_interfaces/msg/robot_command_feedback.hpp>
 #include <embodied_agent_interfaces/msg/robot_command_result.hpp>
@@ -52,6 +53,8 @@ public:
       "robot/action_result", embodied_agent_middleware::event_qos());
     diagnostics_pub_ = create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
       "/diagnostics", embodied_agent_middleware::diagnostics_qos());
+    health_pub_ = create_publisher<embodied_agent_interfaces::msg::ComponentHealth>(
+      "system/component_health", embodied_agent_middleware::state_qos());
     command_sub_ = create_subscription<RobotCommand>(
       "robot/action_command_typed", embodied_agent_middleware::command_qos(),
       std::bind(&TypedActionBridgeNode::on_command, this, std::placeholders::_1));
@@ -61,6 +64,10 @@ public:
     diagnostics_timer_ = create_wall_timer(
       std::chrono::seconds(1),
       std::bind(&TypedActionBridgeNode::publish_diagnostics, this));
+    health_timer_ = create_wall_timer(
+      std::chrono::milliseconds(250),
+      std::bind(&TypedActionBridgeNode::publish_health, this));
+    publish_health();
     RCLCPP_INFO(
       get_logger(),
       "typed Action scheduler ready: max_pending=%zu clear_on_failure=%s cancel_timeout=%.2fs",
@@ -69,6 +76,38 @@ public:
   }
 
 private:
+  void publish_health()
+  {
+    const double now_s = std::chrono::duration<double>(
+      std::chrono::steady_clock::now().time_since_epoch()).count();
+    const bool server_ready = client_->action_server_is_ready();
+    const auto state = server_ready ?
+      embodied_agent_interfaces::msg::ComponentHealth::STATE_READY :
+      (action_server_ever_ready_ ?
+      embodied_agent_interfaces::msg::ComponentHealth::STATE_DEGRADED :
+      embodied_agent_interfaces::msg::ComponentHealth::STATE_STARTING);
+    const std::string detail = server_ready ?
+      "execute_command_action_server_ready" :
+      (action_server_ever_ready_ ?
+      "execute_command_action_server_disconnected" :
+      "waiting_for_execute_command_action_server");
+    action_server_ever_ready_ = action_server_ever_ready_ || server_ready;
+    if (state == last_health_state_ && detail == last_health_detail_ &&
+      now_s - last_health_publish_s_ < 1.0)
+    {
+      return;
+    }
+    embodied_agent_interfaces::msg::ComponentHealth message;
+    message.stamp = now();
+    message.component = "typed_action_bridge";
+    message.state = state;
+    message.detail = detail;
+    health_pub_->publish(message);
+    last_health_state_ = state;
+    last_health_detail_ = detail;
+    last_health_publish_s_ = now_s;
+  }
+
   void on_command(const RobotCommand::SharedPtr command)
   {
     std::vector<SchedulerEvent> events;
@@ -351,8 +390,14 @@ private:
   rclcpp::Publisher<RobotCommandFeedback>::SharedPtr feedback_pub_;
   rclcpp::Publisher<RobotCommandResult>::SharedPtr result_pub_;
   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diagnostics_pub_;
+  rclcpp::Publisher<embodied_agent_interfaces::msg::ComponentHealth>::SharedPtr health_pub_;
   rclcpp::TimerBase::SharedPtr watchdog_timer_;
   rclcpp::TimerBase::SharedPtr diagnostics_timer_;
+  rclcpp::TimerBase::SharedPtr health_timer_;
+  bool action_server_ever_ready_{false};
+  std::uint8_t last_health_state_{255};
+  std::string last_health_detail_;
+  double last_health_publish_s_{0.0};
 };
 
 }  // namespace embodied_agent_cpp

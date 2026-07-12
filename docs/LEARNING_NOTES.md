@@ -142,6 +142,20 @@
 - 所有状态都 transient-local：监控方便，但控制命令可能在节点重启后被重放，存在安全风险。
 - 按领域语义命名 QoS：调用处能直接表达 command/event/state/sensor/audio，策略可单测并跨包复用。
 
+### 组件健康与系统就绪
+
+关键代码：
+
+- `src/embodied_agent_interfaces/msg/ComponentHealth.msg`
+- `src/embodied_agent_interfaces/msg/SystemReadiness.msg`
+- `src/embodied_agent_middleware/include/embodied_agent_middleware/component_health_registry.hpp`
+- `src/embodied_agent_middleware/src/system_readiness_node.cpp`
+- `scripts/system_readiness_check.py`
+
+设计区别：Lifecycle 表达单个受管节点的配置/激活状态，diagnostics 表达运行质量和故障细节，
+SystemReadiness 则回答“当前 launch profile 的必需组件是否全部可用”。三者互补；麦克风 RMS、
+Gazebo odom/scan 等数据质量探针仍单独保留，避免把“进程活着”误当成功能可用。
+
 方案对比：
 
 - 在 prompt 里约束模型：必要但不够，模型仍可能输出非法字段。

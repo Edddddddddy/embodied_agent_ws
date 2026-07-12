@@ -1139,6 +1139,8 @@ def test_runtime_status_topics_are_strongly_typed():
         "SimulationState.msg",
         "RobotActionAck.msg",
         "BehaviorTreeStatus.msg",
+        "ComponentHealth.msg",
+        "SystemReadiness.msg",
     ):
         assert (interfaces / name).is_file()
 
@@ -1261,3 +1263,27 @@ def test_cpp_nodes_share_one_qos_contract():
         text = source.read_text(encoding="utf-8")
         assert "embodied_agent_middleware/qos_profiles.hpp" in text
     assert "rclcpp::QoS(10)" not in sources[-1].read_text(encoding="utf-8")
+
+
+def test_system_readiness_is_typed_profile_based_and_heartbeat_driven():
+    middleware = ROOT / "src" / "embodied_agent_middleware"
+    registry = (
+        middleware / "include" / "embodied_agent_middleware" / "component_health_registry.hpp"
+    )
+    aggregator = middleware / "src" / "system_readiness_node.cpp"
+    assert registry.is_file()
+    text = aggregator.read_text(encoding="utf-8")
+    assert "required_components_csv" in text
+    assert "stale_timeout_s" in text
+    assert "SystemReadiness" in text
+
+    launch = (
+        ROOT / "src" / "embodied_simulation" / "launch" / "simulation_control.launch.py"
+    ).read_text(encoding="utf-8")
+    assert "system_readiness_node" in launch
+    assert "readiness_required_components" in launch
+
+    check = (ROOT / "scripts" / "system_readiness_check.py").read_text(
+        encoding="utf-8"
+    )
+    assert '"/system/readiness"' in check

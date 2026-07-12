@@ -26,6 +26,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/SpeakerIdentity.msg"
   "msg/SpeakerEnrollRequest.msg"
   "msg/SpeakerEnrollStatus.msg"
+  "msg/ComponentHealth.msg"
+  "msg/SystemReadiness.msg"
   "msg/RobotCommand.msg"
   "msg/RobotCommandFeedback.msg"
   "msg/RobotCommandResult.msg"
