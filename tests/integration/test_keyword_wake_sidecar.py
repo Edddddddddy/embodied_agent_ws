@@ -6,6 +6,9 @@ import threading
 import time
 
 import rclpy
+from embodied_agent_interfaces.msg import KwsEvent, WakeEvent
+from embodied_online_agent.ros_event_transport import wake_event_message_to_dict
+from embodied_online_agent.runtime_status_transport import kws_event_to_dict
 from rclpy.node import Node
 from std_msgs.msg import String
 
@@ -16,14 +19,14 @@ class KeywordWakeProbe(Node):
         self.text_pub = self.create_publisher(String, "/agent/kws_text_input", 10)
         self.wake_events = []
         self.kws_events = []
-        self.create_subscription(String, "/agent/wake_event_input", self._on_wake, 10)
-        self.create_subscription(String, "/agent/kws_event", self._on_kws, 10)
+        self.create_subscription(WakeEvent, "/agent/wake_event_input", self._on_wake, 10)
+        self.create_subscription(KwsEvent, "/agent/kws_event", self._on_kws, 10)
 
     def _on_wake(self, message):
-        self.wake_events.append(json.loads(message.data))
+        self.wake_events.append(wake_event_message_to_dict(message))
 
     def _on_kws(self, message):
-        self.kws_events.append(json.loads(message.data))
+        self.kws_events.append(kws_event_to_dict(message))
 
 
 def wait_until(predicate, timeout, description):

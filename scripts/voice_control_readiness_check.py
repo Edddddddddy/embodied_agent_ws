@@ -144,15 +144,31 @@ def readiness_exit_code(report: VoiceReadinessReport) -> int:
 
 class VoiceReadinessNode:
     def __init__(self, audio_topic: str, kws_topic: str):
+        from embodied_agent_interfaces.msg import AudioFrontendStatus, KwsScore
+        from embodied_online_agent.runtime_status_transport import (
+            audio_frontend_status_to_dict,
+            kws_score_to_dict,
+        )
         import rclpy
         from rclpy.node import Node
-        from std_msgs.msg import String
 
         class _Node(Node):
             def __init__(self, owner: VoiceReadinessNode):
                 super().__init__("voice_control_readiness_check")
-                self.create_subscription(String, audio_topic, owner._on_audio, 10)
-                self.create_subscription(String, kws_topic, owner._on_kws, 10)
+                self.create_subscription(
+                    AudioFrontendStatus,
+                    audio_topic,
+                    lambda message: owner._on_audio(
+                        audio_frontend_status_to_dict(message)
+                    ),
+                    10,
+                )
+                self.create_subscription(
+                    KwsScore,
+                    kws_topic,
+                    lambda message: owner._on_kws(kws_score_to_dict(message)),
+                    10,
+                )
 
         self.audio_samples = []
         self.kws_samples = []
@@ -160,12 +176,12 @@ class VoiceReadinessNode:
         self.node = _Node(self)
 
     def _on_audio(self, message) -> None:
-        sample = parse_audio_metrics(message.data)
+        sample = parse_audio_metrics(message)
         if sample is not None:
             self.audio_samples.append(sample)
 
     def _on_kws(self, message) -> None:
-        sample = parse_kws_score(message.data)
+        sample = parse_kws_score(message)
         if sample is not None:
             self.kws_samples.append(sample)
 

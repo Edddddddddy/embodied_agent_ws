@@ -44,7 +44,7 @@ target_link_libraries(audio_frontend
   ${PORTAUDIO_LIBRARIES}
   Threads::Threads
 )
-ament_target_dependencies(audio_frontend rclcpp std_msgs)
+ament_target_dependencies(audio_frontend embodied_agent_interfaces rclcpp std_msgs)
 
 add_executable(action_guard src/action_guard_node.cpp)
 target_link_libraries(action_guard embodied_agent_core)
@@ -63,8 +63,7 @@ ament_target_dependencies(
   typed_action_demo_client embodied_agent_interfaces rclcpp rclcpp_action)
 
 add_executable(robot_action_stub src/robot_action_stub_node.cpp)
-target_link_libraries(robot_action_stub nlohmann_json::nlohmann_json)
-ament_target_dependencies(robot_action_stub rclcpp std_msgs embodied_agent_interfaces)
+ament_target_dependencies(robot_action_stub rclcpp embodied_agent_interfaces)
 
 add_executable(hardware_controller src/hardware_controller_node.cpp)
 target_link_libraries(hardware_controller embodied_agent_core nlohmann_json::nlohmann_json)

@@ -7,6 +7,8 @@ from pathlib import Path
 
 import numpy as np
 import rclpy
+from embodied_agent_interfaces.msg import RobotActionAck
+from embodied_online_agent.runtime_status_transport import action_ack_to_dict
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Empty, String, UInt8MultiArray
@@ -29,14 +31,14 @@ class VoiceProbe(Node):
         self.metrics = None
         self.done = threading.Event()
         self.create_subscription(String, "/agent/asr_final", self._on_asr, 10)
-        self.create_subscription(String, "/robot/action_ack", self._on_ack, 10)
+        self.create_subscription(RobotActionAck, "/robot/action_ack", self._on_ack, 10)
         self.create_subscription(String, "/offline_agent/metrics", self._on_metrics, 10)
 
     def _on_asr(self, message):
         self.final_text = message.data
 
     def _on_ack(self, message):
-        payload = json.loads(message.data)
+        payload = action_ack_to_dict(message)
         if payload.get("action") == "move":
             self.ack = payload
             if self.metrics is not None:

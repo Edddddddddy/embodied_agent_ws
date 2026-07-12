@@ -38,7 +38,7 @@ ros2 topic info /agent/text_input | grep -Eq 'Subscription count: [1-9]' || {
   cat "$LAUNCH_LOG"; exit 1;
 }
 ros2 topic pub --once /agent/clear_memory std_msgs/msg/Empty "{}" >/dev/null
-timeout 60 ros2 topic echo --once /robot/action_ack std_msgs/msg/String >"$ACK_LOG" &
+timeout 60 ros2 topic echo --once /robot/action_ack embodied_agent_interfaces/msg/RobotActionAck >"$ACK_LOG" &
 ACK_PID=$!
 timeout 60 ros2 topic echo --once /offline_agent/metrics std_msgs/msg/String >"$METRICS_LOG" &
 METRICS_PID=$!
@@ -47,7 +47,7 @@ timeout 10 ros2 topic pub -r 2 --times 3 /agent/text_input std_msgs/msg/String \
   "{data: '小智，向前走一秒'}" >/dev/null
 wait "$ACK_PID" || { cat "$LAUNCH_LOG"; cat "$SERVER_LOG"; exit 1; }
 wait "$METRICS_PID" || { cat "$LAUNCH_LOG"; cat "$SERVER_LOG"; exit 1; }
-grep -q '"action":"move"' "$ACK_LOG"
+grep -q '^action: move' "$ACK_LOG"
 grep -q 'end_to_first_audio_ms' "$METRICS_LOG"
 echo "PASS: real offline llama.cpp -> Sherpa-TTS -> action -> hardware mock"
 cat "$METRICS_LOG"

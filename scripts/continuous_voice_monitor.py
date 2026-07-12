@@ -14,14 +14,24 @@ from typing import Any
 
 import rclpy
 from embodied_agent_interfaces.msg import (
+    AudioFrontendStatus,
     CommandExecutionEvent,
     CommandQueueEvent,
+    KwsEvent,
+    KwsScore,
     NluParseEvent,
     RecognitionFeedback,
+    RobotActionAck,
     RobotCommand,
     RobotCommandFeedback,
     RobotCommandResult,
     WakeEvent,
+)
+from embodied_online_agent.runtime_status_transport import (
+    action_ack_to_dict,
+    audio_frontend_status_to_dict,
+    kws_event_to_dict,
+    kws_score_to_dict,
 )
 from embodied_online_agent.ros_action_transport import (
     command_message_to_dict,
@@ -479,9 +489,11 @@ class ContinuousVoiceMonitor(Node):
         self.create_subscription(
             WakeEvent, "/agent/wake_event", self._on_wake, command_event_qos()
         )
-        self.create_subscription(String, "/agent/kws_event", self._on_kws, 10)
-        self.create_subscription(String, "/agent/kws_score", self._on_kws_score, 10)
-        self.create_subscription(String, "/audio/frontend_metrics", self._on_audio, 10)
+        self.create_subscription(KwsEvent, "/agent/kws_event", self._on_kws, 10)
+        self.create_subscription(KwsScore, "/agent/kws_score", self._on_kws_score, 10)
+        self.create_subscription(
+            AudioFrontendStatus, "/audio/frontend_metrics", self._on_audio, 10
+        )
         self.create_subscription(String, "/agent/asr_final", self._on_asr, 10)
         self.create_subscription(String, "/agent/state", self._on_state, latched_state_qos())
         self.create_subscription(
@@ -520,7 +532,9 @@ class ContinuousVoiceMonitor(Node):
         self.create_subscription(
             RobotCommandResult, "/robot/action_result", self._on_action_result, 10
         )
-        self.create_subscription(String, "/robot/action_ack", self._on_action_ack, 10)
+        self.create_subscription(
+            RobotActionAck, "/robot/action_ack", self._on_action_ack, 10
+        )
 
     def _emit(self, line: str) -> None:
         print(line, flush=True)
@@ -533,15 +547,20 @@ class ContinuousVoiceMonitor(Node):
         self._stats.record_wake(serialized)
         self._emit(format_wake_event(serialized))
 
-    def _on_kws(self, message: String) -> None:
-        self._emit(format_kws_event(message.data))
+    def _on_kws(self, message: KwsEvent) -> None:
+        serialized = json.dumps(kws_event_to_dict(message), ensure_ascii=False)
+        self._emit(format_kws_event(serialized))
 
-    def _on_kws_score(self, message: String) -> None:
-        self._emit(format_kws_score(message.data))
+    def _on_kws_score(self, message: KwsScore) -> None:
+        serialized = json.dumps(kws_score_to_dict(message), ensure_ascii=False)
+        self._emit(format_kws_score(serialized))
 
-    def _on_audio(self, message: String) -> None:
-        self._stats.record_audio(message.data)
-        self._emit(format_audio_metrics(message.data))
+    def _on_audio(self, message: AudioFrontendStatus) -> None:
+        serialized = json.dumps(
+            audio_frontend_status_to_dict(message), ensure_ascii=False
+        )
+        self._stats.record_audio(serialized)
+        self._emit(format_audio_metrics(serialized))
 
     def _on_asr(self, message: String) -> None:
         self._stats.record_asr(message.data)
@@ -616,9 +635,11 @@ class ContinuousVoiceMonitor(Node):
             kind="action_result",
         )
 
-    def _on_action_ack(self, message: String) -> None:
+    def _on_action_ack(self, message: RobotActionAck) -> None:
         self._handle_result(
-            message.data, topic="/robot/action_ack", kind="action_ack"
+            json.dumps(action_ack_to_dict(message), ensure_ascii=False),
+            topic="/robot/action_ack",
+            kind="action_ack",
         )
 
     def emit_summary(self) -> None:

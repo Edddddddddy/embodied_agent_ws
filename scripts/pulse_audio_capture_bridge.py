@@ -9,17 +9,20 @@ PortAudio 在 WSL 里有时会落到不存在的 ALSA card 0，导致 C++ audio_
 from __future__ import annotations
 
 import argparse
-import json
 import math
 import shutil
 import struct
 import subprocess
 import time
 
+from embodied_agent_interfaces.msg import AudioFrontendStatus
+from embodied_online_agent.runtime_status_transport import (
+    audio_frontend_status_to_message,
+)
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
-from std_msgs.msg import Empty, String, UInt8MultiArray
+from std_msgs.msg import Empty, UInt8MultiArray
 
 
 class EndpointDetector:
@@ -69,7 +72,9 @@ class PulseAudioCaptureBridge(Node):
             reliability=ReliabilityPolicy.BEST_EFFORT,
         )
         self.clean_pub = self.create_publisher(UInt8MultiArray, "/audio/clean_pcm", qos)
-        self.metrics_pub = self.create_publisher(String, "/audio/frontend_metrics", 10)
+        self.metrics_pub = self.create_publisher(
+            AudioFrontendStatus, "/audio/frontend_metrics", 10
+        )
         self.started_pub = self.create_publisher(Empty, "/audio/speech_started", 10)
         self.ended_pub = self.create_publisher(Empty, "/audio/speech_ended", 10)
         self.silence_pub = self.create_publisher(Empty, "/audio/silence_timeout", 10)
@@ -158,7 +163,11 @@ class PulseAudioCaptureBridge(Node):
                 "dropped_input_frames": self.dropped_input_frames,
                 "dropped_playback_chunks": 0,
             }
-            self.metrics_pub.publish(String(data=json.dumps(payload, ensure_ascii=False)))
+            self.metrics_pub.publish(
+                audio_frontend_status_to_message(
+                    payload, stamp=self.get_clock().now().to_msg()
+                )
+            )
 
 
 def main() -> None:

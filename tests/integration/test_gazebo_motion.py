@@ -8,7 +8,16 @@ import threading
 import time
 
 import rclpy
-from embodied_agent_interfaces.msg import RobotCommand, RobotCommandResult
+from embodied_agent_interfaces.msg import (
+    BehaviorTreeStatus,
+    RobotActionAck,
+    RobotCommand,
+    RobotCommandResult,
+)
+from embodied_online_agent.runtime_status_transport import (
+    action_ack_to_dict,
+    behavior_tree_status_to_dict,
+)
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
@@ -32,11 +41,11 @@ class GazeboProbe(Node):
         self.command_sequence = 0
         self.create_subscription(Odometry, "/odom", self._on_odom, 10)
         self.create_subscription(LaserScan, "/scan", self._on_scan, 10)
-        self.create_subscription(String, "/robot/action_ack", self._on_ack, 10)
+        self.create_subscription(RobotActionAck, "/robot/action_ack", self._on_ack, 10)
         self.create_subscription(
             RobotCommandResult, "/robot/action_result", self._on_result, 10
         )
-        self.create_subscription(String, "/robot/bt_status", self._on_bt, 10)
+        self.create_subscription(BehaviorTreeStatus, "/robot/bt_status", self._on_bt, 10)
 
     def _on_odom(self, message):
         self.position = (
@@ -48,7 +57,7 @@ class GazeboProbe(Node):
         self.scan_received = True
 
     def _on_ack(self, message):
-        self.ack = json.loads(message.data)
+        self.ack = action_ack_to_dict(message)
 
     def _on_result(self, message):
         self.action_result = result_dict(message)
@@ -56,7 +65,7 @@ class GazeboProbe(Node):
             self.move_result = self.action_result
 
     def _on_bt(self, message):
-        status = json.loads(message.data)
+        status = behavior_tree_status_to_dict(message)
         if status.get("outcome") == "succeeded":
             self.move_bt_result = status
 

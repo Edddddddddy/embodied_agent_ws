@@ -12,7 +12,6 @@ find_package(diagnostic_msgs REQUIRED)
 find_package(embodied_agent_interfaces REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(lifecycle_msgs REQUIRED)
-find_package(nlohmann_json REQUIRED)
 find_package(nav2_msgs REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
@@ -53,7 +52,6 @@ add_library(simulation_control_component SHARED
 )
 target_link_libraries(simulation_control_component
   simulation_control_core
-  nlohmann_json::nlohmann_json
 )
 ament_target_dependencies(simulation_control_component
   ament_index_cpp diagnostic_msgs embodied_agent_interfaces geometry_msgs lifecycle_msgs rclcpp rclcpp_action

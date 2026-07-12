@@ -1,4 +1,3 @@
-import json
 import sys
 import types
 
@@ -39,16 +38,14 @@ def test_keyword_bridge_outputs_standard_wake_event_and_applies_cooldown():
     detector = TextKeywordWakeDetector(["小智"], provider_name="test_kws")
     bridge = KeywordWakeBridge(cooldown_s=1.0, clock=lambda: now[0])
 
-    first = bridge.wake_payload(detector.detect_text("小智"))
-    second = bridge.wake_payload(detector.detect_text("小智"))
+    first = bridge.accept(detector.detect_text("小智"))
+    second = bridge.accept(detector.detect_text("小智"))
     now[0] += 1.1
-    third = bridge.wake_payload(detector.detect_text("小智"))
+    third = bridge.accept(detector.detect_text("小智"))
 
     assert first is not None
-    payload = json.loads(first)
-    assert payload["kind"] == "wake"
-    assert payload["provider"] == "test_kws"
-    assert payload["transcript"] == "小智"
+    assert first.provider == "test_kws"
+    assert first.keyword == "小智"
     assert second is None
     assert third is not None
 

@@ -7,15 +7,14 @@
 #include <deque>
 #include <memory>
 #include <mutex>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
 
+#include "embodied_agent_interfaces/msg/audio_frontend_status.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/empty.hpp"
-#include "std_msgs/msg/string.hpp"
 #include "std_msgs/msg/u_int8_multi_array.hpp"
 
 #include "embodied_agent_cpp/audio_processing.hpp"
@@ -57,7 +56,8 @@ public:
       "/audio/speech_started", 10);
     speech_ended_publisher_ = create_publisher<std_msgs::msg::Empty>(
       "/audio/speech_ended", 10);
-    frontend_metrics_publisher_ = create_publisher<std_msgs::msg::String>(
+    frontend_metrics_publisher_ =
+      create_publisher<embodied_agent_interfaces::msg::AudioFrontendStatus>(
       "/audio/frontend_metrics", 10);
     tts_reference_subscription_ = create_subscription<std_msgs::msg::UInt8MultiArray>(
       "/audio/tts_pcm",
@@ -316,24 +316,22 @@ private:
       return;
     }
     last_metrics_publish_ = now;
-    std::ostringstream json;
-    json << "{\"rms\":" << metrics.rms
-         << ",\"peak\":" << metrics.peak
-         << ",\"speech\":" << (metrics.speech ? "true" : "false")
-         << ",\"vad_provider\":\"" << vad_provider_ << "\""
-         << ",\"audio_enhancer_requested\":\"" << audio_enhancer_name_ << "\""
-         << ",\"audio_enhancer_active\":\"nlms\""
-         << ",\"aec_active\":" << (aec_enabled_ ? "true" : "false")
-         << ",\"noise_suppression_requested\":"
-         << (noise_suppression_enabled_ ? "true" : "false")
-         << ",\"noise_suppression_active\":false"
-         << ",\"auto_gain_requested\":" << (auto_gain_enabled_ ? "true" : "false")
-         << ",\"auto_gain_active\":false"
-         << ",\"dropped_input_frames\":" << dropped_input_frames_
-         << ",\"dropped_playback_chunks\":" << dropped_playback_chunks_
-         << "}";
-    std_msgs::msg::String message;
-    message.data = json.str();
+    embodied_agent_interfaces::msg::AudioFrontendStatus message;
+    message.stamp = now;
+    message.rms = static_cast<float>(metrics.rms);
+    message.peak = static_cast<uint32_t>(metrics.peak);
+    message.speech = metrics.speech;
+    message.vad_provider = vad_provider_;
+    message.endpoint_events_enabled = endpoint_events_enabled_;
+    message.audio_enhancer_requested = audio_enhancer_name_;
+    message.audio_enhancer_active = "nlms";
+    message.aec_active = aec_enabled_;
+    message.noise_suppression_requested = noise_suppression_enabled_;
+    message.noise_suppression_active = false;
+    message.auto_gain_requested = auto_gain_enabled_;
+    message.auto_gain_active = false;
+    message.dropped_input_frames = dropped_input_frames_;
+    message.dropped_playback_chunks = dropped_playback_chunks_;
     frontend_metrics_publisher_->publish(message);
   }
 
@@ -382,7 +380,8 @@ private:
   rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr silence_publisher_;
   rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr speech_started_publisher_;
   rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr speech_ended_publisher_;
-  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr frontend_metrics_publisher_;
+  rclcpp::Publisher<embodied_agent_interfaces::msg::AudioFrontendStatus>::SharedPtr
+    frontend_metrics_publisher_;
   rclcpp::Subscription<std_msgs::msg::UInt8MultiArray>::SharedPtr tts_reference_subscription_;
   rclcpp::Time last_metrics_publish_{0, 0, RCL_ROS_TIME};
 };

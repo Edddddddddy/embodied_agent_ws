@@ -9,10 +9,9 @@ from geometry_msgs.msg import Twist
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
-from std_msgs.msg import String
-
 from embodied_agent_interfaces.action import ExecuteRobotCommand
-from embodied_agent_interfaces.msg import RobotCommand
+from embodied_agent_interfaces.msg import BehaviorTreeStatus, RobotCommand
+from embodied_online_agent.runtime_status_transport import behavior_tree_status_to_dict
 
 
 class ActionProbe(Node):
@@ -26,7 +25,7 @@ class ActionProbe(Node):
         self.feedback = []
         self.bt_statuses = []
         self.create_subscription(Twist, "/cmd_vel", self._on_velocity, 10)
-        self.create_subscription(String, "/robot/bt_status", self._on_bt_status, 10)
+        self.create_subscription(BehaviorTreeStatus, "/robot/bt_status", self._on_bt_status, 10)
 
     def _on_velocity(self, message):
         self.velocities.append((message.linear.x, message.angular.z))
@@ -45,7 +44,7 @@ class ActionProbe(Node):
         self.feedback.append(message.feedback)
 
     def _on_bt_status(self, message):
-        self.bt_statuses.append(json.loads(message.data))
+        self.bt_statuses.append(behavior_tree_status_to_dict(message))
 
     def assert_bt_status(self, command_id, stage, outcome):
         def observed():

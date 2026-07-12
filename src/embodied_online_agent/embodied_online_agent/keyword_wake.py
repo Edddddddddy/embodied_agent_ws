@@ -1,13 +1,12 @@
 """Keyword spotting sidecar adapters.
 
 本模块把“检测到唤醒词”抽象成一个很小的接口：输出标准
-`/agent/wake_event_input` JSON。真实模型可以是 sherpa-onnx KWS，测试/演示也可以是
+`/agent/wake_event_input` 强类型事件。真实模型可以是 sherpa-onnx KWS，测试/演示也可以是
 文本 detector；Agent 不需要知道唤醒来自哪个声学模型。
 """
 
 from __future__ import annotations
 
-import json
 import time
 from dataclasses import dataclass
 from typing import Iterable, Protocol
@@ -28,30 +27,6 @@ def normalize_score_dict(scores: dict) -> dict[str, float]:
         except (TypeError, ValueError):
             continue
     return normalized
-
-
-def kws_score_payload(
-    *,
-    provider: str,
-    scores: dict[str, float],
-    threshold: float,
-) -> str | None:
-    if not scores:
-        return None
-    top_keyword, top_score = max(scores.items(), key=lambda item: float(item[1]))
-    top_score = float(top_score)
-    threshold = float(threshold)
-    return json.dumps(
-        {
-            "provider": provider,
-            "top_keyword": top_keyword,
-            "top_score": round(top_score, 6),
-            "threshold": round(threshold, 6),
-            "above_threshold": top_score >= threshold,
-            "scores": scores,
-        },
-        ensure_ascii=False,
-    )
 
 
 class KeywordWakeDetector(Protocol):
@@ -270,26 +245,18 @@ class LiveKitWakeWordDetector:
 
 
 class KeywordWakeBridge:
-    """把 detector match 转成 `/agent/wake_event_input` JSON，并处理冷却时间。"""
+    """对 detector match 应用冷却时间；ROS 消息转换由节点 Adapter 负责。"""
 
     def __init__(self, *, cooldown_s: float = 1.0, clock=time.monotonic):
         self._cooldown_s = max(0.0, float(cooldown_s))
         self._clock = clock
         self._next_allowed_at = 0.0
 
-    def wake_payload(self, match: KeywordWakeMatch | None) -> str | None:
+    def accept(self, match: KeywordWakeMatch | None) -> KeywordWakeMatch | None:
         if match is None:
             return None
         now = self._clock()
         if now < self._next_allowed_at:
             return None
         self._next_allowed_at = now + self._cooldown_s
-        return json.dumps(
-            {
-                "kind": "wake",
-                "provider": match.provider,
-                "transcript": match.keyword,
-                "score": round(match.score, 3),
-            },
-            ensure_ascii=False,
-        )
+        return match

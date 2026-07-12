@@ -10,6 +10,7 @@
 #include "std_msgs/msg/string.hpp"
 
 #include "embodied_agent_interfaces/msg/robot_command.hpp"
+#include "embodied_agent_interfaces/msg/robot_action_ack.hpp"
 #include "embodied_agent_cpp/hardware_transport.hpp"
 #include "embodied_agent_cpp/hardware_protocol.hpp"
 
@@ -46,7 +47,8 @@ public:
     if (!transport_->open(error)) {
       throw std::runtime_error("hardware transport initialization failed: " + error);
     }
-    ack_publisher_ = create_publisher<std_msgs::msg::String>("/robot/action_ack", 10);
+    ack_publisher_ =
+      create_publisher<embodied_agent_interfaces::msg::RobotActionAck>("/robot/action_ack", 10);
     status_publisher_ = create_publisher<std_msgs::msg::String>("/robot/hardware_status", 10);
     command_subscription_ =
       create_subscription<embodied_agent_interfaces::msg::RobotCommand>(
@@ -142,13 +144,13 @@ private:
 
   void publish_ack(const EncodedHardwareCommand & command, const std::string & source)
   {
-    nlohmann::json payload{
-      {"status", "sent"}, {"action", command.action_name},
-      {"sequence", command.sequence}, {"source", source},
-      {"transport", transport_->name()},
-    };
-    std_msgs::msg::String message;
-    message.data = payload.dump();
+    embodied_agent_interfaces::msg::RobotActionAck message;
+    message.stamp = now();
+    message.action = command.action_name;
+    message.backend = transport_->name();
+    message.sequence = command.sequence;
+    message.status = message.STATUS_ACCEPTED;
+    message.detail = "source=" + source;
     ack_publisher_->publish(message);
   }
 
@@ -164,7 +166,7 @@ private:
   HardwareProtocol protocol_;
   MotionWatchdog watchdog_;
   std::unique_ptr<HardwareTransport> transport_;
-  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr ack_publisher_;
+  rclcpp::Publisher<embodied_agent_interfaces::msg::RobotActionAck>::SharedPtr ack_publisher_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_publisher_;
   rclcpp::Subscription<embodied_agent_interfaces::msg::RobotCommand>::SharedPtr
     command_subscription_;

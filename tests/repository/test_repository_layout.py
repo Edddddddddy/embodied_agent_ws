@@ -1119,3 +1119,47 @@ def test_voice_control_events_are_strongly_typed_and_use_named_qos():
     assert "nlu_parse_to_message" in transport
     assert "ReliabilityPolicy.RELIABLE" in qos
     assert "DurabilityPolicy.TRANSIENT_LOCAL" in qos
+
+
+def test_runtime_status_topics_are_strongly_typed():
+    """运行状态也是跨进程契约，不能退回各节点自行拼装 JSON。"""
+    interfaces = ROOT / "src" / "embodied_agent_interfaces" / "msg"
+    for name in (
+        "AudioFrontendStatus.msg",
+        "VadEvent.msg",
+        "KwsEvent.msg",
+        "KwsScore.msg",
+        "SimulationState.msg",
+        "RobotActionAck.msg",
+        "BehaviorTreeStatus.msg",
+    ):
+        assert (interfaces / name).is_file()
+
+    online = ROOT / "src" / "embodied_online_agent" / "embodied_online_agent"
+    runtime_transport = (online / "runtime_status_transport.py").read_text(
+        encoding="utf-8"
+    )
+    assert "action_ack_to_dict" in runtime_transport
+    assert "simulation_state_to_dict" in runtime_transport
+    assert not (online / "wake_event_input.py").exists()
+
+    sources = [
+        online / "keyword_wake_node.py",
+        online / "silero_vad_node.py",
+        online / "webrtc_vad_node.py",
+        ROOT / "src" / "embodied_agent_cpp" / "src" / "audio_frontend_node.cpp",
+        ROOT / "src" / "embodied_simulation" / "src" / "simulation_control_node.cpp",
+    ]
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in sources)
+    for topic in (
+        "/agent/kws_event",
+        "/agent/kws_score",
+        "/audio/vad_event",
+        "/audio/frontend_metrics",
+        "robot/action_ack",
+        "robot/simulation_state",
+        "robot/bt_status",
+    ):
+        assert topic in combined
+    assert 'create_publisher(String, "/audio/vad_event"' not in combined
+    assert 'create_publisher(String, "/agent/kws_event"' not in combined

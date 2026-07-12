@@ -168,12 +168,17 @@ sequenceDiagram
 | 名称 | 方向 | 说明 |
 | --- | --- | --- |
 | `/audio/clean_pcm` | audio → ASR | 清理后的 PCM 音频 |
+| `/audio/frontend_metrics` | audio → monitor | `AudioFrontendStatus`：音量、VAD、增强器和丢帧状态 |
+| `/audio/vad_event` | VAD sidecar → probe | `VadEvent`：统一 Silero/WebRTC endpoint 事件 |
 | `/audio/speech_started` | audio → Agent | VAD 检测到开始说话 |
 | `/audio/speech_ended` | audio → Agent | VAD 检测到一句话结束 |
 | `/agent/asr_partial` | ASR → monitor | ASR partial |
 | `/agent/asr_final` | ASR → Agent/monitor | ASR final |
 | `/agent/session_state` | Agent → monitor | awake/sleeping；reliable + transient-local，晚加入监控可获得当前状态 |
 | `/agent/wake_event` | Agent → monitor | `WakeEvent`：wake/continue/rejected/sleep 与 provider |
+| `/agent/wake_event_input` | KWS sidecar → Agent | `WakeEvent`：声学唤醒/休眠输入 |
+| `/agent/kws_event` | KWS sidecar → monitor | `KwsEvent`：检测结果、关键词和分数 |
+| `/agent/kws_score` | KWS sidecar → calibration | `KwsScore`：候选分数与当前阈值 |
 | `/agent/recognition_feedback` | Agent → monitor | `RecognitionFeedback`：重试、过滤、补全、endpoint/commit 等识别状态 |
 | `/agent/nlu_parse` | Agent → monitor | `NluParseEvent`：意图、强类型槽位、批次和动作序列 |
 | `/agent/command_queue` | Agent → monitor | `CommandQueueEvent`：enqueue/rejected/expired/clear、队列深度与 batch context |
@@ -182,6 +187,9 @@ sequenceDiagram
 | `/robot/action_command_typed` | ActionGuard → bridge | 强类型 RobotCommand |
 | `/robot/action_feedback` | bridge → monitor | `RobotCommandFeedback` |
 | `/robot/action_result` | bridge → Agent | `RobotCommandResult` |
+| `/robot/action_ack` | executor/hardware → monitor | `RobotActionAck`：后端接收或终态确认 |
+| `/robot/simulation_state` | executor → monitor | `SimulationState`：模式、雷达有效性和速度状态 |
+| `/robot/bt_status` | executor → monitor | `BehaviorTreeStatus`：BT 阶段与结果 |
 | `/diagnostics` | C++ scheduler → monitor | active command、pending 深度、取消和累计计数 |
 | `/cmd_vel` | executor → Gazebo | 机器人速度命令 |
 | `robot/execute_command` | bridge → executor | ROS 2 Action |

@@ -8,13 +8,15 @@ import threading
 import time
 
 import rclpy
-from embodied_agent_interfaces.msg import RobotCommand
+from embodied_agent_interfaces.msg import RecognitionFeedback, RobotActionAck, RobotCommand
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
 from embodied_online_agent.ros_action_transport import command_message_to_dict
+from embodied_online_agent.ros_event_transport import recognition_feedback_message_to_dict
+from embodied_online_agent.runtime_status_transport import action_ack_to_dict
 
 
 class MicrophoneAcceptanceProbe(Node):
@@ -39,13 +41,13 @@ class MicrophoneAcceptanceProbe(Node):
         self.create_subscription(
             RobotCommand, "/robot/action_command_typed", self._on_command, 10
         )
-        self.create_subscription(String, "/robot/action_ack", self._on_ack, 10)
+        self.create_subscription(RobotActionAck, "/robot/action_ack", self._on_ack, 10)
         self.create_subscription(Twist, "/cmd_vel", self._on_velocity, 10)
         self.create_subscription(Odometry, "/odom", self._on_odom, 10)
         self.create_subscription(LaserScan, "/scan", self._on_scan, 10)
         self.create_subscription(String, "/agent/state", self._on_state, 10)
         self.create_subscription(
-            String, "/agent/recognition_feedback", self._on_retry, 10
+            RecognitionFeedback, "/agent/recognition_feedback", self._on_retry, 10
         )
 
     def _on_asr(self, message):
@@ -61,7 +63,7 @@ class MicrophoneAcceptanceProbe(Node):
         print(f"[3/6] guarded command: {self.action_command}", flush=True)
 
     def _on_ack(self, message):
-        payload = self._decode(message.data)
+        payload = action_ack_to_dict(message)
         if payload.get("backend") == "simulation":
             self.action_ack = payload
             print(f"[4/6] simulation ACK: {self.action_ack}", flush=True)
@@ -94,7 +96,7 @@ class MicrophoneAcceptanceProbe(Node):
         self.agent_state = message.data
 
     def _on_retry(self, message):
-        self.retry_feedback = self._decode(message.data)
+        self.retry_feedback = recognition_feedback_message_to_dict(message)
         attempt = self.retry_feedback.get("attempt", "?")
         maximum = self.retry_feedback.get("max_attempts", "?")
         prompt = self.retry_feedback.get("prompt", "请再说一次")

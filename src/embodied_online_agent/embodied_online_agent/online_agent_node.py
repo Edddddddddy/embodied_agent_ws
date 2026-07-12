@@ -11,6 +11,7 @@ from ament_index_python.packages import get_package_share_directory
 from embodied_agent_interfaces.msg import (
     RobotCommand,
     RobotCommandResult,
+    WakeEvent as WakeEventMessage,
 )
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
@@ -34,9 +35,9 @@ from .metrics import LatencyTracker
 from .protocol import SentenceChunker, TaggedStreamParser
 from .ros_action_transport import action_command_to_message, command_message_to_dict
 from .ros_agent_events import RosAgentEventPublisher
+from .ros_event_transport import wake_event_message_to_domain
 from .types import ActionCommand
 from .user_preferences import apply_user_preferences
-from .wake_event_input import parse_external_wake_event
 from .providers.mock import MockAsr, MockLlm, MockTts
 from .providers.openai_compatible_llm import OpenAiCompatibleLlm
 from .providers.qwen_asr import QwenRealtimeAsr
@@ -90,7 +91,10 @@ class OnlineAgentNode(Node):
         self.create_subscription(String, "/agent/text_input", self._on_text_input, 10)
         if self._param("external_wake_event_enabled"):
             self.create_subscription(
-                String, "/agent/wake_event_input", self._on_wake_event_input, 10
+                WakeEventMessage,
+                "/agent/wake_event_input",
+                self._on_wake_event_input,
+                10,
             )
         self.create_subscription(
             String, "/agent/speaker_identity", self._on_speaker_identity, 10
@@ -351,12 +355,11 @@ class OnlineAgentNode(Node):
         self.asr_final_pub.publish(String(data=message.data))
         self._accept_transcript(message.data)
 
-    def _on_wake_event_input(self, message: String):
-        event = parse_external_wake_event(message.data)
-        if event is None:
-            self.get_logger().warning(
-                f"ignored invalid external wake event payload: {message.data!r}"
-            )
+    def _on_wake_event_input(self, message: WakeEventMessage):
+        try:
+            event = wake_event_message_to_domain(message)
+        except ValueError as error:
+            self.get_logger().warning(str(error))
             return
         if event.kind == "wake":
             session_event = self._control.voice_session.external_wake(

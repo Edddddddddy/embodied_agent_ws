@@ -31,6 +31,15 @@ class _FakeQosProfile:
             setattr(self, key, value)
 
 
+_FAKED_MODULES = (
+    "rclpy",
+    "rclpy.node",
+    "rclpy.qos",
+    "geometry_msgs.msg",
+    "std_msgs.msg",
+)
+_saved_modules = {name: sys.modules.get(name) for name in _FAKED_MODULES}
+
 sys.modules["rclpy"] = types.SimpleNamespace()
 sys.modules["rclpy.node"] = types.SimpleNamespace(Node=_FakeNode)
 sys.modules["rclpy.qos"] = types.SimpleNamespace(
@@ -48,6 +57,13 @@ spec = importlib.util.spec_from_file_location("continuous_live_check", SCRIPT)
 live_check = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = live_check
 spec.loader.exec_module(live_check)
+
+# 仅在加载被测脚本期间注入 fake ROS；收集其他集成测试前恢复真实消息模块。
+for _name, _module in _saved_modules.items():
+    if _module is None:
+        sys.modules.pop(_name, None)
+    else:
+        sys.modules[_name] = _module
 
 
 def test_live_check_report_passes_when_required_evidence_is_present():

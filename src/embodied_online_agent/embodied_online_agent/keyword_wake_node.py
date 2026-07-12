@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import json
-
 import rclpy
+from embodied_agent_interfaces.msg import KwsEvent, KwsScore, WakeEvent
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String, UInt8MultiArray
@@ -15,8 +14,8 @@ from .keyword_wake import (
     OpenWakeWordDetector,
     SherpaKeywordWakeDetector,
     TextKeywordWakeDetector,
-    kws_score_payload,
 )
+from .runtime_status_transport import kws_event_to_message, kws_score_to_message
 
 
 def _string_list_param(value) -> list[str]:
@@ -57,9 +56,11 @@ class KeywordWakeNode(Node):
             0.0, float(self.get_parameter("score_publish_period_s").value)
         )
         self._next_score_publish_at = 0.0
-        self._wake_pub = self.create_publisher(String, "/agent/wake_event_input", 10)
-        self._event_pub = self.create_publisher(String, "/agent/kws_event", 10)
-        self._score_pub = self.create_publisher(String, "/agent/kws_score", 10)
+        self._wake_pub = self.create_publisher(
+            WakeEvent, "/agent/wake_event_input", 10
+        )
+        self._event_pub = self.create_publisher(KwsEvent, "/agent/kws_event", 10)
+        self._score_pub = self.create_publisher(KwsScore, "/agent/kws_score", 10)
 
         if self._mode == "disabled":
             self.get_logger().info("keyword wake sidecar disabled")
@@ -176,31 +177,36 @@ class KeywordWakeNode(Node):
         self._publish_scores_if_available()
 
     def _handle_match(self, match):
-        payload = self._bridge.wake_payload(match)
-        if payload is None:
+        accepted = self._bridge.accept(match)
+        if accepted is None:
             return
-        self._wake_pub.publish(String(data=payload))
-        event = json.loads(payload)
-        event["status"] = "detected"
-        self._event_pub.publish(String(data=json.dumps(event, ensure_ascii=False)))
+        stamp = self.get_clock().now().to_msg()
+        wake = WakeEvent()
+        wake.stamp = stamp
+        wake.kind = WakeEvent.KIND_WAKE
+        wake.provider = accepted.provider
+        wake.transcript = accepted.keyword
+        self._wake_pub.publish(wake)
+        self._event_pub.publish(kws_event_to_message(accepted, stamp=stamp))
 
     def _publish_scores_if_available(self):
         if not hasattr(self._detector, "last_scores"):
             return
         scores = self._detector.last_scores()
         threshold = getattr(self._detector, "threshold", 0.0)
-        payload = kws_score_payload(
+        message = kws_score_to_message(
             provider=str(self.get_parameter("provider_name").value),
             scores=scores,
             threshold=float(threshold),
+            stamp=self.get_clock().now().to_msg(),
         )
-        if payload is None:
+        if message is None:
             return
         now = self.get_clock().now().nanoseconds / 1_000_000_000.0
         if now < self._next_score_publish_at:
             return
         self._next_score_publish_at = now + self._score_period_s
-        self._score_pub.publish(String(data=payload))
+        self._score_pub.publish(message)
 
 
 def main(args=None):

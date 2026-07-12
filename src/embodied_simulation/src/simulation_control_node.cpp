@@ -12,11 +12,13 @@
 #include <string>
 
 #include <embodied_agent_interfaces/action/execute_robot_command.hpp>
+#include <embodied_agent_interfaces/msg/behavior_tree_status.hpp>
+#include <embodied_agent_interfaces/msg/robot_action_ack.hpp>
+#include <embodied_agent_interfaces/msg/simulation_state.hpp>
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include <diagnostic_msgs/msg/diagnostic_array.hpp>
 #include <geometry_msgs/msg/twist.hpp>
 #include <lifecycle_msgs/msg/state.hpp>
-#include <nlohmann/json.hpp>
 #include <pluginlib/class_loader.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -84,11 +86,11 @@ protected:
       "cmd_vel", rclcpp::QoS(10).reliable());
     mode_pub_ = create_publisher<std_msgs::msg::String>(
       "robot/control_mode", rclcpp::QoS(10).reliable());
-    state_pub_ = create_publisher<std_msgs::msg::String>(
+    state_pub_ = create_publisher<embodied_agent_interfaces::msg::SimulationState>(
       "robot/simulation_state", rclcpp::QoS(10).reliable());
-    action_ack_pub_ = create_publisher<std_msgs::msg::String>(
+    action_ack_pub_ = create_publisher<embodied_agent_interfaces::msg::RobotActionAck>(
       "robot/action_ack", rclcpp::QoS(10).reliable());
-    bt_status_pub_ = create_publisher<std_msgs::msg::String>(
+    bt_status_pub_ = create_publisher<embodied_agent_interfaces::msg::BehaviorTreeStatus>(
       "robot/bt_status", rclcpp::QoS(10).reliable());
     diagnostics_pub_ = create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
       "diagnostics", rclcpp::QoS(10).reliable());
@@ -653,18 +655,26 @@ private:
     const std::string & status,
     const std::string & detail = "")
   {
-    nlohmann::json payload{
-      {"action", action},
-      {"backend", executor_ ? executor_->backend_name() : "unconfigured"},
-      {"sequence", ++action_sequence_},
-      {"status", status},
-    };
-    if (!detail.empty()) {
-      payload["detail"] = detail;
-    }
-    std_msgs::msg::String message;
-    message.data = payload.dump();
+    embodied_agent_interfaces::msg::RobotActionAck message;
+    message.stamp = now();
+    message.action = action;
+    message.backend = executor_ ? executor_->backend_name() : "unconfigured";
+    message.sequence = ++action_sequence_;
+    message.status = action_ack_status(status);
+    message.detail = detail;
     action_ack_pub_->publish(message);
+  }
+
+  static uint8_t action_ack_status(const std::string & status)
+  {
+    using Ack = embodied_agent_interfaces::msg::RobotActionAck;
+    if (status == "accepted") {return Ack::STATUS_ACCEPTED;}
+    if (status == "rejected") {return Ack::STATUS_REJECTED;}
+    if (status == "succeeded") {return Ack::STATUS_SUCCEEDED;}
+    if (status == "canceled") {return Ack::STATUS_CANCELED;}
+    if (status == "timed_out") {return Ack::STATUS_TIMED_OUT;}
+    if (status == "blocked") {return Ack::STATUS_BLOCKED;}
+    return Ack::STATUS_UNKNOWN;
   }
 
   static const char * tree_outcome_name(CommandTreeOutcome outcome)
@@ -681,6 +691,21 @@ private:
     return "failed";
   }
 
+  static uint8_t tree_outcome_value(CommandTreeOutcome outcome)
+  {
+    using Status = embodied_agent_interfaces::msg::BehaviorTreeStatus;
+    switch (outcome) {
+      case CommandTreeOutcome::kRunning: return Status::OUTCOME_RUNNING;
+      case CommandTreeOutcome::kSucceeded: return Status::OUTCOME_SUCCEEDED;
+      case CommandTreeOutcome::kRejected: return Status::OUTCOME_REJECTED;
+      case CommandTreeOutcome::kCanceled: return Status::OUTCOME_CANCELED;
+      case CommandTreeOutcome::kTimedOut: return Status::OUTCOME_TIMED_OUT;
+      case CommandTreeOutcome::kBlocked: return Status::OUTCOME_BLOCKED;
+      case CommandTreeOutcome::kFailed: return Status::OUTCOME_FAILED;
+    }
+    return Status::OUTCOME_UNKNOWN;
+  }
+
   void publish_bt_status(const CommandTreeResult & result)
   {
     if (!bt_status_pub_ || !bt_status_pub_->is_activated()) {
@@ -694,13 +719,12 @@ private:
       return;
     }
     last_bt_status_ = signature;
-    std_msgs::msg::String message;
-    message.data = nlohmann::json{
-      {"command_id", command_id},
-      {"stage", result.stage},
-      {"outcome", tree_outcome_name(result.outcome)},
-      {"detail", result.detail},
-    }.dump();
+    embodied_agent_interfaces::msg::BehaviorTreeStatus message;
+    message.stamp = now();
+    message.command_id = command_id;
+    message.stage = result.stage;
+    message.outcome = tree_outcome_value(result.outcome);
+    message.detail = result.detail;
     bt_status_pub_->publish(message);
     RCLCPP_INFO(
       get_logger(), "BT %s -> %s (%s)", result.stage.c_str(),
@@ -791,20 +815,20 @@ private:
       cmd_vel_pub_->publish(velocity);
     }
 
-    nlohmann::json state{
-      {"mode", SimulationController::mode_name(output.mode)},
-      {"sensor_stale", output.sensor_stale},
-      {"safety_stopped", output.safety_stopped},
-      {"front_distance", std::isfinite(output.front_distance) ?
-        nlohmann::json(output.front_distance) : nlohmann::json(nullptr)},
-      {"right_distance", std::isfinite(output.right_distance) ?
-        nlohmann::json(output.right_distance) : nlohmann::json(nullptr)},
-      {"reason", output.reason},
-      {"linear_x", output.velocity.linear_x},
-      {"angular_z", output.velocity.angular_z},
-    };
-    std_msgs::msg::String state_message;
-    state_message.data = state.dump();
+    embodied_agent_interfaces::msg::SimulationState state_message;
+    state_message.stamp = this->now();
+    state_message.mode = SimulationController::mode_name(output.mode);
+    state_message.sensor_stale = output.sensor_stale;
+    state_message.safety_stopped = output.safety_stopped;
+    state_message.front_distance_valid = std::isfinite(output.front_distance);
+    state_message.front_distance = state_message.front_distance_valid ?
+      static_cast<float>(output.front_distance) : 0.0F;
+    state_message.right_distance_valid = std::isfinite(output.right_distance);
+    state_message.right_distance = state_message.right_distance_valid ?
+      static_cast<float>(output.right_distance) : 0.0F;
+    state_message.reason = output.reason;
+    state_message.linear_x = static_cast<float>(output.velocity.linear_x);
+    state_message.angular_z = static_cast<float>(output.velocity.angular_z);
     state_pub_->publish(state_message);
   }
 
@@ -815,10 +839,13 @@ private:
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr
     cmd_vel_pub_;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::String>::SharedPtr mode_pub_;
-  rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::String>::SharedPtr state_pub_;
-  rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::String>::SharedPtr
+  rclcpp_lifecycle::LifecyclePublisher<
+    embodied_agent_interfaces::msg::SimulationState>::SharedPtr state_pub_;
+  rclcpp_lifecycle::LifecyclePublisher<
+    embodied_agent_interfaces::msg::RobotActionAck>::SharedPtr
     action_ack_pub_;
-  rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::String>::SharedPtr
+  rclcpp_lifecycle::LifecyclePublisher<
+    embodied_agent_interfaces::msg::BehaviorTreeStatus>::SharedPtr
     bt_status_pub_;
   rclcpp_lifecycle::LifecyclePublisher<
     diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diagnostics_pub_;

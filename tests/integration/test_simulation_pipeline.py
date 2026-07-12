@@ -7,7 +7,11 @@ import threading
 import time
 
 import rclpy
-from embodied_agent_interfaces.msg import RobotCommand
+from embodied_agent_interfaces.msg import RobotActionAck, RobotCommand, SimulationState
+from embodied_online_agent.runtime_status_transport import (
+    action_ack_to_dict,
+    simulation_state_to_dict,
+)
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
@@ -30,16 +34,16 @@ class SimulationProbe(Node):
         self.state_event = threading.Event()
         self.mode_event = threading.Event()
         self.create_subscription(Twist, "/cmd_vel", self._on_velocity, 10)
-        self.create_subscription(String, "/robot/simulation_state", self._on_state, 10)
+        self.create_subscription(SimulationState, "/robot/simulation_state", self._on_state, 10)
         self.create_subscription(String, "/robot/control_mode", self._on_mode, 10)
-        self.create_subscription(String, "/robot/action_ack", self._on_ack, 10)
+        self.create_subscription(RobotActionAck, "/robot/action_ack", self._on_ack, 10)
 
     def _on_velocity(self, message):
         self.last_velocity = message
         self.velocity_event.set()
 
     def _on_state(self, message):
-        self.last_state = json.loads(message.data)
+        self.last_state = simulation_state_to_dict(message)
         self.state_event.set()
 
     def _on_mode(self, message):
@@ -47,7 +51,7 @@ class SimulationProbe(Node):
         self.mode_event.set()
 
     def _on_ack(self, message):
-        self.action_ack = json.loads(message.data)
+        self.action_ack = action_ack_to_dict(message)
 
     def publish_scan(self, front):
         message = LaserScan()

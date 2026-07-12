@@ -18,7 +18,7 @@ cleanup() {
 }
 trap cleanup EXIT
 sleep 3
-timeout 8 ros2 topic echo /robot/action_ack std_msgs/msg/String >"$ACK_LOG" &
+timeout 8 ros2 topic echo /robot/action_ack embodied_agent_interfaces/msg/RobotActionAck >"$ACK_LOG" &
 ECHO_PID=$!
 sleep 1
 ros2 topic pub --once /agent/action_candidate \
@@ -26,9 +26,9 @@ ros2 topic pub --once /agent/action_candidate \
   "{command_id: hardware-smoke, source: smoke, action_type: 2, linear_x: 0.1, duration_s: 0.1}" \
   >/dev/null
 sleep 1
-grep -q '"action":"move"' "$ACK_LOG"
-grep -q '"source":"duration_elapsed"' "$ACK_LOG"
+grep -q '^action: move' "$ACK_LOG"
+grep -q 'detail: source=duration_elapsed' "$ACK_LOG"
 ros2 topic pub --once /robot/emergency_stop std_msgs/msg/Empty "{}" >/dev/null
 sleep 1
-grep -q '"source":"emergency_stop"' "$ACK_LOG"
+grep -q 'detail: source=emergency_stop' "$ACK_LOG"
 echo "PASS: action guard -> hardware controller -> mock transport -> watchdog stop"

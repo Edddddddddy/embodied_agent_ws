@@ -55,6 +55,45 @@
   生命周期，也能在没有 Agent 的情况下单独验证 action server。结构化审计比日志关键字
   `grep` 更可靠，可供 CI 或发布门禁消费。
 
+### 1.1 运行状态中间件：为什么状态 topic 也要强类型
+
+关键代码：
+
+- `src/embodied_agent_interfaces/msg/AudioFrontendStatus.msg`
+- `src/embodied_agent_interfaces/msg/VadEvent.msg`
+- `src/embodied_agent_interfaces/msg/KwsEvent.msg`
+- `src/embodied_agent_interfaces/msg/KwsScore.msg`
+- `src/embodied_agent_interfaces/msg/SimulationState.msg`
+- `src/embodied_agent_interfaces/msg/RobotActionAck.msg`
+- `src/embodied_agent_interfaces/msg/BehaviorTreeStatus.msg`
+- `src/embodied_online_agent/embodied_online_agent/runtime_status_transport.py`
+- `src/embodied_agent_cpp/src/audio_frontend_node.cpp`
+- `src/embodied_simulation/src/simulation_control_node.cpp`
+
+设计方式：
+
+- `embodied_agent_interfaces` 是跨进程契约的唯一来源；Python/C++ 发布者不再自行拼 JSON。
+- `runtime_status_transport.py` 只负责“领域数据/ROS 消息/可读报告字典”的边界转换，monitor
+  和测试可以继续输出易读 JSON，但 ROS graph 内传输的是可发现、可校验的消息类型。
+- 可选距离使用 `*_valid + value` 表达，避免用 JSON `null`；状态与结果使用枚举，避免
+  `success/succeeded/done` 等自由字符串漂移。
+- 音频 PCM 保持 best-effort，命令与状态按语义选 QoS；高频数据和可靠控制面不混用同一策略。
+
+为什么这样设计：
+
+- ROS 2 在 discovery 阶段就能发现同 topic 类型冲突，编译器和 rosidl 还能约束字段；JSON
+  字符串只能等运行时解析后才暴露拼写、缺字段和类型错误。
+- 多语言系统中，消息定义比散落在 Python/C++ 中的字典约定更适合作为团队接口文档。
+- 报告序列化与实时中间件职责分离后，测试证据仍可保存为 JSON/JSONL，同时不会让文件格式
+  反向污染实时控制接口。
+
+方案对比：
+
+- `std_msgs/String + JSON`：原型快，但无 schema、重复解析、跨节点容易漂移。
+- 全部改 service：状态广播和连续指标不适合请求/响应模型。
+- 自定义 msg + Action：事件/状态用 msg，长动作生命周期用 Action，职责更清楚；代价是接口变更
+  需要重新 build，但这正是工程化版本管理应显式承担的成本。
+
 ## 2. ActionGuard：LLM 输出和机器人执行之间的安全边界
 
 关键代码：

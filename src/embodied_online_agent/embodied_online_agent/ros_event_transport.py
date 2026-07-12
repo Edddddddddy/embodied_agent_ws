@@ -262,6 +262,18 @@ def wake_event_message_to_dict(message: WakeEventMessage) -> dict:
     }
 
 
+def wake_event_message_to_domain(message: WakeEventMessage) -> WakeEvent:
+    kind = _WAKE_EVENT_FROM_WIRE.get(message.kind)
+    if kind is None or kind == "unknown":
+        raise ValueError(f"unsupported wake event wire value: {message.kind}")
+    return WakeEvent(
+        kind=kind,
+        provider=message.provider,
+        transcript=message.transcript,
+        command=message.command if message.command_known else None,
+    )
+
+
 def recognition_feedback_message_to_dict(message: RecognitionFeedbackMessage) -> dict:
     status = _RECOGNITION_STATUS_FROM_WIRE.get(message.status, "unknown")
     payload = {"status": status, "reason": message.reason}

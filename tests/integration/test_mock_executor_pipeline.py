@@ -6,11 +6,19 @@ import threading
 import time
 
 import rclpy
-from embodied_agent_interfaces.msg import RobotCommand, RobotCommandResult
+from embodied_agent_interfaces.msg import (
+    BehaviorTreeStatus,
+    RobotActionAck,
+    RobotCommand,
+    RobotCommandResult,
+)
+from embodied_online_agent.runtime_status_transport import (
+    action_ack_to_dict,
+    behavior_tree_status_to_dict,
+)
 from diagnostic_msgs.msg import DiagnosticArray
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
-from std_msgs.msg import String
 from typed_action_test_utils import candidate_message, result_dict
 
 
@@ -26,11 +34,11 @@ class MockExecutorProbe(Node):
         self.bt_status = None
         self.diagnostic = None
         self.create_subscription(Twist, "/cmd_vel", self._on_velocity, 10)
-        self.create_subscription(String, "/robot/action_ack", self._on_ack, 10)
+        self.create_subscription(RobotActionAck, "/robot/action_ack", self._on_ack, 10)
         self.create_subscription(
             RobotCommandResult, "/robot/action_result", self._on_result, 10
         )
-        self.create_subscription(String, "/robot/bt_status", self._on_bt, 10)
+        self.create_subscription(BehaviorTreeStatus, "/robot/bt_status", self._on_bt, 10)
         self.create_subscription(
             DiagnosticArray, "/diagnostics", self._on_diagnostics, 10
         )
@@ -39,7 +47,7 @@ class MockExecutorProbe(Node):
         self.velocities.append((message.linear.x, message.angular.z))
 
     def _on_ack(self, message):
-        payload = json.loads(message.data)
+        payload = action_ack_to_dict(message)
         if payload.get("action") == "move":
             self.ack = payload
 
@@ -49,7 +57,7 @@ class MockExecutorProbe(Node):
             self.result = payload
 
     def _on_bt(self, message):
-        payload = json.loads(message.data)
+        payload = behavior_tree_status_to_dict(message)
         if payload.get("outcome") == "succeeded":
             self.bt_status = payload
 

@@ -12,7 +12,9 @@ import wave
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
-from std_msgs.msg import String, UInt8MultiArray
+from embodied_agent_interfaces.msg import VadEvent
+from embodied_online_agent.runtime_status_transport import vad_event_to_dict
+from std_msgs.msg import UInt8MultiArray
 
 
 class SileroRuntimeProbe(Node):
@@ -27,7 +29,7 @@ class SileroRuntimeProbe(Node):
             reliability=ReliabilityPolicy.BEST_EFFORT,
         )
         self._publisher = self.create_publisher(UInt8MultiArray, "/audio/clean_pcm", qos)
-        self.create_subscription(String, "/audio/vad_event", self._on_event, 10)
+        self.create_subscription(VadEvent, "/audio/vad_event", self._on_event, 10)
         self._timer = self.create_timer(frame_ms / 1000.0, self._publish_next)
         self.finished_at: float | None = None
 
@@ -39,12 +41,8 @@ class SileroRuntimeProbe(Node):
         self._publisher.publish(UInt8MultiArray(data=list(self._frames[self._index])))
         self._index += 1
 
-    def _on_event(self, message: String) -> None:
-        try:
-            payload = json.loads(message.data)
-        except json.JSONDecodeError:
-            payload = {"name": "invalid_json", "raw": message.data}
-        self._events.append(payload)
+    def _on_event(self, message: VadEvent) -> None:
+        self._events.append(vad_event_to_dict(message))
 
     @property
     def events(self) -> list[dict]:

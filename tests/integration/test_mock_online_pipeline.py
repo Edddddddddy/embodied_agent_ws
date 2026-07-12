@@ -6,6 +6,8 @@ import threading
 import time
 
 import rclpy
+from embodied_agent_interfaces.msg import RobotActionAck
+from embodied_online_agent.runtime_status_transport import action_ack_to_dict
 from rclpy.node import Node
 from std_msgs.msg import String
 
@@ -17,11 +19,11 @@ class MockOnlineProbe(Node):
         self.action = None
         self.metrics = None
         self.done = threading.Event()
-        self.create_subscription(String, "/robot/action_ack", self._on_action, 10)
+        self.create_subscription(RobotActionAck, "/robot/action_ack", self._on_action, 10)
         self.create_subscription(String, "/agent/metrics", self._on_metrics, 10)
 
     def _on_action(self, message):
-        self.action = json.loads(message.data)
+        self.action = action_ack_to_dict(message)
         self._complete_if_ready()
 
     def _on_metrics(self, message):

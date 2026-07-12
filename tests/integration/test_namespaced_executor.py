@@ -9,9 +9,8 @@ import rclpy
 from diagnostic_msgs.msg import DiagnosticArray
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
-from std_msgs.msg import String
-
-from embodied_agent_interfaces.msg import RobotCommand, RobotCommandResult
+from embodied_agent_interfaces.msg import BehaviorTreeStatus, RobotCommand, RobotCommandResult
+from embodied_online_agent.runtime_status_transport import behavior_tree_status_to_dict
 from typed_action_test_utils import result_dict
 
 
@@ -33,7 +32,7 @@ class NamespacedProbe(Node):
             RobotCommandResult, prefix + "/robot/action_result", self._on_result, 10
         )
         self.create_subscription(
-            String, prefix + "/robot/bt_status", self._on_bt, 10
+            BehaviorTreeStatus, prefix + "/robot/bt_status", self._on_bt, 10
         )
         self.create_subscription(
             DiagnosticArray, prefix + "/diagnostics", self._on_diagnostics, 10
@@ -48,7 +47,7 @@ class NamespacedProbe(Node):
             self.result = payload
 
     def _on_bt(self, message):
-        payload = json.loads(message.data)
+        payload = behavior_tree_status_to_dict(message)
         if payload.get("command_id") == "namespace-test":
             self.bt = payload
 

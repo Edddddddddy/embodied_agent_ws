@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-import json
-
 import rclpy
+from embodied_agent_interfaces.msg import VadEvent
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
-from std_msgs.msg import Empty, String, UInt8MultiArray
+from std_msgs.msg import Empty, UInt8MultiArray
+
+from .runtime_status_transport import vad_event_to_message
 
 from .silero_vad_sidecar import (
     StreamingVadEndpoint,
@@ -34,7 +35,7 @@ class WebRtcVadNode(Node):
         self._speech_started_pub = self.create_publisher(Empty, "/audio/speech_started", 10)
         self._speech_ended_pub = self.create_publisher(Empty, "/audio/speech_ended", 10)
         self._legacy_silence_pub = self.create_publisher(Empty, "/audio/silence_timeout", 10)
-        self._event_pub = self.create_publisher(String, "/audio/vad_event", 10)
+        self._event_pub = self.create_publisher(VadEvent, "/audio/vad_event", 10)
 
         audio_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
@@ -100,13 +101,10 @@ class WebRtcVadNode(Node):
             self._publish_event(event)
 
     def _publish_event(self, event):
-        payload = {
-            "name": event.name.value,
-            "reason": event.reason,
-            "probability": event.probability,
-            "provider": "webrtc",
-        }
-        self._event_pub.publish(String(data=json.dumps(payload, ensure_ascii=False)))
+        # WebRTC 与 Silero 共享同一消息契约，上游实现可替换、下游无需分支解析。
+        self._event_pub.publish(
+            vad_event_to_message(event, provider="webrtc", stamp=self.get_clock().now())
+        )
         if event.name == VadEventName.SPEECH_STARTED:
             self._speech_started_pub.publish(Empty())
         elif event.name == VadEventName.SPEECH_ENDED:

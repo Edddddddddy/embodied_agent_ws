@@ -17,7 +17,7 @@ from typing import Iterable, Sequence
 
 @dataclass(frozen=True)
 class AudioMetricSample:
-    """One JSON sample published by audio_frontend_node."""
+    """One typed status sample published by audio_frontend_node."""
 
     rms: float
     peak: float
@@ -62,16 +62,19 @@ class AudioHealthReport:
         return not self.warnings
 
 
-def parse_audio_metrics(serialized: str) -> AudioMetricSample | None:
-    """Parse /audio/frontend_metrics JSON.
+def parse_audio_metrics(serialized: str | dict) -> AudioMetricSample | None:
+    """Parse typed status dictionaries and saved legacy report samples.
 
     容错地解析指标：脚本用于现场排障，单条坏消息不应该让整个校准退出。
     """
 
-    try:
-        payload = json.loads(serialized)
-    except json.JSONDecodeError:
-        return None
+    if isinstance(serialized, dict):
+        payload = serialized
+    else:
+        try:
+            payload = json.loads(serialized)
+        except json.JSONDecodeError:
+            return None
     if not isinstance(payload, dict):
         return None
 
@@ -324,21 +327,31 @@ class AudioCalibrationNode:
     """Small ROS2 subscriber wrapper kept separate from pure analysis logic."""
 
     def __init__(self, topic: str):
+        from embodied_agent_interfaces.msg import AudioFrontendStatus
+        from embodied_online_agent.runtime_status_transport import (
+            audio_frontend_status_to_dict,
+        )
         import rclpy
         from rclpy.node import Node
-        from std_msgs.msg import String
 
         class _Node(Node):
             def __init__(self, owner: AudioCalibrationNode):
                 super().__init__("audio_frontend_calibration")
-                self.create_subscription(String, topic, owner._on_metrics, 10)
+                self.create_subscription(
+                    AudioFrontendStatus,
+                    topic,
+                    lambda message: owner._on_metrics(
+                        audio_frontend_status_to_dict(message)
+                    ),
+                    10,
+                )
 
         self.samples: list[AudioMetricSample] = []
         self._rclpy = rclpy
         self.node = _Node(self)
 
     def _on_metrics(self, message) -> None:
-        sample = parse_audio_metrics(message.data)
+        sample = parse_audio_metrics(message)
         if sample is not None:
             self.samples.append(sample)
 

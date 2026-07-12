@@ -12,11 +12,14 @@ ROOT = Path(__file__).resolve().parents[2]
 MONITOR = ROOT / "scripts" / "continuous_voice_monitor.py"
 sys.path.insert(0, str(ROOT / "scripts"))
 
-sys.modules.setdefault("rclpy", types.SimpleNamespace())
-sys.modules.setdefault(
-    "rclpy.node",
-    types.SimpleNamespace(Node=object),
-)
+try:
+    import rclpy  # noqa: F401
+except ImportError:
+    sys.modules.setdefault("rclpy", types.SimpleNamespace())
+    sys.modules.setdefault(
+        "rclpy.node",
+        types.SimpleNamespace(Node=object),
+    )
 
 
 class _FakeQosProfile:
@@ -26,19 +29,20 @@ class _FakeQosProfile:
             setattr(self, key, value)
 
 
-sys.modules.setdefault(
-    "rclpy.qos",
-    types.SimpleNamespace(
-        DurabilityPolicy=types.SimpleNamespace(VOLATILE=0, TRANSIENT_LOCAL=1),
-        HistoryPolicy=types.SimpleNamespace(KEEP_LAST=0),
-        QoSProfile=_FakeQosProfile,
-        ReliabilityPolicy=types.SimpleNamespace(RELIABLE=0),
-    ),
-)
-sys.modules.setdefault(
-    "std_msgs.msg",
-    types.SimpleNamespace(String=object),
-)
+if "rclpy.node" not in sys.modules:
+    sys.modules.setdefault(
+        "rclpy.qos",
+        types.SimpleNamespace(
+            DurabilityPolicy=types.SimpleNamespace(VOLATILE=0, TRANSIENT_LOCAL=1),
+            HistoryPolicy=types.SimpleNamespace(KEEP_LAST=0),
+            QoSProfile=_FakeQosProfile,
+            ReliabilityPolicy=types.SimpleNamespace(RELIABLE=0),
+        ),
+    )
+    sys.modules.setdefault(
+        "std_msgs.msg",
+        types.SimpleNamespace(String=object),
+    )
 
 spec = importlib.util.spec_from_file_location("continuous_voice_monitor", MONITOR)
 monitor = importlib.util.module_from_spec(spec)

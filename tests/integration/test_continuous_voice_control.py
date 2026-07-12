@@ -32,7 +32,7 @@ class ContinuousVoiceProbe(Node):
     def __init__(self):
         super().__init__("continuous_voice_probe")
         self.text_pub = self.create_publisher(String, "/agent/text_input", 10)
-        self.wake_input_pub = self.create_publisher(String, "/agent/wake_event_input", 10)
+        self.wake_input_pub = self.create_publisher(WakeEvent, "/agent/wake_event_input", 10)
         self.states = []
         self.session_states = []
         self.wake_events = []
@@ -168,9 +168,10 @@ def main():
         if len(node.candidates) != before:
             raise RuntimeError("command without wake word was accepted after sleep")
 
-        node.wake_input_pub.publish(
-            String(data=json.dumps({"kind": "wake", "provider": "test_kws"}))
-        )
+        wake = WakeEvent()
+        wake.kind = WakeEvent.KIND_WAKE
+        wake.provider = "test_kws"
+        node.wake_input_pub.publish(wake)
         time.sleep(0.1)
         stop_candidate_start = len(node.candidates)
         node.text_pub.publish(String(data="走正方形"))
@@ -205,16 +206,18 @@ def main():
         if "test_kws" not in [event.get("provider") for event in node.wake_events]:
             raise RuntimeError(f"external KWS wake event was not bridged: {node.wake_events}")
 
-        node.wake_input_pub.publish(
-            String(data=json.dumps({"kind": "wake", "provider": "test_kws_sleep"}))
-        )
+        wake = WakeEvent()
+        wake.kind = WakeEvent.KIND_WAKE
+        wake.provider = "test_kws_sleep"
+        node.wake_input_pub.publish(wake)
         time.sleep(0.1)
         external_sleep_start = len(node.candidates)
         node.text_pub.publish(String(data="走正方形"))
         time.sleep(0.15)
-        node.wake_input_pub.publish(
-            String(data=json.dumps({"kind": "sleep", "provider": "test_kws_sleep"}))
-        )
+        sleep = WakeEvent()
+        sleep.kind = WakeEvent.KIND_SLEEP
+        sleep.provider = "test_kws_sleep"
+        node.wake_input_pub.publish(sleep)
         wait_until(
             lambda: any(
                 event.get("kind") == "sleep"
