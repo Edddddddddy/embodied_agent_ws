@@ -11,6 +11,7 @@
 
 #include "embodied_agent_interfaces/msg/robot_command.hpp"
 #include "embodied_agent_interfaces/msg/robot_action_ack.hpp"
+#include "embodied_agent_middleware/qos_profiles.hpp"
 #include "embodied_agent_cpp/hardware_transport.hpp"
 #include "embodied_agent_cpp/hardware_protocol.hpp"
 
@@ -48,16 +49,18 @@ public:
       throw std::runtime_error("hardware transport initialization failed: " + error);
     }
     ack_publisher_ =
-      create_publisher<embodied_agent_interfaces::msg::RobotActionAck>("/robot/action_ack", 10);
-    status_publisher_ = create_publisher<std_msgs::msg::String>("/robot/hardware_status", 10);
+      create_publisher<embodied_agent_interfaces::msg::RobotActionAck>(
+      "/robot/action_ack", embodied_agent_middleware::event_qos());
+    status_publisher_ = create_publisher<std_msgs::msg::String>(
+      "/robot/hardware_status", embodied_agent_middleware::state_qos());
     command_subscription_ =
       create_subscription<embodied_agent_interfaces::msg::RobotCommand>(
-      "/robot/action_command_typed", 10,
+      "/robot/action_command_typed", embodied_agent_middleware::command_qos(),
       [this](const embodied_agent_interfaces::msg::RobotCommand::SharedPtr message) {
         execute(*message);
       });
     emergency_subscription_ = create_subscription<std_msgs::msg::Empty>(
-      "/robot/emergency_stop", 10,
+      "/robot/emergency_stop", embodied_agent_middleware::command_qos(10),
       [this](const std_msgs::msg::Empty::SharedPtr) {send_stop("emergency_stop");});
     watchdog_timer_ = create_wall_timer(
       std::chrono::milliseconds(20),

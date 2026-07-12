@@ -55,6 +55,7 @@
 | 声纹记忆模块收敛 | 删除 online/offline 重复的记忆命令状态分支和声纹 JSON topic | 新增 `MemoryCommandService` 深模块及 3 个声纹 typed msg；身份门槛、偏好生命周期、录入请求和 interaction 记录使用同一实现 |
 | 仿真动作运行时收敛 | 缩小 Lifecycle 节点职责，消除定时动作、Nav2 result 与 BT 的平行状态机 | 新增 `ActiveActionRuntime`，统一进度、取消、超时、外部 result 和 BT 终态映射，并增加纯 C++ 单测 |
 | 控制命令启动可靠性 | 修复 DDS discovery 完成前 Guard 发布的 volatile 动作静默丢失 | 新增有界 TTL `GuardedCommandOutbox`；scheduler 匹配后 FIFO 转发，超时/满载明确拒绝，不回放陈旧动作 |
+| C++ 中间件契约收敛 | 清理跨节点散落的 QoS depth 与不一致策略 | 新增独立 `embodied_agent_middleware` 包，统一 command/event/state/sensor/audio/diagnostics QoS，并迁移控制主链路 |
 
 ## 2. 当前完成度结论
 

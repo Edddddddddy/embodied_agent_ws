@@ -53,6 +53,7 @@ flowchart LR
 embodied_agent_ws/
 ├── src/
 │   ├── embodied_agent_interfaces/   # 全部跨节点 msg/srv/action 契约的唯一来源
+│   ├── embodied_agent_middleware/   # C++ QoS 与 ROS 2 中间件语义契约
 │   ├── embodied_agent_cpp/          # C++ 音频前端、ActionGuard、Action scheduler/client、硬件 mock
 │   ├── embodied_online_agent/       # 在线 Agent、Qwen ASR/LLM/TTS、连续语音控制、用户记忆/声纹 sidecar
 │   ├── embodied_offline_agent/      # 离线 Agent、Sherpa/llama.cpp/Sherpa-TTS/SummerTTS 适配

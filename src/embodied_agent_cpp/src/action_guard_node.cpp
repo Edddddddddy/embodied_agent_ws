@@ -12,6 +12,7 @@
 #include "embodied_agent_cpp/action_validator.hpp"
 #include "embodied_agent_cpp/guarded_command_outbox.hpp"
 #include "embodied_agent_interfaces/msg/robot_command.hpp"
+#include "embodied_agent_middleware/qos_profiles.hpp"
 
 namespace embodied_agent_cpp
 {
@@ -38,12 +39,12 @@ protected:
     outbox_ = std::make_unique<GuardedCommandOutbox>(max_pending);
     typed_command_publisher_ =
       create_publisher<embodied_agent_interfaces::msg::RobotCommand>(
-      "/robot/action_command_typed", 10);
+      "/robot/action_command_typed", embodied_agent_middleware::command_qos());
     rejection_publisher_ = create_publisher<std_msgs::msg::String>(
-      "/robot/action_rejected", 10);
+      "/robot/action_rejected", embodied_agent_middleware::event_qos());
     candidate_subscription_ = create_subscription<
       embodied_agent_interfaces::msg::RobotCommand>(
-      "/agent/action_candidate", 10,
+      "/agent/action_candidate", embodied_agent_middleware::command_qos(),
       [this](
         const embodied_agent_interfaces::msg::RobotCommand::SharedPtr message) {
         on_candidate(message);

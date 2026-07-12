@@ -117,6 +117,8 @@
   可观测的语义槽位，又不让任意字典穿过 ROS 中间件边界。
 - `ros_qos.py` 用命名函数表达中间件语义：命令生命周期事件使用 reliable，Agent/session
   当前状态使用 transient-local。这样 QoS 是模块接口的一部分，而不是散落的 `depth=10`。
+- C++ 使用 `src/embodied_agent_middleware/include/embodied_agent_middleware/qos_profiles.hpp`
+  表达同一套语义；ActionGuard、Action scheduler、音频前端、硬件 adapter 与仿真节点不再各自猜测 QoS。
 - 校验动作类型、速度、时长、颜色、模式等字段。
 - 通过后发布 `/robot/action_command_typed` 强类型 ROS 2 msg。
 - Guard 与 scheduler 尚未完成 DDS discovery 时，命令进入有界 TTL outbox；匹配后
@@ -133,6 +135,12 @@
 - reliable QoS 只保证已经匹配的 endpoint 之间可靠，并不回放 discovery 前的消息；
   控制命令也不适合 transient-local，因为节点重启后重放旧移动命令有安全风险。
   因此这里选择应用层短期 outbox，并用 TTL 明确限制有效窗口。
+
+中间件方案对比：
+
+- 所有 topic 都用 reliable/depth=10：写法简单，但 PCM/scan 容易积压，状态又无法服务晚加入监控。
+- 所有状态都 transient-local：监控方便，但控制命令可能在节点重启后被重放，存在安全风险。
+- 按领域语义命名 QoS：调用处能直接表达 command/event/state/sensor/audio，策略可单测并跨包复用。
 
 方案对比：
 

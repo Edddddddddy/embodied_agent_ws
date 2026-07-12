@@ -13,6 +13,7 @@
   <depend>rclcpp_action</depend>
   <depend>rclcpp_components</depend>
   <depend>embodied_agent_interfaces</depend>
+  <depend>embodied_agent_middleware</depend>
   <depend>diagnostic_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>lifecycle_msgs</depend>

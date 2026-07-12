@@ -1233,3 +1233,31 @@ def test_action_guard_buffers_only_the_dds_startup_window():
     assert "downstream_wait_timeout_s" in node
     assert "get_subscription_count() > 0" in node
     assert "transient_local" not in node.lower()
+
+
+def test_cpp_nodes_share_one_qos_contract():
+    middleware = ROOT / "src" / "embodied_agent_middleware"
+    qos_header = (
+        middleware / "include" / "embodied_agent_middleware" / "qos_profiles.hpp"
+    )
+    qos_text = qos_header.read_text(encoding="utf-8")
+    for profile in (
+        "command_qos",
+        "event_qos",
+        "state_qos",
+        "sensor_qos",
+        "audio_qos",
+        "diagnostics_qos",
+    ):
+        assert profile in qos_text
+
+    sources = (
+        ROOT / "src" / "embodied_agent_cpp" / "src" / "action_guard_node.cpp",
+        ROOT / "src" / "embodied_agent_cpp" / "src" / "typed_action_bridge_node.cpp",
+        ROOT / "src" / "embodied_agent_cpp" / "src" / "audio_frontend_node.cpp",
+        ROOT / "src" / "embodied_simulation" / "src" / "simulation_control_node.cpp",
+    )
+    for source in sources:
+        text = source.read_text(encoding="utf-8")
+        assert "embodied_agent_middleware/qos_profiles.hpp" in text
+    assert "rclcpp::QoS(10)" not in sources[-1].read_text(encoding="utf-8")

@@ -91,6 +91,24 @@ sequenceDiagram
   feedback/result 映射为强类型消息，同时向 `/diagnostics` 发布队列和执行状态。
 - `RobotCommand.priority` 显式区分用户急停/取消与组合动作末尾的计划 STOP，避免按动作名或到达时机猜测抢占语义。
 
+### `embodied_agent_middleware`
+
+职责：
+
+- 为 C++ 节点提供统一、可测试的 ROS 2 QoS 语义。
+- 区分控制命令、生命周期事件、当前状态、传感器/音频流和 diagnostics。
+
+核心文件：
+
+- `include/embodied_agent_middleware/qos_profiles.hpp`
+- `test/test_qos_profiles.cpp`
+
+说明：
+
+- command/event 使用 reliable + volatile；状态使用 reliable + transient-local。
+- scan/PCM 使用 best-effort，消费跟不上时丢旧帧而不是累积控制延迟。
+- 控制命令不使用 transient-local；启动发现窗口由有界 TTL outbox 处理，防止重放旧动作。
+
 ### `embodied_online_agent`
 
 职责：

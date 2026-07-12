@@ -35,6 +35,7 @@
 #include "embodied_simulation/robot_executor.hpp"
 #include "embodied_simulation/simulation_controller.hpp"
 #include "embodied_simulation/simulation_control_factory.hpp"
+#include "embodied_agent_middleware/qos_profiles.hpp"
 
 namespace embodied_simulation
 {
@@ -83,17 +84,17 @@ protected:
       return CallbackReturn::FAILURE;
     }
     cmd_vel_pub_ = create_publisher<geometry_msgs::msg::Twist>(
-      "cmd_vel", rclcpp::QoS(10).reliable());
+      "cmd_vel", embodied_agent_middleware::command_qos(10));
     mode_pub_ = create_publisher<std_msgs::msg::String>(
-      "robot/control_mode", rclcpp::QoS(10).reliable());
+      "robot/control_mode", embodied_agent_middleware::state_qos());
     state_pub_ = create_publisher<embodied_agent_interfaces::msg::SimulationState>(
-      "robot/simulation_state", rclcpp::QoS(10).reliable());
+      "robot/simulation_state", embodied_agent_middleware::state_qos());
     action_ack_pub_ = create_publisher<embodied_agent_interfaces::msg::RobotActionAck>(
-      "robot/action_ack", rclcpp::QoS(10).reliable());
+      "robot/action_ack", embodied_agent_middleware::event_qos());
     bt_status_pub_ = create_publisher<embodied_agent_interfaces::msg::BehaviorTreeStatus>(
-      "robot/bt_status", rclcpp::QoS(10).reliable());
+      "robot/bt_status", embodied_agent_middleware::event_qos());
     diagnostics_pub_ = create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
-      "diagnostics", rclcpp::QoS(10).reliable());
+      "diagnostics", embodied_agent_middleware::diagnostics_qos());
     use_behavior_tree_ = bool_parameter("use_behavior_tree", true);
     if (use_behavior_tree_) {
       const auto default_tree =
@@ -130,13 +131,13 @@ protected:
         &SimulationControlNode::handle_accepted, this,
         std::placeholders::_1));
     mode_sub_ = create_subscription<std_msgs::msg::String>(
-      "robot/control_mode_request", rclcpp::QoS(10).reliable(),
+      "robot/control_mode_request", embodied_agent_middleware::command_qos(10),
       std::bind(&SimulationControlNode::on_mode_request, this, _1));
     emergency_sub_ = create_subscription<std_msgs::msg::Empty>(
-      "robot/emergency_stop", rclcpp::QoS(10).reliable(),
+      "robot/emergency_stop", embodied_agent_middleware::command_qos(10),
       std::bind(&SimulationControlNode::on_emergency_stop, this, _1));
 
-    auto scan_qos = rclcpp::SensorDataQoS().keep_last(5);
+    const auto scan_qos = embodied_agent_middleware::sensor_qos();
     scan_sub_ = create_subscription<sensor_msgs::msg::LaserScan>(
       "scan", scan_qos,
       std::bind(&SimulationControlNode::on_scan, this, _1));

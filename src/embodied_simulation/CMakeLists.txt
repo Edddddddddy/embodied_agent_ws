@@ -10,6 +10,7 @@ find_package(ament_index_cpp REQUIRED)
 find_package(behaviortree_cpp REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(embodied_agent_interfaces REQUIRED)
+find_package(embodied_agent_middleware REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(lifecycle_msgs REQUIRED)
 find_package(nav2_msgs REQUIRED)
@@ -37,7 +38,7 @@ target_include_directories(simulation_control_core PUBLIC
   $<INSTALL_INTERFACE:include>
 )
 ament_target_dependencies(simulation_control_core PUBLIC
-  behaviortree_cpp diagnostic_msgs embodied_agent_interfaces geometry_msgs)
+  behaviortree_cpp diagnostic_msgs embodied_agent_interfaces embodied_agent_middleware geometry_msgs)
 
 add_library(embodied_simulation_executors SHARED
   src/robot_executor_plugins.cpp
@@ -109,5 +110,5 @@ endif()
 ament_export_include_directories(include)
 ament_export_libraries(simulation_control_core)
 ament_export_dependencies(
-  behaviortree_cpp diagnostic_msgs embodied_agent_interfaces geometry_msgs pluginlib)
+  behaviortree_cpp diagnostic_msgs embodied_agent_interfaces embodied_agent_middleware geometry_msgs pluginlib)
 ament_package()

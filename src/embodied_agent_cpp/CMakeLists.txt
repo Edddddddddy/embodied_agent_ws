@@ -10,6 +10,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(embodied_agent_interfaces REQUIRED)
+find_package(embodied_agent_middleware REQUIRED)
 find_package(lifecycle_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
@@ -35,7 +36,8 @@ target_include_directories(embodied_agent_core PUBLIC
   $<INSTALL_INTERFACE:include>
 )
 target_link_libraries(embodied_agent_core PUBLIC nlohmann_json::nlohmann_json)
-ament_target_dependencies(embodied_agent_core PUBLIC embodied_agent_interfaces)
+ament_target_dependencies(
+  embodied_agent_core PUBLIC embodied_agent_interfaces embodied_agent_middleware)
 
 add_executable(audio_frontend src/audio_frontend_node.cpp)
 target_include_directories(audio_frontend PRIVATE ${PORTAUDIO_INCLUDE_DIRS})
@@ -64,7 +66,8 @@ ament_target_dependencies(
   typed_action_demo_client embodied_agent_interfaces rclcpp rclcpp_action)
 
 add_executable(robot_action_stub src/robot_action_stub_node.cpp)
-ament_target_dependencies(robot_action_stub rclcpp embodied_agent_interfaces)
+ament_target_dependencies(
+  robot_action_stub rclcpp embodied_agent_interfaces embodied_agent_middleware)
 
 add_executable(hardware_controller src/hardware_controller_node.cpp)
 target_link_libraries(hardware_controller embodied_agent_core nlohmann_json::nlohmann_json)
@@ -229,5 +232,5 @@ endif()
 
 ament_export_include_directories(include)
 ament_export_libraries(embodied_agent_core)
-ament_export_dependencies(embodied_agent_interfaces)
+ament_export_dependencies(embodied_agent_interfaces embodied_agent_middleware)
 ament_package()

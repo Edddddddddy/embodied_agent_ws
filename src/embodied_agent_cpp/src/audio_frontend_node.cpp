@@ -18,6 +18,7 @@
 #include "std_msgs/msg/u_int8_multi_array.hpp"
 
 #include "embodied_agent_cpp/audio_processing.hpp"
+#include "embodied_agent_middleware/qos_profiles.hpp"
 
 namespace embodied_agent_cpp
 {
@@ -50,18 +51,19 @@ public:
   {
     audio_enhancer_ = create_audio_enhancer();
     cleaned_audio_publisher_ = create_publisher<std_msgs::msg::UInt8MultiArray>(
-      "/audio/clean_pcm", rclcpp::SensorDataQoS());
-    silence_publisher_ = create_publisher<std_msgs::msg::Empty>("/audio/silence_timeout", 10);
+      "/audio/clean_pcm", embodied_agent_middleware::audio_qos());
+    silence_publisher_ = create_publisher<std_msgs::msg::Empty>(
+      "/audio/silence_timeout", embodied_agent_middleware::event_qos(10));
     speech_started_publisher_ = create_publisher<std_msgs::msg::Empty>(
-      "/audio/speech_started", 10);
+      "/audio/speech_started", embodied_agent_middleware::event_qos(10));
     speech_ended_publisher_ = create_publisher<std_msgs::msg::Empty>(
-      "/audio/speech_ended", 10);
+      "/audio/speech_ended", embodied_agent_middleware::event_qos(10));
     frontend_metrics_publisher_ =
       create_publisher<embodied_agent_interfaces::msg::AudioFrontendStatus>(
-      "/audio/frontend_metrics", 10);
+      "/audio/frontend_metrics", embodied_agent_middleware::state_qos());
     tts_reference_subscription_ = create_subscription<std_msgs::msg::UInt8MultiArray>(
       "/audio/tts_pcm",
-      rclcpp::SensorDataQoS(),
+      embodied_agent_middleware::audio_qos(),
       [this](const std_msgs::msg::UInt8MultiArray::SharedPtr message) {
         enqueue_playback(message->data);
       });

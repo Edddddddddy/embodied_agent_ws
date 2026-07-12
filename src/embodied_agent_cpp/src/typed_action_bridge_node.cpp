@@ -18,6 +18,7 @@
 #include <rclcpp_action/rclcpp_action.hpp>
 
 #include "embodied_agent_cpp/action_scheduler.hpp"
+#include "embodied_agent_middleware/qos_profiles.hpp"
 
 namespace embodied_agent_cpp
 {
@@ -46,13 +47,13 @@ public:
     client_ = rclcpp_action::create_client<ExecuteRobotCommand>(
       this, "robot/execute_command");
     feedback_pub_ = create_publisher<RobotCommandFeedback>(
-      "robot/action_feedback", rclcpp::QoS(10).reliable());
+      "robot/action_feedback", embodied_agent_middleware::event_qos());
     result_pub_ = create_publisher<RobotCommandResult>(
-      "robot/action_result", rclcpp::QoS(10).reliable());
+      "robot/action_result", embodied_agent_middleware::event_qos());
     diagnostics_pub_ = create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
-      "/diagnostics", rclcpp::QoS(10).reliable());
+      "/diagnostics", embodied_agent_middleware::diagnostics_qos());
     command_sub_ = create_subscription<RobotCommand>(
-      "robot/action_command_typed", rclcpp::QoS(10).reliable(),
+      "robot/action_command_typed", embodied_agent_middleware::command_qos(),
       std::bind(&TypedActionBridgeNode::on_command, this, std::placeholders::_1));
     watchdog_timer_ = create_wall_timer(
       std::chrono::milliseconds(100),

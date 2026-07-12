@@ -3,6 +3,7 @@
 
 #include "embodied_agent_interfaces/msg/robot_action_ack.hpp"
 #include "embodied_agent_interfaces/msg/robot_command.hpp"
+#include "embodied_agent_middleware/qos_profiles.hpp"
 #include "rclcpp/rclcpp.hpp"
 
 namespace embodied_agent_cpp
@@ -33,11 +34,12 @@ public:
   : Node("robot_action_stub")
   {
     acknowledgement_publisher_ =
-      create_publisher<embodied_agent_interfaces::msg::RobotActionAck>("/robot/action_ack", 10);
+      create_publisher<embodied_agent_interfaces::msg::RobotActionAck>(
+      "/robot/action_ack", embodied_agent_middleware::event_qos());
     command_subscription_ =
       create_subscription<embodied_agent_interfaces::msg::RobotCommand>(
       "/robot/action_command_typed",
-      10,
+      embodied_agent_middleware::command_qos(),
       [this](const embodied_agent_interfaces::msg::RobotCommand::SharedPtr command) {
         RCLCPP_INFO(
           get_logger(), "simulating typed action: command_id=%s type=%u",
