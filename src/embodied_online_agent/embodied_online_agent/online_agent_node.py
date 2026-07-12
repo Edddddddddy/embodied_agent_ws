@@ -9,13 +9,8 @@ from typing import Iterable
 import rclpy
 from ament_index_python.packages import get_package_share_directory
 from embodied_agent_interfaces.msg import (
-    CommandExecutionEvent,
-    CommandQueueEvent,
-    NluParseEvent,
-    RecognitionFeedback,
     RobotCommand,
     RobotCommandResult,
-    WakeEvent,
 )
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
@@ -29,34 +24,23 @@ from .user_memory import (
     parse_memory_command,
 )
 from .action_sequence import SequentialActionPublisher
-from .command_completion import CommandCompleter
-from .command_fallback import parse_fallback_actions, should_block_model_actions
-from .command_nlu import CommandNLU
-from .continuous_voice import ContinuousCommandQueue, ContinuousVoiceSession
-from .continuous_voice import CommandExecutionTracker, QueueSnapshot
-from .command_normalizer import CommandNormalizer
-from .metrics import LatencyTracker
-from .navigation_phrases import is_navigation_cancel
-from .protocol import SentenceChunker, TaggedStreamParser
-from .recognition_retry import RecognitionRetryTracker
-from .ros_action_transport import action_command_to_message, command_message_to_dict
-from .ros_event_transport import (
-    execution_event_to_message,
-    nlu_parse_to_message,
-    queue_event_to_message,
-    recognition_feedback_to_message,
-    wake_event_to_message,
+from .agent_control_plane import (
+    AgentControlPlane,
+    AgentControlPlaneConfig,
 )
-from .ros_qos import command_event_qos, latched_state_qos
+from .command_fallback import parse_fallback_actions, should_block_model_actions
+from .continuous_voice import QueueSnapshot
+from .metrics import LatencyTracker
+from .protocol import SentenceChunker, TaggedStreamParser
+from .ros_action_transport import action_command_to_message, command_message_to_dict
+from .ros_agent_events import RosAgentEventPublisher
 from .types import ActionCommand
-from .transcript_stabilizer import TranscriptStabilizer
 from .user_preferences import apply_user_preferences
 from .wake_event_input import parse_external_wake_event
 from .providers.mock import MockAsr, MockLlm, MockTts
 from .providers.openai_compatible_llm import OpenAiCompatibleLlm
 from .providers.qwen_asr import QwenRealtimeAsr
 from .providers.qwen_tts import QwenRealtimeTts
-from .wakeword import WakeWordGate
 
 
 class OnlineAgentNode(Node):
@@ -69,46 +53,12 @@ class OnlineAgentNode(Node):
         self._stopping = False
         self._last_asr_commit_monotonic = 0.0
         self._continuous_enabled = bool(self._param("continuous_control_enabled"))
-        self._nlu_batch_sequence = 0
-        self._command_queue = ContinuousCommandQueue(
-            int(self._param("continuous_command_queue_size")),
-            max_age_s=float(self._param("continuous_command_max_age_s")),
-        )
-        self._command_tracker = CommandExecutionTracker("online")
         self._command_worker_thread = None
         self.metrics = LatencyTracker()
-        self.wake_gate = WakeWordGate(
-            self._param("wake_words"),
-            aliases=self._param("wake_word_aliases"),
-            enabled=self._param("wake_word_enabled"),
-            active_timeout_s=(
-                self._param("voice_session_timeout_s")
-                if self._continuous_enabled
-                else self._param("wake_active_timeout_s")
-            ),
-        )
-        self.voice_session = ContinuousVoiceSession(
-            self.wake_gate,
-            enabled=self._continuous_enabled,
-            duplicate_window_s=float(self._param("continuous_duplicate_window_s")),
-        )
-        self.retry_tracker = RecognitionRetryTracker(
-            self._param("recognition_max_retries")
-        )
-        self.command_normalizer = CommandNormalizer(
-            fuzzy_threshold=float(self._param("command_normalization_fuzzy_threshold")),
-            rules_path=self._command_normalization_path(),
-        )
-        self.command_completer = CommandCompleter(
-            enabled=bool(self._param("command_completion_enabled"))
-        )
-        self.command_nlu = CommandNLU(
-            enabled=bool(self._param("command_nlu_enabled")),
-            min_confidence=float(self._param("command_nlu_min_confidence")),
-        )
-        self.transcript_stabilizer = TranscriptStabilizer(
-            enabled=bool(self._param("asr_partial_merge_enabled")),
-            max_age_s=float(self._param("asr_partial_max_age_s")),
+        self._control = AgentControlPlane(
+            AgentControlPlaneConfig.from_parameters(
+                "online", self._param, self._command_normalization_path()
+            )
         )
         self.action_sequencer = SequentialActionPublisher(
             self._param("action_sequence_wait_timeout_s")
@@ -132,29 +82,7 @@ class OnlineAgentNode(Node):
         self.action_candidate_pub = self.create_publisher(
             RobotCommand, "/agent/action_candidate", 10
         )
-        self.state_pub = self.create_publisher(
-            String, "/agent/state", latched_state_qos()
-        )
-        self.wake_event_pub = self.create_publisher(
-            WakeEvent, "/agent/wake_event", command_event_qos()
-        )
-        self.session_state_pub = self.create_publisher(
-            String, "/agent/session_state", latched_state_qos()
-        )
-        self.command_queue_pub = self.create_publisher(
-            CommandQueueEvent, "/agent/command_queue", command_event_qos()
-        )
-        self.command_execution_pub = self.create_publisher(
-            CommandExecutionEvent, "/agent/command_execution", command_event_qos()
-        )
-        self.recognition_feedback_pub = self.create_publisher(
-            RecognitionFeedback,
-            "/agent/recognition_feedback",
-            command_event_qos(),
-        )
-        self.nlu_parse_pub = self.create_publisher(
-            NluParseEvent, "/agent/nlu_parse", command_event_qos()
-        )
+        self._events = RosAgentEventPublisher(self)
         self.speaker_enroll_request_pub = self.create_publisher(
             String, "/agent/speaker_enroll_request", 10
         )
@@ -347,7 +275,7 @@ class OnlineAgentNode(Node):
     def _on_asr_partial(self, text: str):
         if self._is_busy() and not self._continuous_enabled:
             return
-        self.transcript_stabilizer.observe_partial(text)
+        self._control.transcript_stabilizer.observe_partial(text)
         self.asr_partial_pub.publish(String(data=text))
 
     def _on_clean_audio(self, message: UInt8MultiArray):
@@ -362,7 +290,7 @@ class OnlineAgentNode(Node):
         if self._is_busy() and not self._continuous_enabled:
             return
         # speech_started 是 utterance 边界，先清掉异常遗留的上一句 partial。
-        self.transcript_stabilizer.clear()
+        self._control.transcript_stabilizer.clear()
         self._publish_state("speech_detected")
 
     def _on_speech_ended(self, _message: Empty):
@@ -405,10 +333,10 @@ class OnlineAgentNode(Node):
 
     def _on_asr_final(self, text: str):
         if self._is_busy() and not self._continuous_enabled:
-            self.transcript_stabilizer.clear()
+            self._control.transcript_stabilizer.clear()
             self.get_logger().warning("agent is busy; suppressing overlapping ASR final")
             return
-        stabilized = self.transcript_stabilizer.finalize(text)
+        stabilized = self._control.transcript_stabilizer.finalize(text)
         if stabilized.recovered:
             self._publish_recognition_payload(stabilized.feedback_dict())
             self.get_logger().info(
@@ -419,7 +347,7 @@ class OnlineAgentNode(Node):
         self._accept_transcript(text)
 
     def _on_text_input(self, message: String):
-        self.transcript_stabilizer.clear()
+        self._control.transcript_stabilizer.clear()
         self.asr_final_pub.publish(String(data=message.data))
         self._accept_transcript(message.data)
 
@@ -431,7 +359,7 @@ class OnlineAgentNode(Node):
             )
             return
         if event.kind == "wake":
-            session_event = self.voice_session.external_wake(
+            session_event = self._control.voice_session.external_wake(
                 event.provider, event.transcript
             )
             self._publish_session_event(session_event)
@@ -441,13 +369,13 @@ class OnlineAgentNode(Node):
             )
             return
 
-        dropped = self._command_queue.clear()
+        dropped = self._control.command_queue.clear()
         self._publish_queue_event(
-            "clear", "", QueueSnapshot(True, self._command_queue.size(), dropped)
+            "clear", "", QueueSnapshot(True, self._control.command_queue.size(), dropped)
         )
         self.action_sequencer.cancel("external_sleep")
         self._publish_actions([ActionCommand("stop", {}, priority=True)])
-        session_event = self.voice_session.external_sleep(event.provider)
+        session_event = self._control.voice_session.external_sleep(event.provider)
         self._publish_session_event(session_event)
         self._publish_state("sleeping")
         self.get_logger().info(
@@ -481,80 +409,32 @@ class OnlineAgentNode(Node):
             self.get_logger().debug("speaker identity ignored or unknown")
 
     def _accept_transcript(self, transcript: str):
-        transcript = self._normalize_transcript(transcript)
-        decision = self.voice_session.accept(transcript)
-        self._publish_session_event(decision.event)
-        if not decision.accepted or decision.command is None:
-            if decision.reason == "session_sleep":
-                dropped = self._command_queue.clear()
-                self._publish_queue_event(
-                    "clear", "", QueueSnapshot(True, self._command_queue.size(), dropped)
+        decision = self._control.accept_transcript(
+            transcript,
+            wake_word_required=bool(self._param("wake_word_enabled")),
+        )
+        self._events.publish_control_decision(decision)
+        if decision.directive in {"sleep", "priority"}:
+            self.action_sequencer.cancel(decision.cancel_reason)
+            self.get_logger().info(
+                f"{decision.cancel_reason} received; cancelling current sequence"
+            )
+            if decision.dropped:
+                self.get_logger().info(
+                    f"cleared {decision.dropped} queued command(s)"
                 )
-                self.action_sequencer.cancel("session_sleep")
-                self._publish_actions([ActionCommand("stop", {}, priority=True)])
-                self._publish_state("sleeping")
-                self.get_logger().info("continuous voice session sleeping")
-            elif decision.reason == "session_awake":
-                self._publish_state("session_awake")
-                self.get_logger().info("continuous voice session awake")
-            elif decision.reason in {"filler", "duplicate_command"}:
-                self._publish_ignored_recognition(transcript, decision.reason)
-                self._publish_state("listening")
-            elif decision.reason == "session_timeout":
-                feedback = self.retry_tracker.failed(transcript)
-                self._publish_recognition_payload(feedback.as_dict())
-                self._publish_session_timeout_feedback(transcript)
-                self.get_logger().warning(
-                    "voice session timed out; waiting for a new wake word"
-                )
-                self._publish_state("retry_listening")
-            elif self._param("wake_word_enabled") and not self.wake_gate.active:
-                feedback = self.retry_tracker.failed(transcript)
-                self._publish_recognition_payload(feedback.as_dict())
-                self.get_logger().warning(
-                    f"wake word not detected ({feedback.attempt}/{feedback.max_attempts}); retrying"
-                )
-                self._publish_state("retry_listening")
+            self._publish_actions(
+                [ActionCommand(decision.priority_action, {}, priority=True)]
+            )
             return
-        self.retry_tracker.succeeded()
+        if decision.directive != "command":
+            return
+
         command = decision.command
-        if not decision.priority_stop:
-            # 正常控制命令允许做“短命令补全”；停下/急停保持原样，保证安全指令最快抢占。
-            command = self._complete_command(command)
         if self._handle_memory_command(command):
             self._publish_state("listening")
             return
         if self._continuous_enabled:
-            priority_navigation_cancel = is_navigation_cancel(command)
-            if decision.priority_stop or priority_navigation_cancel:
-                cancel_reason = (
-                    "priority_stop"
-                    if decision.priority_stop
-                    else "priority_navigation_cancel"
-                )
-                dropped = self._command_queue.clear()
-                self._publish_queue_event(
-                    "clear",
-                    command,
-                    QueueSnapshot(
-                        True, self._command_queue.size(), dropped, cancel_reason
-                    ),
-                    priority_stop=decision.priority_stop,
-                )
-                self.action_sequencer.cancel(cancel_reason)
-                self.get_logger().info(
-                    f"{cancel_reason} received; cancelling current sequence"
-                )
-                if dropped:
-                    self.get_logger().info(f"cleared {dropped} queued command(s)")
-                priority_action = "stop" if decision.priority_stop else "cancel_navigation"
-                # 取消导航属于控制面指令：必须绕过 FIFO 和 Action result 等待，
-                # 否则它会排在当前导航之后，语义上等于“导航结束后再取消”。
-                self._publish_actions(
-                    [ActionCommand(priority_action, {}, priority=True)]
-                )
-                self._publish_state("listening")
-                return
             self._enqueue_continuous_command(command)
             return
         with self._state_lock:
@@ -680,31 +560,10 @@ class OnlineAgentNode(Node):
             String(data=json.dumps(payload, ensure_ascii=False))
         )
 
-    def _normalize_transcript(self, transcript: str) -> str:
-        if not self._param("command_normalization_enabled"):
-            return transcript
-        result = self.command_normalizer.normalize(transcript)
-        if result.changed:
-            self.get_logger().info(
-                f"normalized ASR command: '{result.original}' -> '{result.text}'"
-            )
-            if self._param("command_normalization_feedback_enabled"):
-                self._publish_recognition_payload(result.feedback_dict())
-        return result.text
-
-    def _complete_command(self, command: str) -> str:
-        result = self.command_completer.complete(command)
-        if result.changed:
-            self.get_logger().info(
-                f"completed short ASR command: '{result.original}' -> '{result.text}'"
-            )
-            self._publish_recognition_payload(result.feedback_dict())
-        return result.text
-
     def _run_command_worker(self):
         while not self._stopping:
             try:
-                item = self._command_queue.get(
+                item = self._control.command_queue.get(
                     timeout=0.1,
                     on_stale=self._publish_stale_command_event,
                 )
@@ -715,29 +574,29 @@ class OnlineAgentNode(Node):
                     self._busy = True
                 # started/finished 事件是现场演示的“可观测性锚点”，monitor 依赖它判断是否卡住。
                 self._publish_execution_event(
-                    self._command_tracker.execution_started(item)
+                    self._control.execution_started(item)
                 )
                 self.metrics.reset()
                 self.metrics.mark_asr_final()
                 self._run_queued_turn(item)
                 self._publish_execution_event(
-                    self._command_tracker.execution_finished(
+                    self._control.execution_finished(
                         item, success=True, reason="completed"
                     )
                 )
             except Exception as exc:
                 self._publish_execution_event(
-                    self._command_tracker.execution_finished(
+                    self._control.execution_finished(
                         item, success=False, reason=str(exc)
                     )
                 )
                 raise
             finally:
-                self._command_queue.task_done()
+                self._control.command_queue.task_done()
 
     def _publish_stale_command_event(self, item):
         self._publish_command_queue_payload(
-            self._command_tracker.queue_expired(item, size=self._command_queue.size())
+            self._control.queue_expired(item)
         )
 
     def _run_turn(self, user_text: str):
@@ -910,10 +769,9 @@ class OnlineAgentNode(Node):
         )
 
     def _enqueue_continuous_command(self, command: str):
-        nlu_result = self.command_nlu.parse(command)
+        nlu_result = self._control.command_nlu.parse(command)
         if nlu_result.accepted:
-            self._nlu_batch_sequence += 1
-            batch_id = f"online-nlu-{self._nlu_batch_sequence}"
+            batch_id = self._control.next_nlu_batch_id()
             self._publish_nlu_feedback(command, nlu_result, batch_id)
             for index, parsed in enumerate(nlu_result.commands, start=1):
                 metadata = {
@@ -928,7 +786,7 @@ class OnlineAgentNode(Node):
                     **metadata,
                     "preparsed_actions": [action.as_dict() for action in parsed.actions],
                 }
-                snapshot = self._command_queue.put(
+                snapshot = self._control.command_queue.put(
                     parsed.span_text, context=context, metadata=metadata
                 )
                 self._publish_queue_event("enqueue", parsed.span_text, snapshot)
@@ -945,7 +803,7 @@ class OnlineAgentNode(Node):
             self._publish_state("retry_listening")
             return
 
-        snapshot = self._command_queue.put(command)
+        snapshot = self._control.command_queue.put(command)
         self._publish_queue_event("enqueue", command, snapshot)
         if snapshot.accepted:
             self.get_logger().info(
@@ -972,14 +830,8 @@ class OnlineAgentNode(Node):
         )
 
     def _publish_nlu_feedback(self, command: str, nlu_result, batch_id: str):
-        self.nlu_parse_pub.publish(
-            nlu_parse_to_message(
-                command,
-                nlu_result,
-                batch_id,
-                source="online",
-                stamp=self.get_clock().now().to_msg(),
-            )
+        self._events.publish_nlu(
+            command, nlu_result, batch_id, source="online"
         )
 
     def _publish_actions(self, actions):
@@ -1053,15 +905,10 @@ class OnlineAgentNode(Node):
         self.get_logger().info(f"latency: {snapshot}")
 
     def _publish_state(self, state: str):
-        self.state_pub.publish(String(data=state))
+        self._events.publish_state(state)
 
     def _publish_session_event(self, event):
-        self.wake_event_pub.publish(
-            wake_event_to_message(
-                event.wake_event, stamp=self.get_clock().now().to_msg()
-            )
-        )
-        self.session_state_pub.publish(String(data=event.session_state))
+        self._events.publish_session_event(event)
 
     def _publish_queue_event(
         self,
@@ -1071,75 +918,36 @@ class OnlineAgentNode(Node):
         *,
         priority_stop: bool = False,
     ):
-        payload = self._command_tracker.queue_event(
+        payload = self._control.queue_event(
             event, text, snapshot, priority_stop=priority_stop
         )
         self._publish_command_queue_payload(payload)
 
     def _publish_command_queue_payload(self, payload):
-        self.command_queue_pub.publish(
-            queue_event_to_message(
-                payload, stamp=self.get_clock().now().to_msg()
-            )
-        )
+        self._events.publish_queue(payload)
 
     def _publish_execution_event(self, event):
-        self.command_execution_pub.publish(
-            execution_event_to_message(
-                event, stamp=self.get_clock().now().to_msg()
-            )
-        )
+        self._events.publish_execution(event)
 
     def _publish_ignored_recognition(self, transcript: str, reason: str):
-        payload = {
-            "status": "ignored",
-            "reason": reason,
-            "transcript": transcript,
-        }
-        self._publish_recognition_payload(payload)
-        self.get_logger().info(f"ignored ASR final: reason={reason}, text={transcript}")
+        self._events.publish_ignored(transcript, reason)
 
     def _publish_queue_rejected_recognition(
         self, transcript: str, snapshot: QueueSnapshot
     ):
-        payload = {
-            "status": "queue_rejected",
-            "reason": snapshot.reason,
-            "transcript": transcript,
-            "queue_size": snapshot.size,
-        }
-        self._publish_recognition_payload(payload)
+        self._events.publish_queue_rejected(transcript, snapshot)
 
     def _publish_asr_endpoint_feedback(self, source: str, delay_ms: int):
-        payload = {
-            "status": "asr_endpoint",
-            "source": source,
-            "delay_ms": delay_ms,
-        }
-        self._publish_recognition_payload(payload)
+        self._events.publish_asr_endpoint(source, delay_ms)
 
     def _publish_asr_commit_feedback(self, source: str):
-        payload = {
-            "status": "asr_commit",
-            "source": source,
-        }
-        self._publish_recognition_payload(payload)
+        self._events.publish_asr_commit(source)
 
     def _publish_session_timeout_feedback(self, transcript: str):
-        payload = {
-            "status": "session_timeout",
-            "reason": "voice_session_timeout",
-            "transcript": transcript,
-            "prompt": "会话已超时，请先说小智",
-        }
-        self._publish_recognition_payload(payload)
+        self._events.publish_session_timeout(transcript)
 
     def _publish_recognition_payload(self, payload: dict):
-        self.recognition_feedback_pub.publish(
-            recognition_feedback_to_message(
-                payload, stamp=self.get_clock().now().to_msg()
-            )
-        )
+        self._events.publish_recognition(payload)
 
     def shutdown(self):
         self._stopping = True

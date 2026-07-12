@@ -114,8 +114,8 @@
 
 优化：
 
-- 下一步按控制风险排序，把 wake/recognition/simulation state 等跨节点结构化事件升级为 typed msg
-  或标准 `/diagnostics`；普通 ASR/回复文本仍可保留 `std_msgs/String`。
+- 下一步按控制风险排序，把音频指标、KWS sidecar 和 simulation state 等跨节点结构化事件
+  升级为 typed msg 或标准 `/diagnostics`；普通 ASR/回复文本仍可保留 `std_msgs/String`。
 - 将 `typed_action_bridge` 升级为 Lifecycle/Component node，并统一参数校验和 callback group。
 - 为命令、状态、传感器流分别定义可靠性、durability、deadline/liveliness 策略，而不是统一 depth=10。
 - 保留 Python 在模型编排层的灵活性，不为“全 C++”牺牲迭代速度。
@@ -154,15 +154,17 @@
 
 现状：
 
-- online/offline Agent 主节点分别超过 1100/1200 行，provider 创建、ROS publisher、连续会话、
-  memory 和 turn pipeline 混在一个类中。
+- online/offline Agent 主节点已从约 1100/1200 行降到约 980/1050 行；公共参数映射、
+  ASR-final 会话决策和 typed publisher 已抽出，但 memory 与 turn pipeline 仍在节点中。
+- `AgentControlPlane` 已成为无 ROS 依赖的领域核心，`RosAgentEventPublisher` 单独承担
+  typed topic、时间戳和 QoS；online/offline 只在 provider、latency 和 TTS pipeline 上分化。
 - `embodied_agent_cpp` 同时承载 audio、control、hardware、TTS 等多个变化方向。
 - `scripts/` 超过 120 个文件，`acceptance_test.sh` 同时承担目录、路由、环境配置和执行逻辑。
 
 优化：
 
-- 先抽取共享 `AgentControlPlane`，隐藏 session/queue/typed event publisher，online/offline 只保留
-  provider 与 turn pipeline 差异；避免继续复制同名私有函数。
+- 下一步抽取共享的用户记忆命令协调器，并把 turn pipeline 分成“模型响应流”和“TTS 输出流”
+  两个可替换组件；避免重新把业务逻辑塞回主节点。
 - 等 control/audio/hardware 各自接口稳定后，再拆 ROS package；不在接口仍变化时只为目录好看而拆包。
 - 将验收入口按 `voice/`、`offline/`、`control/`、`navigation/` 分类，根脚本只做稳定命令路由；
   用 manifest 驱动帮助文本和门禁，逐步删除只包一层命令的重复 smoke 脚本。
@@ -170,7 +172,7 @@
 ## 11. 下一阶段优先级
 
 1. 完成音频、KWS 与仿真状态的 typed/diagnostics 迁移并统一 QoS。
-2. 抽取 online/offline 共用 Agent 控制面，缩小两个主节点接口和职责。
+2. 抽取 online/offline 共用用户记忆协调器，继续缩小两个主节点职责。
 3. 整理验收脚本 manifest 与分组目录，保留兼容的单一用户入口。
 4. 将 C++ bridge 组件化/Lifecycle 化，补 deadline、liveliness 和故障诊断。
-5. 完成以上架构阶段后，再继续 Nav2 演示和用户记忆功能。
+5. 完成以上架构阶段后，再继续 Nav2 演示和用户记忆产品化。

@@ -753,6 +753,13 @@ def test_continuous_voice_state_machine_remains_shared_by_online_and_offline_age
         / "embodied_online_agent"
         / "continuous_voice.py"
     ).read_text(encoding="utf-8")
+    control_plane = (
+        ROOT
+        / "src"
+        / "embodied_online_agent"
+        / "embodied_online_agent"
+        / "agent_control_plane.py"
+    ).read_text(encoding="utf-8")
     online_agent = (
         ROOT
         / "src"
@@ -774,11 +781,13 @@ def test_continuous_voice_state_machine_remains_shared_by_online_and_offline_age
         "CommandExecutionTracker",
     ):
         assert f"class {class_name}" in shared
-        assert class_name in online_agent
-        assert class_name in offline_agent
+        assert class_name in control_plane
+        assert f"class {class_name}" not in online_agent
+        assert f"class {class_name}" not in offline_agent
 
-    assert "from .continuous_voice import" in online_agent
-    assert "from embodied_online_agent.continuous_voice import" in offline_agent
+    for node in (online_agent, offline_agent):
+        assert "AgentControlPlane" in node
+        assert "RosAgentEventPublisher" in node
 
 
 def test_ros_dds_env_disables_fastdds_shm_by_default_for_wsl_demos():
@@ -1071,6 +1080,13 @@ def test_voice_control_events_are_strongly_typed_and_use_named_qos():
         / "embodied_online_agent"
         / "ros_qos.py"
     ).read_text(encoding="utf-8")
+    event_adapter = (
+        ROOT
+        / "src"
+        / "embodied_online_agent"
+        / "embodied_online_agent"
+        / "ros_agent_events.py"
+    ).read_text(encoding="utf-8")
 
     assert (interfaces / "CommandContext.msg").is_file()
     assert (interfaces / "CommandQueueEvent.msg").is_file()
@@ -1082,19 +1098,21 @@ def test_voice_control_events_are_strongly_typed_and_use_named_qos():
     assert (interfaces / "NluCommand.msg").is_file()
     assert (interfaces / "NluParseEvent.msg").is_file()
     for node in (online, offline):
-        assert 'CommandQueueEvent, "/agent/command_queue"' in node
-        assert 'CommandExecutionEvent, "/agent/command_execution"' in node
+        assert "RosAgentEventPublisher" in node
         assert 'String, "/agent/command_queue"' not in node
         assert 'String, "/agent/command_execution"' not in node
-        assert 'WakeEvent, "/agent/wake_event"' in node
         assert 'String, "/agent/wake_event"' not in node
-        assert "RecognitionFeedback," in node
-        assert '"/agent/recognition_feedback"' in node
         assert 'String, "/agent/recognition_feedback"' not in node
-        assert "NluParseEvent," in node
-        assert '"/agent/nlu_parse"' in node
-        assert "command_event_qos()" in node
-        assert "latched_state_qos()" in node
+    for contract in (
+        'CommandQueueEvent, "/agent/command_queue"',
+        'CommandExecutionEvent,\n            "/agent/command_execution"',
+        'WakeEvent, "/agent/wake_event"',
+        'RecognitionFeedback,\n            "/agent/recognition_feedback"',
+        'NluParseEvent, "/agent/nlu_parse"',
+    ):
+        assert contract in event_adapter
+    assert "command_event_qos()" in event_adapter
+    assert "latched_state_qos()" in event_adapter
     assert "unsupported queue event" in transport
     assert "unsupported wake event" in transport
     assert "unsupported recognition feedback" in transport

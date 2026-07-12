@@ -99,6 +99,8 @@
 关键代码：
 
 - `src/embodied_online_agent/embodied_online_agent/continuous_voice.py`
+- `src/embodied_online_agent/embodied_online_agent/agent_control_plane.py`
+- `src/embodied_online_agent/embodied_online_agent/ros_agent_events.py`
 - `src/embodied_online_agent/embodied_online_agent/wakeword.py`
 - `src/embodied_online_agent/embodied_online_agent/wake_provider.py`
 - `scripts/continuous_voice_monitor.py`
@@ -106,6 +108,10 @@
 设计方式：
 
 - `ContinuousVoiceSession` 负责判断一句 ASR final 是唤醒、命令、拒绝还是休眠。
+- `AgentControlPlane.accept_transcript()` 在 session 之上统一归一化、短命令补全、
+  retry、session sleep、急停/取消导航和清队列决策；online/offline 不再复制该流程。
+- `RosAgentEventPublisher.publish_control_decision()` 把领域决策适配成 typed ROS 事件，
+  让领域核心可以脱离 ROS graph 做单元测试。
 - 支持唤醒词别名，例如“小志”“晓智”。
 - 支持 filler 过滤，例如“嗯”“啊”。
 - 支持 duplicate window，过滤短时间重复 ASR final。
@@ -115,6 +121,8 @@
 
 - 真实麦克风会持续产生 ASR final，如果每句话都直接进 LLM，会出现误触发和卡顿。
 - 会话层把“听到了什么”和“是否应该执行”分开，便于监控和调参。
+- 使用组合而不是让两个节点继承大型基类：控制面拥有状态机，节点拥有 provider，
+  ROS Adapter 只负责传输，三个变化方向可以独立测试和替换。
 - 文本唤醒先跑通，不强依赖声学 KWS 模型，部署更稳。
 
 方案对比：

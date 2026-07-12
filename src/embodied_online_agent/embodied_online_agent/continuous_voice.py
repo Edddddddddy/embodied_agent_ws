@@ -125,7 +125,7 @@ class CommandExecutionTracker:
     """连续控制的可观测事件生成器。
 
     队列本身只负责线程安全地存取命令；tracker 负责把 enqueue/clear/started/finished
-    变成稳定 JSON 契约，供 monitor、测试或 UI 观察。
+    变成稳定领域事件，再由 RosAgentEventPublisher 转成 typed msg 供 monitor、测试或 UI 观察。
     """
 
     def __init__(self, source: str):

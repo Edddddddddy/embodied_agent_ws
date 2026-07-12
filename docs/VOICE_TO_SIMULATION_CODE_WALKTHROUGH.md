@@ -75,7 +75,8 @@ flowchart LR
 
 设计说明：
 
-- 在线/离线 Agent 尽量复用会话、队列、NLU、动作候选协议，差异集中在 provider。
+- 在线/离线 Agent 通过 `AgentControlPlane.accept_transcript()` 复用同一套归一化、
+  会话、补全、重试和优先控制决策；差异集中在 provider、延迟统计和 TTS pipeline。
 - ASR final 不直接进入 LLM，而是先经过连续语音会话层，避免 filler、重复 final、未唤醒文本误触发。
 - 离线链路要额外输出模型版本、latency、tokens/s 等证据，避免“工程接口有了但指标不可验证”。
 
@@ -83,8 +84,8 @@ flowchart LR
 
 | 内容 | 位置 |
 | --- | --- |
-| 关键文件 | `continuous_voice.py`、`ros_event_transport.py`、`ros_qos.py`、`embodied_agent_interfaces/msg/{WakeEvent,RecognitionFeedback,NluParseEvent,Command*Event}.msg` |
-| 关键类/函数 | `ContinuousVoiceSession`、`ContinuousCommandQueue`、`accept()`、`put()`、`get()` |
+| 关键文件 | `agent_control_plane.py`、`continuous_voice.py`、`ros_agent_events.py`、`ros_event_transport.py`、`ros_qos.py`、`embodied_agent_interfaces/msg/{WakeEvent,RecognitionFeedback,NluParseEvent,Command*Event}.msg` |
+| 关键类/函数 | `AgentControlPlane.accept_transcript()`、`TranscriptControlDecision`、`ContinuousVoiceSession`、`ContinuousCommandQueue`、`RosAgentEventPublisher.publish_control_decision()` |
 | 主要接口 | `/agent/session_state`、`/agent/wake_event`、`/agent/recognition_feedback`、`/agent/nlu_parse`、`/agent/command_queue`、`/agent/command_execution` |
 | 技术点 | 文本唤醒、重复过滤、FIFO、TTL、急停抢占、强类型事件、reliable/transient-local QoS |
 

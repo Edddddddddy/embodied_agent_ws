@@ -99,6 +99,8 @@ sequenceDiagram
 核心文件：
 
 - `embodied_online_agent/online_agent_node.py`
+- `embodied_online_agent/agent_control_plane.py`
+- `embodied_online_agent/ros_agent_events.py`
 - `embodied_online_agent/continuous_voice.py`
 - `embodied_online_agent/command_normalizer.py`
 - `embodied_online_agent/command_completion.py`
@@ -110,6 +112,10 @@ sequenceDiagram
 
 - 在线模式用于验证云端 ASR/LLM/TTS 的端到端链路。
 - mock 模式用于无密钥、无模型的自动测试。
+- `AgentControlPlane` 是在线/离线共用的领域控制面：统一参数映射、归一化、会话门控、
+  补全、重试、优先控制、队列和 batch id；不依赖 `rclpy`。
+- `RosAgentEventPublisher` 是独立 Adapter，统一 typed topic、时间戳和 QoS，避免两个
+  主节点分别维护一组 publisher。
 
 ### `embodied_offline_agent`
 
@@ -118,6 +124,8 @@ sequenceDiagram
 - 离线语音 Agent。
 - 预留 Sherpa-onnx ZipFormer ASR、llama.cpp、Sherpa-TTS 的真实模型路径。
 - 复用在线 Agent 的连续语音、命令归一化、补全、动作序列逻辑。
+- 通过 `AgentControlPlane` 复用完整 ASR-final 控制决策，仅保留离线 provider、
+  latency 和伪流式 TTS 差异。
 
 核心文件：
 

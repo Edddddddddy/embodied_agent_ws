@@ -50,6 +50,7 @@
 | C++ Action 调度收敛 | 将受信动作的执行顺序、Action Client、优先取消和状态观测从 Python 收敛到 C++ | 新增可独立测试的 `ActionScheduler`，组合动作批量进入 C++ FIFO；显式 `priority` 区分急停与计划 STOP，并增加取消 watchdog、稳定错误码、`/diagnostics` 和 `cpp-action-scheduler` 验收 |
 | 命令生命周期中间件强类型化 | 删除队列/执行事件的 `String + JSON` ROS 契约并统一 QoS | 新增 `CommandContext`、`CommandQueueEvent`、`CommandExecutionEvent`；online/offline、monitor、live-check 和集成探针统一使用 typed msg；命令事件 reliable，当前状态 transient-local |
 | 语音控制面事件强类型化 | 将唤醒、识别反馈和 NLU 解析从通用字符串中拆出 | 新增 `WakeEvent`、`RecognitionFeedback`、`NluParseEvent` 及槽位/改写子消息；识别状态与 NLU 动作序列分 topic，online/offline 和验收探针使用同一转换边界 |
+| Agent 公共控制面收敛 | 删除 online/offline 中重复的会话入口、队列组件初始化和 typed publisher 实现 | 新增无 ROS 依赖的 `AgentControlPlane` 与独立 `RosAgentEventPublisher` Adapter；统一参数映射、归一化、补全、重试、急停/导航取消决策和 batch id |
 
 ## 2. 当前完成度结论
 
