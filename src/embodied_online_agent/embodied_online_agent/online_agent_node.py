@@ -3,7 +3,6 @@ import os
 import queue
 import threading
 from pathlib import Path
-from typing import Iterable
 
 import rclpy
 from ament_index_python.packages import get_package_share_directory
@@ -33,14 +32,13 @@ from .agent_control_plane import (
 from .agent_execution_runtime import AgentExecutionRuntime
 from .agent_parameters import declare_agent_parameters
 from .asr_endpoint_runtime import AsrEndpointRuntime
-from .command_fallback import parse_fallback_actions, should_block_model_actions
 from .continuous_voice import QueueSnapshot
 from .metrics import LatencyTracker
-from .protocol import SentenceChunker, TaggedStreamParser
 from .ros_action_transport import action_command_to_message, command_message_to_dict
 from .ros_agent_events import RosAgentEventPublisher
 from .ros_event_transport import wake_event_message_to_domain
 from .speaker_transport import enroll_request_to_message, identity_message_to_domain
+from .streaming_turn import StreamingTurnRuntime
 from .types import ActionCommand
 from .user_preferences import apply_user_preferences
 from .providers.mock import MockAsr, MockLlm, MockTts
@@ -426,7 +424,7 @@ class OnlineAgentNode(Node):
         tts_errors = []
         first_tts_text = False
 
-        def text_chunks() -> Iterable[str]:
+        def text_chunks():
             while True:
                 item = text_queue.get()
                 if item is None:
@@ -442,13 +440,24 @@ class OnlineAgentNode(Node):
 
         tts_thread = threading.Thread(target=run_tts, daemon=True)
         tts_thread.start()
-        parser = TaggedStreamParser()
-        chunker = SentenceChunker(self._param("tts_chunk_max_chars"))
-        spoken_parts = []
-        model_actions = []
-        raw_output_parts = []
-        protocol_errors = []
-        first_token = True
+
+        def enqueue_tts_text(text: str) -> None:
+            nonlocal first_tts_text
+            if not first_tts_text:
+                self.metrics.mark_tts_requested()
+                first_tts_text = True
+                self._publish_state("speaking")
+            text_queue.put(text)
+
+        turn = StreamingTurnRuntime(
+            max_chunk_chars=self._param("tts_chunk_max_chars"),
+            on_first_token=self.metrics.mark_llm_first_token,
+            on_speech_delta=lambda delta: self.response_delta_pub.publish(
+                String(data=delta)
+            ),
+            on_speakable=enqueue_tts_text,
+            on_protocol_error=self.get_logger().warning,
+        )
 
         try:
             messages = self.memory.prompt_messages(
@@ -456,53 +465,12 @@ class OnlineAgentNode(Node):
             )
             self.metrics.mark_llm_requested()
             for token in self.llm.stream(messages):
-                raw_output_parts.append(token)
-                if first_token:
-                    self.metrics.mark_llm_first_token()
-                    first_token = False
-                events = parser.feed(token)
-                for delta in events.speech:
-                    spoken_parts.append(delta)
-                    self.response_delta_pub.publish(String(data=delta))
-                    for speakable in chunker.feed(delta):
-                        if not first_tts_text:
-                            self.metrics.mark_tts_requested()
-                            first_tts_text = True
-                            self._publish_state("speaking")
-                        text_queue.put(speakable)
-                model_actions.extend(events.actions)
-                protocol_errors.extend(events.errors)
-                for error in events.errors:
-                    self.get_logger().warning(error)
+                turn.feed(token)
 
-            final_events = parser.finish()
-            model_actions.extend(final_events.actions)
-            protocol_errors.extend(final_events.errors)
-            fallback_actions = parse_fallback_actions(user_text)
-            if fallback_actions:
-                self._publish_actions(fallback_actions)
-            elif should_block_model_actions(user_text):
-                if model_actions:
-                    self.get_logger().warning("model actions blocked by semantic safety policy")
-            else:
-                self._publish_actions(model_actions)
-            for error in final_events.errors:
-                self.get_logger().warning(error)
-            if not spoken_parts:
-                fallback = "抱歉，回复格式解析失败，请再说一次。"
-                spoken_parts.append(fallback)
-                self.response_delta_pub.publish(String(data=fallback))
-                for speakable in chunker.feed(fallback):
-                    if not first_tts_text:
-                        self.metrics.mark_tts_requested()
-                        first_tts_text = True
-                        self._publish_state("speaking")
-                    text_queue.put(speakable)
-            for speakable in chunker.finish():
-                if not first_tts_text:
-                    self.metrics.mark_tts_requested()
-                    first_tts_text = True
-                text_queue.put(speakable)
+            result = turn.finish(user_text)
+            if result.action_source == "blocked" and result.model_actions:
+                self.get_logger().warning("model actions blocked by semantic safety policy")
+            action_report = self._publish_actions(result.actions)
             text_queue.put(None)
             tts_thread.join(timeout=35.0)
             if tts_thread.is_alive():
@@ -510,25 +478,20 @@ class OnlineAgentNode(Node):
             if tts_errors:
                 raise tts_errors[0]
 
-            assistant_text = "".join(spoken_parts).strip()
+            assistant_text = result.assistant_text
             self.response_pub.publish(String(data=assistant_text))
-            raw_output = "".join(raw_output_parts).strip()
-            cached_output = (
-                raw_output
-                if raw_output and not protocol_errors
-                else f"<speech>{assistant_text}</speech>"
-            )
             self.memory.append_turn(
                 user_text,
                 assistant_text,
-                model_output=cached_output,
+                model_output=result.model_output,
             )
             self._record_user_interaction(
                 self._current_speaker,
                 user_text=user_text,
                 assistant_text=assistant_text,
-                actions=[action.as_dict() for action in (fallback_actions or model_actions)],
-                success=True,
+                # 只记录真正通过确定性/语义安全选择的动作，不能把被拦截动作写成习惯。
+                actions=[action.as_dict() for action in result.actions],
+                success=not action_report.failed,
             )
             self._publish_metrics()
         except Exception as exc:

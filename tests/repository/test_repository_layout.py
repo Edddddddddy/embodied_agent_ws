@@ -880,9 +880,25 @@ def test_continuous_voice_state_machine_remains_shared_by_online_and_offline_age
         / "embodied_online_agent"
         / "asr_endpoint_runtime.py"
     ).read_text(encoding="utf-8")
+    streaming_turn = (
+        ROOT
+        / "src"
+        / "embodied_online_agent"
+        / "embodied_online_agent"
+        / "streaming_turn.py"
+    ).read_text(encoding="utf-8")
     assert "class AgentExecutionRuntime" in execution_runtime
     assert "class AsrEndpointRuntime" in endpoint_runtime
+    assert "class StreamingTurnRuntime" in streaming_turn
     assert "def enqueue_command(" in control_plane
+
+    # LLM tagged stream、分句和安全动作选择只能由共享运行时拥有，节点只接 provider。
+    for node in (online_agent, offline_agent):
+        assert "StreamingTurnRuntime" in node
+        assert "TaggedStreamParser" not in node
+        assert "SentenceChunker" not in node
+        assert "parse_fallback_actions" not in node
+        assert "should_block_model_actions" not in node
 
 
 def test_ros_dds_env_disables_fastdds_shm_by_default_for_wsl_demos():

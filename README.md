@@ -16,7 +16,7 @@
 - 离线 Agent：预留 Sherpa-onnx ZipFormer ASR、llama.cpp、Sherpa-TTS/SummerTTS 链路，支持 mock 和真实模型验收入口。
 - 连续语音控制：一次“小智”唤醒后，可连续说多条命令；命令排队执行，`停下/急停` 可抢占。
 - 识别鲁棒性：支持唤醒词别名、轻量 NLU 多命令识别及速度/距离/角度/时长/地点槽位、模糊命令归一化、短命令补全、重复 ASR final 过滤、语气词过滤、会话超时。
-- ROS 2 工程化：在线/离线 provider 共用无 ROS 依赖的 `AgentControlPlane`，端点 timer、命令 worker/busy 状态和 NLU 批次入队也由共享运行时管理，ROS 发布由独立 Adapter 统一 topic/QoS；`agent_parameters.py` 统一参数默认值、类型范围、只读属性与启动校验，组合 launch 通过公共转发契约复用控制面参数；唤醒、识别反馈、NLU、队列、执行和动作 feedback/result 均使用自定义 msg/action；C++ ActionGuard 用有界 TTL outbox 覆盖 DDS 启动发现窗口，ActionScheduler 负责 FIFO、Action Client、优先取消和 watchdog；`ComponentHealth → SystemReadiness` 提供统一启动门禁，并配合 Lifecycle、diagnostics、BehaviorTree.CPP 与 pluginlib executor。
+- ROS 2 工程化：在线/离线 provider 共用无 ROS 依赖的 `AgentControlPlane`，端点 timer、命令 worker/busy、NLU 批次入队以及 LLM 流式协议/动作选择均由共享运行时管理，ROS 发布由独立 Adapter 统一 topic/QoS；`agent_parameters.py` 统一参数默认值、类型范围、只读属性与启动校验，组合 launch 通过公共转发契约复用控制面参数；唤醒、识别反馈、NLU、队列、执行和动作 feedback/result 均使用自定义 msg/action；C++ ActionGuard 用有界 TTL outbox 覆盖 DDS 启动发现窗口，ActionScheduler 负责 FIFO、Action Client、优先取消和 watchdog；`ComponentHealth → SystemReadiness` 提供统一启动门禁，并配合 Lifecycle、diagnostics、BehaviorTree.CPP 与 pluginlib executor。
 - 中间件契约：音频指标、VAD/KWS、仿真状态、动作 ACK 和 BehaviorTree 状态也使用自定义消息；JSON 只保留在离线报告/JSONL 证据文件中，不作为 ROS 2 进程间协议。
 - 仿真动作：前进、后退、左转、右转、停止、原地转圈、绕圈、走正方形、演示动作序列。
 - 语音导航：支持“去门口/前往书桌/回到起点”等语义目标点导航，以及“依次去门口、书桌、起点/开始巡航”等多目标点巡航命令；执行中说“取消导航”会绕过 FIFO，抢占当前 Nav2 goal。

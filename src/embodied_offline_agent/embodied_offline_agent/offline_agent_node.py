@@ -28,9 +28,7 @@ from embodied_online_agent.agent_control_plane import (
 from embodied_online_agent.agent_execution_runtime import AgentExecutionRuntime
 from embodied_online_agent.agent_parameters import declare_agent_parameters
 from embodied_online_agent.asr_endpoint_runtime import AsrEndpointRuntime
-from embodied_online_agent.command_fallback import parse_fallback_actions, should_block_model_actions
 from embodied_online_agent.continuous_voice import QueueSnapshot
-from embodied_online_agent.protocol import SentenceChunker, TaggedStreamParser
 from embodied_online_agent.ros_action_transport import (
     action_command_to_message,
     command_message_to_dict,
@@ -41,6 +39,7 @@ from embodied_online_agent.speaker_transport import (
     enroll_request_to_message,
     identity_message_to_domain,
 )
+from embodied_online_agent.streaming_turn import StreamingTurnRuntime
 from embodied_online_agent.types import ActionCommand
 from embodied_online_agent.user_memory import (
     LowConfidenceSpeakerError,
@@ -520,75 +519,48 @@ class OfflineAgentNode(Node):
             on_first_audio=latency.mark_first_audio,
         )
         tts_pipeline.start()
-        parser = TaggedStreamParser()
-        chunker = SentenceChunker(self._param("tts_chunk_max_chars"))
-        speech_parts = []
-        model_actions = []
-        raw_output_parts = []
-        protocol_errors = []
+
+        def enqueue_tts_text(text):
+            self._publish_state("speaking")
+            if not tts_pipeline.put_text(text):
+                raise TimeoutError("message double buffer remained full")
+
+        turn = StreamingTurnRuntime(
+            max_chunk_chars=self._param("tts_chunk_max_chars"),
+            on_first_token=latency.mark_first_token,
+            on_speech_delta=lambda delta: self._response_delta_pub.publish(
+                String(data=delta)
+            ),
+            on_speakable=enqueue_tts_text,
+            on_protocol_error=self.get_logger().warning,
+        )
         self._publish_state("thinking")
         try:
             messages = self._llm_messages(user_text)
             latency.mark_llm_start()
-            first_token = True
             for token in self._llm.stream(messages):
-                raw_output_parts.append(token)
-                if first_token:
-                    latency.mark_first_token()
-                    first_token = False
-                events = parser.feed(token)
-                for delta in events.speech:
-                    speech_parts.append(delta)
-                    self._response_delta_pub.publish(String(data=delta))
-                    for sentence in chunker.feed(delta):
-                        self._publish_state("speaking")
-                        if not tts_pipeline.put_text(sentence):
-                            raise TimeoutError("message double buffer remained full")
-                model_actions.extend(events.actions)
-                protocol_errors.extend(events.errors)
-            final = parser.finish()
-            model_actions.extend(final.actions)
-            protocol_errors.extend(final.errors)
-            fallback_actions = parse_fallback_actions(user_text)
-            if fallback_actions:
-                self._publish_actions(fallback_actions)
-            elif should_block_model_actions(user_text):
-                if model_actions:
-                    self.get_logger().warning("model actions blocked by semantic safety policy")
-            else:
-                self._publish_actions(model_actions)
-            if not speech_parts:
-                fallback = "抱歉，回复格式解析失败，请再说一次。"
-                speech_parts.append(fallback)
-                self._response_delta_pub.publish(String(data=fallback))
-                for sentence in chunker.feed(fallback):
-                    if not tts_pipeline.put_text(sentence):
-                        raise TimeoutError("message double buffer remained full")
-            for sentence in chunker.finish():
-                if not tts_pipeline.put_text(sentence):
-                    raise TimeoutError("message double buffer remained full")
-            for error in final.errors:
-                self.get_logger().warning(error)
+                turn.feed(token)
+            result = turn.finish(user_text)
+            if result.action_source == "blocked" and result.model_actions:
+                self.get_logger().warning(
+                    "model actions blocked by semantic safety policy"
+                )
+            action_report = self._publish_actions(result.actions)
             tts_metrics = tts_pipeline.close_and_wait(timeout_s=60.0)
-            assistant_text = "".join(speech_parts).strip()
+            assistant_text = result.assistant_text
             self._response_pub.publish(String(data=assistant_text))
-            raw_output = "".join(raw_output_parts).strip()
-            cached_output = (
-                raw_output
-                if raw_output and not protocol_errors
-                else f"<speech>{assistant_text}</speech>"
-            )
             self._memory.append_turn(
                 user_text,
                 assistant_text,
-                model_output=cached_output,
+                model_output=result.model_output,
             )
             self._record_user_interaction(
                 self._current_speaker,
                 user_text=user_text,
                 assistant_text=assistant_text,
-                actions=[action.as_dict() for action in (fallback_actions or model_actions)],
-                success=True,
+                # 被语义安全策略挡住的动作不能污染用户行为画像。
+                actions=[action.as_dict() for action in result.actions],
+                success=not action_report.failed,
             )
             latency.finish()
             report = latency.report(

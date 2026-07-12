@@ -85,7 +85,7 @@ flowchart LR
 | 内容 | 位置 |
 | --- | --- |
 | 关键文件 | `agent_control_plane.py`、`agent_execution_runtime.py`、`continuous_voice.py`、`ros_agent_events.py`、`ros_event_transport.py`、`ros_qos.py`、`embodied_agent_interfaces/msg/{WakeEvent,RecognitionFeedback,NluParseEvent,Command*Event}.msg` |
-| 关键类/函数 | `AgentControlPlane.accept_transcript()`、`enqueue_command()`、`AgentExecutionRuntime`、`ContinuousVoiceSession`、`ContinuousCommandQueue`、`RosAgentEventPublisher.publish_*_decision()` |
+| 关键类/函数 | `AgentControlPlane.accept_transcript()`、`enqueue_command()`、`AgentExecutionRuntime`、`StreamingTurnRuntime`、`ContinuousVoiceSession`、`ContinuousCommandQueue`、`RosAgentEventPublisher.publish_*_decision()` |
 | 主要接口 | `/agent/session_state`、`/agent/wake_event`、`/agent/recognition_feedback`、`/agent/nlu_parse`、`/agent/command_queue`、`/agent/command_execution` |
 | 技术点 | 文本唤醒、重复过滤、FIFO、TTL、急停抢占、强类型事件、reliable/transient-local QoS |
 
@@ -95,6 +95,8 @@ flowchart LR
 - 普通命令按 FIFO 入队；执行中收到的新命令等待前一个 Action result。
 - `AgentControlPlane.enqueue_command()` 是 NLU 拆批与 batch metadata 的唯一入口；
   `AgentExecutionRuntime` 是 busy/worker/started-finished 生命周期的唯一拥有者。
+- 在线/离线 provider 的 token 都进入 `StreamingTurnRuntime.feed()/finish()`；该模块统一
+  tagged protocol、分句和安全动作选择，节点分别把 speakable callback 接到各自 TTS。
 - `停下/急停` 是 priority stop：清空队列、抢占当前动作、立即发布 stop。
 - 每条命令带 `command_id/request_id/batch_id`，避免旧 result 误唤醒下一条命令。
 - 队列与执行事件不再通过 `String + JSON` 传播；消息常量约束事件类型，`CommandContext`

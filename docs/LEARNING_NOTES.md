@@ -280,6 +280,28 @@ ActionGuard 方案对比：
 - 并行执行所有命令：机器人动作冲突，安全性差。
 - FIFO + priority stop：兼顾连续体验和安全边界。
 
+## 4.1 LLM 流式协议为什么需要独立运行时
+
+关键代码：
+
+- `src/embodied_online_agent/embodied_online_agent/streaming_turn.py`
+- `src/embodied_online_agent/embodied_online_agent/protocol.py`
+- `src/embodied_online_agent/embodied_online_agent/command_fallback.py`
+
+`StreamingTurnRuntime` 隐藏 `TaggedStreamParser`、`SentenceChunker`、确定性命令优先级和
+语义安全拦截。在线节点把 `on_speakable` 接到网络 TTS 队列，离线节点把同一回调接到
+伪流式双缓冲，因此复用的是“稳定协议”，不是强行复用不同 provider 的音频实现。
+
+动作选择顺序固定为：明确中文命令的 deterministic parser → 语义安全阻断 → 模型动作。
+完成后返回不可变 `StreamingTurnResult`，记忆、动作发布和日志都使用同一份已选择结果，
+避免出现“动作被安全层拦截，但用户画像却记录为成功执行”的分裂状态。
+
+方案对比：
+
+- 两个节点复制 token loop：短期直观，但协议修复和安全策略容易只改一边。
+- 继承大型 `BaseAgentNode`：可减少代码，却会把 ROS、provider、TTS 和 latency 耦合到一起。
+- 深模块 + callback adapter：公共规则只有一份，在线/离线只保留真正不同的 I/O 和指标。
+
 ## 5. VAD、endpoint 与 ASR commit delay
 
 关键代码：
