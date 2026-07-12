@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import dataclass
 
@@ -40,17 +39,14 @@ class CompletionResult:
     def changed(self) -> bool:
         return self.original != self.text
 
-    def to_feedback_json(self) -> str:
-        return json.dumps(
-            {
-                "status": "completed",
-                "reason": self.reason or "completed_missing_slot",
-                "original": self.original,
-                "completed": self.text,
-                "confidence": 1.0,
-            },
-            ensure_ascii=False,
-        )
+    def feedback_dict(self) -> dict:
+        return {
+            "status": "completed",
+            "reason": self.reason or "completed_missing_slot",
+            "original": self.original,
+            "completed": self.text,
+            "confidence": 1.0,
+        }
 
 
 class CommandCompleter:

@@ -71,6 +71,9 @@
 - `/agent/command_queue` 与 `/agent/command_execution` 也分别使用
   `CommandQueueEvent`、`CommandExecutionEvent`；`ros_event_transport.py` 是领域 dataclass
   与 ROS 消息之间唯一的 Adapter，未知事件会在进入 ROS graph 前被拒绝。
+- 唤醒、识别与 NLU 分别使用 `WakeEvent`、`RecognitionFeedback`、`NluParseEvent`。
+  `NluParseEvent` 继续组合 `NluCommand`、`CommandSlot` 和 `RobotCommand`，既保留
+  可观测的语义槽位，又不让任意字典穿过 ROS 中间件边界。
 - `ros_qos.py` 用命名函数表达中间件语义：命令生命周期事件使用 reliable，Agent/session
   当前状态使用 transient-local。这样 QoS 是模块接口的一部分，而不是散落的 `depth=10`。
 - 校验动作类型、速度、时长、颜色、模式等字段。

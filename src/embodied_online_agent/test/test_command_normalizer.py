@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 from embodied_online_agent.command_fallback import parse_fallback_action
@@ -37,7 +36,7 @@ def test_normalizes_priority_stop_before_session_decision():
 
 def test_normalization_feedback_is_stable_json():
     result = normalize("小志向钱走一秒")
-    payload = json.loads(result.to_feedback_json())
+    payload = result.feedback_dict()
 
     assert payload["status"] == "normalized"
     assert payload["reason"] == "command_normalized"

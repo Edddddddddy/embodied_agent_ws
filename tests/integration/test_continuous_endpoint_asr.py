@@ -10,8 +10,18 @@ import threading
 import time
 
 import rclpy
-from embodied_agent_interfaces.msg import CommandExecutionEvent, CommandQueueEvent, RobotCommand, RobotCommandResult
-from embodied_online_agent.ros_event_transport import execution_event_message_to_dict, queue_event_message_to_dict
+from embodied_agent_interfaces.msg import (
+    CommandExecutionEvent,
+    CommandQueueEvent,
+    RecognitionFeedback,
+    RobotCommand,
+    RobotCommandResult,
+)
+from embodied_online_agent.ros_event_transport import (
+    execution_event_message_to_dict,
+    queue_event_message_to_dict,
+    recognition_feedback_message_to_dict,
+)
 from embodied_online_agent.ros_qos import command_event_qos, latched_state_qos
 from rclpy.node import Node
 from std_msgs.msg import Empty, String
@@ -44,7 +54,10 @@ class EndpointAsrProbe(Node):
         )
         self.create_subscription(RobotCommand, "/agent/action_candidate", self._on_candidate, 10)
         self.create_subscription(
-            String, "/agent/recognition_feedback", self._on_recognition_feedback, 10
+            RecognitionFeedback,
+            "/agent/recognition_feedback",
+            self._on_recognition_feedback,
+            command_event_qos(),
         )
         self.create_subscription(RobotCommandResult, "/robot/action_result", self._on_result, 10)
 
@@ -64,7 +77,7 @@ class EndpointAsrProbe(Node):
         self.candidates.append(candidate_dict(message))
 
     def _on_recognition_feedback(self, message):
-        self.recognition_feedback.append(json.loads(message.data))
+        self.recognition_feedback.append(recognition_feedback_message_to_dict(message))
 
     def _on_result(self, message):
         self.results.append(result_dict(message))

@@ -8,6 +8,7 @@ import types
 from pathlib import Path
 
 import pytest
+from std_msgs.msg import Header as RosHeader
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -39,7 +40,9 @@ sys.modules["rclpy.qos"] = types.SimpleNamespace(
     ReliabilityPolicy=types.SimpleNamespace(RELIABLE=0),
 )
 sys.modules["geometry_msgs.msg"] = types.SimpleNamespace(Twist=object)
-sys.modules["std_msgs.msg"] = types.SimpleNamespace(String=object)
+# RobotCommand 的生成代码会在实例化时延迟导入 Header；测试桩必须保留它，
+# 否则同一 pytest 进程中的消息转换测试会被这里的全局模块替换污染。
+sys.modules["std_msgs.msg"] = types.SimpleNamespace(String=object, Header=RosHeader)
 
 spec = importlib.util.spec_from_file_location("continuous_live_check", SCRIPT)
 live_check = importlib.util.module_from_spec(spec)
@@ -85,18 +88,11 @@ def test_initial_latched_sleeping_does_not_fake_session_exit():
 
 def test_live_check_report_counts_partial_final_recovery_feedback():
     node = live_check.LiveCheckNode()
-    node._on_recognition_feedback(
-        types.SimpleNamespace(
-            data=json.dumps(
-                {
-                    "status": "asr_final_recovered",
-                    "original_final": "把灯",
-                    "recovered": "把灯设成蓝色",
-                },
-                ensure_ascii=False,
-            )
-        )
-    )
+    message = live_check.RecognitionFeedback()
+    message.status = message.STATUS_ASR_FINAL_RECOVERED
+    message.original = "把灯"
+    message.rewritten = "把灯设成蓝色"
+    node._on_recognition_feedback(message)
 
     report = node.build_report(
         live_check.LiveCheckThresholds(min_asr=0, min_candidates=0, min_success=0)

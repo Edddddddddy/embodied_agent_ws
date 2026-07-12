@@ -6,7 +6,12 @@ import threading
 import time
 
 import rclpy
-from embodied_agent_interfaces.msg import RobotCommand, RobotCommandResult
+from embodied_agent_interfaces.msg import RecognitionFeedback, RobotCommand, RobotCommandResult, WakeEvent
+from embodied_online_agent.ros_event_transport import (
+    recognition_feedback_message_to_dict,
+    wake_event_message_to_dict,
+)
+from embodied_online_agent.ros_qos import command_event_qos, latched_state_qos
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from std_msgs.msg import String
@@ -25,10 +30,13 @@ class SessionTimeoutProbe(Node):
         self.results = []
         self.velocities = []
         self.create_subscription(String, "/agent/state", self._on_state, 10)
-        self.create_subscription(String, "/agent/session_state", self._on_session, 10)
-        self.create_subscription(String, "/agent/wake_event", self._on_wake, 10)
+        self.create_subscription(String, "/agent/session_state", self._on_session, latched_state_qos())
+        self.create_subscription(WakeEvent, "/agent/wake_event", self._on_wake, command_event_qos())
         self.create_subscription(
-            String, "/agent/recognition_feedback", self._on_feedback, 10
+            RecognitionFeedback,
+            "/agent/recognition_feedback",
+            self._on_feedback,
+            command_event_qos(),
         )
         self.create_subscription(RobotCommand, "/agent/action_candidate", self._on_candidate, 10)
         self.create_subscription(RobotCommandResult, "/robot/action_result", self._on_result, 10)
@@ -41,10 +49,10 @@ class SessionTimeoutProbe(Node):
         self.session_states.append(message.data)
 
     def _on_wake(self, message):
-        self.wake_events.append(json.loads(message.data))
+        self.wake_events.append(wake_event_message_to_dict(message))
 
     def _on_feedback(self, message):
-        self.feedback.append(json.loads(message.data))
+        self.feedback.append(recognition_feedback_message_to_dict(message))
 
     def _on_candidate(self, message):
         self.candidates.append(candidate_dict(message))

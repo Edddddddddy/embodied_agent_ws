@@ -107,9 +107,10 @@
 
 - C++ 已覆盖 ActionGuard、`ActionScheduler`、Action Client、audio frontend、simulation executor
   和 SummerTTS service；可信动作的 FIFO、抢占和 result 关联不再由 Python 最终裁决。
-- `/agent/command_queue`、`/agent/command_execution` 已从 `String + JSON` 升级为自定义 msg，
-  并统一 reliable QoS；Agent/session 当前状态开始使用 transient-local。
-- 唤醒事件、识别反馈、音频前端指标、仿真状态等仍有结构化 JSON topic，尚未完全 typed。
+- `/agent/wake_event`、`/agent/recognition_feedback`、`/agent/nlu_parse`、
+  `/agent/command_queue`、`/agent/command_execution` 已升级为职责单一的自定义 msg，
+  并统一 reliable QoS；Agent/session 当前状态使用 transient-local。
+- 音频前端指标、KWS sidecar 诊断和仿真状态等仍有结构化 JSON topic，尚未完全 typed。
 
 优化：
 
@@ -168,7 +169,7 @@
 
 ## 11. 下一阶段优先级
 
-1. 完成剩余结构化 JSON topic 的 typed/diagnostics 迁移并统一 QoS。
+1. 完成音频、KWS 与仿真状态的 typed/diagnostics 迁移并统一 QoS。
 2. 抽取 online/offline 共用 Agent 控制面，缩小两个主节点接口和职责。
 3. 整理验收脚本 manifest 与分组目录，保留兼容的单一用户入口。
 4. 将 C++ bridge 组件化/Lifecycle 化，补 deadline、liveliness 和故障诊断。

@@ -16,10 +16,12 @@ from embodied_agent_interfaces.msg import (
     CommandQueueEvent,
     RobotCommand,
     RobotCommandResult,
+    WakeEvent,
 )
 from embodied_online_agent.ros_event_transport import (
     execution_event_message_to_dict,
     queue_event_message_to_dict,
+    wake_event_message_to_dict,
 )
 from embodied_online_agent.ros_qos import command_event_qos, latched_state_qos
 from rclpy.node import Node
@@ -51,7 +53,7 @@ class ContinuousSoakProbe(Node):
         self.candidates = []
         self.results = []
         self.create_subscription(String, "/agent/session_state", self._on_session, latched_state_qos())
-        self.create_subscription(String, "/agent/wake_event", self._on_wake, 10)
+        self.create_subscription(WakeEvent, "/agent/wake_event", self._on_wake, command_event_qos())
         self.create_subscription(CommandQueueEvent, "/agent/command_queue", self._on_queue, command_event_qos())
         self.create_subscription(
             CommandExecutionEvent, "/agent/command_execution", self._on_execution, command_event_qos()
@@ -63,7 +65,7 @@ class ContinuousSoakProbe(Node):
         self.session_states.append(message.data)
 
     def _on_wake(self, message):
-        self.wake_events.append(json.loads(message.data))
+        self.wake_events.append(wake_event_message_to_dict(message))
 
     def _on_queue(self, message):
         self.queue_events.append(queue_event_message_to_dict(message))

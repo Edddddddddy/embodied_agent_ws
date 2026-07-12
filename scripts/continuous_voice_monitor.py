@@ -16,9 +16,12 @@ import rclpy
 from embodied_agent_interfaces.msg import (
     CommandExecutionEvent,
     CommandQueueEvent,
+    NluParseEvent,
+    RecognitionFeedback,
     RobotCommand,
     RobotCommandFeedback,
     RobotCommandResult,
+    WakeEvent,
 )
 from embodied_online_agent.ros_action_transport import (
     command_message_to_dict,
@@ -27,7 +30,10 @@ from embodied_online_agent.ros_action_transport import (
 )
 from embodied_online_agent.ros_event_transport import (
     execution_event_message_to_dict,
+    nlu_parse_message_to_dict,
     queue_event_message_to_dict,
+    recognition_feedback_message_to_dict,
+    wake_event_message_to_dict,
 )
 from embodied_online_agent.ros_qos import command_event_qos, latched_state_qos
 from rclpy.node import Node
@@ -470,7 +476,9 @@ class ContinuousVoiceMonitor(Node):
         self.create_subscription(
             String, "/agent/session_state", self._on_session, latched_state_qos()
         )
-        self.create_subscription(String, "/agent/wake_event", self._on_wake, 10)
+        self.create_subscription(
+            WakeEvent, "/agent/wake_event", self._on_wake, command_event_qos()
+        )
         self.create_subscription(String, "/agent/kws_event", self._on_kws, 10)
         self.create_subscription(String, "/agent/kws_score", self._on_kws_score, 10)
         self.create_subscription(String, "/audio/frontend_metrics", self._on_audio, 10)
@@ -498,7 +506,16 @@ class ContinuousVoiceMonitor(Node):
             10,
         )
         self.create_subscription(
-            String, "/agent/recognition_feedback", self._on_feedback, 10
+            RecognitionFeedback,
+            "/agent/recognition_feedback",
+            self._on_feedback,
+            command_event_qos(),
+        )
+        self.create_subscription(
+            NluParseEvent,
+            "/agent/nlu_parse",
+            self._on_nlu_parse,
+            command_event_qos(),
         )
         self.create_subscription(
             RobotCommandResult, "/robot/action_result", self._on_action_result, 10
@@ -511,9 +528,10 @@ class ContinuousVoiceMonitor(Node):
     def _on_session(self, message: String) -> None:
         self._emit(format_session_state(message.data))
 
-    def _on_wake(self, message: String) -> None:
-        self._stats.record_wake(message.data)
-        self._emit(format_wake_event(message.data))
+    def _on_wake(self, message: WakeEvent) -> None:
+        serialized = json.dumps(wake_event_message_to_dict(message), ensure_ascii=False)
+        self._stats.record_wake(serialized)
+        self._emit(format_wake_event(serialized))
 
     def _on_kws(self, message: String) -> None:
         self._emit(format_kws_event(message.data))
@@ -567,13 +585,23 @@ class ContinuousVoiceMonitor(Node):
         serialized = json.dumps(feedback_message_to_dict(message), ensure_ascii=False)
         self._emit(format_action_feedback(serialized))
 
-    def _on_feedback(self, message: String) -> None:
-        self._stats.record_recognition_feedback(message.data)
+    def _on_feedback(self, message: RecognitionFeedback) -> None:
+        serialized = json.dumps(
+            recognition_feedback_message_to_dict(message), ensure_ascii=False
+        )
+        self._record_recognition_feedback(serialized)
+
+    def _on_nlu_parse(self, message: NluParseEvent) -> None:
+        serialized = json.dumps(nlu_parse_message_to_dict(message), ensure_ascii=False)
+        self._record_recognition_feedback(serialized)
+
+    def _record_recognition_feedback(self, serialized: str) -> None:
+        self._stats.record_recognition_feedback(serialized)
         if self._sample_recorder is not None:
             self._sample_recorder.record_json_event(
-                "recognition_feedback", "/agent/recognition_feedback", message.data
+                "recognition_feedback", "/agent/recognition_feedback", serialized
             )
-        self._emit(format_recognition_feedback(message.data))
+        self._emit(format_recognition_feedback(serialized))
 
     def _handle_result(self, serialized: str, *, topic: str, kind: str) -> None:
         self._stats.record_result(serialized)

@@ -19,6 +19,8 @@ import rclpy
 from embodied_agent_interfaces.msg import (
     CommandExecutionEvent,
     CommandQueueEvent,
+    NluParseEvent,
+    RecognitionFeedback,
     RobotCommand,
     RobotCommandResult,
 )
@@ -28,7 +30,9 @@ from embodied_online_agent.ros_action_transport import (
 )
 from embodied_online_agent.ros_event_transport import (
     execution_event_message_to_dict,
+    nlu_parse_message_to_dict,
     queue_event_message_to_dict,
+    recognition_feedback_message_to_dict,
 )
 from embodied_online_agent.ros_qos import command_event_qos, latched_state_qos
 from geometry_msgs.msg import Twist
@@ -114,10 +118,16 @@ class LiveCheckNode(Node):
             RobotCommandResult, "/robot/action_result", self._on_result, 10
         )
         self.create_subscription(
-            String,
+            RecognitionFeedback,
             "/agent/recognition_feedback",
             self._on_recognition_feedback,
-            10,
+            command_event_qos(),
+        )
+        self.create_subscription(
+            NluParseEvent,
+            "/agent/nlu_parse",
+            self._on_nlu_parse,
+            command_event_qos(),
         )
         self.create_subscription(String, "/agent/metrics", self._on_metrics, 10)
         # 在线与离线 Agent 为避免指标语义混淆使用了不同 topic；评测探针同时监听，
@@ -170,10 +180,13 @@ class LiveCheckNode(Node):
     def _on_metrics(self, message: String) -> None:
         self.metrics.append(_json_dict(message.data))
 
-    def _on_recognition_feedback(self, message: String) -> None:
-        payload = _json_dict(message.data)
+    def _on_recognition_feedback(self, message: RecognitionFeedback) -> None:
+        payload = recognition_feedback_message_to_dict(message)
         if payload:
             self.recognition_feedback.append(payload)
+
+    def _on_nlu_parse(self, message: NluParseEvent) -> None:
+        self.recognition_feedback.append(nlu_parse_message_to_dict(message))
 
     def build_report(self, thresholds: LiveCheckThresholds) -> LiveCheckReport:
         success_count = sum(1 for result in self.results if result.get("success") is True)

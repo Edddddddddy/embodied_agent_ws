@@ -1,0 +1,26 @@
+uint8 STATUS_UNKNOWN=0
+uint8 STATUS_RETRY=1
+uint8 STATUS_IGNORED=2
+uint8 STATUS_QUEUE_REJECTED=3
+uint8 STATUS_ASR_ENDPOINT=4
+uint8 STATUS_ASR_COMMIT=5
+uint8 STATUS_SESSION_TIMEOUT=6
+uint8 STATUS_NORMALIZED=7
+uint8 STATUS_COMPLETED=8
+uint8 STATUS_ASR_FINAL_RECOVERED=9
+
+builtin_interfaces/Time stamp
+uint8 status
+string reason
+string transcript
+string prompt
+string source
+string original
+string rewritten
+string partial
+float32 confidence
+uint32 attempt
+uint32 max_attempts
+uint32 queue_size
+uint32 delay_ms
+embodied_agent_interfaces/TextRewrite[] rewrites

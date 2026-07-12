@@ -13,8 +13,20 @@ import threading
 import time
 
 import rclpy
-from embodied_agent_interfaces.msg import CommandExecutionEvent, CommandQueueEvent, RobotCommand, RobotCommandResult
-from embodied_online_agent.ros_event_transport import execution_event_message_to_dict, queue_event_message_to_dict
+from embodied_agent_interfaces.msg import (
+    CommandExecutionEvent,
+    CommandQueueEvent,
+    NluParseEvent,
+    RecognitionFeedback,
+    RobotCommand,
+    RobotCommandResult,
+)
+from embodied_online_agent.ros_event_transport import (
+    execution_event_message_to_dict,
+    nlu_parse_message_to_dict,
+    queue_event_message_to_dict,
+    recognition_feedback_message_to_dict,
+)
 from embodied_online_agent.ros_qos import command_event_qos
 from rclpy.node import Node
 from std_msgs.msg import String
@@ -33,7 +45,18 @@ class NaturalNavigationProbe(Node):
         self.create_subscription(RobotCommand, "/agent/action_candidate", self._on_candidate, 10)
         self.create_subscription(CommandQueueEvent, "/agent/command_queue", self._on_queue, command_event_qos())
         self.create_subscription(CommandExecutionEvent, "/agent/command_execution", self._on_execution, command_event_qos())
-        self.create_subscription(String, "/agent/recognition_feedback", self._on_recognition, 10)
+        self.create_subscription(
+            RecognitionFeedback,
+            "/agent/recognition_feedback",
+            self._on_recognition,
+            command_event_qos(),
+        )
+        self.create_subscription(
+            NluParseEvent,
+            "/agent/nlu_parse",
+            self._on_nlu_parse,
+            command_event_qos(),
+        )
         self.create_subscription(RobotCommandResult, "/robot/action_result", self._on_result, 10)
 
     def _on_candidate(self, message):
@@ -46,7 +69,10 @@ class NaturalNavigationProbe(Node):
         self.execution_events.append(execution_event_message_to_dict(message))
 
     def _on_recognition(self, message):
-        self.recognition_feedback.append(json.loads(message.data))
+        self.recognition_feedback.append(recognition_feedback_message_to_dict(message))
+
+    def _on_nlu_parse(self, message):
+        self.recognition_feedback.append(nlu_parse_message_to_dict(message))
 
     def _on_result(self, message):
         self.results.append(result_dict(message))

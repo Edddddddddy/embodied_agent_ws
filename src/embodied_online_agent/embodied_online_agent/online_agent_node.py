@@ -11,8 +11,11 @@ from ament_index_python.packages import get_package_share_directory
 from embodied_agent_interfaces.msg import (
     CommandExecutionEvent,
     CommandQueueEvent,
+    NluParseEvent,
+    RecognitionFeedback,
     RobotCommand,
     RobotCommandResult,
+    WakeEvent,
 )
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
@@ -37,7 +40,13 @@ from .navigation_phrases import is_navigation_cancel
 from .protocol import SentenceChunker, TaggedStreamParser
 from .recognition_retry import RecognitionRetryTracker
 from .ros_action_transport import action_command_to_message, command_message_to_dict
-from .ros_event_transport import execution_event_to_message, queue_event_to_message
+from .ros_event_transport import (
+    execution_event_to_message,
+    nlu_parse_to_message,
+    queue_event_to_message,
+    recognition_feedback_to_message,
+    wake_event_to_message,
+)
 from .ros_qos import command_event_qos, latched_state_qos
 from .types import ActionCommand
 from .transcript_stabilizer import TranscriptStabilizer
@@ -126,7 +135,9 @@ class OnlineAgentNode(Node):
         self.state_pub = self.create_publisher(
             String, "/agent/state", latched_state_qos()
         )
-        self.wake_event_pub = self.create_publisher(String, "/agent/wake_event", 10)
+        self.wake_event_pub = self.create_publisher(
+            WakeEvent, "/agent/wake_event", command_event_qos()
+        )
         self.session_state_pub = self.create_publisher(
             String, "/agent/session_state", latched_state_qos()
         )
@@ -137,7 +148,12 @@ class OnlineAgentNode(Node):
             CommandExecutionEvent, "/agent/command_execution", command_event_qos()
         )
         self.recognition_feedback_pub = self.create_publisher(
-            String, "/agent/recognition_feedback", 10
+            RecognitionFeedback,
+            "/agent/recognition_feedback",
+            command_event_qos(),
+        )
+        self.nlu_parse_pub = self.create_publisher(
+            NluParseEvent, "/agent/nlu_parse", command_event_qos()
         )
         self.speaker_enroll_request_pub = self.create_publisher(
             String, "/agent/speaker_enroll_request", 10
@@ -394,9 +410,7 @@ class OnlineAgentNode(Node):
             return
         stabilized = self.transcript_stabilizer.finalize(text)
         if stabilized.recovered:
-            self.recognition_feedback_pub.publish(
-                String(data=stabilized.to_feedback_json())
-            )
+            self._publish_recognition_payload(stabilized.feedback_dict())
             self.get_logger().info(
                 f"recovered ASR final from partial: '{text}' -> '{stabilized.text}'"
             )
@@ -488,7 +502,7 @@ class OnlineAgentNode(Node):
                 self._publish_state("listening")
             elif decision.reason == "session_timeout":
                 feedback = self.retry_tracker.failed(transcript)
-                self.recognition_feedback_pub.publish(String(data=feedback.to_json()))
+                self._publish_recognition_payload(feedback.as_dict())
                 self._publish_session_timeout_feedback(transcript)
                 self.get_logger().warning(
                     "voice session timed out; waiting for a new wake word"
@@ -496,7 +510,7 @@ class OnlineAgentNode(Node):
                 self._publish_state("retry_listening")
             elif self._param("wake_word_enabled") and not self.wake_gate.active:
                 feedback = self.retry_tracker.failed(transcript)
-                self.recognition_feedback_pub.publish(String(data=feedback.to_json()))
+                self._publish_recognition_payload(feedback.as_dict())
                 self.get_logger().warning(
                     f"wake word not detected ({feedback.attempt}/{feedback.max_attempts}); retrying"
                 )
@@ -675,9 +689,7 @@ class OnlineAgentNode(Node):
                 f"normalized ASR command: '{result.original}' -> '{result.text}'"
             )
             if self._param("command_normalization_feedback_enabled"):
-                self.recognition_feedback_pub.publish(
-                    String(data=result.to_feedback_json())
-                )
+                self._publish_recognition_payload(result.feedback_dict())
         return result.text
 
     def _complete_command(self, command: str) -> str:
@@ -686,9 +698,7 @@ class OnlineAgentNode(Node):
             self.get_logger().info(
                 f"completed short ASR command: '{result.original}' -> '{result.text}'"
             )
-            self.recognition_feedback_pub.publish(
-                String(data=result.to_feedback_json())
-            )
+            self._publish_recognition_payload(result.feedback_dict())
         return result.text
 
     def _run_command_worker(self):
@@ -956,32 +966,20 @@ class OnlineAgentNode(Node):
             "transcript": command,
             "prompt": nlu_result.retry_prompt,
         }
-        self.recognition_feedback_pub.publish(
-            String(data=json.dumps(payload, ensure_ascii=False))
-        )
+        self._publish_recognition_payload(payload)
         self.get_logger().warning(
             f"incomplete voice command: reason={nlu_result.reason}, text={command}"
         )
 
     def _publish_nlu_feedback(self, command: str, nlu_result, batch_id: str):
-        payload = {
-            "status": "nlu_parsed",
-            "reason": "command_nlu",
-            "transcript": command,
-            "batch_id": batch_id,
-            "commands": [
-                {
-                    "intent": parsed.intent,
-                    "span_text": parsed.span_text,
-                    "confidence": round(parsed.confidence, 3),
-                    "slots": parsed.slots,
-                    "actions": [action.as_dict() for action in parsed.actions],
-                }
-                for parsed in nlu_result.commands
-            ],
-        }
-        self.recognition_feedback_pub.publish(
-            String(data=json.dumps(payload, ensure_ascii=False))
+        self.nlu_parse_pub.publish(
+            nlu_parse_to_message(
+                command,
+                nlu_result,
+                batch_id,
+                source="online",
+                stamp=self.get_clock().now().to_msg(),
+            )
         )
 
     def _publish_actions(self, actions):
@@ -1059,7 +1057,9 @@ class OnlineAgentNode(Node):
 
     def _publish_session_event(self, event):
         self.wake_event_pub.publish(
-            String(data=json.dumps(event.wake_event.as_dict(), ensure_ascii=False))
+            wake_event_to_message(
+                event.wake_event, stamp=self.get_clock().now().to_msg()
+            )
         )
         self.session_state_pub.publish(String(data=event.session_state))
 
@@ -1096,9 +1096,7 @@ class OnlineAgentNode(Node):
             "reason": reason,
             "transcript": transcript,
         }
-        self.recognition_feedback_pub.publish(
-            String(data=json.dumps(payload, ensure_ascii=False))
-        )
+        self._publish_recognition_payload(payload)
         self.get_logger().info(f"ignored ASR final: reason={reason}, text={transcript}")
 
     def _publish_queue_rejected_recognition(
@@ -1110,9 +1108,7 @@ class OnlineAgentNode(Node):
             "transcript": transcript,
             "queue_size": snapshot.size,
         }
-        self.recognition_feedback_pub.publish(
-            String(data=json.dumps(payload, ensure_ascii=False))
-        )
+        self._publish_recognition_payload(payload)
 
     def _publish_asr_endpoint_feedback(self, source: str, delay_ms: int):
         payload = {
@@ -1120,18 +1116,14 @@ class OnlineAgentNode(Node):
             "source": source,
             "delay_ms": delay_ms,
         }
-        self.recognition_feedback_pub.publish(
-            String(data=json.dumps(payload, ensure_ascii=False))
-        )
+        self._publish_recognition_payload(payload)
 
     def _publish_asr_commit_feedback(self, source: str):
         payload = {
             "status": "asr_commit",
             "source": source,
         }
-        self.recognition_feedback_pub.publish(
-            String(data=json.dumps(payload, ensure_ascii=False))
-        )
+        self._publish_recognition_payload(payload)
 
     def _publish_session_timeout_feedback(self, transcript: str):
         payload = {
@@ -1140,8 +1132,13 @@ class OnlineAgentNode(Node):
             "transcript": transcript,
             "prompt": "会话已超时，请先说小智",
         }
+        self._publish_recognition_payload(payload)
+
+    def _publish_recognition_payload(self, payload: dict):
         self.recognition_feedback_pub.publish(
-            String(data=json.dumps(payload, ensure_ascii=False))
+            recognition_feedback_to_message(
+                payload, stamp=self.get_clock().now().to_msg()
+            )
         )
 
     def shutdown(self):

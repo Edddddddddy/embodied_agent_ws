@@ -31,6 +31,9 @@ from .navigation_phrases import (
 from .types import ActionCommand
 
 
+SlotValue = float | str | int | bool | list[str]
+
+
 _CHINESE_NUMBERS = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5}
 _CHINESE_DIGITS = {
     "零": 0,
@@ -235,7 +238,7 @@ class ParsedCommand:
     span_text: str
     actions: List[ActionCommand]
     confidence: float
-    slots: dict[str, float | str | int] = field(default_factory=dict)
+    slots: dict[str, SlotValue] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -404,6 +407,7 @@ class CommandNLU:
                             )
                         ],
                         1.0,
+                        {"waypoints": whole_waypoints, "number_of_loops": 1},
                     )
                 ],
             )
@@ -424,6 +428,10 @@ class CommandNLU:
                             )
                         ],
                         1.0,
+                        {
+                            "waypoints": whole_waypoints or DEFAULT_PATROL_WAYPOINTS,
+                            "number_of_loops": 1,
+                        },
                     )
                 ],
             )
@@ -473,7 +481,7 @@ class CommandNLU:
 
     def _actions_and_slots_for(
         self, intent: str, segment: str
-    ) -> tuple[list[ActionCommand], dict[str, float | str | int]]:
+    ) -> tuple[list[ActionCommand], dict[str, SlotValue]]:
         if intent == "move_forward":
             return self._motion_action_and_slots(segment, "forward")
         if intent == "move_backward":
@@ -524,13 +532,13 @@ class CommandNLU:
                         "follow_waypoints",
                         {"waypoints": waypoints, "number_of_loops": 1},
                     )
-                ], {}
+                ], {"waypoints": waypoints, "number_of_loops": 1}
         return [], {}
 
     @staticmethod
     def _motion_action_and_slots(
         segment: str, direction: str
-    ) -> tuple[list[ActionCommand], dict[str, float | str | int]]:
+    ) -> tuple[list[ActionCommand], dict[str, SlotValue]]:
         speed, speed_span, explicit_speed = _speed(segment)
         distance = _distance(segment, speed_span)
         if distance is not None and distance / speed > 10.0 and not explicit_speed:
@@ -540,7 +548,7 @@ class CommandNLU:
         segment_count = max(1, math.ceil(total_duration / 10.0))
         segment_duration = round(total_duration / segment_count, 3)
         signed_speed = speed if direction == "forward" else -speed
-        slots: dict[str, float | str | int] = {
+        slots: dict[str, SlotValue] = {
             "direction": direction,
             "speed_mps": speed,
             "duration_s": round(total_duration, 3),
@@ -568,7 +576,7 @@ class CommandNLU:
     @staticmethod
     def _turn_action_and_slots(
         segment: str, direction: str
-    ) -> tuple[list[ActionCommand], dict[str, float | str | int]]:
+    ) -> tuple[list[ActionCommand], dict[str, SlotValue]]:
         explicit_angle = _angle(segment)
         angle = explicit_angle if explicit_angle is not None else 90.0
         angular_speed = 0.8 if math.radians(angle) / 0.6 > 10.0 else 0.6
@@ -581,7 +589,7 @@ class CommandNLU:
         else:
             duration = round(math.radians(angle) / angular_speed, 3)
         signed_speed = angular_speed if direction == "left" else -angular_speed
-        slots: dict[str, float | str | int] = {
+        slots: dict[str, SlotValue] = {
             "direction": direction,
             "angle_deg": angle,
             "angular_speed_rps": angular_speed,

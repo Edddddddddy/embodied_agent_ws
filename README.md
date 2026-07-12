@@ -16,7 +16,7 @@
 - 离线 Agent：预留 Sherpa-onnx ZipFormer ASR、llama.cpp、Sherpa-TTS/SummerTTS 链路，支持 mock 和真实模型验收入口。
 - 连续语音控制：一次“小智”唤醒后，可连续说多条命令；命令排队执行，`停下/急停` 可抢占。
 - 识别鲁棒性：支持唤醒词别名、轻量 NLU 多命令识别及速度/距离/角度/时长/地点槽位、模糊命令归一化、短命令补全、重复 ASR final 过滤、语气词过滤、会话超时。
-- ROS 2 工程化：动作、队列、执行、feedback/result 使用自定义 msg/action；命令事件使用 reliable QoS，当前状态使用 transient-local；C++ ActionScheduler 统一负责 FIFO、Action Client、优先取消、取消 watchdog 和 diagnostics，并配合 ActionGuard、Lifecycle、BehaviorTree.CPP 与 pluginlib executor。
+- ROS 2 工程化：唤醒、识别反馈、NLU 解析、队列、执行和动作 feedback/result 均使用自定义 msg/action；事件使用 reliable QoS，当前状态使用 transient-local；C++ ActionScheduler 统一负责 FIFO、Action Client、优先取消、取消 watchdog 和 diagnostics，并配合 ActionGuard、Lifecycle、BehaviorTree.CPP 与 pluginlib executor。
 - 仿真动作：前进、后退、左转、右转、停止、原地转圈、绕圈、走正方形、演示动作序列。
 - 语音导航：支持“去门口/前往书桌/回到起点”等语义目标点导航，以及“依次去门口、书桌、起点/开始巡航”等多目标点巡航命令；执行中说“取消导航”会绕过 FIFO，抢占当前 Nav2 goal。
 - 用户记忆：支持 `/agent/speaker_identity` 声纹身份事件、按用户保存本地偏好/行为习惯，并在 Agent 推理前注入用户画像；可语音查询、修改、按项删除或清空偏好，含行为明细 TTL；声纹 sidecar 已实跑 Sherpa-ONNX 3D-Speaker embedding、真实相似度与 top-1 margin 歧义保护。

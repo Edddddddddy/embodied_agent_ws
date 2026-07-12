@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 import time
 from dataclasses import dataclass
@@ -57,17 +56,14 @@ class StabilizedTranscript:
     def recovered(self) -> bool:
         return self.text != self.original_final
 
-    def to_feedback_json(self) -> str:
-        return json.dumps(
-            {
-                "status": "asr_final_recovered",
-                "reason": self.reason,
-                "original_final": self.original_final,
-                "recovered": self.text,
-                "partial": self.partial,
-            },
-            ensure_ascii=False,
-        )
+    def feedback_dict(self) -> dict:
+        return {
+            "status": "asr_final_recovered",
+            "reason": self.reason,
+            "original_final": self.original_final,
+            "recovered": self.text,
+            "partial": self.partial,
+        }
 
 
 class TranscriptStabilizer:

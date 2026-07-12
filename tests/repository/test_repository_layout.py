@@ -1039,8 +1039,8 @@ def test_cpp_typed_action_demo_client_remains_available():
     assert "typed_action_demo_client.cpp" in presentation
 
 
-def test_command_lifecycle_topics_are_strongly_typed_and_use_named_qos():
-    """队列与执行生命周期属于中间件契约，禁止退回 String + JSON。"""
+def test_voice_control_events_are_strongly_typed_and_use_named_qos():
+    """语音控制面属于中间件契约，禁止退回 String + JSON。"""
 
     interfaces = ROOT / "src" / "embodied_agent_interfaces" / "msg"
     online = (
@@ -1075,13 +1075,29 @@ def test_command_lifecycle_topics_are_strongly_typed_and_use_named_qos():
     assert (interfaces / "CommandContext.msg").is_file()
     assert (interfaces / "CommandQueueEvent.msg").is_file()
     assert (interfaces / "CommandExecutionEvent.msg").is_file()
+    assert (interfaces / "WakeEvent.msg").is_file()
+    assert (interfaces / "RecognitionFeedback.msg").is_file()
+    assert (interfaces / "TextRewrite.msg").is_file()
+    assert (interfaces / "CommandSlot.msg").is_file()
+    assert (interfaces / "NluCommand.msg").is_file()
+    assert (interfaces / "NluParseEvent.msg").is_file()
     for node in (online, offline):
         assert 'CommandQueueEvent, "/agent/command_queue"' in node
         assert 'CommandExecutionEvent, "/agent/command_execution"' in node
         assert 'String, "/agent/command_queue"' not in node
         assert 'String, "/agent/command_execution"' not in node
+        assert 'WakeEvent, "/agent/wake_event"' in node
+        assert 'String, "/agent/wake_event"' not in node
+        assert "RecognitionFeedback," in node
+        assert '"/agent/recognition_feedback"' in node
+        assert 'String, "/agent/recognition_feedback"' not in node
+        assert "NluParseEvent," in node
+        assert '"/agent/nlu_parse"' in node
         assert "command_event_qos()" in node
         assert "latched_state_qos()" in node
     assert "unsupported queue event" in transport
+    assert "unsupported wake event" in transport
+    assert "unsupported recognition feedback" in transport
+    assert "nlu_parse_to_message" in transport
     assert "ReliabilityPolicy.RELIABLE" in qos
     assert "DurabilityPolicy.TRANSIENT_LOCAL" in qos

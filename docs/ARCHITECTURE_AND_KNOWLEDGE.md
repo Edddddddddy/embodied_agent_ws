@@ -165,6 +165,9 @@ sequenceDiagram
 | `/agent/asr_partial` | ASR → monitor | ASR partial |
 | `/agent/asr_final` | ASR → Agent/monitor | ASR final |
 | `/agent/session_state` | Agent → monitor | awake/sleeping；reliable + transient-local，晚加入监控可获得当前状态 |
+| `/agent/wake_event` | Agent → monitor | `WakeEvent`：wake/continue/rejected/sleep 与 provider |
+| `/agent/recognition_feedback` | Agent → monitor | `RecognitionFeedback`：重试、过滤、补全、endpoint/commit 等识别状态 |
+| `/agent/nlu_parse` | Agent → monitor | `NluParseEvent`：意图、强类型槽位、批次和动作序列 |
 | `/agent/command_queue` | Agent → monitor | `CommandQueueEvent`：enqueue/rejected/expired/clear、队列深度与 batch context |
 | `/agent/command_execution` | Agent → monitor | `CommandExecutionEvent`：started/finished、结果语义与 batch context |
 | `/agent/action_candidate` | Agent → ActionGuard | `RobotCommand` 强类型候选 |

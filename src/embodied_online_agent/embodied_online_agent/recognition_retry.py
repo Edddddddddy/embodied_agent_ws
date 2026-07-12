@@ -1,5 +1,4 @@
 from dataclasses import asdict, dataclass
-import json
 
 
 @dataclass(frozen=True)
@@ -11,8 +10,8 @@ class RecognitionRetry:
     max_attempts: int
     prompt: str = "没有听清唤醒词，请再说一次"
 
-    def to_json(self) -> str:
-        return json.dumps(asdict(self), ensure_ascii=False)
+    def as_dict(self) -> dict:
+        return asdict(self)
 
 
 class RecognitionRetryTracker:

@@ -83,9 +83,9 @@ flowchart LR
 
 | 内容 | 位置 |
 | --- | --- |
-| 关键文件 | `continuous_voice.py`、`ros_event_transport.py`、`ros_qos.py`、`embodied_agent_interfaces/msg/Command*Event.msg` |
+| 关键文件 | `continuous_voice.py`、`ros_event_transport.py`、`ros_qos.py`、`embodied_agent_interfaces/msg/{WakeEvent,RecognitionFeedback,NluParseEvent,Command*Event}.msg` |
 | 关键类/函数 | `ContinuousVoiceSession`、`ContinuousCommandQueue`、`accept()`、`put()`、`get()` |
-| 主要接口 | `/agent/session_state`、typed `/agent/command_queue`、typed `/agent/command_execution` |
+| 主要接口 | `/agent/session_state`、`/agent/wake_event`、`/agent/recognition_feedback`、`/agent/nlu_parse`、`/agent/command_queue`、`/agent/command_execution` |
 | 技术点 | 文本唤醒、重复过滤、FIFO、TTL、急停抢占、强类型事件、reliable/transient-local QoS |
 
 设计说明：
@@ -96,6 +96,8 @@ flowchart LR
 - 每条命令带 `command_id/request_id/batch_id`，避免旧 result 误唤醒下一条命令。
 - 队列与执行事件不再通过 `String + JSON` 传播；消息常量约束事件类型，`CommandContext`
   统一携带 batch/NLU 上下文，monitor 和测试不再各自猜字段。
+- 识别状态与 NLU 结果拆成两个 topic：前者描述“为什么重试/忽略/补全”，后者描述
+  “解析出了哪些意图、槽位和动作”。拆分后消费者无需检查一个万能 JSON 的可选字段组合。
 
 讲解重点：
 

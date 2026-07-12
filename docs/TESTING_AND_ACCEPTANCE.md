@@ -990,11 +990,13 @@ bash scripts/acceptance_test.sh continuous-multi-command
 
 ```bash
 ros2 topic echo /agent/recognition_feedback
+ros2 topic echo /agent/nlu_parse
 ros2 topic echo /agent/command_queue
 ros2 topic echo /robot/action_result
 ```
 
-通过时应看到 `nlu_parsed`、同一个 `batch_id` 下的多个 `enqueue`，以及与 `request_id` 对应的 `command_id` result。
+通过时应在 `/agent/nlu_parse` 看到意图、槽位与动作序列，在同一个 `batch_id`
+下看到多个 `enqueue`，以及与 `request_id` 对应的 `command_id` result。
 如果现场出现新的 ASR 错词或多命令粘连，可用 `CONTINUOUS_SAMPLE_LOG=logs/asr_nlu_samples.jsonl`
 保存事件流，演示后运行 `asr-nlu-samples-to-eval` 生成待审核候选集，再把确认过的失败样本
 补进指令评估集。合入前也可以运行 `asr-nlu-candidate-eval` 先看候选集上的 parser accuracy。

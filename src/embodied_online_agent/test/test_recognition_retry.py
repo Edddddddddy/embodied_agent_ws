@@ -1,5 +1,3 @@
-import json
-
 from embodied_online_agent.recognition_retry import RecognitionRetryTracker
 
 
@@ -16,7 +14,7 @@ def test_success_resets_retry_counter_and_feedback_is_json():
     tracker.failed("噪声")
     tracker.succeeded()
 
-    payload = json.loads(tracker.failed("还是噪声").to_json())
+    payload = tracker.failed("还是噪声").as_dict()
     assert payload["status"] == "retry"
     assert payload["reason"] == "wake_word_not_detected"
     assert payload["attempt"] == 1

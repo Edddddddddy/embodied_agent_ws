@@ -11,7 +11,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
@@ -133,18 +132,15 @@ class NormalizationResult:
             return 1.0 if not self.changed else 0.0
         return min(match.score for match in self.matches)
 
-    def to_feedback_json(self) -> str:
-        return json.dumps(
-            {
-                "status": "normalized",
-                "reason": "command_normalized",
-                "original": self.original,
-                "normalized": self.text,
-                "confidence": round(self.confidence, 3),
-                "matches": [match.as_dict() for match in self.matches],
-            },
-            ensure_ascii=False,
-        )
+    def feedback_dict(self) -> dict:
+        return {
+            "status": "normalized",
+            "reason": "command_normalized",
+            "original": self.original,
+            "normalized": self.text,
+            "confidence": round(self.confidence, 3),
+            "matches": [match.as_dict() for match in self.matches],
+        }
 
 
 @dataclass(frozen=True)

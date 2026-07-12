@@ -9,13 +9,17 @@ import rclpy
 from embodied_agent_interfaces.msg import (
     CommandExecutionEvent,
     CommandQueueEvent,
+    RecognitionFeedback,
     RobotCommand,
     RobotCommandFeedback,
     RobotCommandResult,
+    WakeEvent,
 )
 from embodied_online_agent.ros_event_transport import (
     execution_event_message_to_dict,
     queue_event_message_to_dict,
+    recognition_feedback_message_to_dict,
+    wake_event_message_to_dict,
 )
 from embodied_online_agent.ros_qos import command_event_qos, latched_state_qos
 from geometry_msgs.msg import Twist
@@ -41,13 +45,16 @@ class ContinuousVoiceProbe(Node):
         self.velocities = []
         self.create_subscription(String, "/agent/state", self._on_state, latched_state_qos())
         self.create_subscription(String, "/agent/session_state", self._on_session_state, latched_state_qos())
-        self.create_subscription(String, "/agent/wake_event", self._on_wake_event, 10)
+        self.create_subscription(WakeEvent, "/agent/wake_event", self._on_wake_event, command_event_qos())
         self.create_subscription(CommandQueueEvent, "/agent/command_queue", self._on_queue_event, command_event_qos())
         self.create_subscription(
             CommandExecutionEvent, "/agent/command_execution", self._on_execution_event, command_event_qos()
         )
         self.create_subscription(
-            String, "/agent/recognition_feedback", self._on_feedback, 10
+            RecognitionFeedback,
+            "/agent/recognition_feedback",
+            self._on_feedback,
+            command_event_qos(),
         )
         self.create_subscription(
             RobotCommand, "/agent/action_candidate", self._on_candidate, 10
@@ -65,7 +72,7 @@ class ContinuousVoiceProbe(Node):
         self.session_states.append(message.data)
 
     def _on_wake_event(self, message):
-        self.wake_events.append(json.loads(message.data))
+        self.wake_events.append(wake_event_message_to_dict(message))
 
     def _on_queue_event(self, message):
         self.queue_events.append(queue_event_message_to_dict(message))
@@ -74,7 +81,7 @@ class ContinuousVoiceProbe(Node):
         self.execution_events.append(execution_event_message_to_dict(message))
 
     def _on_feedback(self, message):
-        self.recognition_feedback.append(json.loads(message.data))
+        self.recognition_feedback.append(recognition_feedback_message_to_dict(message))
 
     def _on_candidate(self, message):
         self.candidates.append(candidate_dict(message))

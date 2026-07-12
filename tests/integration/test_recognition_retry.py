@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """从公开 ROS topic 验证识别失败后 Agent 会反馈并继续监听。"""
 
-import json
 import time
 
 import rclpy
+from embodied_agent_interfaces.msg import RecognitionFeedback
+from embodied_online_agent.ros_event_transport import recognition_feedback_message_to_dict
+from embodied_online_agent.ros_qos import command_event_qos
 from rclpy.node import Node
 from std_msgs.msg import String
 
@@ -16,12 +18,15 @@ class RetryProbe(Node):
         self.state = None
         self.input_pub = self.create_publisher(String, "/agent/text_input", 10)
         self.create_subscription(
-            String, "/agent/recognition_feedback", self._on_feedback, 10
+            RecognitionFeedback,
+            "/agent/recognition_feedback",
+            self._on_feedback,
+            command_event_qos(),
         )
         self.create_subscription(String, "/agent/state", self._on_state, 10)
 
     def _on_feedback(self, message):
-        payload = json.loads(message.data)
+        payload = recognition_feedback_message_to_dict(message)
         if payload.get("reason") == "wake_word_not_detected":
             self.feedback = payload
 

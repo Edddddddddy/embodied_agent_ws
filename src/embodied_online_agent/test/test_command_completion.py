@@ -1,5 +1,3 @@
-import json
-
 from embodied_online_agent.command_completion import CommandCompleter
 
 
@@ -26,7 +24,7 @@ def test_does_not_complete_full_or_safety_commands():
 def test_completion_feedback_is_monitor_friendly_json():
     result = CommandCompleter(enabled=True).complete("左转")
 
-    payload = json.loads(result.to_feedback_json())
+    payload = result.feedback_dict()
 
     assert payload == {
         "status": "completed",
