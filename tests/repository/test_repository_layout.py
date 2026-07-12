@@ -756,15 +756,26 @@ def test_audio_endpoint_events_remain_wired_through_frontend_and_agents():
         / "embodied_offline_agent"
         / "offline_agent_node.py"
     ).read_text(encoding="utf-8")
+    agent_topics = (
+        ROOT
+        / "src"
+        / "embodied_online_agent"
+        / "embodied_online_agent"
+        / "ros_topics.py"
+    ).read_text(encoding="utf-8")
     audio_smoke = (ROOT / "scripts" / "smoke_test_audio_endpoint.sh").read_text(
         encoding="utf-8"
     )
 
     for topic in ("/audio/speech_started", "/audio/speech_ended"):
         assert topic in audio_frontend
-        assert topic in online_agent
-        assert topic in offline_agent
+        assert topic in agent_topics
         assert topic in audio_smoke
+
+    for node in (online_agent, offline_agent):
+        assert "AgentRosIo" in node
+        assert "speech_started=self._on_speech_started" in node
+        assert "speech_ended=self._on_speech_ended" in node
 
     assert "endpoint_events_enabled" in audio_frontend
     assert "speech_started_publisher_->publish" in audio_frontend
@@ -860,7 +871,7 @@ def test_continuous_voice_state_machine_remains_shared_by_online_and_offline_age
 
     for node in (online_agent, offline_agent):
         assert "AgentControlPlane" in node
-        assert "RosAgentEventPublisher" in node
+        assert "AgentRosIo" in node
         assert "AgentExecutionRuntime" in node
         assert "AsrEndpointRuntime" in node
         assert "def _run_command_worker" not in node
@@ -1206,6 +1217,20 @@ def test_voice_control_events_are_strongly_typed_and_use_named_qos():
         / "embodied_online_agent"
         / "ros_agent_events.py"
     ).read_text(encoding="utf-8")
+    ros_io = (
+        ROOT
+        / "src"
+        / "embodied_online_agent"
+        / "embodied_online_agent"
+        / "agent_ros_io.py"
+    ).read_text(encoding="utf-8")
+    topics = (
+        ROOT
+        / "src"
+        / "embodied_online_agent"
+        / "embodied_online_agent"
+        / "ros_topics.py"
+    ).read_text(encoding="utf-8")
 
     assert (interfaces / "CommandContext.msg").is_file()
     assert (interfaces / "CommandQueueEvent.msg").is_file()
@@ -1217,27 +1242,37 @@ def test_voice_control_events_are_strongly_typed_and_use_named_qos():
     assert (interfaces / "NluCommand.msg").is_file()
     assert (interfaces / "NluParseEvent.msg").is_file()
     for node in (online, offline):
-        assert "RosAgentEventPublisher" in node
+        assert "AgentRosIo" in node
         assert 'String, "/agent/command_queue"' not in node
         assert 'String, "/agent/command_execution"' not in node
         assert 'String, "/agent/wake_event"' not in node
         assert 'String, "/agent/recognition_feedback"' not in node
-    for contract in (
-        'CommandQueueEvent, "/agent/command_queue"',
-        'CommandExecutionEvent,\n            "/agent/command_execution"',
-        'WakeEvent, "/agent/wake_event"',
-        'RecognitionFeedback,\n            "/agent/recognition_feedback"',
-        'NluParseEvent, "/agent/nlu_parse"',
+    for field, topic in (
+        ("command_queue", "/agent/command_queue"),
+        ("command_execution", "/agent/command_execution"),
+        ("wake_event", "/agent/wake_event"),
+        ("recognition_feedback", "/agent/recognition_feedback"),
+        ("nlu_parse", "/agent/nlu_parse"),
     ):
-        assert contract in event_adapter
+        assert f"self._topics.{field}" in event_adapter
+        assert topic in topics
     assert "command_event_qos()" in event_adapter
     assert "latched_state_qos()" in event_adapter
+    assert "RosAgentEventPublisher" in ros_io
+    assert "audio_stream_qos" in ros_io
+    assert "command_event_qos" in ros_io
     assert "unsupported queue event" in transport
     assert "unsupported wake event" in transport
     assert "unsupported recognition feedback" in transport
     assert "nlu_parse_to_message" in transport
     assert "ReliabilityPolicy.RELIABLE" in qos
     assert "DurabilityPolicy.TRANSIENT_LOCAL" in qos
+
+    # 节点只能依赖共享 I/O Facade；硬编码接口名必须收敛到 Topic contract。
+    for node in (online, offline):
+        assert '"/agent/' not in node
+        assert '"/audio/' not in node
+        assert '"/robot/' not in node
 
 
 def test_runtime_status_topics_are_strongly_typed():
@@ -1420,6 +1455,9 @@ def test_online_and_offline_agents_have_real_lifecycle_resource_ownership():
     offline_node = (
         offline_root / "embodied_offline_agent" / "offline_agent_node.py"
     ).read_text(encoding="utf-8")
+    ros_io = (
+        online_root / "embodied_online_agent" / "agent_ros_io.py"
+    ).read_text(encoding="utf-8")
 
     for class_name, node in (
         ("OnlineAgentNode", online_node),
@@ -1435,9 +1473,12 @@ def test_online_and_offline_agents_have_real_lifecycle_resource_ownership():
             "on_error",
         ):
             assert f"def {callback}(" in node
-        assert "create_lifecycle_publisher" in node
+        assert "AgentRosIo" in node
         assert "start_background_turn(" in node
         assert "threading.Thread(\n            target=self._run_turn" not in node
+
+    assert "create_lifecycle_publisher" in ros_io
+    assert "create_subscription" in ros_io
 
     online_launch = (online_root / "launch" / "online_agent.launch.py").read_text(
         encoding="utf-8"

@@ -7,14 +7,11 @@ from pathlib import Path
 import rclpy
 from ament_index_python.packages import get_package_share_directory
 from embodied_agent_interfaces.msg import (
-    RobotCommand,
     RobotCommandResult,
-    SpeakerEnrollRequest as SpeakerEnrollRequestMessage,
     SpeakerIdentity as SpeakerIdentityMessage,
     WakeEvent as WakeEventMessage,
 )
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
-from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Empty, String, UInt8MultiArray
 
 from .memory import ConversationMemory
@@ -29,11 +26,11 @@ from .agent_execution_runtime import (
     AgentExecutionRuntime,
 )
 from .agent_parameters import declare_agent_parameters
+from .agent_ros_io import AgentRosCallbacks, AgentRosIo
 from .asr_endpoint_runtime import AsrEndpointRuntime
 from .continuous_voice import QueueSnapshot
 from .metrics import LatencyTracker
 from .ros_action_transport import action_command_to_message, command_message_to_dict
-from .ros_agent_events import RosAgentEventPublisher
 from .ros_event_transport import wake_event_message_to_domain
 from .speaker_transport import enroll_request_to_message, identity_message_to_domain
 from .streaming_turn import StreamingTurnRuntime
@@ -79,89 +76,30 @@ class OnlineAgentNode(LifecycleNode):
         )
         self.system_prompt = self._load_system_prompt()
 
-        self.asr_partial_pub = self.create_lifecycle_publisher(
-            String, "/agent/asr_partial", 10
+        self._ros_io = AgentRosIo(
+            self,
+            AgentRosCallbacks(
+                text_input=self._on_text_input,
+                wake_event_input=self._on_wake_event_input,
+                speaker_identity=self._on_speaker_identity,
+                clear_memory=self._on_clear_memory,
+                action_result=self._on_action_result,
+                clean_audio=self._on_clean_audio,
+                silence_timeout=self._on_silence_timeout,
+                speech_started=self._on_speech_started,
+                speech_ended=self._on_speech_ended,
+            ),
+            microphone_enabled=bool(self._param("microphone_enabled")),
+            external_wake_event_enabled=bool(
+                self._param("external_wake_event_enabled")
+            ),
         )
-        self.asr_final_pub = self.create_lifecycle_publisher(
-            String, "/agent/asr_final", 10
-        )
-        self.response_pub = self.create_lifecycle_publisher(
-            String, "/agent/response_text", 10
-        )
-        self.response_delta_pub = self.create_lifecycle_publisher(
-            String, "/agent/response_delta", 10
-        )
-        self.action_candidate_pub = self.create_lifecycle_publisher(
-            RobotCommand, "/agent/action_candidate", 10
-        )
-        self._events = RosAgentEventPublisher(
-            self, publisher_factory=self.create_lifecycle_publisher
-        )
-        self.speaker_enroll_request_pub = self.create_lifecycle_publisher(
-            SpeakerEnrollRequestMessage, "/agent/speaker_enroll_request", 10
-        )
-        self.metrics_pub = self.create_lifecycle_publisher(
-            String, "/agent/metrics", 10
-        )
-        self.create_subscription(String, "/agent/text_input", self._on_text_input, 10)
-        if self._param("external_wake_event_enabled"):
-            self.create_subscription(
-                WakeEventMessage,
-                "/agent/wake_event_input",
-                self._on_wake_event_input,
-                10,
-            )
-        self.create_subscription(
-            SpeakerIdentityMessage,
-            "/agent/speaker_identity",
-            self._on_speaker_identity,
-            10,
-        )
-        self.create_subscription(Empty, "/agent/clear_memory", self._on_clear_memory, 10)
-        self.create_subscription(
-            RobotCommandResult, "/robot/action_result", self._on_action_result, 10
-        )
-        audio_qos = QoSProfile(
-            history=HistoryPolicy.KEEP_LAST,
-            depth=20,
-            reliability=ReliabilityPolicy.BEST_EFFORT,
-        )
-        self.tts_audio_pub = self.create_lifecycle_publisher(
-            UInt8MultiArray, "/audio/tts_pcm", audio_qos
-        )
+        self._events = self._ros_io.events
         self.asr = None
         self.llm = None
         self.tts = None
         self._execution = None
         self._asr_endpoint = None
-        self.audio_subscription = None
-        self.silence_subscription = None
-
-        if self._param("microphone_enabled"):
-            self.audio_subscription = self.create_subscription(
-                UInt8MultiArray,
-                "/audio/clean_pcm",
-                self._on_clean_audio,
-                audio_qos,
-            )
-            self.silence_subscription = self.create_subscription(
-                Empty,
-                "/audio/silence_timeout",
-                self._on_silence_timeout,
-                10,
-            )
-            self.create_subscription(
-                Empty,
-                "/audio/speech_started",
-                self._on_speech_started,
-                10,
-            )
-            self.create_subscription(
-                Empty,
-                "/audio/speech_ended",
-                self._on_speech_ended,
-                10,
-            )
     def on_configure(self, _state: State) -> TransitionCallbackReturn:
         """创建 provider 和并发运行时；失败时节点保持 unconfigured。"""
 
@@ -215,6 +153,7 @@ class OnlineAgentNode(LifecycleNode):
             return result
         try:
             self._lifecycle_active = True
+            self._ros_io.set_lifecycle_active(True)
             if self._param("microphone_enabled"):
                 self.asr.start(self._on_asr_partial, self._on_asr_final)
             if not self._execution.start():
@@ -257,12 +196,14 @@ class OnlineAgentNode(LifecycleNode):
             return TransitionCallbackReturn.FAILURE
         self._publish_state("inactive")
         self._events.publish_stopped("lifecycle_inactive")
+        self._ros_io.set_lifecycle_active(False)
         result = super().on_deactivate(state)
         self.get_logger().info("online agent inactive")
         return result
 
     def on_cleanup(self, _state: State) -> TransitionCallbackReturn:
         self._lifecycle_active = False
+        self._ros_io.set_lifecycle_active(False)
         if not self._release_resources():
             return TransitionCallbackReturn.FAILURE
         self.get_logger().info("online agent cleaned up")
@@ -274,6 +215,7 @@ class OnlineAgentNode(LifecycleNode):
 
     def on_error(self, state: State) -> TransitionCallbackReturn:
         self._lifecycle_active = False
+        self._ros_io.set_lifecycle_active(False)
         self._release_resources()
         self.get_logger().error("online agent recovered to unconfigured after error")
         return super().on_error(state)
@@ -374,7 +316,7 @@ class OnlineAgentNode(LifecycleNode):
         if self._is_busy() and not self._continuous_enabled:
             return
         self._control.transcript_stabilizer.observe_partial(text)
-        self.asr_partial_pub.publish(String(data=text))
+        self._ros_io.publish_asr_partial(text)
 
     def _on_clean_audio(self, message: UInt8MultiArray):
         if not self._lifecycle_active or self.asr is None:
@@ -425,7 +367,7 @@ class OnlineAgentNode(LifecycleNode):
                 f"recovered ASR final from partial: '{text}' -> '{stabilized.text}'"
             )
         text = stabilized.text
-        self.asr_final_pub.publish(String(data=text))
+        self._ros_io.publish_asr_final(text)
         self._accept_transcript(text)
 
     def _on_text_input(self, message: String):
@@ -433,7 +375,7 @@ class OnlineAgentNode(LifecycleNode):
             self.get_logger().debug("ignored text input while Agent is inactive")
             return
         self._control.transcript_stabilizer.clear()
-        self.asr_final_pub.publish(String(data=message.data))
+        self._ros_io.publish_asr_final(message.data)
         self._accept_transcript(message.data)
 
     def _on_wake_event_input(self, message: WakeEventMessage):
@@ -537,13 +479,13 @@ class OnlineAgentNode(LifecycleNode):
         if result is None:
             return False
         if result.enroll_request is not None:
-            self.speaker_enroll_request_pub.publish(
+            self._ros_io.publish_speaker_enroll_request(
                 enroll_request_to_message(
                     result.enroll_request, stamp=self.get_clock().now()
                 )
             )
-        self.response_delta_pub.publish(String(data=result.response))
-        self.response_pub.publish(String(data=result.response))
+        self._ros_io.publish_response_delta(result.response)
+        self._ros_io.publish_response(result.response)
         if self._execution is not None and not self._execution.start_background_turn(
             self._speak_memory_response, result.response
         ):
@@ -604,9 +546,7 @@ class OnlineAgentNode(LifecycleNode):
         turn = StreamingTurnRuntime(
             max_chunk_chars=self._param("tts_chunk_max_chars"),
             on_first_token=self.metrics.mark_llm_first_token,
-            on_speech_delta=lambda delta: self.response_delta_pub.publish(
-                String(data=delta)
-            ),
+            on_speech_delta=self._ros_io.publish_response_delta,
             on_speakable=enqueue_tts_text,
             on_protocol_error=self.get_logger().warning,
         )
@@ -633,7 +573,7 @@ class OnlineAgentNode(LifecycleNode):
                 raise tts_errors[0]
 
             assistant_text = result.assistant_text
-            self.response_pub.publish(String(data=assistant_text))
+            self._ros_io.publish_response(assistant_text)
             self.memory.append_turn(
                 user_text,
                 assistant_text,
@@ -684,8 +624,8 @@ class OnlineAgentNode(LifecycleNode):
         self._publish_state("thinking")
         summary = "，".join(action.name for action in actions)
         response = f"好的，按顺序执行：{summary}。"
-        self.response_delta_pub.publish(String(data=response))
-        self.response_pub.publish(String(data=response))
+        self._ros_io.publish_response_delta(response)
+        self._ros_io.publish_response(response)
         report = self._publish_actions(actions, user_context)
         self._user_context.record_interaction(
             user_context,
@@ -727,7 +667,7 @@ class OnlineAgentNode(LifecycleNode):
 
         def publish_payload(action: ActionCommand):
             message = action_command_to_message(action, source="online_agent")
-            self.action_candidate_pub.publish(message)
+            self._ros_io.publish_action_candidate(message)
             self.get_logger().info(
                 "action candidate: "
                 + json.dumps(command_message_to_dict(message), ensure_ascii=False)
@@ -753,7 +693,7 @@ class OnlineAgentNode(LifecycleNode):
 
     def _on_tts_audio(self, pcm16: bytes):
         self.metrics.mark_tts_first_audio()
-        self.tts_audio_pub.publish(UInt8MultiArray(data=list(pcm16)))
+        self._ros_io.publish_tts_audio(pcm16)
 
     def _publish_metrics(self):
         snapshot = self.metrics.snapshot().as_dict()
@@ -765,7 +705,7 @@ class OnlineAgentNode(LifecycleNode):
         snapshot["tts_target_met"] = (
             tts_ms is not None and tts_ms < self._param("tts_first_audio_target_ms")
         )
-        self.metrics_pub.publish(String(data=json.dumps(snapshot, ensure_ascii=False)))
+        self._ros_io.publish_metrics(json.dumps(snapshot, ensure_ascii=False))
         self.get_logger().info(f"latency: {snapshot}")
 
     def _publish_state(self, state: str):

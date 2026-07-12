@@ -21,6 +21,7 @@ from .ros_event_transport import (
     wake_event_to_message,
 )
 from .ros_qos import command_event_qos, latched_state_qos
+from .ros_topics import AgentTopicContract
 
 
 class RosAgentEventPublisher:
@@ -32,40 +33,43 @@ class RosAgentEventPublisher:
         component_name: str = "agent",
         *,
         publisher_factory=None,
+        topics: AgentTopicContract | None = None,
     ):
         self._node = node
         self._component_name = component_name
+        self._topics = topics or AgentTopicContract()
         create_publisher = publisher_factory or node.create_publisher
         self._state = create_publisher(
-            String, "/agent/state", latched_state_qos()
+            String, self._topics.state, latched_state_qos()
         )
         self._wake = create_publisher(
-            WakeEvent, "/agent/wake_event", command_event_qos()
+            WakeEvent, self._topics.wake_event, command_event_qos()
         )
         self._session = create_publisher(
-            String, "/agent/session_state", latched_state_qos()
+            String, self._topics.session_state, latched_state_qos()
         )
         self._queue = create_publisher(
-            CommandQueueEvent, "/agent/command_queue", command_event_qos()
+            CommandQueueEvent, self._topics.command_queue, command_event_qos()
         )
         self._execution = create_publisher(
             CommandExecutionEvent,
-            "/agent/command_execution",
+            self._topics.command_execution,
             command_event_qos(),
         )
         self._recognition = create_publisher(
             RecognitionFeedback,
-            "/agent/recognition_feedback",
+            self._topics.recognition_feedback,
             command_event_qos(),
         )
         self._nlu = create_publisher(
-            NluParseEvent, "/agent/nlu_parse", command_event_qos()
+            NluParseEvent, self._topics.nlu_parse, command_event_qos()
         )
         self._health = create_publisher(
-            ComponentHealth, "system/component_health", latched_state_qos()
+            ComponentHealth, self._topics.component_health, latched_state_qos()
         )
         self._health_state = ComponentHealth.STATE_UNKNOWN
         self._health_detail = None
+        self._heartbeat_enabled = False
         self._health_timer = node.create_timer(1.0, self._publish_health_heartbeat)
 
     def _stamp(self):
@@ -87,8 +91,13 @@ class RosAgentEventPublisher:
         self._health_detail = detail
         self._publish_health_heartbeat()
 
+    def set_lifecycle_active(self, active: bool) -> None:
+        """只在 managed publisher active 时发送心跳，避免 inactive 空转发布。"""
+
+        self._heartbeat_enabled = bool(active)
+
     def _publish_health_heartbeat(self) -> None:
-        if self._health_detail is None:
+        if not self._heartbeat_enabled or self._health_detail is None:
             return
         message = ComponentHealth()
         message.stamp = self._stamp()

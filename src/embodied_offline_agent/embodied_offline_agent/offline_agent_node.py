@@ -8,15 +8,11 @@ from pathlib import Path
 import rclpy
 from ament_index_python.packages import get_package_share_directory
 from embodied_agent_interfaces.msg import (
-    RobotCommand,
     RobotCommandResult,
-    SpeakerEnrollRequest as SpeakerEnrollRequestMessage,
     SpeakerIdentity as SpeakerIdentityMessage,
     WakeEvent as WakeEventMessage,
 )
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
-from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
-from std_msgs.msg import Empty, String, UInt8MultiArray
 
 from embodied_online_agent.memory import ConversationMemory
 from embodied_online_agent.action_sequence import SequentialActionPublisher
@@ -29,14 +25,15 @@ from embodied_online_agent.agent_execution_runtime import (
     AgentExecutionRuntime,
 )
 from embodied_online_agent.agent_parameters import declare_agent_parameters
+from embodied_online_agent.agent_ros_io import AgentRosCallbacks, AgentRosIo
 from embodied_online_agent.asr_endpoint_runtime import AsrEndpointRuntime
 from embodied_online_agent.continuous_voice import QueueSnapshot
 from embodied_online_agent.ros_action_transport import (
     action_command_to_message,
     command_message_to_dict,
 )
-from embodied_online_agent.ros_agent_events import RosAgentEventPublisher
 from embodied_online_agent.ros_event_transport import wake_event_message_to_domain
+from embodied_online_agent.ros_topics import AgentTopicContract
 from embodied_online_agent.speaker_transport import (
     enroll_request_to_message,
     identity_message_to_domain,
@@ -93,66 +90,31 @@ class OfflineAgentNode(LifecycleNode):
         configured_prompt = self._param("system_prompt_path")
         self._system_prompt = Path(os.path.expanduser(configured_prompt)).read_text(encoding="utf-8") if configured_prompt else prompt_path.read_text(encoding="utf-8")
 
-        self._asr_partial_pub = self.create_lifecycle_publisher(
-            String, "/agent/asr_partial", 10
+        self._ros_io = AgentRosIo(
+            self,
+            AgentRosCallbacks(
+                text_input=self._on_text,
+                wake_event_input=self._on_wake_event_input,
+                speaker_identity=self._on_speaker_identity,
+                clear_memory=self._on_clear,
+                action_result=self._on_action_result,
+                clean_audio=self._on_audio,
+                silence_timeout=self._on_silence,
+                speech_started=self._on_speech_started,
+                speech_ended=self._on_speech_ended,
+            ),
+            microphone_enabled=bool(self._param("microphone_enabled")),
+            external_wake_event_enabled=bool(
+                self._param("external_wake_event_enabled")
+            ),
+            topics=AgentTopicContract().with_metrics("/offline_agent/metrics"),
         )
-        self._asr_final_pub = self.create_lifecycle_publisher(
-            String, "/agent/asr_final", 10
-        )
-        self._response_delta_pub = self.create_lifecycle_publisher(
-            String, "/agent/response_delta", 10
-        )
-        self._response_pub = self.create_lifecycle_publisher(
-            String, "/agent/response_text", 10
-        )
-        self._action_pub = self.create_lifecycle_publisher(
-            RobotCommand, "/agent/action_candidate", 10
-        )
-        self._events = RosAgentEventPublisher(
-            self, publisher_factory=self.create_lifecycle_publisher
-        )
-        self._speaker_enroll_request_pub = self.create_lifecycle_publisher(
-            SpeakerEnrollRequestMessage, "/agent/speaker_enroll_request", 10
-        )
-        self._metrics_pub = self.create_lifecycle_publisher(
-            String, "/offline_agent/metrics", 10
-        )
-        audio_qos = QoSProfile(
-            history=HistoryPolicy.KEEP_LAST,
-            depth=20,
-            reliability=ReliabilityPolicy.BEST_EFFORT,
-        )
-        self._audio_pub = self.create_lifecycle_publisher(
-            UInt8MultiArray, "/audio/tts_pcm", audio_qos
-        )
-        self.create_subscription(String, "/agent/text_input", self._on_text, 10)
-        if self._param("external_wake_event_enabled"):
-            self.create_subscription(
-                WakeEventMessage,
-                "/agent/wake_event_input",
-                self._on_wake_event_input,
-                10,
-            )
-        self.create_subscription(
-            SpeakerIdentityMessage,
-            "/agent/speaker_identity",
-            self._on_speaker_identity,
-            10,
-        )
-        self.create_subscription(Empty, "/agent/clear_memory", self._on_clear, 10)
-        self.create_subscription(
-            RobotCommandResult, "/robot/action_result", self._on_action_result, 10
-        )
+        self._events = self._ros_io.events
         self._asr = None
         self._llm = None
         self._tts = None
         self._execution = None
         self._asr_endpoint = None
-        if self._param("microphone_enabled"):
-            self.create_subscription(UInt8MultiArray, "/audio/clean_pcm", self._on_audio, audio_qos)
-            self.create_subscription(Empty, "/audio/silence_timeout", self._on_silence, 10)
-            self.create_subscription(Empty, "/audio/speech_started", self._on_speech_started, 10)
-            self.create_subscription(Empty, "/audio/speech_ended", self._on_speech_ended, 10)
         self._asr_thread = None
 
     def on_configure(self, _state: State) -> TransitionCallbackReturn:
@@ -204,6 +166,7 @@ class OfflineAgentNode(LifecycleNode):
             return result
         try:
             self._lifecycle_active = True
+            self._ros_io.set_lifecycle_active(True)
             if self._param("microphone_enabled"):
                 self._drain_asr_events()
                 if hasattr(self._asr, "reset"):
@@ -251,12 +214,14 @@ class OfflineAgentNode(LifecycleNode):
             return TransitionCallbackReturn.FAILURE
         self._publish_state("inactive")
         self._events.publish_stopped("lifecycle_inactive")
+        self._ros_io.set_lifecycle_active(False)
         result = super().on_deactivate(state)
         self.get_logger().info("offline agent inactive")
         return result
 
     def on_cleanup(self, _state: State) -> TransitionCallbackReturn:
         self._lifecycle_active = False
+        self._ros_io.set_lifecycle_active(False)
         if not self._release_resources():
             return TransitionCallbackReturn.FAILURE
         self.get_logger().info("offline agent cleaned up")
@@ -268,6 +233,7 @@ class OfflineAgentNode(LifecycleNode):
 
     def on_error(self, state: State) -> TransitionCallbackReturn:
         self._lifecycle_active = False
+        self._ros_io.set_lifecycle_active(False)
         self._release_resources()
         self.get_logger().error("offline agent recovered to unconfigured after error")
         return super().on_error(state)
@@ -527,7 +493,7 @@ class OfflineAgentNode(LifecycleNode):
         if self._is_busy() and not self._continuous_enabled:
             return
         self._control.transcript_stabilizer.observe_partial(text)
-        self._asr_partial_pub.publish(String(data=text))
+        self._ros_io.publish_asr_partial(text)
 
     def _on_asr_final(self, text):
         if not self._lifecycle_active:
@@ -546,7 +512,7 @@ class OfflineAgentNode(LifecycleNode):
             )
         text = stabilized.text
         self._latency.mark_asr_final()
-        self._asr_final_pub.publish(String(data=text))
+        self._ros_io.publish_asr_final(text)
         self._accept_transcript(text)
 
     def _on_text(self, message):
@@ -557,7 +523,7 @@ class OfflineAgentNode(LifecycleNode):
         self._latency = OfflineLatency()
         self._latency.mark_silence()
         self._latency.mark_asr_final()
-        self._asr_final_pub.publish(String(data=message.data))
+        self._ros_io.publish_asr_final(message.data)
         self._accept_transcript(message.data)
 
     def _on_wake_event_input(self, message):
@@ -659,13 +625,13 @@ class OfflineAgentNode(LifecycleNode):
         if result is None:
             return False
         if result.enroll_request is not None:
-            self._speaker_enroll_request_pub.publish(
+            self._ros_io.publish_speaker_enroll_request(
                 enroll_request_to_message(
                     result.enroll_request, stamp=self.get_clock().now()
                 )
             )
-        self._response_delta_pub.publish(String(data=result.response))
-        self._response_pub.publish(String(data=result.response))
+        self._ros_io.publish_response_delta(result.response)
+        self._ros_io.publish_response(result.response)
         if self._execution is not None and not self._execution.start_background_turn(
             self._speak_memory_response, result.response
         ):
@@ -675,9 +641,7 @@ class OfflineAgentNode(LifecycleNode):
     def _speak_memory_response(self, response):
         try:
             self._execution.raise_if_stopping()
-            self._audio_pub.publish(
-                UInt8MultiArray(data=list(self._tts.synthesize(response)))
-            )
+            self._ros_io.publish_tts_audio(self._tts.synthesize(response))
             self._execution.raise_if_stopping()
         except AgentExecutionCancelled:
             raise
@@ -687,9 +651,7 @@ class OfflineAgentNode(LifecycleNode):
     def _run_turn(self, user_text, latency, user_context: UserContextSnapshot):
         tts_pipeline = PseudoStreamingTtsPipeline(
             synthesize=self._tts.synthesize,
-            publish_audio=lambda pcm: self._audio_pub.publish(
-                UInt8MultiArray(data=list(pcm))
-            ),
+            publish_audio=self._ros_io.publish_tts_audio,
             sample_rate=self._tts_sample_rate(),
             pcm_chunk_ms=int(self._param("tts_pcm_chunk_ms")),
             on_first_audio=latency.mark_first_audio,
@@ -704,9 +666,7 @@ class OfflineAgentNode(LifecycleNode):
         turn = StreamingTurnRuntime(
             max_chunk_chars=self._param("tts_chunk_max_chars"),
             on_first_token=latency.mark_first_token,
-            on_speech_delta=lambda delta: self._response_delta_pub.publish(
-                String(data=delta)
-            ),
+            on_speech_delta=self._ros_io.publish_response_delta,
             on_speakable=enqueue_tts_text,
             on_protocol_error=self.get_logger().warning,
         )
@@ -726,7 +686,7 @@ class OfflineAgentNode(LifecycleNode):
             action_report = self._publish_actions(result.actions, user_context)
             tts_metrics = tts_pipeline.close_and_wait(timeout_s=60.0)
             assistant_text = result.assistant_text
-            self._response_pub.publish(String(data=assistant_text))
+            self._ros_io.publish_response(assistant_text)
             self._memory.append_turn(
                 user_text,
                 assistant_text,
@@ -749,7 +709,7 @@ class OfflineAgentNode(LifecycleNode):
             # 这样验收时能判断是 ASR、LLM 还是 TTS/动作链路导致慢。
             report["llm_provider"] = getattr(self._llm, "last_metrics", {})
             report["tts_pipeline"] = tts_metrics.as_dict()
-            self._metrics_pub.publish(String(data=json.dumps(report, ensure_ascii=False)))
+            self._ros_io.publish_metrics(json.dumps(report, ensure_ascii=False))
             self.get_logger().info(f"offline latency: {report}")
         except AgentExecutionCancelled:
             tts_pipeline.abort()
@@ -794,8 +754,8 @@ class OfflineAgentNode(LifecycleNode):
     ):
         self._publish_state("thinking")
         response = "好的，按顺序执行：" + "，".join(action.name for action in actions) + "。"
-        self._response_delta_pub.publish(String(data=response))
-        self._response_pub.publish(String(data=response))
+        self._ros_io.publish_response_delta(response)
+        self._ros_io.publish_response(response)
         report = self._publish_actions(actions, user_context)
         self._user_context.record_interaction(
             user_context,
@@ -806,7 +766,7 @@ class OfflineAgentNode(LifecycleNode):
         )
         latency.finish()
         report = latency.report(0, 0)
-        self._metrics_pub.publish(String(data=json.dumps(report, ensure_ascii=False)))
+        self._ros_io.publish_metrics(json.dumps(report, ensure_ascii=False))
 
     def _enqueue_continuous_command(self, command):
         user_context = self._user_context.snapshot()
@@ -843,7 +803,7 @@ class OfflineAgentNode(LifecycleNode):
 
         def publish_payload(action: ActionCommand):
             message = action_command_to_message(action, source="offline_agent")
-            self._action_pub.publish(message)
+            self._ros_io.publish_action_candidate(message)
             self.get_logger().info(
                 "action candidate: "
                 + json.dumps(command_message_to_dict(message), ensure_ascii=False)

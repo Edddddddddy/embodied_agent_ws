@@ -21,3 +21,14 @@ def latched_state_qos(depth: int = 1) -> QoSProfile:
         reliability=ReliabilityPolicy.RELIABLE,
         durability=DurabilityPolicy.TRANSIENT_LOCAL,
     )
+
+
+def audio_stream_qos(depth: int = 20) -> QoSProfile:
+    """实时 PCM 优先低延迟；允许丢弃过期帧，禁止可靠传输反压音频线程。"""
+
+    return QoSProfile(
+        history=HistoryPolicy.KEEP_LAST,
+        depth=max(1, int(depth)),
+        reliability=ReliabilityPolicy.BEST_EFFORT,
+        durability=DurabilityPolicy.VOLATILE,
+    )

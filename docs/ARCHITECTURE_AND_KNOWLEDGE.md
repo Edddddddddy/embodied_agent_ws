@@ -156,8 +156,10 @@ sequenceDiagram
 - `UserContextRuntime` 是身份、画像和记忆命令的唯一拥有者；命令入队时创建不可变
   `UserContextSnapshot`，让同一 turn 的 prompt、偏好和 interaction 写入始终绑定同一用户，
   即使执行期间收到新的声纹识别结果也不会串写画像。
-- `RosAgentEventPublisher` 是独立 Adapter，统一 typed topic、时间戳和 QoS，避免两个
-  主节点分别维护一组 publisher。
+- `AgentRosIo` 是在线/离线共用的 ROS I/O Facade，统一 lifecycle publisher、subscription、
+  typed 消息封装和音频/事件 QoS；`AgentTopicContract` 是所有 Agent topic 的单一权威来源。
+- `RosAgentEventPublisher` 位于 Facade 内部，只负责控制面领域事件到 typed ROS 消息的
+  Adapter；inactive 时停止健康心跳，避免 managed publisher 空转发布。
 - `agent_parameters.py` 是在线/离线节点参数的单一权威来源：公共控制面与 provider
   专属参数分组声明，启动时校验范围/枚举/跨字段约束，并生成只读参数快照。
 - `agent_launch_contract.py` 只暴露部署时常用的控制参数；Gazebo/Nav2 上层 launch

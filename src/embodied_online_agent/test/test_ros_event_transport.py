@@ -20,7 +20,11 @@ from embodied_online_agent.ros_event_transport import (
     wake_event_message_to_dict,
     wake_event_to_message,
 )
-from embodied_online_agent.ros_qos import command_event_qos, latched_state_qos
+from embodied_online_agent.ros_qos import (
+    audio_stream_qos,
+    command_event_qos,
+    latched_state_qos,
+)
 from rclpy.qos import DurabilityPolicy, ReliabilityPolicy
 from embodied_online_agent.wake_provider import WakeEvent, WakeEventKind
 from embodied_online_agent.command_nlu import CommandNLU
@@ -85,12 +89,15 @@ def test_unknown_domain_event_is_rejected_before_reaching_ros_graph():
 def test_named_qos_profiles_encode_delivery_semantics():
     command_qos = command_event_qos()
     state_qos = latched_state_qos()
+    audio_qos = audio_stream_qos()
 
     assert command_qos.reliability == ReliabilityPolicy.RELIABLE
     assert command_qos.depth == 50
     assert state_qos.reliability == ReliabilityPolicy.RELIABLE
     assert state_qos.durability == DurabilityPolicy.TRANSIENT_LOCAL
     assert state_qos.depth == 1
+    assert audio_qos.reliability == ReliabilityPolicy.BEST_EFFORT
+    assert audio_qos.depth == 20
 
 
 def test_wake_event_round_trip_preserves_optional_command_semantics():

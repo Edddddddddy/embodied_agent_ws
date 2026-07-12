@@ -115,8 +115,11 @@
 - 唤醒、识别与 NLU 分别使用 `WakeEvent`、`RecognitionFeedback`、`NluParseEvent`。
   `NluParseEvent` 继续组合 `NluCommand`、`CommandSlot` 和 `RobotCommand`，既保留
   可观测的语义槽位，又不让任意字典穿过 ROS 中间件边界。
+- `agent_ros_io.py` 把在线/离线节点共同的 publisher/subscription 接线收敛成 Facade；
+  `ros_topics.py` 集中全部 Agent topic，节点只注入业务 callback，不再拼消息或硬编码接口名。
 - `ros_qos.py` 用命名函数表达中间件语义：命令生命周期事件使用 reliable，Agent/session
-  当前状态使用 transient-local。这样 QoS 是模块接口的一部分，而不是散落的 `depth=10`。
+  当前状态使用 transient-local，PCM 使用 best-effort。这样 QoS 是模块接口的一部分，而不是
+  散落的 `depth=10`，也不会让 reliable DDS 反压实时音频线程。
 - C++ 使用 `src/embodied_agent_middleware/include/embodied_agent_middleware/qos_profiles.hpp`
   表达同一套语义；ActionGuard、Action scheduler、音频前端、硬件 adapter 与仿真节点不再各自猜测 QoS。
 - 校验动作类型、速度、时长、颜色、模式等字段。
@@ -141,6 +144,8 @@
 - 所有 topic 都用 reliable/depth=10：写法简单，但 PCM/scan 容易积压，状态又无法服务晚加入监控。
 - 所有状态都 transient-local：监控方便，但控制命令可能在节点重启后被重放，存在安全风险。
 - 按领域语义命名 QoS：调用处能直接表达 command/event/state/sensor/audio，策略可单测并跨包复用。
+- Facade 与直接在节点里创建 topic：Facade 多一个明确边界，但能保证 online/offline 接口完全
+  同构；新增 topic 或调整 QoS 只改一个模块，结构测试禁止节点重新出现硬编码 topic。
 
 ### 组件健康与系统就绪
 

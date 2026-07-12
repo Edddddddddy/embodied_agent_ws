@@ -88,8 +88,8 @@ flowchart LR
 
 | 内容 | 位置 |
 | --- | --- |
-| 关键文件 | `agent_control_plane.py`、`agent_execution_runtime.py`、`continuous_voice.py`、`ros_agent_events.py`、`ros_event_transport.py`、`ros_qos.py`、`embodied_agent_interfaces/msg/{WakeEvent,RecognitionFeedback,NluParseEvent,Command*Event}.msg` |
-| 关键类/函数 | `AgentControlPlane.accept_transcript()`、`enqueue_command()`、`AgentExecutionRuntime`、`StreamingTurnRuntime`、`ContinuousVoiceSession`、`ContinuousCommandQueue`、`RosAgentEventPublisher.publish_*_decision()` |
+| 关键文件 | `agent_control_plane.py`、`agent_execution_runtime.py`、`continuous_voice.py`、`agent_ros_io.py`、`ros_topics.py`、`ros_agent_events.py`、`ros_event_transport.py`、`ros_qos.py`、`embodied_agent_interfaces/msg/{WakeEvent,RecognitionFeedback,NluParseEvent,Command*Event}.msg` |
+| 关键类/函数 | `AgentControlPlane.accept_transcript()`、`enqueue_command()`、`AgentExecutionRuntime`、`StreamingTurnRuntime`、`ContinuousVoiceSession`、`ContinuousCommandQueue`、`AgentRosIo.publish_*()`、`RosAgentEventPublisher.publish_*_decision()` |
 | 主要接口 | `/agent/session_state`、`/agent/wake_event`、`/agent/recognition_feedback`、`/agent/nlu_parse`、`/agent/command_queue`、`/agent/command_execution` |
 | 技术点 | 文本唤醒、重复过滤、FIFO、TTL、急停抢占、强类型事件、reliable/transient-local QoS |
 
