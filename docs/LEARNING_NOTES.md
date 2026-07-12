@@ -203,6 +203,7 @@ publisher 关闭前发布 `ComponentHealth.STATE_STOPPED`，覆盖 transient-loc
 
 - `src/embodied_agent_core/embodied_agent_core/agent_parameters.py`
 - `src/embodied_agent_core/embodied_agent_core/agent_launch_contract.py`
+- `src/embodied_agent_core/embodied_agent_core/agent_deployment_launch_contract.py`
 - `src/embodied_agent_core/embodied_agent_core/voice_frontend_launch_contract.py`
 - `src/embodied_online_agent/embodied_online_agent/online_agent_node.py`
 - `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py`
@@ -225,6 +226,9 @@ publisher 关闭前发布 `ComponentHealth.STATE_STOPPED`，覆盖 transient-loc
 - `voice_frontend_launch_contract.py` 进一步把 audio frontend、Silero/WebRTC VAD、KWS、
   speaker identity 的参数声明和 Node 构造收进一个深模块。在线/离线 launch 从数百行
   重复装配缩减为 provider、TTS、Lifecycle 和硬件拓扑说明。
+- `agent_deployment_launch_contract.py` 把 ActionGuard、唯一 Lifecycle manager 和硬件
+  Adapter 视为一个安全部署单元；`node_names=[action_guard, agent]` 同时表达正序激活和
+  逆序停机，避免两份 launch 的顺序在维护中漂移。
 - 配置优先级是“节点 schema → provider YAML → launch 覆盖”。YAML 只保留模型 endpoint、
   路径、线程数等 provider 配置；会话/队列/记忆默认值不再复制。
 

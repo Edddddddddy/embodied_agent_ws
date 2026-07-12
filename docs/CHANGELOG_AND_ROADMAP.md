@@ -58,6 +58,7 @@
 | executor 后端隔离 | 避免简单 Gazebo/Mock 后端和 Nav2 Action client、线程、地图加载耦合在同一编译单元 | 按 Gazebo、Mock、Nav2 拆为三个 pluginlib 实现文件，保持稳定插件名称和公共 `RobotExecutor` 契约 |
 | 真实语音 profile 收敛 | 消除普通控制与 Nav2 入口各自维护 normal/quiet/low_gain/noisy_room 参数表造成的漂移 | 新增 `voice_control_profile.sh` 作为唯一解析器，场景只覆盖会话基线，显式环境变量仍拥有最高优先级 |
 | voice frontend launch 收敛 | 消除 online/offline 对音频、VAD、KWS、声纹参数和节点的整段复制 | 新增 `voice_frontend_launch_contract.py`，统一 31 个参数和 5 个节点；在线 launch 缩至约 100 行、离线约 156 行 |
+| Agent 安全部署拓扑收敛 | 避免 ActionGuard/Lifecycle manager/硬件 Adapter 顺序与参数在 online/offline 漂移 | 新增 `agent_deployment_launch_contract.py`；统一正序激活、逆序停机及 UART/SPI 类型，在线 launch 进一步缩至约 57 行、离线约 123 行 |
 | 控制命令启动可靠性 | 修复 DDS discovery 完成前 Guard 发布的 volatile 动作静默丢失 | 新增有界 TTL `GuardedCommandOutbox`；scheduler 匹配后 FIFO 转发，超时/满载明确拒绝，不回放陈旧动作 |
 | C++ 中间件契约收敛 | 清理跨节点散落的 QoS depth 与不一致策略 | 新增独立 `embodied_agent_middleware` 包，统一 command/event/state/sensor/audio/diagnostics QoS，并迁移控制主链路 |
 | 系统就绪状态收敛 | 替代 launch/test 中分散的固定 sleep、topic graph 猜测和日志字符串判断 | 新增 `ComponentHealth`、`SystemReadiness`、心跳超时聚合器和 profile 化启动门禁；保留音频/仿真数据质量探针 |

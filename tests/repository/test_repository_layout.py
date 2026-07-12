@@ -112,6 +112,29 @@ def test_online_and_offline_launch_share_voice_frontend_contract():
         assert 'executable="silero_vad"' not in launch
 
 
+def test_online_and_offline_launch_share_safe_deployment_contract():
+    """ActionGuard、Lifecycle 顺序与硬件参数必须有一个权威实现。"""
+    contract = CORE_ROOT / "agent_deployment_launch_contract.py"
+    assert contract.is_file()
+    text = contract.read_text(encoding="utf-8")
+    assert 'managed_nodes = ["action_guard", agent_name]' in text
+    assert 'executable="hardware_controller"' in text
+    assert "uart_baud_rate" in text
+    assert "spi_speed_hz" in text
+
+    for package_name, launch_name, agent_name in (
+        ("embodied_online_agent", "online_agent.launch.py", "online_agent"),
+        ("embodied_offline_agent", "offline_agent.launch.py", "offline_agent"),
+    ):
+        launch = (
+            ROOT / "src" / package_name / "launch" / launch_name
+        ).read_text(encoding="utf-8")
+        assert "declare_agent_deployment_arguments" in launch
+        assert f'agent_deployment_nodes("{agent_name}")' in launch
+        assert 'executable="action_guard"' not in launch
+        assert 'executable="hardware_controller"' not in launch
+
+
 def test_integration_probes_are_not_mixed_with_user_scripts():
     misplaced = sorted((ROOT / "scripts").glob("test_*"))
     assert misplaced == [], f"测试探针应放入 tests/integration: {misplaced}"
@@ -1614,8 +1637,12 @@ def test_online_and_offline_agents_have_real_lifecycle_resource_ownership():
     offline_launch = (
         offline_root / "launch" / "offline_agent.launch.py"
     ).read_text(encoding="utf-8")
-    assert '["action_guard", "online_agent"]' in online_launch
-    assert '["action_guard", "offline_agent"]' in offline_launch
+    deployment_contract = (
+        CORE_ROOT / "agent_deployment_launch_contract.py"
+    ).read_text(encoding="utf-8")
+    assert 'managed_nodes = ["action_guard", agent_name]' in deployment_contract
+    assert 'agent_deployment_nodes("online_agent")' in online_launch
+    assert 'agent_deployment_nodes("offline_agent")' in offline_launch
     for launch in (online_launch, offline_launch):
         assert '"agent_lifecycle_autostart": False' in launch
 

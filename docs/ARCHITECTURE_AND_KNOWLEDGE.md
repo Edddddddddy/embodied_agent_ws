@@ -187,6 +187,7 @@ Python 的 `embodied_agent_core/ros_qos.py` 与 C++ 的
 - `embodied_agent_core/continuous_voice.py`
 - `embodied_agent_core/command_nlu.py`
 - `embodied_agent_core/agent_launch_contract.py`
+- `embodied_agent_core/agent_deployment_launch_contract.py`
 - `embodied_agent_core/voice_frontend_launch_contract.py`
 - `config/command_normalization_zh.yaml`
 - `prompts/system_prompt_zh.txt`
@@ -218,6 +219,8 @@ Python 的 `embodied_agent_core/ros_qos.py` 与 C++ 的
   复用同一转发表，模型路径等仍由各自 YAML profile 管理。
 - `voice_frontend_launch_contract.py` 统一音频、VAD、KWS、声纹的 31 个参数和 5 个节点；
   online/offline launch 只选择 provider YAML，不再复制节点内部参数映射。
+- `agent_deployment_launch_contract.py` 固定 `ActionGuard → Agent` 的激活顺序和逆序停机，
+  同时统一可选 hardware controller 的 UART/SPI 类型映射；调用方只传稳定的 Agent 名称。
 - online/offline Agent 使用真正的 `LifecycleNode` 和 lifecycle publisher：configure 创建
   provider，activate 启动 ASR/队列线程，deactivate 先发布 STOP/STOPPED health 再停线程，
   cleanup 释放连接与模型对象。launch manager 按 `ActionGuard → Agent` 激活、逆序停用。

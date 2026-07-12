@@ -5,6 +5,10 @@ from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import LifecycleNode, Node
 from launch_ros.parameter_descriptions import ParameterValue
 
+from embodied_agent_core.agent_deployment_launch_contract import (
+    agent_deployment_nodes,
+    declare_agent_deployment_arguments,
+)
 from embodied_agent_core.agent_launch_contract import (
     agent_control_configurations,
     agent_control_parameter_overrides,
@@ -36,13 +40,6 @@ def generate_launch_description():
     summer_tts_cache_enabled = LaunchConfiguration("summer_tts_cache_enabled")
     summer_tts_cache_max_entries = LaunchConfiguration("summer_tts_cache_max_entries")
     summer_tts_cache_max_text_chars = LaunchConfiguration("summer_tts_cache_max_text_chars")
-    hardware_backend = LaunchConfiguration("hardware_backend")
-    hardware_enabled = LaunchConfiguration("hardware_enabled")
-    lifecycle_autostart = LaunchConfiguration("lifecycle_autostart")
-    uart_device = LaunchConfiguration("uart_device")
-    uart_baud_rate = LaunchConfiguration("uart_baud_rate")
-    spi_device = LaunchConfiguration("spi_device")
-    spi_speed_hz = LaunchConfiguration("spi_speed_hz")
     return LaunchDescription([
         # 与在线 launch 共用参数接口和默认值来源，避免两条链路配置漂移。
         *declare_agent_control_arguments("offline"),
@@ -93,13 +90,7 @@ def generate_launch_description():
                 ),
             }],
         ),
-        DeclareLaunchArgument("hardware_backend", default_value="mock"),
-        DeclareLaunchArgument("hardware_enabled", default_value="true"),
-        DeclareLaunchArgument("lifecycle_autostart", default_value="true"),
-        DeclareLaunchArgument("uart_device", default_value="/dev/ttyUSB0"),
-        DeclareLaunchArgument("uart_baud_rate", default_value="115200"),
-        DeclareLaunchArgument("spi_device", default_value="/dev/spidev0.0"),
-        DeclareLaunchArgument("spi_speed_hz", default_value="1000000"),
+        *declare_agent_deployment_arguments(),
         LifecycleNode(
             package="embodied_offline_agent", executable="offline_agent",
             name="offline_agent", namespace="", output="screen",
@@ -128,29 +119,5 @@ def generate_launch_description():
             }],
         ),
         *voice_frontend_nodes(config),
-        LifecycleNode(
-            package="embodied_agent_cpp", executable="action_guard",
-            name="action_guard", namespace="", output="screen",
-        ),
-        Node(
-            package="nav2_lifecycle_manager", executable="lifecycle_manager",
-            name="agent_control_lifecycle_manager", output="screen",
-            parameters=[{
-                "autostart": ParameterValue(lifecycle_autostart, value_type=bool),
-                "node_names": ["action_guard", "offline_agent"],
-                "bond_timeout": 0.0,
-            }],
-        ),
-        Node(
-            package="embodied_agent_cpp", executable="hardware_controller",
-            name="hardware_controller", output="screen",
-            condition=IfCondition(hardware_enabled),
-            parameters=[{
-                "backend": hardware_backend,
-                "uart_device": uart_device,
-                "uart_baud_rate": ParameterValue(uart_baud_rate, value_type=int),
-                "spi_device": spi_device,
-                "spi_speed_hz": ParameterValue(spi_speed_hz, value_type=int),
-            }],
-        ),
+        *agent_deployment_nodes("offline_agent"),
     ])
