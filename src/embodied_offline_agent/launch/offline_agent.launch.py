@@ -4,6 +4,12 @@ from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import LifecycleNode, Node
 from launch_ros.parameter_descriptions import ParameterValue
+
+from embodied_online_agent.agent_launch_contract import (
+    agent_control_configurations,
+    agent_control_parameter_overrides,
+    declare_agent_control_arguments,
+)
 from ament_index_python.packages import get_package_share_directory
 import os
 
@@ -12,8 +18,8 @@ def generate_launch_description():
     config = os.path.join(
         get_package_share_directory("embodied_offline_agent"), "config", "offline_agent.yaml"
     )
-    mode = LaunchConfiguration("mode")
-    microphone = LaunchConfiguration("microphone_enabled")
+    agent_config = agent_control_configurations()
+    microphone = agent_config["microphone_enabled"]
     capture = LaunchConfiguration("capture_enabled")
     speaker = LaunchConfiguration("speaker_enabled")
     vad_provider = LaunchConfiguration("vad_provider")
@@ -45,27 +51,7 @@ def generate_launch_description():
     aec_enabled = LaunchConfiguration("aec_enabled")
     noise_suppression_enabled = LaunchConfiguration("noise_suppression_enabled")
     auto_gain_enabled = LaunchConfiguration("auto_gain_enabled")
-    continuous_control_enabled = LaunchConfiguration("continuous_control_enabled")
-    voice_session_timeout_s = LaunchConfiguration("voice_session_timeout_s")
-    continuous_command_queue_size = LaunchConfiguration("continuous_command_queue_size")
-    continuous_command_max_age_s = LaunchConfiguration("continuous_command_max_age_s")
-    continuous_duplicate_window_s = LaunchConfiguration("continuous_duplicate_window_s")
-    user_memory_retention_days = LaunchConfiguration("user_memory_retention_days")
-    memory_path = LaunchConfiguration("memory_path")
-    user_memory_dir = LaunchConfiguration("user_memory_dir")
-    command_normalization_enabled = LaunchConfiguration("command_normalization_enabled")
-    command_normalization_feedback_enabled = LaunchConfiguration(
-        "command_normalization_feedback_enabled"
-    )
-    command_normalization_fuzzy_threshold = LaunchConfiguration(
-        "command_normalization_fuzzy_threshold"
-    )
-    command_normalization_path = LaunchConfiguration("command_normalization_path")
-    command_completion_enabled = LaunchConfiguration("command_completion_enabled")
-    asr_commit_delay_ms = LaunchConfiguration("asr_commit_delay_ms")
     asr_hotwords_score = LaunchConfiguration("asr_hotwords_score")
-    asr_partial_merge_enabled = LaunchConfiguration("asr_partial_merge_enabled")
-    asr_partial_max_age_s = LaunchConfiguration("asr_partial_max_age_s")
     tts_provider = LaunchConfiguration("tts_provider")
     summer_tts_binary = LaunchConfiguration("summer_tts_binary")
     summer_tts_model = LaunchConfiguration("summer_tts_model")
@@ -79,15 +65,14 @@ def generate_launch_description():
     summer_tts_cache_max_text_chars = LaunchConfiguration("summer_tts_cache_max_text_chars")
     hardware_backend = LaunchConfiguration("hardware_backend")
     hardware_enabled = LaunchConfiguration("hardware_enabled")
-    wake_word_enabled = LaunchConfiguration("wake_word_enabled")
     lifecycle_autostart = LaunchConfiguration("lifecycle_autostart")
     uart_device = LaunchConfiguration("uart_device")
     uart_baud_rate = LaunchConfiguration("uart_baud_rate")
     spi_device = LaunchConfiguration("spi_device")
     spi_speed_hz = LaunchConfiguration("spi_speed_hz")
     return LaunchDescription([
-        DeclareLaunchArgument("mode", default_value="mock"),
-        DeclareLaunchArgument("microphone_enabled", default_value="false"),
+        # 与在线 launch 共用参数接口和默认值来源，避免两条链路配置漂移。
+        *declare_agent_control_arguments("offline"),
         DeclareLaunchArgument("capture_enabled", default_value=microphone),
         DeclareLaunchArgument("speaker_enabled", default_value="false"),
         DeclareLaunchArgument("vad_provider", default_value="energy"),
@@ -119,31 +104,7 @@ def generate_launch_description():
         DeclareLaunchArgument("aec_enabled", default_value="true"),
         DeclareLaunchArgument("noise_suppression_enabled", default_value="false"),
         DeclareLaunchArgument("auto_gain_enabled", default_value="false"),
-        DeclareLaunchArgument("continuous_control_enabled", default_value="false"),
-        DeclareLaunchArgument("voice_session_timeout_s", default_value="60.0"),
-        DeclareLaunchArgument("continuous_command_queue_size", default_value="8"),
-        DeclareLaunchArgument("continuous_command_max_age_s", default_value="30.0"),
-        DeclareLaunchArgument("continuous_duplicate_window_s", default_value="1.2"),
-        DeclareLaunchArgument("user_memory_retention_days", default_value="90.0"),
-        DeclareLaunchArgument(
-            "memory_path", default_value="~/.ros/embodied_agent/offline_memory.json"
-        ),
-        DeclareLaunchArgument(
-            "user_memory_dir", default_value="~/.ros/embodied_agent/users"
-        ),
-        DeclareLaunchArgument("command_normalization_enabled", default_value="true"),
-        DeclareLaunchArgument(
-            "command_normalization_feedback_enabled", default_value="true"
-        ),
-        DeclareLaunchArgument(
-            "command_normalization_fuzzy_threshold", default_value="0.82"
-        ),
-        DeclareLaunchArgument("command_normalization_path", default_value=""),
-        DeclareLaunchArgument("command_completion_enabled", default_value="true"),
-        DeclareLaunchArgument("asr_commit_delay_ms", default_value="0"),
         DeclareLaunchArgument("asr_hotwords_score", default_value="3.0"),
-        DeclareLaunchArgument("asr_partial_merge_enabled", default_value="true"),
-        DeclareLaunchArgument("asr_partial_max_age_s", default_value="2.0"),
         DeclareLaunchArgument("tts_provider", default_value="sherpa"),
         DeclareLaunchArgument(
             "summer_tts_binary",
@@ -191,7 +152,6 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument("hardware_backend", default_value="mock"),
         DeclareLaunchArgument("hardware_enabled", default_value="true"),
-        DeclareLaunchArgument("wake_word_enabled", default_value="true"),
         DeclareLaunchArgument("lifecycle_autostart", default_value="true"),
         DeclareLaunchArgument("uart_device", default_value="/dev/ttyUSB0"),
         DeclareLaunchArgument("uart_baud_rate", default_value="115200"),
@@ -201,53 +161,9 @@ def generate_launch_description():
             package="embodied_offline_agent", executable="offline_agent",
             name="offline_agent", output="screen",
             parameters=[config, {
-                "mode": mode,
-                "microphone_enabled": microphone,
-                "wake_word_enabled": ParameterValue(wake_word_enabled, value_type=bool),
-                "continuous_control_enabled": ParameterValue(
-                    continuous_control_enabled, value_type=bool
-                ),
-                "voice_session_timeout_s": ParameterValue(
-                    voice_session_timeout_s, value_type=float
-                ),
-                "continuous_command_queue_size": ParameterValue(
-                    continuous_command_queue_size, value_type=int
-                ),
-                "continuous_command_max_age_s": ParameterValue(
-                    continuous_command_max_age_s, value_type=float
-                ),
-                "continuous_duplicate_window_s": ParameterValue(
-                    continuous_duplicate_window_s, value_type=float
-                ),
-                "user_memory_retention_days": ParameterValue(
-                    user_memory_retention_days, value_type=float
-                ),
-                "memory_path": memory_path,
-                "user_memory_dir": user_memory_dir,
-                "command_normalization_enabled": ParameterValue(
-                    command_normalization_enabled, value_type=bool
-                ),
-                "command_normalization_feedback_enabled": ParameterValue(
-                    command_normalization_feedback_enabled, value_type=bool
-                ),
-                "command_normalization_fuzzy_threshold": ParameterValue(
-                    command_normalization_fuzzy_threshold, value_type=float
-                ),
-                "command_normalization_path": command_normalization_path,
-                "command_completion_enabled": ParameterValue(
-                    command_completion_enabled, value_type=bool
-                ),
-                "asr_commit_delay_ms": ParameterValue(
-                    asr_commit_delay_ms, value_type=int
-                ),
+                **agent_control_parameter_overrides(),
                 "asr_hotwords_score": ParameterValue(
                     asr_hotwords_score, value_type=float
-                ),
-                "asr_partial_merge_enabled": ParameterValue(
-                    asr_partial_merge_enabled, value_type=bool
-                ),
-                "asr_partial_max_age_s": ParameterValue(
-                    asr_partial_max_age_s, value_type=float
                 ),
                 "tts_provider": tts_provider,
                 "summer_tts_binary": summer_tts_binary,

@@ -124,6 +124,8 @@ sequenceDiagram
 核心文件：
 
 - `embodied_online_agent/online_agent_node.py`
+- `embodied_online_agent/agent_parameters.py`
+- `embodied_online_agent/agent_launch_contract.py`
 - `embodied_online_agent/agent_control_plane.py`
 - `embodied_online_agent/ros_agent_events.py`
 - `embodied_online_agent/continuous_voice.py`
@@ -141,6 +143,14 @@ sequenceDiagram
   补全、重试、优先控制、队列和 batch id；不依赖 `rclpy`。
 - `RosAgentEventPublisher` 是独立 Adapter，统一 typed topic、时间戳和 QoS，避免两个
   主节点分别维护一组 publisher。
+- `agent_parameters.py` 是在线/离线节点参数的单一权威来源：公共控制面与 provider
+  专属参数分组声明，启动时校验范围/枚举/跨字段约束，并生成只读参数快照。
+- `agent_launch_contract.py` 只暴露部署时常用的控制参数；Gazebo/Nav2 上层 launch
+  复用同一转发表，模型路径等仍由各自 YAML profile 管理。
+
+配置覆盖顺序固定为：节点 schema 默认值 → provider YAML → launch 显式覆盖。YAML 只
+保存在线或离线模型相关配置，不再复制队列、会话、记忆等公共默认值；参数不支持运行时
+半更新，修改后应重启节点，让 provider、队列和会话对象始终对应同一份配置快照。
 
 ### `embodied_offline_agent`
 

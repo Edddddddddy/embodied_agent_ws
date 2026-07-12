@@ -25,6 +25,7 @@ from embodied_online_agent.agent_control_plane import (
     AgentControlPlane,
     AgentControlPlaneConfig,
 )
+from embodied_online_agent.agent_parameters import declare_agent_parameters
 from embodied_online_agent.command_fallback import parse_fallback_actions, should_block_model_actions
 from embodied_online_agent.continuous_voice import QueueSnapshot
 from embodied_online_agent.protocol import SentenceChunker, TaggedStreamParser
@@ -54,7 +55,9 @@ from .providers.mock import MockOfflineAsr, MockOfflineLlm, MockOfflineTts
 class OfflineAgentNode(Node):
     def __init__(self):
         super().__init__("offline_agent")
-        self._declare_parameters()
+        # 在线/离线共享同一控制面参数契约，离线模型参数则由 offline profile 扩展。
+        # `_parameters` 由 rclpy.Node 自己维护，领域配置快照必须使用独立名称。
+        self._agent_parameters = declare_agent_parameters(self, "offline")
         self._mode = self._param("mode")
         self._stopping = False
         self._busy = False
@@ -152,81 +155,8 @@ class OfflineAgentNode(Node):
             f"offline agent ready: mode={self._mode}, microphone={self._param('microphone_enabled')}"
         )
 
-    def _declare_parameters(self):
-        defaults = {
-            "mode": "mock",
-            "microphone_enabled": False,
-            "audio_sample_rate": 16000,
-            "wake_word_enabled": True,
-            "wake_words": ["小智", "你好小智"],
-            "wake_word_aliases": ["小志", "小治", "晓智", "晓志"],
-            "wake_active_timeout_s": 10.0,
-            "memory_path": "~/.ros/embodied_agent/offline_memory.json",
-            "memory_max_turns": 3,
-            "user_memory_dir": "~/.ros/embodied_agent/users",
-            "user_memory_max_recent": 8,
-            "user_memory_retention_days": 90.0,
-            "speaker_identity_min_confidence": 0.55,
-            "system_prompt_path": "",
-            "asr_model_dir": "/home/ubuntu/embodied_agent_ws/models/sherpa-onnx-streaming-zipformer-small-bilingual-zh-en-2023-02-16",
-            "asr_num_threads": 2,
-            "asr_decoding_method": "modified_beam_search",
-            "asr_hotwords_file": "",
-            "asr_hotwords_score": 3.0,
-            "asr_max_active_paths": 4,
-            "asr_modeling_unit": "cjkchar",
-            "recognition_max_retries": 3,
-            "command_normalization_enabled": True,
-            "command_normalization_feedback_enabled": True,
-            "command_normalization_fuzzy_threshold": 0.82,
-            "command_normalization_path": "",
-            "command_completion_enabled": True,
-            "command_nlu_enabled": True,
-            "command_nlu_min_confidence": 0.18,
-            "llm_base_url": "http://127.0.0.1:8080/v1",
-            "llm_model": "Qwen3-0.6B-Q8_0.gguf",
-            "llm_temperature": 0.7,
-            "llm_max_tokens": 192,
-            "llm_seed": 42,
-            "llm_timeout_s": 30.0,
-            "llm_max_retries": 1,
-            "llm_first_token_warn_ms": 1000.0,
-            "runtime_warmup_enabled": True,
-            "tts_model_dir": "/home/ubuntu/embodied_agent_ws/models/vits-melo-tts-zh_en",
-            "tts_provider": "sherpa",
-            "tts_num_threads": 2,
-            "tts_speaker_id": 0,
-            "tts_speed": 1.0,
-            "tts_sample_rate": 44100,
-            "tts_chunk_max_chars": 24,
-            "tts_pcm_chunk_ms": 80,
-            "summer_tts_binary": "/home/ubuntu/embodied_agent_ws/third_party/SummerTTS/build/tts_test",
-            "summer_tts_model": "/home/ubuntu/embodied_agent_ws/third_party/SummerTTS/models/single_speaker_fast.bin",
-            "summer_tts_timeout_s": 30.0,
-            "summer_tts_service_name": "/tts/synthesize",
-            "summer_tts_service_timeout_s": 10.0,
-            "summer_tts_service_speaker_id": -1,
-            "summer_tts_service_length_scale": 0.0,
-            "mock_token_delay_s": 0.0,
-            "mock_asr_finals": "",
-            "mock_asr_partials": "",
-            "action_sequence_wait_timeout_s": 12.0,
-            "continuous_control_enabled": False,
-            "voice_session_timeout_s": 60.0,
-            "continuous_command_queue_size": 8,
-            "continuous_command_max_age_s": 30.0,
-            "continuous_duplicate_window_s": 1.2,
-            "speech_endpoint_events_enabled": True,
-            "asr_commit_delay_ms": 0,
-            "asr_partial_merge_enabled": True,
-            "asr_partial_max_age_s": 2.0,
-            "external_wake_event_enabled": True,
-        }
-        for name, value in defaults.items():
-            self.declare_parameter(name, value)
-
     def _param(self, name):
-        return self.get_parameter(name).value
+        return self._agent_parameters.get(name)
 
     def _command_normalization_path(self) -> Path | str:
         configured = self._param("command_normalization_path")

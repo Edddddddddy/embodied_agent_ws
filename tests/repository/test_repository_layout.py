@@ -254,6 +254,75 @@ def test_offline_voice_e2e_reuses_an_existing_llama_server():
     assert "/agent/clear_memory" not in script
 
 
+def test_agent_parameter_contract_has_one_authoritative_schema():
+    """在线/离线节点不得重新复制默认参数表，组合 launch 也必须复用转发契约。"""
+
+    online_package = ROOT / "src" / "embodied_online_agent"
+    schema = online_package / "embodied_online_agent" / "agent_parameters.py"
+    launch_contract = (
+        online_package / "embodied_online_agent" / "agent_launch_contract.py"
+    )
+    assert schema.is_file()
+    assert launch_contract.is_file()
+
+    for node_path in (
+        online_package / "embodied_online_agent" / "online_agent_node.py",
+        ROOT
+        / "src"
+        / "embodied_offline_agent"
+        / "embodied_offline_agent"
+        / "offline_agent_node.py",
+    ):
+        text = node_path.read_text(encoding="utf-8")
+        assert "declare_agent_parameters" in text
+        assert "self._agent_parameters =" in text
+        assert "self._parameters = declare_agent_parameters" not in text
+        assert "def _declare_parameters" not in text
+
+    for launch_path in (
+        ROOT / "src" / "embodied_simulation" / "launch" / "voice_turtlebot3.launch.py",
+        ROOT
+        / "src"
+        / "embodied_simulation"
+        / "launch"
+        / "voice_nav2_turtlebot3.launch.py",
+    ):
+        text = launch_path.read_text(encoding="utf-8")
+        assert "declare_forwarded_agent_arguments" in text
+        assert "forwarded_agent_launch_arguments" in text
+        assert 'DeclareLaunchArgument("continuous_command_queue_size"' not in text
+
+
+def test_provider_yaml_does_not_duplicate_control_plane_defaults():
+    """YAML 只描述 provider；公共控制面默认值由 agent_parameters.py 管理。"""
+
+    forbidden = (
+        "continuous_command_queue_size:",
+        "voice_session_timeout_s:",
+        "command_normalization_fuzzy_threshold:",
+        "memory_max_turns:",
+    )
+    for profile in (
+        ROOT / "src" / "embodied_online_agent" / "config" / "online_agent.yaml",
+        ROOT / "src" / "embodied_offline_agent" / "config" / "offline_agent.yaml",
+    ):
+        text = profile.read_text(encoding="utf-8")
+        for key in forbidden:
+            assert key not in text
+
+
+def test_parameter_smoke_uses_bounded_rclpy_client_instead_of_ros2cli_daemon():
+    probe = ROOT / "scripts" / "ros_parameter_check.py"
+    smoke = ROOT / "scripts" / "smoke_test_online_wake_config.sh"
+    assert probe.is_file()
+    probe_text = probe.read_text(encoding="utf-8")
+    smoke_text = smoke.read_text(encoding="utf-8")
+    assert "AsyncParameterClient" in probe_text
+    assert "spin_until_future_complete" in probe_text
+    assert "--timeout 15" in smoke_text
+    assert "ros2 param get" not in smoke_text
+
+
 def test_instruction_following_lora_review_workflow_remains_available():
     """失败样例只能先进入候选集；人工审核后才允许导出 approved LoRA 数据集。"""
 

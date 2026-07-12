@@ -1,3 +1,6 @@
+import os
+
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
@@ -5,13 +8,18 @@ from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import LifecycleNode, Node
 from launch_ros.parameter_descriptions import ParameterValue
 
+from embodied_online_agent.agent_launch_contract import (
+    agent_control_configurations,
+    agent_control_parameter_overrides,
+    declare_agent_control_arguments,
+)
+
 
 def generate_launch_description():
     config = LaunchConfiguration("config")
-    mode = LaunchConfiguration("mode")
-    microphone_enabled = LaunchConfiguration("microphone_enabled")
+    agent_config = agent_control_configurations()
+    microphone_enabled = agent_config["microphone_enabled"]
     capture_enabled = LaunchConfiguration("capture_enabled")
-    wake_word_enabled = LaunchConfiguration("wake_word_enabled")
     speaker_enabled = LaunchConfiguration("speaker_enabled")
     vad_provider = LaunchConfiguration("vad_provider")
     speech_start_threshold = LaunchConfiguration("speech_start_threshold")
@@ -42,24 +50,6 @@ def generate_launch_description():
     aec_enabled = LaunchConfiguration("aec_enabled")
     noise_suppression_enabled = LaunchConfiguration("noise_suppression_enabled")
     auto_gain_enabled = LaunchConfiguration("auto_gain_enabled")
-    continuous_control_enabled = LaunchConfiguration("continuous_control_enabled")
-    voice_session_timeout_s = LaunchConfiguration("voice_session_timeout_s")
-    continuous_command_queue_size = LaunchConfiguration("continuous_command_queue_size")
-    continuous_command_max_age_s = LaunchConfiguration("continuous_command_max_age_s")
-    continuous_duplicate_window_s = LaunchConfiguration("continuous_duplicate_window_s")
-    user_memory_retention_days = LaunchConfiguration("user_memory_retention_days")
-    command_normalization_enabled = LaunchConfiguration("command_normalization_enabled")
-    command_normalization_feedback_enabled = LaunchConfiguration(
-        "command_normalization_feedback_enabled"
-    )
-    command_normalization_fuzzy_threshold = LaunchConfiguration(
-        "command_normalization_fuzzy_threshold"
-    )
-    command_normalization_path = LaunchConfiguration("command_normalization_path")
-    command_completion_enabled = LaunchConfiguration("command_completion_enabled")
-    asr_commit_delay_ms = LaunchConfiguration("asr_commit_delay_ms")
-    asr_partial_merge_enabled = LaunchConfiguration("asr_partial_merge_enabled")
-    asr_partial_max_age_s = LaunchConfiguration("asr_partial_max_age_s")
     hardware_backend = LaunchConfiguration("hardware_backend")
     hardware_enabled = LaunchConfiguration("hardware_enabled")
     lifecycle_autostart = LaunchConfiguration("lifecycle_autostart")
@@ -71,12 +61,16 @@ def generate_launch_description():
         [
             DeclareLaunchArgument(
                 "config",
-                default_value="/home/ubuntu/embodied_agent_ws/src/embodied_online_agent/config/online_agent.yaml",
+                default_value=os.path.join(
+                    get_package_share_directory("embodied_online_agent"),
+                    "config",
+                    "online_agent.yaml",
+                ),
+                description="Online provider YAML profile.",
             ),
-            DeclareLaunchArgument("mode", default_value="mock"),
-            DeclareLaunchArgument("microphone_enabled", default_value="false"),
+            # 节点 schema 是默认值的单一权威来源；launch 只负责部署期显式覆盖。
+            *declare_agent_control_arguments("online"),
             DeclareLaunchArgument("capture_enabled", default_value=microphone_enabled),
-            DeclareLaunchArgument("wake_word_enabled", default_value="true"),
             DeclareLaunchArgument("speaker_enabled", default_value="false"),
             DeclareLaunchArgument("vad_provider", default_value="energy"),
             DeclareLaunchArgument("speech_start_threshold", default_value="0.018"),
@@ -107,24 +101,6 @@ def generate_launch_description():
             DeclareLaunchArgument("aec_enabled", default_value="true"),
             DeclareLaunchArgument("noise_suppression_enabled", default_value="false"),
             DeclareLaunchArgument("auto_gain_enabled", default_value="false"),
-            DeclareLaunchArgument("continuous_control_enabled", default_value="false"),
-            DeclareLaunchArgument("voice_session_timeout_s", default_value="60.0"),
-            DeclareLaunchArgument("continuous_command_queue_size", default_value="8"),
-            DeclareLaunchArgument("continuous_command_max_age_s", default_value="30.0"),
-            DeclareLaunchArgument("continuous_duplicate_window_s", default_value="1.2"),
-            DeclareLaunchArgument("user_memory_retention_days", default_value="90.0"),
-            DeclareLaunchArgument("command_normalization_enabled", default_value="true"),
-            DeclareLaunchArgument(
-                "command_normalization_feedback_enabled", default_value="true"
-            ),
-            DeclareLaunchArgument(
-                "command_normalization_fuzzy_threshold", default_value="0.82"
-            ),
-            DeclareLaunchArgument("command_normalization_path", default_value=""),
-            DeclareLaunchArgument("command_completion_enabled", default_value="true"),
-            DeclareLaunchArgument("asr_commit_delay_ms", default_value="0"),
-            DeclareLaunchArgument("asr_partial_merge_enabled", default_value="true"),
-            DeclareLaunchArgument("asr_partial_max_age_s", default_value="2.0"),
             DeclareLaunchArgument("hardware_backend", default_value="mock"),
             DeclareLaunchArgument("hardware_enabled", default_value="true"),
             DeclareLaunchArgument("lifecycle_autostart", default_value="true"),
@@ -139,55 +115,7 @@ def generate_launch_description():
                 output="screen",
                 parameters=[
                     config,
-                    {
-                        "mode": mode,
-                        "microphone_enabled": ParameterValue(
-                            microphone_enabled, value_type=bool
-                        ),
-                        "wake_word_enabled": ParameterValue(
-                            wake_word_enabled, value_type=bool
-                        ),
-                        "continuous_control_enabled": ParameterValue(
-                            continuous_control_enabled, value_type=bool
-                        ),
-                        "voice_session_timeout_s": ParameterValue(
-                            voice_session_timeout_s, value_type=float
-                        ),
-                        "continuous_command_queue_size": ParameterValue(
-                            continuous_command_queue_size, value_type=int
-                        ),
-                        "continuous_command_max_age_s": ParameterValue(
-                            continuous_command_max_age_s, value_type=float
-                        ),
-                        "continuous_duplicate_window_s": ParameterValue(
-                            continuous_duplicate_window_s, value_type=float
-                        ),
-                        "user_memory_retention_days": ParameterValue(
-                            user_memory_retention_days, value_type=float
-                        ),
-                        "command_normalization_enabled": ParameterValue(
-                            command_normalization_enabled, value_type=bool
-                        ),
-                        "command_normalization_feedback_enabled": ParameterValue(
-                            command_normalization_feedback_enabled, value_type=bool
-                        ),
-                        "command_normalization_fuzzy_threshold": ParameterValue(
-                            command_normalization_fuzzy_threshold, value_type=float
-                        ),
-                        "command_normalization_path": command_normalization_path,
-                        "command_completion_enabled": ParameterValue(
-                            command_completion_enabled, value_type=bool
-                        ),
-                        "asr_commit_delay_ms": ParameterValue(
-                            asr_commit_delay_ms, value_type=int
-                        ),
-                        "asr_partial_merge_enabled": ParameterValue(
-                            asr_partial_merge_enabled, value_type=bool
-                        ),
-                        "asr_partial_max_age_s": ParameterValue(
-                            asr_partial_max_age_s, value_type=float
-                        ),
-                    },
+                    agent_control_parameter_overrides(),
                 ],
             ),
             Node(

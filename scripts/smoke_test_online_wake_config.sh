@@ -22,15 +22,20 @@ cleanup() {
 }
 trap cleanup EXIT
 
-VALUE=""
-for _ in $(seq 1 50); do
-  VALUE="$(ros2 param get /online_agent wake_word_enabled 2>/dev/null || true)"
-  [[ -n "$VALUE" ]] && break
+for _ in $(seq 1 100); do
+  grep -q "online agent ready" "$LOG_FILE" && break
+  if ! kill -0 "$LAUNCH_PID" 2>/dev/null; then
+    echo "FAIL: online Agent launch exited before ready" >&2
+    cat "$LOG_FILE" >&2
+    exit 1
+  fi
   sleep 0.1
 done
-if [[ "$VALUE" != *False* ]]; then
-  echo "FAIL: online wake_word_enabled launch override was not applied: $VALUE" >&2
+# 直接使用有界 rclpy 参数 client，不让 ros2cli daemon 的 discovery 时序污染测试结论。
+if ! VALUE="$(python3 "$WORKSPACE/scripts/ros_parameter_check.py" \
+    /online_agent wake_word_enabled --expected false --timeout 15)"; then
+  echo "FAIL: online wake_word_enabled launch override was not applied" >&2
   cat "$LOG_FILE" >&2
   exit 1
 fi
-echo "PASS: online wake_word_enabled=false reached the Agent node"
+echo "PASS: online wake_word_enabled=false reached the Agent node ($VALUE)"

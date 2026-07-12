@@ -31,6 +31,7 @@ from .agent_control_plane import (
     AgentControlPlane,
     AgentControlPlaneConfig,
 )
+from .agent_parameters import declare_agent_parameters
 from .command_fallback import parse_fallback_actions, should_block_model_actions
 from .continuous_voice import QueueSnapshot
 from .metrics import LatencyTracker
@@ -50,7 +51,9 @@ from .providers.qwen_tts import QwenRealtimeTts
 class OnlineAgentNode(Node):
     def __init__(self):
         super().__init__("online_agent")
-        self._declare_parameters()
+        # 参数在连接云端 provider 前完成声明和校验，避免错误配置到运行中才暴露。
+        # 不使用 `_parameters`：它是 rclpy.Node 的内部参数表，覆盖后会让参数服务崩溃。
+        self._agent_parameters = declare_agent_parameters(self, "online")
         self.mode = self._param("mode")
         self._state_lock = threading.Lock()
         self._busy = False
@@ -168,65 +171,8 @@ class OnlineAgentNode(Node):
             f"online agent ready: mode={self.mode}, microphone={self._param('microphone_enabled')}"
         )
 
-    def _declare_parameters(self):
-        defaults = {
-            "mode": "mock",
-            "microphone_enabled": False,
-            "audio_sample_rate": 16000,
-            "tts_sample_rate": 24000,
-            "wake_word_enabled": True,
-            "wake_words": ["小智", "你好小智"],
-            "wake_word_aliases": ["小志", "小治", "晓智", "晓志"],
-            "wake_active_timeout_s": 10.0,
-            "recognition_max_retries": 3,
-            "command_normalization_enabled": True,
-            "command_normalization_feedback_enabled": True,
-            "command_normalization_fuzzy_threshold": 0.82,
-            "command_normalization_path": "",
-            "command_completion_enabled": True,
-            "command_nlu_enabled": True,
-            "command_nlu_min_confidence": 0.18,
-            "memory_path": "~/.ros/embodied_agent/memory.json",
-            "memory_max_turns": 10,
-            "user_memory_dir": "~/.ros/embodied_agent/users",
-            "user_memory_max_recent": 8,
-            "user_memory_retention_days": 90.0,
-            "speaker_identity_min_confidence": 0.55,
-            "system_prompt_path": "",
-            "llm_model": "qwen-plus",
-            "llm_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-            "llm_temperature": 0.0,
-            "asr_model": "qwen3-asr-flash-realtime",
-            "asr_url": "wss://dashscope.aliyuncs.com/api-ws/v1/realtime",
-            "asr_language": "zh",
-            "tts_model": "qwen3-tts-flash-realtime",
-            "tts_voice": "Cherry",
-            "tts_url": "wss://dashscope.aliyuncs.com/api-ws/v1/realtime",
-            "tts_language": "Chinese",
-            "tts_chunk_max_chars": 32,
-            "llm_first_token_target_ms": 1000.0,
-            "tts_first_audio_target_ms": 300.0,
-            "mock_token_delay_s": 0.0,
-            "mock_asr_finals": "",
-            "mock_asr_partials": "",
-            "online_warmup_enabled": True,
-            "action_sequence_wait_timeout_s": 12.0,
-            "continuous_control_enabled": False,
-            "voice_session_timeout_s": 60.0,
-            "continuous_command_queue_size": 8,
-            "continuous_command_max_age_s": 30.0,
-            "continuous_duplicate_window_s": 1.2,
-            "speech_endpoint_events_enabled": True,
-            "asr_commit_delay_ms": 0,
-            "asr_partial_merge_enabled": True,
-            "asr_partial_max_age_s": 2.0,
-            "external_wake_event_enabled": True,
-        }
-        for name, value in defaults.items():
-            self.declare_parameter(name, value)
-
     def _param(self, name):
-        return self.get_parameter(name).value
+        return self._agent_parameters.get(name)
 
     def _load_system_prompt(self) -> str:
         configured = self._param("system_prompt_path")

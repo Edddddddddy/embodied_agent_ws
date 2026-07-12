@@ -14,6 +14,12 @@ from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import LifecycleNode, Node
 from launch_ros.parameter_descriptions import ParameterValue
 
+from embodied_online_agent.agent_launch_contract import (
+    declare_forwarded_agent_arguments,
+    forwarded_agent_configurations,
+    forwarded_agent_launch_arguments,
+)
+
 
 def include_launch(package, filename, arguments=None, condition=None):
     return IncludeLaunchDescription(
@@ -43,7 +49,8 @@ def generate_launch_description():
     launch_agent = LaunchConfiguration("launch_agent")
     agent_type = LaunchConfiguration("agent_type")
     provider_mode = LaunchConfiguration("provider_mode")
-    microphone = LaunchConfiguration("microphone_enabled")
+    agent_config = forwarded_agent_configurations()
+    microphone = agent_config["microphone_enabled"]
     capture = LaunchConfiguration("capture_enabled")
     speaker = LaunchConfiguration("speaker_enabled")
     vad_provider = LaunchConfiguration("vad_provider")
@@ -70,25 +77,7 @@ def generate_launch_description():
     aec_enabled = LaunchConfiguration("aec_enabled")
     noise_suppression_enabled = LaunchConfiguration("noise_suppression_enabled")
     auto_gain_enabled = LaunchConfiguration("auto_gain_enabled")
-    wake_word = LaunchConfiguration("wake_word_enabled")
-    continuous_control = LaunchConfiguration("continuous_control_enabled")
-    voice_session_timeout = LaunchConfiguration("voice_session_timeout_s")
-    continuous_command_queue_size = LaunchConfiguration("continuous_command_queue_size")
-    continuous_command_max_age = LaunchConfiguration("continuous_command_max_age_s")
-    continuous_duplicate_window = LaunchConfiguration("continuous_duplicate_window_s")
-    command_normalization_enabled = LaunchConfiguration("command_normalization_enabled")
-    command_normalization_feedback_enabled = LaunchConfiguration(
-        "command_normalization_feedback_enabled"
-    )
-    command_normalization_fuzzy_threshold = LaunchConfiguration(
-        "command_normalization_fuzzy_threshold"
-    )
-    command_normalization_path = LaunchConfiguration("command_normalization_path")
-    command_completion_enabled = LaunchConfiguration("command_completion_enabled")
-    asr_commit_delay_ms = LaunchConfiguration("asr_commit_delay_ms")
     asr_hotwords_score = LaunchConfiguration("asr_hotwords_score")
-    asr_partial_merge_enabled = LaunchConfiguration("asr_partial_merge_enabled")
-    asr_partial_max_age_s = LaunchConfiguration("asr_partial_max_age_s")
     use_typed_actions = LaunchConfiguration("use_typed_actions")
     use_behavior_tree = LaunchConfiguration("use_behavior_tree")
     executor_plugin = LaunchConfiguration("executor_plugin")
@@ -112,7 +101,7 @@ def generate_launch_description():
         DeclareLaunchArgument("launch_agent", default_value="true"),
         DeclareLaunchArgument("agent_type", default_value="online"),
         DeclareLaunchArgument("provider_mode", default_value="mock"),
-        DeclareLaunchArgument("microphone_enabled", default_value="false"),
+        *declare_forwarded_agent_arguments(),
         DeclareLaunchArgument("capture_enabled", default_value=microphone),
         DeclareLaunchArgument("speaker_enabled", default_value="false"),
         DeclareLaunchArgument("vad_provider", default_value="energy"),
@@ -139,25 +128,7 @@ def generate_launch_description():
         DeclareLaunchArgument("aec_enabled", default_value="true"),
         DeclareLaunchArgument("noise_suppression_enabled", default_value="false"),
         DeclareLaunchArgument("auto_gain_enabled", default_value="false"),
-        DeclareLaunchArgument("wake_word_enabled", default_value="true"),
-        DeclareLaunchArgument("continuous_control_enabled", default_value="false"),
-        DeclareLaunchArgument("voice_session_timeout_s", default_value="60.0"),
-        DeclareLaunchArgument("continuous_command_queue_size", default_value="8"),
-        DeclareLaunchArgument("continuous_command_max_age_s", default_value="30.0"),
-        DeclareLaunchArgument("continuous_duplicate_window_s", default_value="1.2"),
-        DeclareLaunchArgument("command_normalization_enabled", default_value="true"),
-        DeclareLaunchArgument(
-            "command_normalization_feedback_enabled", default_value="true"
-        ),
-        DeclareLaunchArgument(
-            "command_normalization_fuzzy_threshold", default_value="0.82"
-        ),
-        DeclareLaunchArgument("command_normalization_path", default_value=""),
-        DeclareLaunchArgument("command_completion_enabled", default_value="true"),
-        DeclareLaunchArgument("asr_commit_delay_ms", default_value="0"),
         DeclareLaunchArgument("asr_hotwords_score", default_value="3.0"),
-        DeclareLaunchArgument("asr_partial_merge_enabled", default_value="true"),
-        DeclareLaunchArgument("asr_partial_max_age_s", default_value="2.0"),
         DeclareLaunchArgument("use_typed_actions", default_value="true"),
         DeclareLaunchArgument("use_behavior_tree", default_value="true"),
         DeclareLaunchArgument(
@@ -226,8 +197,7 @@ def generate_launch_description():
             "embodied_online_agent",
             "online_agent.launch.py",
             {
-                "mode": provider_mode,
-                "microphone_enabled": microphone,
+                **forwarded_agent_launch_arguments(provider_mode),
                 "capture_enabled": capture,
                 "speaker_enabled": speaker,
                 "vad_provider": vad_provider,
@@ -254,24 +224,6 @@ def generate_launch_description():
                 "aec_enabled": aec_enabled,
                 "noise_suppression_enabled": noise_suppression_enabled,
                 "auto_gain_enabled": auto_gain_enabled,
-                "wake_word_enabled": wake_word,
-                "continuous_control_enabled": continuous_control,
-                "voice_session_timeout_s": voice_session_timeout,
-                "continuous_command_queue_size": continuous_command_queue_size,
-                "continuous_command_max_age_s": continuous_command_max_age,
-                "continuous_duplicate_window_s": continuous_duplicate_window,
-                "command_normalization_enabled": command_normalization_enabled,
-                "command_normalization_feedback_enabled": (
-                    command_normalization_feedback_enabled
-                ),
-                "command_normalization_fuzzy_threshold": (
-                    command_normalization_fuzzy_threshold
-                ),
-                "command_normalization_path": command_normalization_path,
-                "command_completion_enabled": command_completion_enabled,
-                "asr_commit_delay_ms": asr_commit_delay_ms,
-                "asr_partial_merge_enabled": asr_partial_merge_enabled,
-                "asr_partial_max_age_s": asr_partial_max_age_s,
                 "hardware_enabled": "false",
                 "lifecycle_autostart": lifecycle_autostart,
             },
@@ -281,8 +233,7 @@ def generate_launch_description():
             "embodied_offline_agent",
             "offline_agent.launch.py",
             {
-                "mode": provider_mode,
-                "microphone_enabled": microphone,
+                **forwarded_agent_launch_arguments(provider_mode),
                 "capture_enabled": capture,
                 "speaker_enabled": speaker,
                 "vad_provider": vad_provider,
@@ -309,25 +260,7 @@ def generate_launch_description():
                 "aec_enabled": aec_enabled,
                 "noise_suppression_enabled": noise_suppression_enabled,
                 "auto_gain_enabled": auto_gain_enabled,
-                "wake_word_enabled": wake_word,
-                "continuous_control_enabled": continuous_control,
-                "voice_session_timeout_s": voice_session_timeout,
-                "continuous_command_queue_size": continuous_command_queue_size,
-                "continuous_command_max_age_s": continuous_command_max_age,
-                "continuous_duplicate_window_s": continuous_duplicate_window,
-                "command_normalization_enabled": command_normalization_enabled,
-                "command_normalization_feedback_enabled": (
-                    command_normalization_feedback_enabled
-                ),
-                "command_normalization_fuzzy_threshold": (
-                    command_normalization_fuzzy_threshold
-                ),
-                "command_normalization_path": command_normalization_path,
-                "command_completion_enabled": command_completion_enabled,
-                "asr_commit_delay_ms": asr_commit_delay_ms,
                 "asr_hotwords_score": asr_hotwords_score,
-                "asr_partial_merge_enabled": asr_partial_merge_enabled,
-                "asr_partial_max_age_s": asr_partial_max_age_s,
                 "hardware_enabled": "false",
                 "lifecycle_autostart": lifecycle_autostart,
             },

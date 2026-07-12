@@ -25,6 +25,8 @@
   <exec_depend>embodied_agent_cpp</exec_depend>
   <exec_depend>embodied_online_agent</exec_depend>
   <exec_depend>embodied_offline_agent</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
   <exec_depend>nav2_lifecycle_manager</exec_depend>
   <exec_depend>ros_gz</exec_depend>
   <exec_depend>rviz2</exec_depend>

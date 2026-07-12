@@ -57,6 +57,7 @@
 | 控制命令启动可靠性 | 修复 DDS discovery 完成前 Guard 发布的 volatile 动作静默丢失 | 新增有界 TTL `GuardedCommandOutbox`；scheduler 匹配后 FIFO 转发，超时/满载明确拒绝，不回放陈旧动作 |
 | C++ 中间件契约收敛 | 清理跨节点散落的 QoS depth 与不一致策略 | 新增独立 `embodied_agent_middleware` 包，统一 command/event/state/sensor/audio/diagnostics QoS，并迁移控制主链路 |
 | 系统就绪状态收敛 | 替代 launch/test 中分散的固定 sleep、topic graph 猜测和日志字符串判断 | 新增 `ComponentHealth`、`SystemReadiness`、心跳超时聚合器和 profile 化启动门禁；保留音频/仿真数据质量探针 |
+| Agent 参数与 launch 契约收敛 | 消除 online/offline 节点、YAML、Gazebo/Nav2 launch 中重复默认值和转发映射 | 新增共享参数 schema、ROS range/enum 描述、启动前校验、只读快照与组合 launch 转发契约；provider YAML 仅保留模型配置 |
 
 ## 2. 当前完成度结论
 

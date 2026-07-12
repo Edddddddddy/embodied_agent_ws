@@ -156,7 +156,52 @@
 SystemReadiness 则回答“当前 launch profile 的必需组件是否全部可用”。三者互补；麦克风 RMS、
 Gazebo odom/scan 等数据质量探针仍单独保留，避免把“进程活着”误当成功能可用。
 
+### 参数 schema 与 launch profile：为什么配置也是接口
+
+关键代码：
+
+- `src/embodied_online_agent/embodied_online_agent/agent_parameters.py`
+- `src/embodied_online_agent/embodied_online_agent/agent_launch_contract.py`
+- `src/embodied_online_agent/embodied_online_agent/online_agent_node.py`
+- `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py`
+- `src/embodied_online_agent/launch/online_agent.launch.py`
+- `src/embodied_offline_agent/launch/offline_agent.launch.py`
+- `src/embodied_simulation/launch/voice_turtlebot3.launch.py`
+- `src/embodied_simulation/launch/voice_nav2_turtlebot3.launch.py`
+
+设计方式：
+
+- `ParameterSpec` 同时定义默认值、说明、数值范围、枚举和额外校验；公共控制面参数只写一次，
+  online/offline provider 参数分别扩展。
+- `declare_agent_parameters()` 在创建 ASR/LLM/TTS、队列和 worker 前声明并校验所有参数，
+  返回不可变 `AgentParameters` 快照。ROS descriptor 标记为 `read_only`，防止 `ros2 param set`
+  表面成功但已经创建的 provider 没有同步更新。
+- 跨字段校验会检查 `asr_partial_max_age_s >= asr_commit_delay_ms / 1000`；否则 endpoint
+  为等待尾部而延迟 commit 时，partial 反而先过期。
+- `agent_launch_contract.py` 从同一 schema 生成 launch 默认值和带明确 ROS 类型的
+  `ParameterValue`，并为 Gazebo/Nav2 生成相同的 include 转发表。
+- 配置优先级是“节点 schema → provider YAML → launch 覆盖”。YAML 只保留模型 endpoint、
+  路径、线程数等 provider 配置；会话/队列/记忆默认值不再复制。
+
+为什么这样设计：
+
+- 参数名和默认值本质上是部署接口。三处手写会造成在线能启动、离线才在运行中报错，或修改
+  YAML 后被 launch 的旧默认值悄悄覆盖。
+- 启动时 fail-fast 比执行第一条语音后才发现队列容量为 0、TTS provider 拼错更容易排障，
+  也避免部分节点已经 ready 后系统才退化。
+- 上层仿真只透传现场经常调整的体验参数；模型细节留在 provider profile，使 launch 保持
+  “编排进程拓扑”的职责，而不是变成几百行万能参数总线。
+
 方案对比：
+
+- 每个节点内 `declare_parameter(name, default)`：局部直观，但 online/offline 和 YAML 很容易漂移。
+- 只依赖 YAML：部署灵活，却缺少范围/枚举和跨字段校验，也难以给 `ros2 param describe` 提供元数据。
+- 动态参数回调热更新：适合 PID 或阈值等真正支持重配置的组件；Agent 的 provider、线程和队列
+  在构造期绑定，完整热更新需要事务式重建，因此当前选择只读快照和受控重启更可靠。
+- 共享 schema + 薄 launch 契约：多一个抽象模块，但默认值、类型、校验和对外参数面都可单测，
+  更适合在线/离线两条实现长期并行维护。
+
+ActionGuard 方案对比：
 
 - 在 prompt 里约束模型：必要但不够，模型仍可能输出非法字段。
 - 在执行器里校验：太晚，安全边界分散。
