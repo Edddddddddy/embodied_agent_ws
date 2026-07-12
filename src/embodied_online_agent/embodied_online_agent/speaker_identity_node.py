@@ -1,4 +1,3 @@
-import json
 import math
 import struct
 import threading
@@ -8,9 +7,19 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import rclpy
+from embodied_agent_interfaces.msg import (
+    SpeakerEnrollRequest,
+    SpeakerEnrollStatus,
+    SpeakerIdentity,
+)
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
-from std_msgs.msg import Empty, String, UInt8MultiArray
+from std_msgs.msg import Empty, UInt8MultiArray
+
+from .speaker_transport import (
+    enroll_status_to_message,
+    identity_payload_to_message,
+)
 
 
 @dataclass
@@ -127,9 +136,9 @@ class SpeakerIdentityNode(Node):
         self._enrollment: EnrollmentSession | None = None
         if self._mode == "sherpa":
             self._load_sherpa_backend()
-        self._pub = self.create_publisher(String, "/agent/speaker_identity", 10)
+        self._pub = self.create_publisher(SpeakerIdentity, "/agent/speaker_identity", 10)
         self._enroll_status_pub = self.create_publisher(
-            String, "/agent/speaker_enroll_status", 10
+            SpeakerEnrollStatus, "/agent/speaker_enroll_status", 10
         )
         audio_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
@@ -139,7 +148,10 @@ class SpeakerIdentityNode(Node):
         self.create_subscription(UInt8MultiArray, "/audio/clean_pcm", self._on_audio, audio_qos)
         self.create_subscription(Empty, "/audio/speech_ended", self._on_speech_ended, 10)
         self.create_subscription(
-            String, "/agent/speaker_enroll_request", self._on_enroll_request, 10
+            SpeakerEnrollRequest,
+            "/agent/speaker_enroll_request",
+            self._on_enroll_request,
+            10,
         )
         if bool(self.get_parameter("publish_on_start").value):
             self.create_timer(0.5, self._publish_start_identity_once)
@@ -171,14 +183,12 @@ class SpeakerIdentityNode(Node):
             self._audio.append(bytes(message.data), self._max_bytes)
 
     def _on_enroll_request(self, message):
-        try:
-            raw = json.loads(message.data)
-        except json.JSONDecodeError:
-            self.get_logger().warning(f"invalid speaker enroll request: {message.data!r}")
-            return
-        speaker_id = _safe_speaker_id(str(raw.get("speaker_id") or raw.get("display_name") or "user"))
-        display_name = str(raw.get("display_name") or speaker_id)
-        required = int(raw.get("samples_required") or self.get_parameter("enroll_samples_required").value)
+        speaker_id = _safe_speaker_id(message.speaker_id or message.display_name or "user")
+        display_name = message.display_name or speaker_id
+        required = int(
+            message.samples_required
+            or self.get_parameter("enroll_samples_required").value
+        )
         self._enrollment = EnrollmentSession(
             speaker_id=speaker_id,
             display_name=display_name,
@@ -418,14 +428,33 @@ class SpeakerIdentityNode(Node):
             "required": session.required if session else 0,
             "sample_path": sample_path,
         }
-        serialized = json.dumps(payload, ensure_ascii=False)
-        self._enroll_status_pub.publish(String(data=serialized))
-        self.get_logger().info(f"speaker enroll status: {serialized}")
+        self._enroll_status_pub.publish(
+            enroll_status_to_message(payload, stamp=self.get_clock().now())
+        )
+        self.get_logger().info(
+            "speaker enroll status: status=%s speaker_id=%s collected=%s/%s reason=%s"
+            % (
+                status,
+                payload["speaker_id"],
+                payload["collected"],
+                payload["required"],
+                reason,
+            )
+        )
 
     def _publish_identity(self, payload: dict):
-        serialized = json.dumps(payload, ensure_ascii=False)
-        self._pub.publish(String(data=serialized))
-        self.get_logger().info(f"speaker identity: {serialized}")
+        self._pub.publish(
+            identity_payload_to_message(payload, stamp=self.get_clock().now())
+        )
+        self.get_logger().info(
+            "speaker identity: speaker_id=%s confidence=%.4f enrolled=%s reason=%s"
+            % (
+                payload.get("speaker_id", "unknown"),
+                float(payload.get("confidence") or 0.0),
+                bool(payload.get("enrolled", False)),
+                payload.get("reason", ""),
+            )
+        )
 
 
 def main():

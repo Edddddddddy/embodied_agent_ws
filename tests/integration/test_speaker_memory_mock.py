@@ -4,7 +4,8 @@ import time
 from pathlib import Path
 
 import rclpy
-from embodied_agent_interfaces.msg import RobotCommand
+from embodied_agent_interfaces.msg import RobotCommand, SpeakerEnrollRequest, SpeakerIdentity
+from embodied_online_agent.speaker_transport import identity_payload_to_message
 from std_msgs.msg import String
 from typed_action_test_utils import candidate_dict
 
@@ -33,12 +34,14 @@ def main():
         10,
     )
     node.create_subscription(
-        String,
+        SpeakerEnrollRequest,
         "/agent/speaker_enroll_request",
-        lambda msg: enroll_requests.append(json.loads(msg.data)),
+        lambda msg: enroll_requests.append(
+            {"speaker_id": msg.speaker_id, "display_name": msg.display_name}
+        ),
         10,
     )
-    identity_pub = node.create_publisher(String, "/agent/speaker_identity", 10)
+    identity_pub = node.create_publisher(SpeakerIdentity, "/agent/speaker_identity", 10)
     text_pub = node.create_publisher(String, "/agent/text_input", 10)
 
     assert _spin_until(
@@ -48,20 +51,13 @@ def main():
         timeout_s=10.0,
     ), "agent subscriptions were not ready"
 
-    identity_pub.publish(
-        String(
-            data=json.dumps(
-                {
-                    "speaker_id": "lcy",
-                    "display_name": "小李",
-                    "confidence": 0.93,
-                    "enrolled": True,
-                    "model": "mock-speaker",
-                },
-                ensure_ascii=False,
-            )
-        )
-    )
+    identity_pub.publish(identity_payload_to_message({
+        "speaker_id": "lcy",
+        "display_name": "小李",
+        "confidence": 0.93,
+        "enrolled": True,
+        "model": "mock-speaker",
+    }))
     time.sleep(0.2)
     rclpy.spin_once(node, timeout_sec=0.2)
 

@@ -20,7 +20,7 @@
 - 中间件契约：音频指标、VAD/KWS、仿真状态、动作 ACK 和 BehaviorTree 状态也使用自定义消息；JSON 只保留在离线报告/JSONL 证据文件中，不作为 ROS 2 进程间协议。
 - 仿真动作：前进、后退、左转、右转、停止、原地转圈、绕圈、走正方形、演示动作序列。
 - 语音导航：支持“去门口/前往书桌/回到起点”等语义目标点导航，以及“依次去门口、书桌、起点/开始巡航”等多目标点巡航命令；执行中说“取消导航”会绕过 FIFO，抢占当前 Nav2 goal。
-- 用户记忆：支持 `/agent/speaker_identity` 声纹身份事件、按用户保存本地偏好/行为习惯，并在 Agent 推理前注入用户画像；可语音查询、修改、按项删除或清空偏好，含行为明细 TTL；声纹 sidecar 已实跑 Sherpa-ONNX 3D-Speaker embedding、真实相似度与 top-1 margin 歧义保护。
+- 用户记忆：声纹身份、录入请求和录入状态使用 typed msg；在线/离线 Agent 共用 `MemoryCommandService`，按用户保存本地偏好/行为习惯并在推理前注入用户画像；可语音查询、修改、按项删除或清空偏好，含行为明细 TTL；声纹 sidecar 已实跑 Sherpa-ONNX 3D-Speaker embedding、真实相似度与 top-1 margin 歧义保护。
 - 验收脚本：提供 mock、在线、离线、Gazebo、真实麦克风连续控制等多层验收入口。
 
 说明：当前导航能力分三层验收：`navigation-demo` 用 mock/Gazebo executor 做可观测运动；

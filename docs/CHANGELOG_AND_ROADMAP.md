@@ -52,6 +52,7 @@
 | 语音控制面事件强类型化 | 将唤醒、识别反馈和 NLU 解析从通用字符串中拆出 | 新增 `WakeEvent`、`RecognitionFeedback`、`NluParseEvent` 及槽位/改写子消息；识别状态与 NLU 动作序列分 topic，online/offline 和验收探针使用同一转换边界 |
 | Agent 公共控制面收敛 | 删除 online/offline 中重复的会话入口、队列组件初始化和 typed publisher 实现 | 新增无 ROS 依赖的 `AgentControlPlane` 与独立 `RosAgentEventPublisher` Adapter；统一参数映射、归一化、补全、重试、急停/导航取消决策和 batch id |
 | 运行状态中间件强类型化 | 清理音频、VAD/KWS、仿真状态、ACK 和 BT 状态的 `String + JSON` 契约 | 新增 7 个运行状态 msg 与统一转换 Adapter；VAD/KWS provider、C++ 仿真/硬件节点、monitor 和验收探针共享同一 schema，JSON 仅保留为报告文件格式 |
+| 声纹记忆模块收敛 | 删除 online/offline 重复的记忆命令状态分支和声纹 JSON topic | 新增 `MemoryCommandService` 深模块及 3 个声纹 typed msg；身份门槛、偏好生命周期、录入请求和 interaction 记录使用同一实现 |
 
 ## 2. 当前完成度结论
 

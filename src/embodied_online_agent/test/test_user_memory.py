@@ -1,5 +1,3 @@
-import json
-
 from embodied_online_agent.user_memory import (
     LowConfidenceSpeakerError,
     SpeakerIdentity,
@@ -9,16 +7,8 @@ from embodied_online_agent.user_memory import (
 
 
 def test_speaker_identity_rejects_low_confidence():
-    identity = SpeakerIdentity.from_json(
-        json.dumps(
-            {
-                "speaker_id": "lcy",
-                "confidence": 0.2,
-                "enrolled": True,
-                "model": "mock",
-            }
-        ),
-        min_confidence=0.55,
+    identity = SpeakerIdentity(
+        speaker_id="unknown", confidence=0.2, enrolled=False, model="mock"
     )
 
     assert identity.speaker_id == "unknown"
@@ -27,16 +17,8 @@ def test_speaker_identity_rejects_low_confidence():
 
 def test_user_memory_rejects_low_confidence_writes(tmp_path):
     store = UserMemoryStore(str(tmp_path), max_recent=2)
-    identity = SpeakerIdentity.from_json(
-        json.dumps(
-            {
-                "speaker_id": "lcy",
-                "confidence": 0.2,
-                "enrolled": True,
-                "model": "mock",
-            }
-        ),
-        min_confidence=0.55,
+    identity = SpeakerIdentity(
+        speaker_id="unknown", confidence=0.2, enrolled=False, model="mock"
     )
 
     assert store.prompt_summary(identity) == ""

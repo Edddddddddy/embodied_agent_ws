@@ -11,6 +11,8 @@ from ament_index_python.packages import get_package_share_directory
 from embodied_agent_interfaces.msg import (
     RobotCommand,
     RobotCommandResult,
+    SpeakerEnrollRequest as SpeakerEnrollRequestMessage,
+    SpeakerIdentity as SpeakerIdentityMessage,
     WakeEvent as WakeEventMessage,
 )
 from rclpy.node import Node
@@ -18,11 +20,11 @@ from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Empty, String, UInt8MultiArray
 
 from .memory import ConversationMemory
+from .memory_command_service import MemoryCommandService
 from .user_memory import (
     LowConfidenceSpeakerError,
     SpeakerIdentity,
     UserMemoryStore,
-    parse_memory_command,
 )
 from .action_sequence import SequentialActionPublisher
 from .agent_control_plane import (
@@ -36,6 +38,7 @@ from .protocol import SentenceChunker, TaggedStreamParser
 from .ros_action_transport import action_command_to_message, command_message_to_dict
 from .ros_agent_events import RosAgentEventPublisher
 from .ros_event_transport import wake_event_message_to_domain
+from .speaker_transport import enroll_request_to_message, identity_message_to_domain
 from .types import ActionCommand
 from .user_preferences import apply_user_preferences
 from .providers.mock import MockAsr, MockLlm, MockTts
@@ -74,6 +77,7 @@ class OnlineAgentNode(Node):
             max_recent=int(self._param("user_memory_max_recent")),
             retention_s=float(self._param("user_memory_retention_days")) * 86400.0,
         )
+        self._memory_commands = MemoryCommandService(self.user_memory)
         self.system_prompt = self._load_system_prompt()
 
         self.asr_partial_pub = self.create_publisher(String, "/agent/asr_partial", 10)
@@ -85,7 +89,7 @@ class OnlineAgentNode(Node):
         )
         self._events = RosAgentEventPublisher(self)
         self.speaker_enroll_request_pub = self.create_publisher(
-            String, "/agent/speaker_enroll_request", 10
+            SpeakerEnrollRequestMessage, "/agent/speaker_enroll_request", 10
         )
         self.metrics_pub = self.create_publisher(String, "/agent/metrics", 10)
         self.create_subscription(String, "/agent/text_input", self._on_text_input, 10)
@@ -97,7 +101,10 @@ class OnlineAgentNode(Node):
                 10,
             )
         self.create_subscription(
-            String, "/agent/speaker_identity", self._on_speaker_identity, 10
+            SpeakerIdentityMessage,
+            "/agent/speaker_identity",
+            self._on_speaker_identity,
+            10,
         )
         self.create_subscription(Empty, "/agent/clear_memory", self._on_clear_memory, 10)
         self.create_subscription(
@@ -398,9 +405,9 @@ class OnlineAgentNode(Node):
             status=message.status,
         )
 
-    def _on_speaker_identity(self, message: String):
-        identity = SpeakerIdentity.from_json(
-            message.data,
+    def _on_speaker_identity(self, message: SpeakerIdentityMessage):
+        identity = identity_message_to_domain(
+            message,
             min_confidence=float(self._param("speaker_identity_min_confidence")),
         )
         self._current_speaker = identity
@@ -450,101 +457,21 @@ class OnlineAgentNode(Node):
         threading.Thread(target=self._run_turn, args=(command,), daemon=True).start()
 
     def _handle_memory_command(self, command: str) -> bool:
-        memory_command = parse_memory_command(command)
-        if memory_command is None:
+        result = self._memory_commands.handle(command, self._current_speaker)
+        if result is None:
             return False
-        identity = self._current_speaker
-        should_record = memory_command.kind != "clear"
-        if memory_command.kind == "whoami":
-            if identity.usable:
-                profile = self.user_memory.profile(identity)
-                name = profile.display_name or identity.display_name or identity.speaker_id
-                response = f"我识别到当前用户是：{name}。"
-            else:
-                response = "我还没有可靠识别到当前用户，可以先说“记住我，我是某某”。"
-        elif memory_command.kind == "query_preferences":
-            if identity.usable:
-                profile = self.user_memory.profile(identity)
-                response = (
-                    "你的当前偏好："
-                    + "，".join(
-                        f"{key}={value}"
-                        for key, value in sorted(profile.preferences.items())
-                    )
-                    if profile.preferences
-                    else "当前没有保存个人偏好。"
+        self._current_speaker = result.identity
+        if result.enroll_request is not None:
+            self.speaker_enroll_request_pub.publish(
+                enroll_request_to_message(
+                    result.enroll_request, stamp=self.get_clock().now()
                 )
-            else:
-                response = "我还没有可靠识别当前用户，无法查询个人偏好。"
-        elif memory_command.kind == "clear":
-            if identity.usable:
-                self._try_user_memory_write(self.user_memory.clear, identity)
-                response = "已清除当前用户的本地行为记忆。"
-            else:
-                response = "我还没有可靠识别当前用户，无法清除个人记忆。"
-        elif memory_command.kind == "enroll_request":
-            if identity.usable:
-                self._publish_speaker_enroll_request(
-                    identity.speaker_id, identity.display_name or identity.speaker_id
-                )
-                response = "已开始声纹录入，请连续说三句短句用于采集样本。"
-            else:
-                response = "请先说“记住我，我是某某”，我会用这个名字开始声纹录入。"
-        elif memory_command.kind == "enroll_name":
-            if not identity.usable:
-                # 没有真实声纹 identity 时提供演示兜底；真实部署仍以 /agent/speaker_identity 为准。
-                identity = SpeakerIdentity(
-                    speaker_id=str(memory_command.value),
-                    confidence=1.0,
-                    enrolled=True,
-                    model="text-enroll-fallback",
-                    display_name=str(memory_command.value),
-                    updated_at=time.time(),
-                )
-                self._current_speaker = identity
-            profile = self.user_memory.enroll(identity, str(memory_command.value))
-            self._publish_speaker_enroll_request(identity.speaker_id, profile.display_name)
-            response = (
-                f"好的，我记住你是 {profile.display_name or profile.speaker_id}。"
-                "如果已启动声纹 sidecar，请继续说三句短句完成样本采集。"
             )
-        elif memory_command.kind == "preference":
-            if not identity.usable:
-                response = "我还没有可靠识别当前用户，先说“记住我，我是某某”后再记录偏好。"
-            else:
-                profile = self.user_memory.profile(identity)
-                for key, value in dict(memory_command.value).items():
-                    profile = self.user_memory.set_preference(identity, key, value)
-                response = "已记录你的偏好：" + "，".join(
-                    f"{key}={value}" for key, value in sorted(profile.preferences.items())
-                )
-        elif memory_command.kind == "delete_preference":
-            if not identity.usable:
-                response = "我还没有可靠识别当前用户，无法删除个人偏好。"
-            else:
-                key = str(memory_command.value)
-                profile = self.user_memory.remove_preference(identity, key)
-                response = f"已删除偏好：{key}。"
-                if profile.preferences:
-                    response += "当前保留：" + "，".join(
-                        f"{name}={value}"
-                        for name, value in sorted(profile.preferences.items())
-                    )
-        else:
-            return False
-        self.response_delta_pub.publish(String(data=response))
-        self.response_pub.publish(String(data=response))
+        self.response_delta_pub.publish(String(data=result.response))
+        self.response_pub.publish(String(data=result.response))
         threading.Thread(
-            target=self._speak_memory_response, args=(response,), daemon=True
+            target=self._speak_memory_response, args=(result.response,), daemon=True
         ).start()
-        if should_record:
-            self._record_user_interaction(
-                identity,
-                user_text=command,
-                assistant_text=response,
-                actions=[],
-                success=True,
-            )
         return True
 
     def _speak_memory_response(self, response: str) -> None:
@@ -552,16 +479,6 @@ class OnlineAgentNode(Node):
             self.tts.synthesize([response], self._on_tts_audio)
         except Exception as exc:
             self.get_logger().warning(f"memory response TTS failed: {exc}")
-
-    def _publish_speaker_enroll_request(self, speaker_id: str, display_name: str) -> None:
-        payload = {
-            "speaker_id": speaker_id,
-            "display_name": display_name or speaker_id,
-            "samples_required": 3,
-        }
-        self.speaker_enroll_request_pub.publish(
-            String(data=json.dumps(payload, ensure_ascii=False))
-        )
 
     def _run_command_worker(self):
         while not self._stopping:

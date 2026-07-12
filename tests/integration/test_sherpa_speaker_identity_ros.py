@@ -11,9 +11,11 @@ import wave
 from pathlib import Path
 
 import rclpy
+from embodied_agent_interfaces.msg import SpeakerIdentity
+from embodied_online_agent.speaker_transport import identity_message_to_dict
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
-from std_msgs.msg import Empty, String, UInt8MultiArray
+from std_msgs.msg import Empty, UInt8MultiArray
 
 
 WORKSPACE = Path(__file__).resolve().parents[2]
@@ -33,11 +35,11 @@ class SpeakerIdentityProbe(Node):
         self.end_pub = self.create_publisher(Empty, "/audio/speech_ended", 10)
         self.identities = []
         self.create_subscription(
-            String, "/agent/speaker_identity", self._on_identity, 10
+            SpeakerIdentity, "/agent/speaker_identity", self._on_identity, 10
         )
 
     def _on_identity(self, message):
-        self.identities.append(json.loads(message.data))
+        self.identities.append(identity_message_to_dict(message))
 
 
 def wait_until(predicate, timeout, description):

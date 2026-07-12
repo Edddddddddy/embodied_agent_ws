@@ -1163,3 +1163,37 @@ def test_runtime_status_topics_are_strongly_typed():
         assert topic in combined
     assert 'create_publisher(String, "/audio/vad_event"' not in combined
     assert 'create_publisher(String, "/agent/kws_event"' not in combined
+
+
+def test_speaker_memory_has_one_deep_module_and_typed_transport():
+    interfaces = ROOT / "src" / "embodied_agent_interfaces" / "msg"
+    for name in (
+        "SpeakerIdentity.msg",
+        "SpeakerEnrollRequest.msg",
+        "SpeakerEnrollStatus.msg",
+    ):
+        assert (interfaces / name).is_file()
+
+    online_root = ROOT / "src" / "embodied_online_agent" / "embodied_online_agent"
+    service = (online_root / "memory_command_service.py").read_text(encoding="utf-8")
+    transport = (online_root / "speaker_transport.py").read_text(encoding="utf-8")
+    online = (online_root / "online_agent_node.py").read_text(encoding="utf-8")
+    offline = (
+        ROOT
+        / "src"
+        / "embodied_offline_agent"
+        / "embodied_offline_agent"
+        / "offline_agent_node.py"
+    ).read_text(encoding="utf-8")
+    sidecar = (online_root / "speaker_identity_node.py").read_text(encoding="utf-8")
+
+    assert "class MemoryCommandService" in service
+    assert "def handle(" in service
+    for node in (online, offline):
+        assert "MemoryCommandService" in node
+        assert "parse_memory_command" not in node
+        assert 'String, "/agent/speaker_identity"' not in node
+        assert 'String, "/agent/speaker_enroll_request"' not in node
+    assert "identity_message_to_domain" in transport
+    assert "SpeakerEnrollStatus" in sidecar
+    assert "json.loads(message.data)" not in sidecar

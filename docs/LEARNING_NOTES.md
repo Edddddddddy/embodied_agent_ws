@@ -402,6 +402,11 @@ distance / angle / duration / navigation` 等 tag 分组，避免只用总体准
 关键代码：
 
 - `src/embodied_online_agent/embodied_online_agent/speaker_identity_node.py`
+- `src/embodied_online_agent/embodied_online_agent/memory_command_service.py`
+- `src/embodied_online_agent/embodied_online_agent/speaker_transport.py`
+- `src/embodied_agent_interfaces/msg/SpeakerIdentity.msg`
+- `src/embodied_agent_interfaces/msg/SpeakerEnrollRequest.msg`
+- `src/embodied_agent_interfaces/msg/SpeakerEnrollStatus.msg`
 - `src/embodied_online_agent/embodied_online_agent/user_memory.py`
 - `src/embodied_online_agent/embodied_online_agent/user_preferences.py`
 - `src/embodied_online_agent/embodied_online_agent/online_agent_node.py`
@@ -413,8 +418,10 @@ distance / angle / duration / navigation` 等 tag 分组，避免只用总体准
 
 设计方式：
 
-- 声纹识别被做成 sidecar：订阅 `/audio/clean_pcm` 和 `/audio/speech_ended`，发布 `/agent/speaker_identity`。
-- 声纹录入通过 `/agent/speaker_enroll_request` 触发，sidecar 把后续语音段保存成 wav 样本并维护 `speakers.txt`。
+- 声纹识别被做成 sidecar：订阅 `/audio/clean_pcm` 和 `/audio/speech_ended`，发布 typed `/agent/speaker_identity`。
+- 声纹录入通过 typed `/agent/speaker_enroll_request` 触发，sidecar 把后续语音段保存成 wav 样本并维护 `speakers.txt`，进度通过 `SpeakerEnrollStatus` 枚举发布。
+- `MemoryCommandService.handle()` 是在线/离线共用的深模块接口：查询身份、保存/删除偏好、清空记忆、文本兜底录入和 interaction 记录都隐藏在实现内部；节点只处理 ROS 发布和 TTS。
+- `speaker_transport.py` 是声纹领域对象与 rosidl 消息之间唯一 Adapter，置信度门槛在进入领域层时统一应用。
 - Sherpa backend 按 speaker 聚合多段 embedding 后一次注册到
   `SpeakerEmbeddingManager`，确保注册时采集的 3 段样本都参与模板，而非只保留第一段。
 - 匹配时遍历 `all_speakers` 获取真实 `score`，发布 top-1 confidence、第二名分数和

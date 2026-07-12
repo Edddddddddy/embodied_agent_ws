@@ -51,30 +51,6 @@ class SpeakerIdentity:
             "updated_at": self.updated_at,
         }
 
-    @classmethod
-    def from_json(cls, payload: str, *, min_confidence: float = 0.55) -> "SpeakerIdentity":
-        try:
-            raw = json.loads(payload)
-        except (json.JSONDecodeError, TypeError):
-            return cls(updated_at=time.time())
-        if not isinstance(raw, dict):
-            return cls(updated_at=time.time())
-        speaker_id = (
-            str(raw.get("speaker_id") or _UNKNOWN_SPEAKER_ID).strip()
-            or _UNKNOWN_SPEAKER_ID
-        )
-        confidence = _as_float(raw.get("confidence"), 0.0)
-        enrolled = bool(raw.get("enrolled", False)) and confidence >= min_confidence
-        return cls(
-            speaker_id=speaker_id if enrolled else _UNKNOWN_SPEAKER_ID,
-            confidence=confidence,
-            enrolled=enrolled,
-            model=str(raw.get("model") or "unknown"),
-            display_name=str(raw.get("display_name") or "").strip(),
-            updated_at=time.time(),
-        )
-
-
 @dataclass
 class MemoryCommand:
     kind: str
