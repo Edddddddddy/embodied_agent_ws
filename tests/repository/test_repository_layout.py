@@ -817,7 +817,7 @@ def test_continuous_mode_does_not_drop_busy_asr_or_endpoint_commits():
 
         # endpoint 的 busy/continuous gate 已下沉到共享 runtime 构造参数；节点 wrapper
         # 只负责转发 source，避免 online/offline 再复制计时与 timer 状态机。
-        assert "self._asr_endpoint.request(source)" in source
+        assert "self._runtime.endpoint.request(source)" in source
         assert "blocked=lambda: self._is_busy()" in source
         assert "and not self._continuous_enabled" in source
 
@@ -1458,6 +1458,9 @@ def test_online_and_offline_agents_have_real_lifecycle_resource_ownership():
     ros_io = (
         online_root / "embodied_online_agent" / "agent_ros_io.py"
     ).read_text(encoding="utf-8")
+    lifecycle_runtime = (
+        online_root / "embodied_online_agent" / "agent_lifecycle_runtime.py"
+    ).read_text(encoding="utf-8")
 
     for class_name, node in (
         ("OnlineAgentNode", online_node),
@@ -1474,11 +1477,30 @@ def test_online_and_offline_agents_have_real_lifecycle_resource_ownership():
         ):
             assert f"def {callback}(" in node
         assert "AgentRosIo" in node
+        assert "AgentLifecycleRuntime" in node
+        assert "self._runtime.activate(" in node
+        assert "self._runtime.deactivate(" in node
+        assert "self._runtime.release(" in node
+        assert "self._lifecycle_active =" not in node
+        assert "self._execution =" not in node
+        assert "self._asr_endpoint =" not in node
         assert "start_background_turn(" in node
         assert "threading.Thread(\n            target=self._run_turn" not in node
 
     assert "create_lifecycle_publisher" in ros_io
     assert "create_subscription" in ros_io
+    for ordered_step in (
+        'cancel("lifecycle_deactivated")',
+        "command_queue.clear()",
+        "_publish_priority_stop()",
+        "stop_input()",
+        "_execution.stop(",
+        'publish_stopped("lifecycle_inactive")',
+    ):
+        assert ordered_step in lifecycle_runtime
+    assert (
+        online_root / "test" / "test_agent_lifecycle_runtime.py"
+    ).is_file()
 
     online_launch = (online_root / "launch" / "online_agent.launch.py").read_text(
         encoding="utf-8"

@@ -68,7 +68,7 @@ flowchart LR
 
 | 内容 | 在线链路 | 离线链路 |
 | --- | --- | --- |
-| 关键文件 | `online_agent_node.py`、`asr_endpoint_runtime.py` | `offline_agent_node.py`、共享的 `asr_endpoint_runtime.py` |
+| 关键文件 | `online_agent_node.py`、共享的 `agent_lifecycle_runtime.py`、`asr_endpoint_runtime.py` | `offline_agent_node.py`、共享的 `agent_lifecycle_runtime.py`、`asr_endpoint_runtime.py` |
 | 关键函数 | `_on_asr_final()`、`AsrEndpointRuntime.request()`、`_run_turn()` | `_on_asr_final()`、`AsrEndpointRuntime.request()`、`_run_turn()` |
 | 主要接口 | `/agent/asr_final`、`/agent/action_candidate`、`/agent/metrics (source=online)` | `/agent/asr_final`、`/agent/action_candidate`、`/agent/metrics (source=offline)` |
 | 技术点 | 在线 Qwen/DashScope provider、流式响应、TTS/feedback | Sherpa ASR、llama.cpp provider、Sherpa-TTS/SummerTTS seam |
@@ -79,6 +79,8 @@ flowchart LR
   会话、补全、重试和优先控制决策；差异集中在 provider、延迟统计和 TTS pipeline。
 - 两个 Agent 都是 `LifecycleNode`：只有 ACTIVE 才接受语音/文本；deactivate 会先发布
   priority STOP，再取消流式 turn 和 worker，避免“节点显示 inactive 但机器人仍在执行”。
+- `AgentLifecycleRuntime` 组合式拥有 execution/endpoint，在线节点注入直接 ASR hook，离线节点
+  注入队列 worker hook；这让安全停机顺序只有一份实现，同时不把 provider 差异塞进继承基类。
 - 声纹身份先进入 `UserContextRuntime`；命令开始处理时冻结 `UserContextSnapshot`，随后
   system prompt、动作偏好与交互记忆共享同一身份快照，避免异步声纹更新造成用户串写。
 - ASR final 不直接进入 LLM，而是先经过连续语音会话层，避免 filler、重复 final、未唤醒文本误触发。

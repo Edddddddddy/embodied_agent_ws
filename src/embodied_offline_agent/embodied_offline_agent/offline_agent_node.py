@@ -24,6 +24,7 @@ from embodied_online_agent.agent_execution_runtime import (
     AgentExecutionCancelled,
     AgentExecutionRuntime,
 )
+from embodied_online_agent.agent_lifecycle_runtime import AgentLifecycleRuntime
 from embodied_online_agent.agent_parameters import declare_agent_parameters
 from embodied_online_agent.agent_ros_io import AgentRosCallbacks, AgentRosIo
 from embodied_online_agent.asr_endpoint_runtime import AsrEndpointRuntime
@@ -59,8 +60,6 @@ class OfflineAgentNode(LifecycleNode):
         # `_parameters` 由 rclpy.Node 自己维护，领域配置快照必须使用独立名称。
         self._agent_parameters = declare_agent_parameters(self, "offline")
         self._mode = self._param("mode")
-        self._stopping = False
-        self._lifecycle_active = False
         self._continuous_enabled = bool(self._param("continuous_control_enabled"))
         self._latency = OfflineLatency()
         self._asr_events: queue.Queue[tuple[str, bytes | None]] = queue.Queue(maxsize=64)
@@ -109,11 +108,17 @@ class OfflineAgentNode(LifecycleNode):
             ),
         )
         self._events = self._ros_io.events
+        self._runtime = AgentLifecycleRuntime(
+            control=self._control,
+            action_sequencer=self._action_sequencer,
+            ros_io=self._ros_io,
+            events=self._events,
+            publish_priority_stop=self._publish_priority_stop,
+            deactivate_timeout_s=self._param("agent_deactivate_timeout_s"),
+        )
         self._asr = None
         self._llm = None
         self._tts = None
-        self._execution = None
-        self._asr_endpoint = None
         self._asr_thread = None
 
     def on_configure(self, _state: State) -> TransitionCallbackReturn:
@@ -126,7 +131,7 @@ class OfflineAgentNode(LifecycleNode):
             self._asr, self._llm, self._tts = self._create_providers()
             if self._mode == "offline" and self._param("runtime_warmup_enabled"):
                 self._warmup_runtime()
-            self._execution = AgentExecutionRuntime(
+            execution = AgentExecutionRuntime(
                 self._control,
                 execute_item=self._run_queued_turn,
                 publish_execution=self._events.publish_execution,
@@ -135,7 +140,7 @@ class OfflineAgentNode(LifecycleNode):
                     f"continuous command failed: {error}"
                 ),
             )
-            self._asr_endpoint = AsrEndpointRuntime(
+            endpoint = AsrEndpointRuntime(
                 delay_ms=self._param("asr_commit_delay_ms"),
                 blocked=lambda: self._is_busy()
                 and not self._continuous_enabled,
@@ -149,6 +154,7 @@ class OfflineAgentNode(LifecycleNode):
                     f"ASR endpoint commit failed: {error}"
                 ),
             )
+            self._runtime.bind(execution=execution, endpoint=endpoint)
             self.get_logger().info("offline agent configured")
             return TransitionCallbackReturn.SUCCESS
         except Exception as exc:
@@ -157,26 +163,14 @@ class OfflineAgentNode(LifecycleNode):
             return TransitionCallbackReturn.FAILURE
 
     def on_activate(self, state: State) -> TransitionCallbackReturn:
-        if self._execution is None or self._asr_endpoint is None or self._asr is None:
+        if not self._runtime.configured or self._asr is None:
             self.get_logger().error("offline agent activate requested before configure")
             return TransitionCallbackReturn.FAILURE
         result = super().on_activate(state)
         if result != TransitionCallbackReturn.SUCCESS:
             return result
         try:
-            self._lifecycle_active = True
-            self._ros_io.set_lifecycle_active(True)
-            if self._param("microphone_enabled"):
-                self._drain_asr_events()
-                if hasattr(self._asr, "reset"):
-                    self._asr.reset()
-                self._asr.start(self._on_asr_partial, self._on_asr_final)
-                self._asr_thread = threading.Thread(
-                    target=self._run_asr, daemon=True
-                )
-                self._asr_thread.start()
-            if not self._execution.start():
-                raise RuntimeError("previous Agent turn did not quiesce")
+            self._runtime.activate(self._start_input)
             self._publish_state("listening")
             self._events.publish_ready(
                 f"provider_mode={self._mode};"
@@ -193,34 +187,20 @@ class OfflineAgentNode(LifecycleNode):
             return TransitionCallbackReturn.FAILURE
 
     def on_deactivate(self, state: State) -> TransitionCallbackReturn:
-        self._lifecycle_active = False
-        if self._asr_endpoint is not None:
-            self._asr_endpoint.cancel_pending()
-        self._action_sequencer.cancel("lifecycle_deactivated")
-        self._control.command_queue.clear()
-        self._events.publish_session_event(
-            self._control.reset_session("lifecycle")
-        )
-        self._publish_actions([ActionCommand("stop", {}, priority=True)])
-        asr_quiesced = self._stop_asr_worker()
-        execution_quiesced = self._execution is None or self._execution.stop(
-            self._param("agent_deactivate_timeout_s")
-        )
-        if not asr_quiesced or not execution_quiesced:
-            self._publish_state("deactivate_timeout")
-            self._events.publish_stopped("deactivate_timeout")
-            self.get_logger().error("offline agent deactivate timed out")
+        quiescence = self._runtime.deactivate(self._stop_asr_worker)
+        if not quiescence.quiesced:
+            self.get_logger().error(
+                "offline agent deactivate timed out: "
+                f"input={quiescence.input_quiesced}, "
+                f"execution={quiescence.execution_quiesced}, "
+                f"errors={quiescence.errors}"
+            )
             return TransitionCallbackReturn.FAILURE
-        self._publish_state("inactive")
-        self._events.publish_stopped("lifecycle_inactive")
-        self._ros_io.set_lifecycle_active(False)
         result = super().on_deactivate(state)
         self.get_logger().info("offline agent inactive")
         return result
 
     def on_cleanup(self, _state: State) -> TransitionCallbackReturn:
-        self._lifecycle_active = False
-        self._ros_io.set_lifecycle_active(False)
         if not self._release_resources():
             return TransitionCallbackReturn.FAILURE
         self.get_logger().info("offline agent cleaned up")
@@ -231,8 +211,10 @@ class OfflineAgentNode(LifecycleNode):
         return super().on_shutdown(_state)
 
     def on_error(self, state: State) -> TransitionCallbackReturn:
-        self._lifecycle_active = False
-        self._ros_io.set_lifecycle_active(False)
+        if self._runtime.active:
+            self._runtime.deactivate(self._stop_asr_worker)
+        else:
+            self._runtime.mark_error_inactive()
         self._release_resources()
         self.get_logger().error("offline agent recovered to unconfigured after error")
         return super().on_error(state)
@@ -267,23 +249,34 @@ class OfflineAgentNode(LifecycleNode):
                 return
 
     def _release_resources(self) -> bool:
-        if self._asr_endpoint is not None:
-            self._asr_endpoint.close()
-            self._asr_endpoint = None
-        execution_quiesced = self._execution is None or self._execution.stop(
-            self._param("agent_deactivate_timeout_s")
-        )
-        asr_quiesced = self._stop_asr_worker()
-        if not execution_quiesced or not asr_quiesced:
-            self.get_logger().error("offline Agent threads are still running")
+        quiescence = self._runtime.release(self._stop_asr_worker)
+        if not quiescence.quiesced:
+            self.get_logger().error(
+                "offline Agent resources are still running: "
+                f"input={quiescence.input_quiesced}, "
+                f"execution={quiescence.execution_quiesced}, "
+                f"errors={quiescence.errors}"
+            )
             return False
-        self._execution = None
         if self._tts is not None and hasattr(self._tts, "close"):
             self._tts.close()
         self._asr = None
         self._llm = None
         self._tts = None
         return True
+
+    def _start_input(self) -> None:
+        if not self._param("microphone_enabled"):
+            return
+        self._drain_asr_events()
+        if hasattr(self._asr, "reset"):
+            self._asr.reset()
+        self._asr.start(self._on_asr_partial, self._on_asr_final)
+        self._asr_thread = threading.Thread(target=self._run_asr, daemon=True)
+        self._asr_thread.start()
+
+    def _publish_priority_stop(self) -> None:
+        self._publish_actions([ActionCommand("stop", {}, priority=True)])
 
     def _param(self, name):
         return self._agent_parameters.get(name)
@@ -413,19 +406,19 @@ class OfflineAgentNode(LifecycleNode):
         )
 
     def _on_audio(self, message):
-        if not self._lifecycle_active or self._asr is None:
+        if not self._runtime.active or self._asr is None:
             return
         if self._is_busy() and not self._continuous_enabled:
             return
         self._enqueue_asr(("audio", bytes(message.data)))
 
     def _on_silence(self, _message):
-        if not self._lifecycle_active:
+        if not self._runtime.active:
             return
         self._commit_asr_endpoint("silence_timeout")
 
     def _on_speech_started(self, _message):
-        if not self._lifecycle_active:
+        if not self._runtime.active:
             return
         if self._is_busy() and not self._continuous_enabled:
             return
@@ -433,15 +426,15 @@ class OfflineAgentNode(LifecycleNode):
         self._publish_state("speech_detected")
 
     def _on_speech_ended(self, _message):
-        if not self._lifecycle_active:
+        if not self._runtime.active:
             return
         if not self._param("speech_endpoint_events_enabled"):
             return
         self._commit_asr_endpoint("speech_ended")
 
     def _commit_asr_endpoint(self, source):
-        if self._asr_endpoint is not None:
-            self._asr_endpoint.request(source)
+        if self._runtime.endpoint is not None:
+            self._runtime.endpoint.request(source)
 
     def _on_asr_endpoint(self, source, delay_ms):
         # 每个 utterance 建立独立延迟对象，端点时刻是离线 E2E 的统一起点。
@@ -463,7 +456,7 @@ class OfflineAgentNode(LifecycleNode):
                     self.get_logger().error("ASR commit event could not be queued")
 
     def _run_asr(self):
-        while not self._stopping:
+        while not self._runtime.stopping:
             kind, payload = self._asr_events.get()
             try:
                 if kind == "stop":
@@ -484,10 +477,13 @@ class OfflineAgentNode(LifecycleNode):
                 self._asr_events.task_done()
 
     def _is_busy(self):
-        return self._execution is not None and self._execution.is_busy()
+        return (
+            self._runtime.execution is not None
+            and self._runtime.execution.is_busy()
+        )
 
     def _on_asr_partial(self, text):
-        if not self._lifecycle_active:
+        if not self._runtime.active:
             return
         if self._is_busy() and not self._continuous_enabled:
             return
@@ -495,7 +491,7 @@ class OfflineAgentNode(LifecycleNode):
         self._ros_io.publish_asr_partial(text)
 
     def _on_asr_final(self, text):
-        if not self._lifecycle_active:
+        if not self._runtime.active:
             return
         if self._is_busy() and not self._continuous_enabled:
             self._control.transcript_stabilizer.clear()
@@ -515,7 +511,7 @@ class OfflineAgentNode(LifecycleNode):
         self._accept_transcript(text)
 
     def _on_text(self, message):
-        if not self._lifecycle_active:
+        if not self._runtime.active:
             self.get_logger().debug("ignored text input while Agent is inactive")
             return
         self._control.transcript_stabilizer.clear()
@@ -526,7 +522,7 @@ class OfflineAgentNode(LifecycleNode):
         self._accept_transcript(message.data)
 
     def _on_wake_event_input(self, message):
-        if not self._lifecycle_active:
+        if not self._runtime.active:
             return
         try:
             event = wake_event_message_to_domain(message)
@@ -609,11 +605,11 @@ class OfflineAgentNode(LifecycleNode):
         if self._continuous_enabled:
             self._enqueue_continuous_command(command)
             return
-        if self._execution is None:
+        if self._runtime.execution is None:
             return
         turn_latency = self._latency
         user_context = self._user_context.snapshot()
-        if not self._execution.start_background_turn(
+        if not self._runtime.execution.start_background_turn(
             self._run_turn, command, turn_latency, user_context
         ):
             self.get_logger().warning("offline agent busy; overlapping utterance dropped")
@@ -631,17 +627,20 @@ class OfflineAgentNode(LifecycleNode):
             )
         self._ros_io.publish_response_delta(result.response)
         self._ros_io.publish_response(result.response)
-        if self._execution is not None and not self._execution.start_background_turn(
-            self._speak_memory_response, result.response
+        if (
+            self._runtime.execution is not None
+            and not self._runtime.execution.start_background_turn(
+                self._speak_memory_response, result.response
+            )
         ):
             self.get_logger().debug("memory response TTS skipped while Agent is busy")
         return True
 
     def _speak_memory_response(self, response):
         try:
-            self._execution.raise_if_stopping()
+            self._runtime.execution.raise_if_stopping()
             self._ros_io.publish_tts_audio(self._tts.synthesize(response))
-            self._execution.raise_if_stopping()
+            self._runtime.execution.raise_if_stopping()
         except AgentExecutionCancelled:
             raise
         except Exception as exc:
@@ -674,9 +673,9 @@ class OfflineAgentNode(LifecycleNode):
             messages = self._llm_messages(user_text, user_context)
             latency.mark_llm_start()
             for token in self._llm.stream(messages):
-                self._execution.raise_if_stopping()
+                self._runtime.execution.raise_if_stopping()
                 turn.feed(token)
-            self._execution.raise_if_stopping()
+            self._runtime.execution.raise_if_stopping()
             result = turn.finish(user_text)
             if result.action_source == "blocked" and result.model_actions:
                 self.get_logger().warning(
@@ -726,7 +725,7 @@ class OfflineAgentNode(LifecycleNode):
             self._publish_state("error")
             raise
         finally:
-            if not self._stopping and self._lifecycle_active:
+            if not self._runtime.stopping and self._runtime.active:
                 self._publish_state("listening")
 
     def _run_queued_turn(self, item):
@@ -828,9 +827,9 @@ class OfflineAgentNode(LifecycleNode):
         return report
 
     def _should_wait_for_action_results(self, action_list):
-        if self._execution is None:
+        if self._runtime.execution is None:
             return len(action_list) > 1
-        return self._execution.should_wait_for_action_results(
+        return self._runtime.execution.should_wait_for_action_results(
             len(action_list)
         )
 
@@ -857,11 +856,8 @@ class OfflineAgentNode(LifecycleNode):
         self._events.publish_recognition(payload)
 
     def shutdown(self):
-        if self._stopping:
+        if not self._runtime.begin_shutdown():
             return
-        self._stopping = True
-        self._lifecycle_active = False
-        self._action_sequencer.cancel("shutdown")
         self._release_resources()
 
 

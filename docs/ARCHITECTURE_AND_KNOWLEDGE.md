@@ -169,6 +169,8 @@ sequenceDiagram
 - online/offline Agent 使用真正的 `LifecycleNode` 和 lifecycle publisher：configure 创建
   provider，activate 启动 ASR/队列线程，deactivate 先发布 STOP/STOPPED health 再停线程，
   cleanup 释放连接与模型对象。launch manager 按 `ActionGuard → Agent` 激活、逆序停用。
+- `AgentLifecycleRuntime` 是 endpoint、execution、active/stopping 状态的唯一拥有者；两个节点
+  只注入在线直接 ASR 或离线队列 ASR 的 start/stop hook，不再各自复制安全停机状态机。
 - 独立 `ros2 run` 默认 `agent_lifecycle_autostart=true`；组合 launch 显式关闭内部自启动，
   由唯一 manager 管理，避免双重 transition 竞态。
 
