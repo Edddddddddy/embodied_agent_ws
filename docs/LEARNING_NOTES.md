@@ -99,6 +99,8 @@
 关键代码：
 
 - `src/embodied_agent_cpp/src/action_guard_node.cpp`
+- `src/embodied_agent_cpp/include/embodied_agent_cpp/guarded_command_outbox.hpp`
+- `src/embodied_agent_cpp/src/guarded_command_outbox.cpp`
 - `src/embodied_agent_cpp/include/embodied_agent_cpp/action_validator.hpp`
 - `src/embodied_agent_cpp/src/action_validator.cpp`
 - `src/embodied_online_agent/embodied_online_agent/ros_action_transport.py`
@@ -117,6 +119,8 @@
   当前状态使用 transient-local。这样 QoS 是模块接口的一部分，而不是散落的 `depth=10`。
 - 校验动作类型、速度、时长、颜色、模式等字段。
 - 通过后发布 `/robot/action_command_typed` 强类型 ROS 2 msg。
+- Guard 与 scheduler 尚未完成 DDS discovery 时，命令进入有界 TTL outbox；匹配后
+  FIFO 转发，超时则明确拒绝，避免启动阶段静默丢动作或晚到执行旧动作。
 - 拒绝时发布 `/robot/action_rejected`。
 
 为什么这样设计：
@@ -126,6 +130,9 @@
 - 使用 typed message，方便 C++、Action、仿真执行器稳定对接。
 - candidate 的 `ARC` 保留上层语义，ActionGuard 校验后规范化为执行层 `MOVE`，
   兼顾报告可解释性和底层速度控制复用。
+- reliable QoS 只保证已经匹配的 endpoint 之间可靠，并不回放 discovery 前的消息；
+  控制命令也不适合 transient-local，因为节点重启后重放旧移动命令有安全风险。
+  因此这里选择应用层短期 outbox，并用 TTL 明确限制有效窗口。
 
 方案对比：
 
@@ -565,6 +572,8 @@ sidecar 输出实际相似度。多人准确率仍需另建注册/查询数据�
 关键代码：
 
 - `src/embodied_simulation/config/command_tree.xml`
+- `src/embodied_simulation/include/embodied_simulation/active_action_runtime.hpp`
+- `src/embodied_simulation/src/active_action_runtime.cpp`
 - `src/embodied_simulation/src/command_behavior_tree.cpp`
 - `src/embodied_simulation/include/embodied_simulation/robot_executor.hpp`
 - `src/embodied_simulation/src/robot_executor_plugins.cpp`
@@ -573,6 +582,8 @@ sidecar 输出实际相似度。多人准确率仍需另建注册/查询数据�
 设计方式：
 
 - BehaviorTree 负责动作执行流程：校验动作、检查安全、执行、确认结果。
+- `ActiveActionRuntime` 把“本地计时 + Nav2 外部 result + cancel/timeout + BT
+  outcome”合并为一个 `ActiveActionDecision`，ROS 节点不再维护平行状态字段。
 - `RobotExecutor` 是统一接口。
 - pluginlib 提供 `GazeboRobotExecutor` 和 `MockRobotExecutor` 两种后端。
 - `SimulationController` 负责把动作转换成 `/cmd_vel`，并处理基础安全逻辑。
@@ -582,10 +593,14 @@ sidecar 输出实际相似度。多人准确率仍需另建注册/查询数据�
 - BT 把流程从 if/else 里抽出来，更接近 Nav2 的工程风格。
 - pluginlib 让 mock 和 Gazebo 后端可替换，测试不必依赖 Gazebo。
 - executor 分层后，未来接真实硬件或 Nav2 行为树更自然。
+- 运行时是无 ROS Node 依赖的 C++ 深模块，可以用确定的时间值测试边界条件，
+  避免用 launch 测试才能覆盖超时、取消和旧 result 等状态组合。
 
 方案对比：
 
 - 单个节点写死所有逻辑：短期快，但难测试、难扩展。
+- 仅把代码机械拆成多个 helper：文件变短但状态仍散落；本项目按“一个 goal
+  的完整生命周期”划分模块边界，让调用方只处理 `start/update/reset`。
 - 直接引入完整 Nav2：功能强，但本项目目标不是复杂导航，成本过高。
 - 轻量 BT + pluginlib：足够展示工程规范，同时保持项目可跑通。
 

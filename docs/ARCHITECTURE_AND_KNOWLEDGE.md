@@ -74,6 +74,7 @@ sequenceDiagram
 - `src/audio_frontend_node.cpp`
 - `src/audio_processing.cpp`
 - `src/action_guard_node.cpp`
+- `include/embodied_agent_cpp/guarded_command_outbox.hpp`
 - `src/action_scheduler.cpp`
 - `src/typed_action_bridge_node.cpp`
 - `src/hardware_controller_node.cpp`
@@ -83,6 +84,8 @@ sequenceDiagram
 
 - `audio_frontend_node` 处理音频能量、VAD、endpoint、clean PCM 发布。
 - `action_guard_node` 是 LLM 输出到机器人执行之间的安全边界。
+- `GuardedCommandOutbox` 短暂缓冲已校验但尚未与 scheduler 完成 DDS 匹配的命令；
+  它有容量和 TTL，不使用 transient-local 回放可能已经过时的机器人动作。
 - `ActionScheduler` 隐藏 FIFO、队列上限、优先取消、失败清队列和 command_id 关联。
 - `typed_action_bridge_node` 把调度决策适配为 ROS 2 Action Client 调用，并把
   feedback/result 映射为强类型消息，同时向 `/diagnostics` 发布队列和执行状态。
@@ -152,6 +155,8 @@ sequenceDiagram
 核心文件：
 
 - `src/simulation_control_node.cpp`
+- `include/embodied_simulation/active_action_runtime.hpp`
+- `src/active_action_runtime.cpp`
 - `src/command_behavior_tree.cpp`
 - `config/command_tree.xml`
 - `src/robot_executor_plugins.cpp`
@@ -161,6 +166,8 @@ sequenceDiagram
 
 - `GazeboRobotExecutor` 驱动真实仿真。
 - `MockRobotExecutor` 用于不启动 Gazebo 的自动测试。
+- `SimulationControlNode` 只负责 Lifecycle、ROS Action、topic 和 plugin 装配；
+  `ActiveActionRuntime` 统一定时动作与 Nav2 外部 result 的进度、取消、超时和 BT 终态映射。
 - MOVE 支持 `linear_x + angular_z`，因此绕圈/画圆不需要新增接口字段。
 
 ## 4. 关键 topic 与 action

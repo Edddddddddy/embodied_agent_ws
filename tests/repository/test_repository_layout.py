@@ -842,6 +842,13 @@ def test_nav2_executor_failure_details_are_preserved():
         / "src"
         / "simulation_control_node.cpp"
     ).read_text(encoding="utf-8")
+    action_runtime = (
+        ROOT
+        / "src"
+        / "embodied_simulation"
+        / "src"
+        / "active_action_runtime.cpp"
+    ).read_text(encoding="utf-8")
 
     assert "external_action_detail()" in executor_header
     for detail_token in (
@@ -855,7 +862,7 @@ def test_nav2_executor_failure_details_are_preserved():
         assert detail_token in executor_plugin
     assert "executor_->external_action_detail()" in control_node
     assert "detail.empty() ? \"executor_rejected\" : detail" in control_node
-    assert "Nav2 这类外部 action 的失败原因" in control_node
+    assert "Nav2 这类外部 action 的失败原因" in action_runtime
 
 
 def test_webrtc_vad_sidecar_remains_integrated_as_optional_voice_provider():
@@ -1173,7 +1180,6 @@ def test_speaker_memory_has_one_deep_module_and_typed_transport():
         "SpeakerEnrollStatus.msg",
     ):
         assert (interfaces / name).is_file()
-
     online_root = ROOT / "src" / "embodied_online_agent" / "embodied_online_agent"
     service = (online_root / "memory_command_service.py").read_text(encoding="utf-8")
     transport = (online_root / "speaker_transport.py").read_text(encoding="utf-8")
@@ -1197,3 +1203,33 @@ def test_speaker_memory_has_one_deep_module_and_typed_transport():
     assert "identity_message_to_domain" in transport
     assert "SpeakerEnrollStatus" in sidecar
     assert "json.loads(message.data)" not in sidecar
+
+
+def test_simulation_action_lifecycle_has_one_runtime_owner():
+    """长动作状态应由深模块统一拥有，Lifecycle 节点只做 ROS 装配。"""
+    package = ROOT / "src" / "embodied_simulation"
+    header = package / "include" / "embodied_simulation" / "active_action_runtime.hpp"
+    source = package / "src" / "active_action_runtime.cpp"
+    node = (package / "src" / "simulation_control_node.cpp").read_text(
+        encoding="utf-8"
+    )
+
+    assert header.is_file()
+    assert source.is_file()
+    assert "ActiveActionRuntime" in node
+    assert "action_runtime_->update" in node
+    assert "std::optional<ActionExecution> action_execution_" not in node
+    assert "active_action_uses_external_result_" not in node
+
+
+def test_action_guard_buffers_only_the_dds_startup_window():
+    """控制命令不能因 discovery 竞态丢失，也不能以 transient-local 重放旧动作。"""
+    package = ROOT / "src" / "embodied_agent_cpp"
+    header = package / "include" / "embodied_agent_cpp" / "guarded_command_outbox.hpp"
+    node = (package / "src" / "action_guard_node.cpp").read_text(encoding="utf-8")
+
+    assert header.is_file()
+    assert "GuardedCommandOutbox" in node
+    assert "downstream_wait_timeout_s" in node
+    assert "get_subscription_count() > 0" in node
+    assert "transient_local" not in node.lower()

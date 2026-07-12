@@ -25,6 +25,7 @@ add_library(embodied_agent_core
   src/action_scheduler.cpp
   src/action_validator.cpp
   src/audio_processing.cpp
+  src/guarded_command_outbox.cpp
   src/hardware_protocol.cpp
   src/hardware_transport.cpp
   src/typed_action_client_contract.cpp
@@ -215,6 +216,8 @@ if(BUILD_TESTING)
   target_link_libraries(test_action_validator embodied_agent_core)
   ament_add_gtest(test_action_scheduler test/test_action_scheduler.cpp)
   target_link_libraries(test_action_scheduler embodied_agent_core)
+  ament_add_gtest(test_guarded_command_outbox test/test_guarded_command_outbox.cpp)
+  target_link_libraries(test_guarded_command_outbox embodied_agent_core)
   ament_add_gtest(test_hardware_protocol test/test_hardware_protocol.cpp)
   target_link_libraries(test_hardware_protocol embodied_agent_core)
   ament_add_gtest(test_hardware_transport test/test_hardware_transport.cpp)

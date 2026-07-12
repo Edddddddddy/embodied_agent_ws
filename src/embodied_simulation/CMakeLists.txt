@@ -22,6 +22,7 @@ find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 
 add_library(simulation_control_core
+  src/active_action_runtime.cpp
   src/action_execution.cpp
   src/command_behavior_tree.cpp
   src/executor_diagnostics.cpp
@@ -90,6 +91,8 @@ if(BUILD_TESTING)
   target_link_libraries(test_simulation_controller simulation_control_core)
   ament_add_gtest(test_action_execution test/test_action_execution.cpp)
   target_link_libraries(test_action_execution simulation_control_core)
+  ament_add_gtest(test_active_action_runtime test/test_active_action_runtime.cpp)
+  target_link_libraries(test_active_action_runtime simulation_control_core)
   ament_add_gtest(test_command_behavior_tree test/test_command_behavior_tree.cpp)
   target_link_libraries(test_command_behavior_tree simulation_control_core)
   ament_add_gtest(test_robot_executor_plugins test/test_robot_executor_plugins.cpp)

@@ -60,6 +60,9 @@ def main():
     try:
         wait_until(
             lambda: node.text_pub.get_subscription_count() > 0
+            # ROS 2 reliable QoS 不等于“匹配前消息可回放”。必须等 Action
+            # scheduler 完成 DDS discovery，避免启动瞬间的动作候选永久丢失。
+            and node.count_subscribers("/robot/action_command_typed") > 0
             and node.count_publishers("/robot/action_result") > 0,
             15.0,
             "demo sequence pipeline was not discovered",
