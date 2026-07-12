@@ -203,6 +203,7 @@ bash scripts/acceptance_test.sh cpp-action-client
 | 内容 | 位置 |
 | --- | --- |
 | Action server | `src/embodied_simulation/src/simulation_control_node.cpp` |
+| ROS 状态输出 | `src/embodied_simulation/src/simulation_ros_io.cpp` |
 | 行为树 | `src/embodied_simulation/src/command_behavior_tree.cpp` |
 | executor 插件 | `src/embodied_simulation/src/robot_executor_plugins.cpp` |
 | 主要接口 | `ExecuteRobotCommand`、`/cmd_vel`、`/odom`、Nav2 action |
@@ -210,7 +211,9 @@ bash scripts/acceptance_test.sh cpp-action-client
 
 设计说明：
 
-- `simulation_control_node` 负责接收 goal、发布 feedback/result、管理超时和停止。
+- `simulation_control_node` 负责接收 goal、发布 Action feedback/result、协调超时和停止。
+- `SimulationRosIo` 管理 `/cmd_vel`、控制状态、ACK、BT status、诊断和健康心跳等
+  Lifecycle publisher，集中选择命名 QoS 并完成强类型消息映射。
 - BehaviorTree 编排动作检查、雷达安全检查、执行、超时停止。
 - pluginlib 让 mock、Gazebo、Nav2 后端可以替换，上游不需要改。
 

@@ -720,6 +720,8 @@ sidecar 输出实际相似度。多人准确率仍需另建注册/查询数据�
 - `src/embodied_simulation/config/command_tree.xml`
 - `src/embodied_simulation/include/embodied_simulation/active_action_runtime.hpp`
 - `src/embodied_simulation/src/active_action_runtime.cpp`
+- `src/embodied_simulation/include/embodied_simulation/simulation_ros_io.hpp`
+- `src/embodied_simulation/src/simulation_ros_io.cpp`
 - `src/embodied_simulation/src/command_behavior_tree.cpp`
 - `src/embodied_simulation/include/embodied_simulation/robot_executor.hpp`
 - `src/embodied_simulation/src/robot_executor_plugins.cpp`
@@ -730,6 +732,9 @@ sidecar 输出实际相似度。多人准确率仍需另建注册/查询数据�
 - BehaviorTree 负责动作执行流程：校验动作、检查安全、执行、确认结果。
 - `ActiveActionRuntime` 把“本地计时 + Nav2 外部 result + cancel/timeout + BT
   outcome”合并为一个 `ActiveActionDecision`，ROS 节点不再维护平行状态字段。
+- `SimulationRosIo` 统一管理 7 个 Lifecycle publisher 及其激活/停用顺序，并把领域状态
+  映射为强类型 ACK、BT status、diagnostics 和 component health；控制节点不再感知消息序号、
+  BT 去重签名或各 topic 的 QoS 细节。
 - `RobotExecutor` 是统一接口。
 - pluginlib 提供 `GazeboRobotExecutor` 和 `MockRobotExecutor` 两种后端。
 - `SimulationController` 负责把动作转换成 `/cmd_vel`，并处理基础安全逻辑。
@@ -741,12 +746,16 @@ sidecar 输出实际相似度。多人准确率仍需另建注册/查询数据�
 - executor 分层后，未来接真实硬件或 Nav2 行为树更自然。
 - 运行时是无 ROS Node 依赖的 C++ 深模块，可以用确定的时间值测试边界条件，
   避免用 launch 测试才能覆盖超时、取消和旧 result 等状态组合。
+- ROS I/O 集中后，新增 topic 或修改 DDS 策略只有一个改动点；Lifecycle 停用时先发布 STOPPED、
+  再停用 publisher，避免 transient-local 缓存仍向晚加入观察者显示 READY。
 
 方案对比：
 
 - 单个节点写死所有逻辑：短期快，但难测试、难扩展。
 - 仅把代码机械拆成多个 helper：文件变短但状态仍散落；本项目按“一个 goal
   的完整生命周期”划分模块边界，让调用方只处理 `start/update/reset`。
+- 每个 publisher 都留在 Node：直观但 QoS、激活状态、状态码映射会散落；本项目用
+  `SimulationRosIo` 封装完整中间件语义，Node 只调用业务含义明确的 publish 方法。
 - 直接引入完整 Nav2：功能强，但本项目目标不是复杂导航，成本过高。
 - 轻量 BT + pluginlib：足够展示工程规范，同时保持项目可跑通。
 

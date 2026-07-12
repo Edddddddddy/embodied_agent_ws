@@ -11,14 +11,9 @@
 #include <sstream>
 #include <string>
 
-#include <embodied_agent_interfaces/action/execute_robot_command.hpp>
-#include <embodied_agent_interfaces/msg/behavior_tree_status.hpp>
-#include <embodied_agent_interfaces/msg/component_health.hpp>
-#include <embodied_agent_interfaces/msg/robot_action_ack.hpp>
-#include <embodied_agent_interfaces/msg/simulation_state.hpp>
 #include <ament_index_cpp/get_package_share_directory.hpp>
-#include <diagnostic_msgs/msg/diagnostic_array.hpp>
-#include <geometry_msgs/msg/twist.hpp>
+#include <embodied_agent_interfaces/action/execute_robot_command.hpp>
+#include <embodied_agent_interfaces/msg/component_health.hpp>
 #include <lifecycle_msgs/msg/state.hpp>
 #include <pluginlib/class_loader.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
@@ -36,6 +31,7 @@
 #include "embodied_simulation/robot_executor.hpp"
 #include "embodied_simulation/simulation_controller.hpp"
 #include "embodied_simulation/simulation_control_factory.hpp"
+#include "embodied_simulation/simulation_ros_io.hpp"
 #include "embodied_agent_middleware/qos_profiles.hpp"
 
 namespace embodied_simulation
@@ -84,20 +80,8 @@ protected:
         executor_plugin_.c_str(), error.what());
       return CallbackReturn::FAILURE;
     }
-    cmd_vel_pub_ = create_publisher<geometry_msgs::msg::Twist>(
-      "cmd_vel", embodied_agent_middleware::command_qos(10));
-    mode_pub_ = create_publisher<std_msgs::msg::String>(
-      "robot/control_mode", embodied_agent_middleware::state_qos());
-    state_pub_ = create_publisher<embodied_agent_interfaces::msg::SimulationState>(
-      "robot/simulation_state", embodied_agent_middleware::state_qos());
-    action_ack_pub_ = create_publisher<embodied_agent_interfaces::msg::RobotActionAck>(
-      "robot/action_ack", embodied_agent_middleware::event_qos());
-    bt_status_pub_ = create_publisher<embodied_agent_interfaces::msg::BehaviorTreeStatus>(
-      "robot/bt_status", embodied_agent_middleware::event_qos());
-    diagnostics_pub_ = create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
-      "diagnostics", embodied_agent_middleware::diagnostics_qos());
-    health_pub_ = create_publisher<embodied_agent_interfaces::msg::ComponentHealth>(
-      "system/component_health", embodied_agent_middleware::state_qos());
+    ros_io_ = std::make_unique<SimulationRosIo>(*this);
+    ros_io_->configure();
     use_behavior_tree_ = bool_parameter("use_behavior_tree", true);
     if (use_behavior_tree_) {
       const auto default_tree =
@@ -164,19 +148,9 @@ protected:
 
   CallbackReturn on_activate(const rclcpp_lifecycle::State &) override
   {
-    cmd_vel_pub_->on_activate();
-    mode_pub_->on_activate();
-    state_pub_->on_activate();
-    action_ack_pub_->on_activate();
-    bt_status_pub_->on_activate();
-    diagnostics_pub_->on_activate();
-    health_pub_->on_activate();
+    ros_io_->activate(executor_->mode_name(), executor_backend_);
     timer_->reset();
     diagnostics_timer_->reset();
-    publish_mode();
-    publish_health(
-      embodied_agent_interfaces::msg::ComponentHealth::STATE_READY,
-      "executor_ready:" + executor_backend_);
     RCLCPP_INFO(get_logger(), "simulation control activated; mode=manual");
     return CallbackReturn::SUCCESS;
   }
@@ -194,23 +168,14 @@ protected:
     if (executor_) {
       executor_->stop();
     }
-    publish_zero_velocity();
+    ros_io_->publish_zero_velocity();
     if (timer_) {
       timer_->cancel();
     }
     if (diagnostics_timer_) {
       diagnostics_timer_->cancel();
     }
-    publish_health(
-      embodied_agent_interfaces::msg::ComponentHealth::STATE_STOPPED,
-      "lifecycle_deactivated");
-    health_pub_->on_deactivate();
-    diagnostics_pub_->on_deactivate();
-    bt_status_pub_->on_deactivate();
-    action_ack_pub_->on_deactivate();
-    state_pub_->on_deactivate();
-    mode_pub_->on_deactivate();
-    cmd_vel_pub_->on_deactivate();
+    ros_io_->deactivate("lifecycle_deactivated");
     RCLCPP_INFO(get_logger(), "simulation control deactivated and stopped");
     return CallbackReturn::SUCCESS;
   }
@@ -644,113 +609,26 @@ private:
     const std::string & status,
     const std::string & detail = "")
   {
-    embodied_agent_interfaces::msg::RobotActionAck message;
-    message.stamp = now();
-    message.action = action;
-    message.backend = executor_ ? executor_->backend_name() : "unconfigured";
-    message.sequence = ++action_sequence_;
-    message.status = action_ack_status(status);
-    message.detail = detail;
-    action_ack_pub_->publish(message);
-  }
-
-  static uint8_t action_ack_status(const std::string & status)
-  {
-    using Ack = embodied_agent_interfaces::msg::RobotActionAck;
-    if (status == "accepted") {return Ack::STATUS_ACCEPTED;}
-    if (status == "rejected") {return Ack::STATUS_REJECTED;}
-    if (status == "succeeded") {return Ack::STATUS_SUCCEEDED;}
-    if (status == "canceled") {return Ack::STATUS_CANCELED;}
-    if (status == "timed_out") {return Ack::STATUS_TIMED_OUT;}
-    if (status == "blocked") {return Ack::STATUS_BLOCKED;}
-    return Ack::STATUS_UNKNOWN;
-  }
-
-  static const char * tree_outcome_name(CommandTreeOutcome outcome)
-  {
-    switch (outcome) {
-      case CommandTreeOutcome::kRunning: return "running";
-      case CommandTreeOutcome::kSucceeded: return "succeeded";
-      case CommandTreeOutcome::kRejected: return "rejected";
-      case CommandTreeOutcome::kCanceled: return "canceled";
-      case CommandTreeOutcome::kTimedOut: return "timed_out";
-      case CommandTreeOutcome::kBlocked: return "blocked";
-      case CommandTreeOutcome::kFailed: return "failed";
-    }
-    return "failed";
-  }
-
-  static uint8_t tree_outcome_value(CommandTreeOutcome outcome)
-  {
-    using Status = embodied_agent_interfaces::msg::BehaviorTreeStatus;
-    switch (outcome) {
-      case CommandTreeOutcome::kRunning: return Status::OUTCOME_RUNNING;
-      case CommandTreeOutcome::kSucceeded: return Status::OUTCOME_SUCCEEDED;
-      case CommandTreeOutcome::kRejected: return Status::OUTCOME_REJECTED;
-      case CommandTreeOutcome::kCanceled: return Status::OUTCOME_CANCELED;
-      case CommandTreeOutcome::kTimedOut: return Status::OUTCOME_TIMED_OUT;
-      case CommandTreeOutcome::kBlocked: return Status::OUTCOME_BLOCKED;
-      case CommandTreeOutcome::kFailed: return Status::OUTCOME_FAILED;
-    }
-    return Status::OUTCOME_UNKNOWN;
+    ros_io_->publish_action_ack(
+      action, status,
+      executor_ ? executor_->backend_name() : "unconfigured", detail);
   }
 
   void publish_bt_status(const CommandTreeResult & result)
   {
-    if (!bt_status_pub_ || !bt_status_pub_->is_activated()) {
-      return;
-    }
     const std::string command_id = active_goal_ ?
       active_goal_->get_goal()->command.command_id : "";
-    const std::string signature = command_id + ":" + result.stage + ":" +
-      tree_outcome_name(result.outcome) + ":" + result.detail;
-    if (signature == last_bt_status_) {
-      return;
-    }
-    last_bt_status_ = signature;
-    embodied_agent_interfaces::msg::BehaviorTreeStatus message;
-    message.stamp = now();
-    message.command_id = command_id;
-    message.stage = result.stage;
-    message.outcome = tree_outcome_value(result.outcome);
-    message.detail = result.detail;
-    bt_status_pub_->publish(message);
-    RCLCPP_INFO(
-      get_logger(), "BT %s -> %s (%s)", result.stage.c_str(),
-      tree_outcome_name(result.outcome), result.detail.c_str());
+    ros_io_->publish_bt_status(result, command_id);
   }
 
   void publish_mode()
   {
-    std_msgs::msg::String message;
-    message.data = executor_->mode_name();
-    mode_pub_->publish(message);
-  }
-
-  void publish_health(const std::uint8_t state, const std::string & detail)
-  {
-    if (!health_pub_ || !health_pub_->is_activated()) {
-      return;
-    }
-    embodied_agent_interfaces::msg::ComponentHealth message;
-    message.stamp = now();
-    message.component = "simulation_control";
-    message.state = state;
-    message.detail = detail;
-    health_pub_->publish(message);
-  }
-
-  void publish_zero_velocity()
-  {
-    if (!cmd_vel_pub_ || !cmd_vel_pub_->is_activated()) {
-      return;
-    }
-    cmd_vel_pub_->publish(geometry_msgs::msg::Twist());
+    ros_io_->publish_mode(executor_->mode_name());
   }
 
   void publish_diagnostics()
   {
-    if (!diagnostics_pub_ || !diagnostics_pub_->is_activated() || !executor_) {
+    if (!ros_io_ || !executor_) {
       return;
     }
     ControllerOutput output;
@@ -759,16 +637,12 @@ private:
       output = diagnostic_output_;
     }
     // 回调组可以并行运行；传给纯函数的内容全部来自锁保护快照或只读配置。
-    const auto status = make_executor_diagnostic({
+    ros_io_->publish_diagnostics({
       get_fully_qualified_name(), get_current_state().label(), executor_plugin_,
       executor_backend_, SimulationController::mode_name(output.mode), output.reason,
       action_active_, output.sensor_stale, output.safety_stopped});
-    diagnostic_msgs::msg::DiagnosticArray message;
-    message.header.stamp = now();
-    message.status.push_back(status);
-    diagnostics_pub_->publish(message);
     // readiness 使用周期心跳判断进程是否仍存活，不能只依赖启动时的一次 latched 状态。
-    publish_health(
+    ros_io_->publish_health(
       embodied_agent_interfaces::msg::ComponentHealth::STATE_READY,
       "executor_ready:" + executor_backend_);
   }
@@ -788,23 +662,18 @@ private:
     scan_sub_.reset();
     emergency_sub_.reset();
     mode_sub_.reset();
-    diagnostics_pub_.reset();
-    health_pub_.reset();
-    bt_status_pub_.reset();
-    action_ack_pub_.reset();
-    state_pub_.reset();
-    mode_pub_.reset();
-    cmd_vel_pub_.reset();
+    if (ros_io_) {
+      ros_io_->reset();
+    }
+    ros_io_.reset();
     active_goal_.reset();
     action_active_ = false;
     if (action_runtime_) {
       action_runtime_->reset();
     }
     action_runtime_.reset();
-    action_sequence_ = 0;
     executor_backend_.clear();
     behavior_tree_.reset();
-    last_bt_status_.clear();
   }
 
   void control_tick()
@@ -817,62 +686,30 @@ private:
     }
     const bool action_stopped = update_active_action(output, now);
     if (executor_->publishes_cmd_vel()) {
-      geometry_msgs::msg::Twist velocity;
-      velocity.linear.x = action_stopped ? 0.0 : output.velocity.linear_x;
-      velocity.angular.z = action_stopped ? 0.0 : output.velocity.angular_z;
-      cmd_vel_pub_->publish(velocity);
+      ros_io_->publish_velocity(
+        action_stopped ? 0.0 : output.velocity.linear_x,
+        action_stopped ? 0.0 : output.velocity.angular_z);
     }
-
-    embodied_agent_interfaces::msg::SimulationState state_message;
-    state_message.stamp = this->now();
-    state_message.mode = SimulationController::mode_name(output.mode);
-    state_message.sensor_stale = output.sensor_stale;
-    state_message.safety_stopped = output.safety_stopped;
-    state_message.front_distance_valid = std::isfinite(output.front_distance);
-    state_message.front_distance = state_message.front_distance_valid ?
-      static_cast<float>(output.front_distance) : 0.0F;
-    state_message.right_distance_valid = std::isfinite(output.right_distance);
-    state_message.right_distance = state_message.right_distance_valid ?
-      static_cast<float>(output.right_distance) : 0.0F;
-    state_message.reason = output.reason;
-    state_message.linear_x = static_cast<float>(output.velocity.linear_x);
-    state_message.angular_z = static_cast<float>(output.velocity.angular_z);
-    state_pub_->publish(state_message);
+    ros_io_->publish_state(output);
   }
 
   pluginlib::ClassLoader<RobotExecutor> executor_loader_;
   std::shared_ptr<RobotExecutor> executor_;
   std::string executor_plugin_;
   std::string executor_backend_;
-  rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr
-    cmd_vel_pub_;
-  rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::String>::SharedPtr mode_pub_;
-  rclcpp_lifecycle::LifecyclePublisher<
-    embodied_agent_interfaces::msg::SimulationState>::SharedPtr state_pub_;
-  rclcpp_lifecycle::LifecyclePublisher<
-    embodied_agent_interfaces::msg::RobotActionAck>::SharedPtr
-    action_ack_pub_;
-  rclcpp_lifecycle::LifecyclePublisher<
-    embodied_agent_interfaces::msg::BehaviorTreeStatus>::SharedPtr
-    bt_status_pub_;
-  rclcpp_lifecycle::LifecyclePublisher<
-    diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diagnostics_pub_;
-  rclcpp_lifecycle::LifecyclePublisher<
-    embodied_agent_interfaces::msg::ComponentHealth>::SharedPtr health_pub_;
+  std::unique_ptr<SimulationRosIo> ros_io_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr mode_sub_;
   rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr emergency_sub_;
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
   rclcpp::TimerBase::SharedPtr timer_;
   rclcpp::TimerBase::SharedPtr diagnostics_timer_;
   rclcpp::CallbackGroup::SharedPtr diagnostics_callback_group_;
-  std::uint64_t action_sequence_{0};
   double action_timeout_s_{12.0};
   rclcpp_action::Server<ExecuteRobotCommand>::SharedPtr action_server_;
   std::shared_ptr<GoalHandle> active_goal_;
   bool use_behavior_tree_{true};
   std::unique_ptr<CommandBehaviorTree> behavior_tree_;
   std::unique_ptr<ActiveActionRuntime> action_runtime_;
-  std::string last_bt_status_;
   std::atomic_bool action_active_{false};
   std::mutex diagnostics_mutex_;
   ControllerOutput diagnostic_output_;

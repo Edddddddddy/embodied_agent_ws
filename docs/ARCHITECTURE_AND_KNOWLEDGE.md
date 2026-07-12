@@ -261,6 +261,8 @@ Python 的 `embodied_agent_core/ros_qos.py` 与 C++ 的
 核心文件：
 
 - `src/simulation_control_node.cpp`
+- `include/embodied_simulation/simulation_ros_io.hpp`
+- `src/simulation_ros_io.cpp`
 - `include/embodied_simulation/active_action_runtime.hpp`
 - `src/active_action_runtime.cpp`
 - `src/command_behavior_tree.cpp`
@@ -272,7 +274,8 @@ Python 的 `embodied_agent_core/ros_qos.py` 与 C++ 的
 
 - `GazeboRobotExecutor` 驱动真实仿真。
 - `MockRobotExecutor` 用于不启动 Gazebo 的自动测试。
-- `SimulationControlNode` 只负责 Lifecycle、ROS Action、topic 和 plugin 装配；
+- `SimulationControlNode` 只负责 Lifecycle 回调、订阅/Action server、定时器和 plugin 装配；
+  `SimulationRosIo` 统一拥有 managed publisher、命名 QoS、ACK/BT 状态映射和去重；
   `ActiveActionRuntime` 统一定时动作与 Nav2 外部 result 的进度、取消、超时和 BT 终态映射。
 - MOVE 支持 `linear_x + angular_z`，因此绕圈/画圆不需要新增接口字段。
 

@@ -51,6 +51,7 @@ pluginlib_export_plugin_description_file(
 
 add_library(simulation_control_component SHARED
   src/simulation_control_node.cpp
+  src/simulation_ros_io.cpp
 )
 target_link_libraries(simulation_control_component
   simulation_control_core

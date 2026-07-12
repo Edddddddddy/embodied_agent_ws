@@ -1295,6 +1295,7 @@ def test_runtime_status_topics_are_strongly_typed():
         VOICE_FRONTEND_ROOT / "webrtc_vad_node.py",
         ROOT / "src" / "embodied_agent_cpp" / "src" / "audio_frontend_node.cpp",
         ROOT / "src" / "embodied_simulation" / "src" / "simulation_control_node.cpp",
+        ROOT / "src" / "embodied_simulation" / "src" / "simulation_ros_io.cpp",
     ]
     combined = "\n".join(path.read_text(encoding="utf-8") for path in sources)
     for topic in (
@@ -1373,6 +1374,38 @@ def test_simulation_action_lifecycle_has_one_runtime_owner():
     assert "active_action_uses_external_result_" not in node
 
 
+def test_simulation_ros_io_owns_managed_publishers_and_status_mapping():
+    """仿真节点只编排控制流程，publisher 生命周期和状态映射必须集中管理。"""
+    package = ROOT / "src" / "embodied_simulation"
+    header = package / "include" / "embodied_simulation" / "simulation_ros_io.hpp"
+    source = package / "src" / "simulation_ros_io.cpp"
+    node_path = package / "src" / "simulation_control_node.cpp"
+    cmake = (package / "CMakeLists.txt").read_text(encoding="utf-8")
+    node = node_path.read_text(encoding="utf-8")
+    ros_io = source.read_text(encoding="utf-8")
+
+    assert header.is_file()
+    assert source.is_file()
+    assert "src/simulation_ros_io.cpp" in cmake
+    assert "SimulationRosIo" in node
+    for lifecycle_step in ("configure", "activate", "deactivate", "reset"):
+        assert f"ros_io_->{lifecycle_step}" in node
+
+    # 防止职责回流：新增状态 topic 时应扩展 SimulationRosIo，而不是膨胀节点。
+    assert "create_publisher<" not in node
+    assert "LifecyclePublisher<" not in node
+    assert "action_sequence_" not in node
+    assert "last_bt_status_" not in node
+    assert len(node.splitlines()) < 800
+
+    for profile in ("command_qos", "event_qos", "state_qos", "diagnostics_qos"):
+        assert profile in ros_io
+    assert "action_sequence_" in ros_io
+    assert "last_bt_status_" in ros_io
+    assert "on_activate" in ros_io
+    assert "on_deactivate" in ros_io
+
+
 def test_action_guard_buffers_only_the_dds_startup_window():
     """控制命令不能因 discovery 竞态丢失，也不能以 transient-local 重放旧动作。"""
     package = ROOT / "src" / "embodied_agent_cpp"
@@ -1408,7 +1441,7 @@ def test_python_and_cpp_nodes_share_one_qos_vocabulary():
         ROOT / "src" / "embodied_agent_cpp" / "src" / "action_guard_node.cpp",
         ROOT / "src" / "embodied_agent_cpp" / "src" / "typed_action_bridge_node.cpp",
         ROOT / "src" / "embodied_agent_cpp" / "src" / "audio_frontend_node.cpp",
-        ROOT / "src" / "embodied_simulation" / "src" / "simulation_control_node.cpp",
+        ROOT / "src" / "embodied_simulation" / "src" / "simulation_ros_io.cpp",
     )
     for source in sources:
         text = source.read_text(encoding="utf-8")
