@@ -156,7 +156,7 @@ sequenceDiagram
 | C++ 动作调度 | `src/embodied_agent_cpp/src/action_scheduler.cpp` | `ActionScheduler::enqueue()`、`complete()` |
 | ROS 2 Action client | `typed_action_bridge_node.cpp`、`typed_action_demo_client.cpp` | `apply_scheduler_events()`、`feedback_callback`、`result_callback`、`TypedActionDemoClient::run()` |
 | ROS 2 Action server | `src/embodied_simulation/src/simulation_control_node.cpp` | `handle_goal()`、`update_active_action()`、`finish_active_action()` |
-| BT/pluginlib 执行 | `command_behavior_tree.cpp`、`robot_executor_plugins.cpp` | `CommandBehaviorTree::tick()`、`GazeboRobotExecutor`、`Nav2RobotExecutor` |
+| BT/pluginlib 执行 | `command_behavior_tree.cpp`、`{gazebo,mock,nav2}_robot_executor.cpp` | `CommandBehaviorTree::tick()`、`GazeboRobotExecutor`、`Nav2RobotExecutor` |
 | 验收留证 | `scripts/showcase_release_gate.py`、`continuous_live_check.py`、`generate_offline_showcase_report.py` | release gate、live report、offline report |
 
 ## 3. 汇报时的 3 句总结

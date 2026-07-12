@@ -205,7 +205,7 @@ bash scripts/acceptance_test.sh cpp-action-client
 | Action server | `src/embodied_simulation/src/simulation_control_node.cpp` |
 | ROS 状态输出 | `src/embodied_simulation/src/simulation_ros_io.cpp` |
 | 行为树 | `src/embodied_simulation/src/command_behavior_tree.cpp` |
-| executor 插件 | `src/embodied_simulation/src/robot_executor_plugins.cpp` |
+| executor 插件 | `src/embodied_simulation/src/gazebo_robot_executor.cpp`、`mock_robot_executor.cpp`、`nav2_robot_executor.cpp` |
 | 主要接口 | `ExecuteRobotCommand`、`/cmd_vel`、`/odom`、Nav2 action |
 | 技术点 | Lifecycle、ROS 2 Action server、BehaviorTree.CPP、pluginlib、Gazebo/Nav2 后端 |
 
@@ -250,7 +250,7 @@ bash scripts/acceptance_test.sh cpp-action-client
 5. `src/embodied_agent_core/embodied_agent_core/command_nlu.py`
 6. `src/embodied_agent_cpp/src/typed_action_bridge_node.cpp`
 7. `src/embodied_simulation/src/simulation_control_node.cpp`
-8. `src/embodied_simulation/src/robot_executor_plugins.cpp`
+8. `src/embodied_simulation/src/gazebo_robot_executor.cpp`、`mock_robot_executor.cpp`、`nav2_robot_executor.cpp`
 9. `scripts/continuous_voice_monitor.py`
 10. `scripts/showcase_release_gate.py`
 

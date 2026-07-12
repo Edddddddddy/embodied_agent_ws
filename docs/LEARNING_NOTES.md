@@ -724,7 +724,9 @@ sidecar 输出实际相似度。多人准确率仍需另建注册/查询数据�
 - `src/embodied_simulation/src/simulation_ros_io.cpp`
 - `src/embodied_simulation/src/command_behavior_tree.cpp`
 - `src/embodied_simulation/include/embodied_simulation/robot_executor.hpp`
-- `src/embodied_simulation/src/robot_executor_plugins.cpp`
+- `src/embodied_simulation/src/gazebo_robot_executor.cpp`
+- `src/embodied_simulation/src/mock_robot_executor.cpp`
+- `src/embodied_simulation/src/nav2_robot_executor.cpp`
 - `src/embodied_simulation/src/simulation_controller.cpp`
 
 设计方式：
@@ -744,6 +746,8 @@ sidecar 输出实际相似度。多人准确率仍需另建注册/查询数据�
 - BT 把流程从 if/else 里抽出来，更接近 Nav2 的工程风格。
 - pluginlib 让 mock 和 Gazebo 后端可替换，测试不必依赖 Gazebo。
 - executor 分层后，未来接真实硬件或 Nav2 行为树更自然。
+- 三类 executor 分开编译后，Gazebo/Mock 不再携带 Nav2 Action、地图加载和线程依赖；
+  新增后端只需实现 `RobotExecutor` 并注册 pluginlib，不必修改既有后端源码。
 - 运行时是无 ROS Node 依赖的 C++ 深模块，可以用确定的时间值测试边界条件，
   避免用 launch 测试才能覆盖超时、取消和旧 result 等状态组合。
 - ROS I/O 集中后，新增 topic 或修改 DDS 策略只有一个改动点；Lifecycle 停用时先发布 STOPPED、
@@ -813,7 +817,7 @@ sidecar 输出实际相似度。多人准确率仍需另建注册/查询数据�
 - `src/embodied_simulation/config/places.yaml`
 - `src/embodied_simulation/rviz/voice_nav2_demo.rviz`
 - `src/embodied_simulation/src/simulation_control_node.cpp`
-- `src/embodied_simulation/src/robot_executor_plugins.cpp`
+- `src/embodied_simulation/src/nav2_robot_executor.cpp`
 - `src/embodied_simulation/launch/voice_nav2_turtlebot3.launch.py`
 - `scripts/continuous_nav2_voice_control.sh`
 - `scripts/audit_nav2_demo_assets.py`

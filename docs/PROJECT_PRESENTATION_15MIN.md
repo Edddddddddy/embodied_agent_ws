@@ -119,7 +119,7 @@ CONTINUOUS_LIVE_CHECK_REPORT=logs/nav2-live-check.json \
 | ROS 2 Action bridge | `src/embodied_agent_cpp/src/typed_action_bridge_node.cpp` | `apply_scheduler_events()`、Action client callbacks | 调度决策适配为 goal/cancel/result，并发布标准 diagnostics |
 | C++ Action demo | `src/embodied_agent_cpp/src/typed_action_demo_client.cpp` | `TypedActionDemoClient::run()` | 最小 `rclcpp_action` client，展示 goal/feedback/result 生命周期 |
 | 仿真控制 | `src/embodied_simulation/src/simulation_control_node.cpp` | `handle_goal()`、`control_tick()`、`finish_active_action()` | ROS 2 Action server、Lifecycle、诊断、超时停止 |
-| 执行后端 | `src/embodied_simulation/src/robot_executor_plugins.cpp` | `GazeboRobotExecutor`、`MockRobotExecutor`、`Nav2RobotExecutor` | pluginlib、Gazebo `/cmd_vel`、Nav2 action bridge |
+| 执行后端 | `src/embodied_simulation/src/{gazebo,mock,nav2}_robot_executor.cpp` | `GazeboRobotExecutor`、`MockRobotExecutor`、`Nav2RobotExecutor` | pluginlib、Gazebo `/cmd_vel`、Nav2 action bridge |
 | 行为树 | `src/embodied_simulation/src/command_behavior_tree.cpp` | `CommandBehaviorTree` | BehaviorTree.CPP 编排校验、执行、取消 |
 
 ## 5. 面试时可以重点强调的设计取舍

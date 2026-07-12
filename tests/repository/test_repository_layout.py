@@ -976,7 +976,7 @@ def test_nav2_executor_failure_details_are_preserved():
         / "src"
         / "embodied_simulation"
         / "src"
-        / "robot_executor_plugins.cpp"
+        / "nav2_robot_executor.cpp"
     ).read_text(encoding="utf-8")
     control_node = (
         ROOT
@@ -1006,6 +1006,31 @@ def test_nav2_executor_failure_details_are_preserved():
     assert "executor_->external_action_detail()" in control_node
     assert "detail.empty() ? \"executor_rejected\" : detail" in control_node
     assert "Nav2 这类外部 action 的失败原因" in action_runtime
+
+
+def test_robot_executor_backends_have_independent_implementation_units():
+    """简单后端不能被迫携带 Nav2 Action client、线程和地图加载依赖。"""
+    package = ROOT / "src" / "embodied_simulation"
+    source_root = package / "src"
+    cmake = (package / "CMakeLists.txt").read_text(encoding="utf-8")
+    sources = {
+        "GazeboRobotExecutor": source_root / "gazebo_robot_executor.cpp",
+        "MockRobotExecutor": source_root / "mock_robot_executor.cpp",
+        "Nav2RobotExecutor": source_root / "nav2_robot_executor.cpp",
+    }
+
+    assert not (source_root / "robot_executor_plugins.cpp").exists()
+    for class_name, source in sources.items():
+        text = source.read_text(encoding="utf-8")
+        assert class_name in text
+        assert "PLUGINLIB_EXPORT_CLASS" in text
+        assert source.name in cmake
+
+    for source in (sources["GazeboRobotExecutor"], sources["MockRobotExecutor"]):
+        text = source.read_text(encoding="utf-8")
+        assert "nav2_msgs" not in text
+        assert "SingleThreadedExecutor" not in text
+        assert "std::thread" not in text
 
 
 def test_webrtc_vad_sidecar_remains_integrated_as_optional_voice_provider():

@@ -41,7 +41,9 @@ ament_target_dependencies(simulation_control_core PUBLIC
   behaviortree_cpp diagnostic_msgs embodied_agent_interfaces embodied_agent_middleware geometry_msgs)
 
 add_library(embodied_simulation_executors SHARED
-  src/robot_executor_plugins.cpp
+  src/gazebo_robot_executor.cpp
+  src/mock_robot_executor.cpp
+  src/nav2_robot_executor.cpp
 )
 target_link_libraries(embodied_simulation_executors simulation_control_core)
 ament_target_dependencies(embodied_simulation_executors

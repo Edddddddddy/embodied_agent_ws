@@ -267,13 +267,17 @@ Python 的 `embodied_agent_core/ros_qos.py` 与 C++ 的
 - `src/active_action_runtime.cpp`
 - `src/command_behavior_tree.cpp`
 - `config/command_tree.xml`
-- `src/robot_executor_plugins.cpp`
+- `src/gazebo_robot_executor.cpp`
+- `src/mock_robot_executor.cpp`
+- `src/nav2_robot_executor.cpp`
 - `src/simulation_controller.cpp`
 
 说明：
 
 - `GazeboRobotExecutor` 驱动真实仿真。
 - `MockRobotExecutor` 用于不启动 Gazebo 的自动测试。
+- `Nav2RobotExecutor` 独立拥有 Nav2 Action client、内部 executor 与异步 goal 状态；
+  三类后端使用独立编译单元，但仍注册到同一个 pluginlib 动态库。
 - `SimulationControlNode` 只负责 Lifecycle 回调、订阅/Action server、定时器和 plugin 装配；
   `SimulationRosIo` 统一拥有 managed publisher、命名 QoS、ACK/BT 状态映射和去重；
   `ActiveActionRuntime` 统一定时动作与 Nav2 外部 result 的进度、取消、超时和 BT 终态映射。
