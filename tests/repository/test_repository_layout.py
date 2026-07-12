@@ -1295,6 +1295,9 @@ def test_speaker_memory_has_one_deep_module_and_typed_transport():
         assert (interfaces / name).is_file()
     online_root = ROOT / "src" / "embodied_online_agent" / "embodied_online_agent"
     service = (online_root / "memory_command_service.py").read_text(encoding="utf-8")
+    context_runtime = (online_root / "user_context_runtime.py").read_text(
+        encoding="utf-8"
+    )
     transport = (online_root / "speaker_transport.py").read_text(encoding="utf-8")
     online = (online_root / "online_agent_node.py").read_text(encoding="utf-8")
     offline = (
@@ -1308,9 +1311,16 @@ def test_speaker_memory_has_one_deep_module_and_typed_transport():
 
     assert "class MemoryCommandService" in service
     assert "def handle(" in service
+    assert "class UserContextRuntime" in context_runtime
+    assert "class UserContextSnapshot" in context_runtime
     for node in (online, offline):
-        assert "MemoryCommandService" in node
+        assert "UserContextRuntime" in node
+        assert "MemoryCommandService" not in node
         assert "parse_memory_command" not in node
+        assert "def _record_user_interaction" not in node
+        assert "def _current_user_preferences" not in node
+        assert "def _system_prompt_with_user_memory" not in node
+        assert "def _actions_from_context" not in node
         assert 'String, "/agent/speaker_identity"' not in node
         assert 'String, "/agent/speaker_enroll_request"' not in node
     assert "identity_message_to_domain" in transport

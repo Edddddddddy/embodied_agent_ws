@@ -18,12 +18,7 @@ from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Empty, String, UInt8MultiArray
 
 from .memory import ConversationMemory
-from .memory_command_service import MemoryCommandService
-from .user_memory import (
-    LowConfidenceSpeakerError,
-    SpeakerIdentity,
-    UserMemoryStore,
-)
+from .user_memory import UserMemoryStore
 from .action_sequence import SequentialActionPublisher
 from .agent_control_plane import (
     AgentControlPlane,
@@ -40,6 +35,7 @@ from .ros_event_transport import wake_event_message_to_domain
 from .speaker_transport import enroll_request_to_message, identity_message_to_domain
 from .streaming_turn import StreamingTurnRuntime
 from .types import ActionCommand
+from .user_context_runtime import UserContextRuntime, UserContextSnapshot
 from .user_preferences import apply_user_preferences
 from .providers.mock import MockAsr, MockLlm, MockTts
 from .providers.openai_compatible_llm import OpenAiCompatibleLlm
@@ -69,13 +65,14 @@ class OnlineAgentNode(Node):
             self._param("memory_path"),
             max_turns=self._param("memory_max_turns"),
         )
-        self._current_speaker = SpeakerIdentity()
-        self.user_memory = UserMemoryStore(
-            self._param("user_memory_dir"),
-            max_recent=int(self._param("user_memory_max_recent")),
-            retention_s=float(self._param("user_memory_retention_days")) * 86400.0,
+        self._user_context = UserContextRuntime(
+            UserMemoryStore(
+                self._param("user_memory_dir"),
+                max_recent=int(self._param("user_memory_max_recent")),
+                retention_s=float(self._param("user_memory_retention_days"))
+                * 86400.0,
+            )
         )
-        self._memory_commands = MemoryCommandService(self.user_memory)
         self.system_prompt = self._load_system_prompt()
 
         self.asr_partial_pub = self.create_publisher(String, "/agent/asr_partial", 10)
@@ -330,7 +327,7 @@ class OnlineAgentNode(Node):
 
     def _on_clear_memory(self, _message: Empty):
         self.memory.clear()
-        self._try_user_memory_write(self.user_memory.clear, self._current_speaker)
+        self._user_context.clear_current()
         self.get_logger().info("conversation memory cleared")
 
     def _on_action_result(self, message: RobotCommandResult):
@@ -346,7 +343,7 @@ class OnlineAgentNode(Node):
             message,
             min_confidence=float(self._param("speaker_identity_min_confidence")),
         )
-        self._current_speaker = identity
+        self._user_context.update_identity(identity)
         if identity.usable:
             self.get_logger().info(
                 f"speaker identity accepted: speaker_id={identity.speaker_id}, confidence={identity.confidence:.3f}"
@@ -388,13 +385,17 @@ class OnlineAgentNode(Node):
             return
         self.metrics.reset()
         self.metrics.mark_asr_final()
-        threading.Thread(target=self._run_turn, args=(command,), daemon=True).start()
+        user_context = self._user_context.snapshot()
+        threading.Thread(
+            target=self._run_turn,
+            args=(command, user_context),
+            daemon=True,
+        ).start()
 
     def _handle_memory_command(self, command: str) -> bool:
-        result = self._memory_commands.handle(command, self._current_speaker)
+        result = self._user_context.handle_command(command)
         if result is None:
             return False
-        self._current_speaker = result.identity
         if result.enroll_request is not None:
             self.speaker_enroll_request_pub.publish(
                 enroll_request_to_message(
@@ -418,7 +419,7 @@ class OnlineAgentNode(Node):
         self.metrics.reset()
         self.metrics.mark_asr_final()
 
-    def _run_turn(self, user_text: str):
+    def _run_turn(self, user_text: str, user_context: UserContextSnapshot):
         self._publish_state("thinking")
         text_queue = queue.Queue()
         tts_errors = []
@@ -461,7 +462,7 @@ class OnlineAgentNode(Node):
 
         try:
             messages = self.memory.prompt_messages(
-                self._system_prompt_with_user_memory(), user_text
+                user_context.system_prompt(self.system_prompt), user_text
             )
             self.metrics.mark_llm_requested()
             for token in self.llm.stream(messages):
@@ -470,7 +471,7 @@ class OnlineAgentNode(Node):
             result = turn.finish(user_text)
             if result.action_source == "blocked" and result.model_actions:
                 self.get_logger().warning("model actions blocked by semantic safety policy")
-            action_report = self._publish_actions(result.actions)
+            action_report = self._publish_actions(result.actions, user_context)
             text_queue.put(None)
             tts_thread.join(timeout=35.0)
             if tts_thread.is_alive():
@@ -485,8 +486,8 @@ class OnlineAgentNode(Node):
                 assistant_text,
                 model_output=result.model_output,
             )
-            self._record_user_interaction(
-                self._current_speaker,
+            self._user_context.record_interaction(
+                user_context,
                 user_text=user_text,
                 assistant_text=assistant_text,
                 # 只记录真正通过确定性/语义安全选择的动作，不能把被拦截动作写成习惯。
@@ -509,54 +510,43 @@ class OnlineAgentNode(Node):
 
     def _run_queued_turn(self, item):
         context = item.context if isinstance(item.context, dict) else {}
-        actions = self._actions_from_context(context)
+        user_context = context.get("user_context")
+        if not isinstance(user_context, UserContextSnapshot):
+            user_context = self._user_context.snapshot()
+        actions = self._control.preparsed_actions(context)
         if actions:
-            self._run_preparsed_turn(item.text, actions, context)
+            self._run_preparsed_turn(item.text, actions, user_context)
             return
-        self._run_turn(item.text)
+        self._run_turn(item.text, user_context)
 
-    def _run_preparsed_turn(self, user_text: str, actions, context: dict):
+    def _run_preparsed_turn(
+        self,
+        user_text: str,
+        actions,
+        user_context: UserContextSnapshot,
+    ):
         self._publish_state("thinking")
         summary = "，".join(action.name for action in actions)
         response = f"好的，按顺序执行：{summary}。"
         self.response_delta_pub.publish(String(data=response))
         self.response_pub.publish(String(data=response))
-        report = self._publish_actions(actions)
-        self._record_user_interaction(
-            self._current_speaker,
+        report = self._publish_actions(actions, user_context)
+        self._user_context.record_interaction(
+            user_context,
             user_text=user_text,
             assistant_text=response,
             actions=[action.as_dict() for action in actions],
             success=not report.failed,
         )
 
-    @staticmethod
-    def _actions_from_context(context: dict):
-        raw_actions = context.get("preparsed_actions") or []
-        actions = []
-        for raw in raw_actions:
-            if isinstance(raw, dict) and isinstance(raw.get("name"), str):
-                actions.append(
-                    ActionCommand(raw["name"], dict(raw.get("arguments") or {}))
-                )
-        return actions
-
-    def _try_user_memory_write(self, operation, *args, **kwargs):
-        try:
-            return operation(*args, **kwargs)
-        except LowConfidenceSpeakerError as exc:
-            self.get_logger().debug(f"skipped user memory write: {exc}")
-            return None
-
-    def _record_user_interaction(self, identity, **kwargs):
-        return self._try_user_memory_write(
-            self.user_memory.record_interaction,
-            identity,
-            **kwargs,
-        )
-
     def _enqueue_continuous_command(self, command: str):
-        decision = self._control.enqueue_command(command)
+        user_context = self._user_context.snapshot()
+        private_context = {"user_context": user_context}
+        decision = self._control.enqueue_command(
+            command,
+            context_extras=private_context,
+            fallback_context=private_context,
+        )
         self._events.publish_enqueue_decision(decision)
         if decision.status == "queued":
             self.get_logger().info(
@@ -571,8 +561,13 @@ class OnlineAgentNode(Node):
                 f"continuous command queue rejected input: {decision.reason}"
             )
 
-    def _publish_actions(self, actions):
-        action_list = apply_user_preferences(actions, self._current_user_preferences())
+    def _publish_actions(
+        self,
+        actions,
+        user_context: UserContextSnapshot | None = None,
+    ):
+        context = user_context or self._user_context.snapshot()
+        action_list = apply_user_preferences(actions, context.preferences)
 
         def publish_payload(action: ActionCommand):
             message = action_command_to_message(action, source="online_agent")
@@ -593,26 +588,9 @@ class OnlineAgentNode(Node):
             )
         return report
 
-    def _current_user_preferences(self) -> dict:
-        # 偏好只有在说话人身份可靠时才参与动作策略；未知用户继续使用系统默认参数。
-        if not self._current_speaker.usable:
-            return {}
-        return dict(self.user_memory.profile(self._current_speaker).preferences)
-
     def _should_wait_for_action_results(self, action_list):
         return self._execution.should_wait_for_action_results(
             len(action_list)
-        )
-
-    def _system_prompt_with_user_memory(self) -> str:
-        summary = self.user_memory.prompt_summary(self._current_speaker)
-        if not summary:
-            return self.system_prompt
-        return (
-            self.system_prompt
-            + "\n\n[用户画像记忆]\n"
-            + summary
-            + "\n请仅把用户画像作为偏好参考，所有动作仍必须遵守输出格式和安全限幅。"
         )
 
     def _on_tts_audio(self, pcm16: bytes):

@@ -23,6 +23,7 @@ from .continuous_voice import (
 from .navigation_phrases import is_navigation_cancel
 from .recognition_retry import RecognitionRetryTracker
 from .transcript_stabilizer import TranscriptStabilizer
+from .types import ActionCommand
 from .wakeword import WakeWordGate
 
 
@@ -168,6 +169,25 @@ class AgentControlPlane:
     def next_nlu_batch_id(self) -> str:
         self._nlu_batch_sequence += 1
         return f"{self.source}-nlu-{self._nlu_batch_sequence}"
+
+    @staticmethod
+    def preparsed_actions(context: object) -> tuple[ActionCommand, ...]:
+        """从私有队列上下文恢复强类型动作，节点不再解析 NLU 内部表示。"""
+
+        if not isinstance(context, Mapping):
+            return ()
+        actions = []
+        for raw in context.get("preparsed_actions") or ():
+            if isinstance(raw, Mapping) and isinstance(raw.get("name"), str):
+                actions.append(
+                    ActionCommand(
+                        raw["name"],
+                        dict(raw.get("arguments") or {}),
+                        str(raw.get("request_id") or ""),
+                        bool(raw.get("priority", False)),
+                    )
+                )
+        return tuple(actions)
 
     def enqueue_command(
         self,

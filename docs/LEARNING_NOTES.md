@@ -509,6 +509,7 @@ distance / angle / duration / navigation` 等 tag 分组，避免只用总体准
 
 - `src/embodied_online_agent/embodied_online_agent/speaker_identity_node.py`
 - `src/embodied_online_agent/embodied_online_agent/memory_command_service.py`
+- `src/embodied_online_agent/embodied_online_agent/user_context_runtime.py`
 - `src/embodied_online_agent/embodied_online_agent/speaker_transport.py`
 - `src/embodied_agent_interfaces/msg/SpeakerIdentity.msg`
 - `src/embodied_agent_interfaces/msg/SpeakerEnrollRequest.msg`
@@ -527,13 +528,16 @@ distance / angle / duration / navigation` 等 tag 分组，避免只用总体准
 - 声纹识别被做成 sidecar：订阅 `/audio/clean_pcm` 和 `/audio/speech_ended`，发布 typed `/agent/speaker_identity`。
 - 声纹录入通过 typed `/agent/speaker_enroll_request` 触发，sidecar 把后续语音段保存成 wav 样本并维护 `speakers.txt`，进度通过 `SpeakerEnrollStatus` 枚举发布。
 - `MemoryCommandService.handle()` 是在线/离线共用的深模块接口：查询身份、保存/删除偏好、清空记忆、文本兜底录入和 interaction 记录都隐藏在实现内部；节点只处理 ROS 发布和 TTS。
+- `UserContextRuntime` 统一持有当前身份和 `MemoryCommandService`。每条命令入队时冻结
+  `UserContextSnapshot`，prompt 摘要、动作偏好和最终 interaction 都使用这份快照；这解决了
+  长动作期间声纹从 A 更新成 B 后把 A 的命令误写入 B 画像的并发竞态。
 - `speaker_transport.py` 是声纹领域对象与 rosidl 消息之间唯一 Adapter，置信度门槛在进入领域层时统一应用。
 - Sherpa backend 按 speaker 聚合多段 embedding 后一次注册到
   `SpeakerEmbeddingManager`，确保注册时采集的 3 段样本都参与模板，而非只保留第一段。
 - 匹配时遍历 `all_speakers` 获取真实 `score`，发布 top-1 confidence、第二名分数和
   score margin；低于阈值或 top-1/top-2 过近均返回 `unknown`。
 - Sherpa 模式启动时只发布 `awaiting_audio/unknown`，不会用 demo mock 身份抢先加载个人记忆。
-- Agent 只消费稳定 JSON identity，不直接绑定某个模型库。
+- Agent 只消费稳定 typed `SpeakerIdentity`，不直接绑定某个模型库。
 - `UserMemoryStore` 按 `speaker_id` 保存本地 profile，包括用户名、偏好、常用动作、最近交互。
 - Agent 推理前把当前用户画像追加进 system prompt，但动作仍必须经过 ActionGuard。
 - `user_preferences.py` 在动作发布出口统一应用确定性偏好，例如 `movement_speed=slow/fast`、
@@ -553,7 +557,7 @@ distance / angle / duration / navigation` 等 tag 分组，避免只用总体准
   使用同一个 TTL，机器人可能在用户不知情时突然恢复默认行为。
 - 记忆写入必须可控，不能完全交给 LLM 自行决定，否则容易把误识别或幻觉写入本地 profile。
 - 低置信度声纹返回 `unknown`；`UserMemoryStore` 对写操作增加 `LowConfidenceSpeakerError`
-  门控，Agent 捕获后跳过个人记忆写入，避免把 A 用户偏好误写到 B 用户。
+  门控，`UserContextRuntime` 捕获后跳过个人记忆写入，避免把 A 用户偏好误写到 B 用户。
 - 偏好只改写低层运动参数，且只在 speaker identity 可信时生效；真正的速度/时长边界继续由
   C++ ActionGuard 兜底，避免“记忆”绕过安全策略。
 

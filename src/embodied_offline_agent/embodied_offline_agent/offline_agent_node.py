@@ -19,7 +19,6 @@ from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Empty, String, UInt8MultiArray
 
 from embodied_online_agent.memory import ConversationMemory
-from embodied_online_agent.memory_command_service import MemoryCommandService
 from embodied_online_agent.action_sequence import SequentialActionPublisher
 from embodied_online_agent.agent_control_plane import (
     AgentControlPlane,
@@ -41,11 +40,11 @@ from embodied_online_agent.speaker_transport import (
 )
 from embodied_online_agent.streaming_turn import StreamingTurnRuntime
 from embodied_online_agent.types import ActionCommand
-from embodied_online_agent.user_memory import (
-    LowConfidenceSpeakerError,
-    SpeakerIdentity,
-    UserMemoryStore,
+from embodied_online_agent.user_context_runtime import (
+    UserContextRuntime,
+    UserContextSnapshot,
 )
+from embodied_online_agent.user_memory import UserMemoryStore
 from embodied_online_agent.user_preferences import apply_user_preferences
 
 from .latency import OfflineLatency
@@ -68,13 +67,14 @@ class OfflineAgentNode(Node):
         self._memory = ConversationMemory(
             self._param("memory_path"), self._param("memory_max_turns")
         )
-        self._current_speaker = SpeakerIdentity()
-        self._user_memory = UserMemoryStore(
-            self._param("user_memory_dir"),
-            max_recent=int(self._param("user_memory_max_recent")),
-            retention_s=float(self._param("user_memory_retention_days")) * 86400.0,
+        self._user_context = UserContextRuntime(
+            UserMemoryStore(
+                self._param("user_memory_dir"),
+                max_recent=int(self._param("user_memory_max_recent")),
+                retention_s=float(self._param("user_memory_retention_days"))
+                * 86400.0,
+            )
         )
-        self._memory_commands = MemoryCommandService(self._user_memory)
         self._control = AgentControlPlane(
             AgentControlPlaneConfig.from_parameters(
                 "offline", self._param, self._command_normalization_path()
@@ -267,11 +267,11 @@ class OfflineAgentNode(Node):
             + json.dumps(report, ensure_ascii=False)
         )
 
-    def _llm_messages(self, user_text):
+    def _llm_messages(self, user_text, user_context: UserContextSnapshot):
         # ConversationMemory 中保存原始模型协议输出，使该列表能与 server slot 的
         # token 前缀精确对齐；不要在这里只给当前 user 临时追加不同的后缀。
         return self._memory.prompt_messages(
-            self._system_prompt_with_user_memory() + "\n/no_think",
+            user_context.system_prompt(self._system_prompt) + "\n/no_think",
             user_text,
         )
 
@@ -424,7 +424,7 @@ class OfflineAgentNode(Node):
 
     def _on_clear(self, _message):
         self._memory.clear()
-        self._try_user_memory_write(self._user_memory.clear, self._current_speaker)
+        self._user_context.clear_current()
 
     def _on_action_result(self, message):
         self._action_sequencer.notify_result(
@@ -439,7 +439,7 @@ class OfflineAgentNode(Node):
             message,
             min_confidence=float(self._param("speaker_identity_min_confidence")),
         )
-        self._current_speaker = identity
+        self._user_context.update_identity(identity)
         if identity.usable:
             self.get_logger().info(
                 f"speaker identity accepted: speaker_id={identity.speaker_id}, confidence={identity.confidence:.3f}"
@@ -478,15 +478,17 @@ class OfflineAgentNode(Node):
             self.get_logger().warning("offline agent busy; overlapping utterance dropped")
             return
         turn_latency = self._latency
+        user_context = self._user_context.snapshot()
         threading.Thread(
-            target=self._run_turn, args=(command, turn_latency), daemon=True
+            target=self._run_turn,
+            args=(command, turn_latency, user_context),
+            daemon=True,
         ).start()
 
     def _handle_memory_command(self, command):
-        result = self._memory_commands.handle(command, self._current_speaker)
+        result = self._user_context.handle_command(command)
         if result is None:
             return False
-        self._current_speaker = result.identity
         if result.enroll_request is not None:
             self._speaker_enroll_request_pub.publish(
                 enroll_request_to_message(
@@ -508,7 +510,7 @@ class OfflineAgentNode(Node):
         except Exception as exc:
             self.get_logger().warning(f"memory response TTS failed: {exc}")
 
-    def _run_turn(self, user_text, latency):
+    def _run_turn(self, user_text, latency, user_context: UserContextSnapshot):
         tts_pipeline = PseudoStreamingTtsPipeline(
             synthesize=self._tts.synthesize,
             publish_audio=lambda pcm: self._audio_pub.publish(
@@ -536,7 +538,7 @@ class OfflineAgentNode(Node):
         )
         self._publish_state("thinking")
         try:
-            messages = self._llm_messages(user_text)
+            messages = self._llm_messages(user_text, user_context)
             latency.mark_llm_start()
             for token in self._llm.stream(messages):
                 turn.feed(token)
@@ -545,7 +547,7 @@ class OfflineAgentNode(Node):
                 self.get_logger().warning(
                     "model actions blocked by semantic safety policy"
                 )
-            action_report = self._publish_actions(result.actions)
+            action_report = self._publish_actions(result.actions, user_context)
             tts_metrics = tts_pipeline.close_and_wait(timeout_s=60.0)
             assistant_text = result.assistant_text
             self._response_pub.publish(String(data=assistant_text))
@@ -554,8 +556,8 @@ class OfflineAgentNode(Node):
                 assistant_text,
                 model_output=result.model_output,
             )
-            self._record_user_interaction(
-                self._current_speaker,
+            self._user_context.record_interaction(
+                user_context,
                 user_text=user_text,
                 assistant_text=assistant_text,
                 # 被语义安全策略挡住的动作不能污染用户行为画像。
@@ -586,26 +588,37 @@ class OfflineAgentNode(Node):
 
     def _run_queued_turn(self, item):
         context = item.context if isinstance(item.context, dict) else {}
-        actions = self._actions_from_context(context)
+        user_context = context.get("user_context")
+        if not isinstance(user_context, UserContextSnapshot):
+            user_context = self._user_context.snapshot()
+        actions = self._control.preparsed_actions(context)
+        latency = context.get("latency")
+        if not isinstance(latency, OfflineLatency):
+            latency = item.context if isinstance(item.context, OfflineLatency) else OfflineLatency()
         if actions:
-            latency = context.get("latency")
             self._run_preparsed_turn(
                 item.text,
                 actions,
-                latency if isinstance(latency, OfflineLatency) else OfflineLatency(),
+                latency,
+                user_context,
             )
             return
-        latency = item.context if isinstance(item.context, OfflineLatency) else OfflineLatency()
-        self._run_turn(item.text, latency)
+        self._run_turn(item.text, latency, user_context)
 
-    def _run_preparsed_turn(self, user_text, actions, latency):
+    def _run_preparsed_turn(
+        self,
+        user_text,
+        actions,
+        latency,
+        user_context: UserContextSnapshot,
+    ):
         self._publish_state("thinking")
         response = "好的，按顺序执行：" + "，".join(action.name for action in actions) + "。"
         self._response_delta_pub.publish(String(data=response))
         self._response_pub.publish(String(data=response))
-        report = self._publish_actions(actions)
-        self._record_user_interaction(
-            self._current_speaker,
+        report = self._publish_actions(actions, user_context)
+        self._user_context.record_interaction(
+            user_context,
             user_text=user_text,
             assistant_text=response,
             actions=[action.as_dict() for action in actions],
@@ -615,36 +628,16 @@ class OfflineAgentNode(Node):
         report = latency.report(0, 0)
         self._metrics_pub.publish(String(data=json.dumps(report, ensure_ascii=False)))
 
-    @staticmethod
-    def _actions_from_context(context):
-        raw_actions = context.get("preparsed_actions") or []
-        actions = []
-        for raw in raw_actions:
-            if isinstance(raw, dict) and isinstance(raw.get("name"), str):
-                actions.append(
-                    ActionCommand(raw["name"], dict(raw.get("arguments") or {}))
-                )
-        return actions
-
-    def _try_user_memory_write(self, operation, *args, **kwargs):
-        try:
-            return operation(*args, **kwargs)
-        except LowConfidenceSpeakerError as exc:
-            self.get_logger().debug(f"skipped user memory write: {exc}")
-            return None
-
-    def _record_user_interaction(self, identity, **kwargs):
-        return self._try_user_memory_write(
-            self._user_memory.record_interaction,
-            identity,
-            **kwargs,
-        )
-
     def _enqueue_continuous_command(self, command):
+        user_context = self._user_context.snapshot()
+        private_context = {
+            "latency": self._latency,
+            "user_context": user_context,
+        }
         decision = self._control.enqueue_command(
             command,
-            context_extras={"latency": self._latency},
-            fallback_context=self._latency,
+            context_extras=private_context,
+            fallback_context=private_context,
         )
         self._events.publish_enqueue_decision(decision)
         if decision.status == "queued":
@@ -660,8 +653,13 @@ class OfflineAgentNode(Node):
                 f"continuous command queue rejected input: {decision.reason}"
             )
 
-    def _publish_actions(self, actions):
-        action_list = apply_user_preferences(actions, self._current_user_preferences())
+    def _publish_actions(
+        self,
+        actions,
+        user_context: UserContextSnapshot | None = None,
+    ):
+        context = user_context or self._user_context.snapshot()
+        action_list = apply_user_preferences(actions, context.preferences)
 
         def publish_payload(action: ActionCommand):
             message = action_command_to_message(action, source="offline_agent")
@@ -682,26 +680,9 @@ class OfflineAgentNode(Node):
             )
         return report
 
-    def _current_user_preferences(self):
-        # 与在线链路保持同一策略：只有可信 speaker identity 才能读取并应用个人偏好。
-        if not self._current_speaker.usable:
-            return {}
-        return dict(self._user_memory.profile(self._current_speaker).preferences)
-
     def _should_wait_for_action_results(self, action_list):
         return self._execution.should_wait_for_action_results(
             len(action_list)
-        )
-
-    def _system_prompt_with_user_memory(self):
-        summary = self._user_memory.prompt_summary(self._current_speaker)
-        if not summary:
-            return self._system_prompt
-        return (
-            self._system_prompt
-            + "\n\n[用户画像记忆]\n"
-            + summary
-            + "\n请仅把用户画像作为偏好参考，所有动作仍必须遵守输出格式和安全限幅。"
         )
 
     def _publish_state(self, state):

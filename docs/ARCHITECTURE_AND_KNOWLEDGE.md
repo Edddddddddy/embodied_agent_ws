@@ -130,6 +130,7 @@ sequenceDiagram
 - `embodied_online_agent/agent_execution_runtime.py`
 - `embodied_online_agent/asr_endpoint_runtime.py`
 - `embodied_online_agent/streaming_turn.py`
+- `embodied_online_agent/user_context_runtime.py`
 - `embodied_online_agent/ros_agent_events.py`
 - `embodied_online_agent/continuous_voice.py`
 - `embodied_online_agent/command_normalizer.py`
@@ -152,6 +153,9 @@ sequenceDiagram
   拦截和模型输出缓存；provider 只注入首 token、文字增量、可合成句子与告警回调。
 - 用户行为记忆只记录 `StreamingTurnResult.actions`，即真正通过动作选择策略的指令；模型
   曾生成但被安全策略拦截的动作不会污染用户画像。
+- `UserContextRuntime` 是身份、画像和记忆命令的唯一拥有者；命令入队时创建不可变
+  `UserContextSnapshot`，让同一 turn 的 prompt、偏好和 interaction 写入始终绑定同一用户，
+  即使执行期间收到新的声纹识别结果也不会串写画像。
 - `RosAgentEventPublisher` 是独立 Adapter，统一 typed topic、时间戳和 QoS，避免两个
   主节点分别维护一组 publisher。
 - `agent_parameters.py` 是在线/离线节点参数的单一权威来源：公共控制面与 provider

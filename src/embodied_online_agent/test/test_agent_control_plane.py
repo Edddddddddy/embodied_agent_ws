@@ -167,3 +167,26 @@ def test_enqueue_fallback_preserves_provider_context_when_nlu_disabled():
 
     assert decision.status == "queued"
     assert queued.context is marker
+
+
+def test_preparsed_actions_are_restored_only_from_valid_mapping_context():
+    control = AgentControlPlane(_config())
+    context = {
+        "preparsed_actions": [
+            {
+                "name": "stop",
+                "arguments": {},
+                "request_id": "command-1",
+                "priority": True,
+            },
+            {"name": 42, "arguments": {}},
+        ]
+    }
+
+    actions = control.preparsed_actions(context)
+
+    assert len(actions) == 1
+    assert actions[0].name == "stop"
+    assert actions[0].request_id == "command-1"
+    assert actions[0].priority is True
+    assert control.preparsed_actions(None) == ()

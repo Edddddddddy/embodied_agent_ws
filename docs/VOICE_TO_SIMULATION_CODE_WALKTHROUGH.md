@@ -77,6 +77,8 @@ flowchart LR
 
 - 在线/离线 Agent 通过 `AgentControlPlane.accept_transcript()` 复用同一套归一化、
   会话、补全、重试和优先控制决策；差异集中在 provider、延迟统计和 TTS pipeline。
+- 声纹身份先进入 `UserContextRuntime`；命令开始处理时冻结 `UserContextSnapshot`，随后
+  system prompt、动作偏好与交互记忆共享同一身份快照，避免异步声纹更新造成用户串写。
 - ASR final 不直接进入 LLM，而是先经过连续语音会话层，避免 filler、重复 final、未唤醒文本误触发。
 - 离线链路要额外输出模型版本、latency、tokens/s 等证据，避免“工程接口有了但指标不可验证”。
 
@@ -95,6 +97,8 @@ flowchart LR
 - 普通命令按 FIFO 入队；执行中收到的新命令等待前一个 Action result。
 - `AgentControlPlane.enqueue_command()` 是 NLU 拆批与 batch metadata 的唯一入口；
   `AgentExecutionRuntime` 是 busy/worker/started-finished 生命周期的唯一拥有者。
+- NLU 预解析动作通过 `AgentControlPlane.preparsed_actions()` 恢复，节点不再理解队列内部表示；
+  同一队列 context 还携带 turn 级用户快照，但 ROS 事件只发布稳定的公共 batch metadata。
 - 在线/离线 provider 的 token 都进入 `StreamingTurnRuntime.feed()/finish()`；该模块统一
   tagged protocol、分句和安全动作选择，节点分别把 speakable callback 接到各自 TTS。
 - `停下/急停` 是 priority stop：清空队列、抢占当前动作、立即发布 stop。
