@@ -1246,11 +1246,11 @@ def test_voice_control_events_are_strongly_typed_and_use_named_qos():
     ):
         assert f"self._topics.{field}" in event_adapter
         assert topic in topics
-    assert "command_event_qos()" in event_adapter
-    assert "latched_state_qos()" in event_adapter
+    assert "event_qos()" in event_adapter
+    assert "state_qos()" in event_adapter
     assert "RosAgentEventPublisher" in ros_io
-    assert "audio_stream_qos" in ros_io
-    assert "command_event_qos" in ros_io
+    assert "audio_qos" in ros_io
+    assert "event_qos" in ros_io
     assert "unsupported queue event" in transport
     assert "unsupported wake event" in transport
     assert "unsupported recognition feedback" in transport
@@ -1386,12 +1386,13 @@ def test_action_guard_buffers_only_the_dds_startup_window():
     assert "transient_local" not in node.lower()
 
 
-def test_cpp_nodes_share_one_qos_contract():
+def test_python_and_cpp_nodes_share_one_qos_vocabulary():
     middleware = ROOT / "src" / "embodied_agent_middleware"
     qos_header = (
         middleware / "include" / "embodied_agent_middleware" / "qos_profiles.hpp"
     )
     qos_text = qos_header.read_text(encoding="utf-8")
+    python_qos = (CORE_ROOT / "ros_qos.py").read_text(encoding="utf-8")
     for profile in (
         "command_qos",
         "event_qos",
@@ -1401,6 +1402,7 @@ def test_cpp_nodes_share_one_qos_contract():
         "diagnostics_qos",
     ):
         assert profile in qos_text
+        assert f"def {profile}(" in python_qos
 
     sources = (
         ROOT / "src" / "embodied_agent_cpp" / "src" / "action_guard_node.cpp",
@@ -1412,6 +1414,14 @@ def test_cpp_nodes_share_one_qos_contract():
         text = source.read_text(encoding="utf-8")
         assert "embodied_agent_middleware/qos_profiles.hpp" in text
     assert "rclcpp::QoS(10)" not in sources[-1].read_text(encoding="utf-8")
+
+    # Voice Adapter 只能选择项目语义，禁止重新散落 History/Reliability 魔法配置。
+    for source in VOICE_FRONTEND_ROOT.glob("*_node.py"):
+        text = source.read_text(encoding="utf-8")
+        assert "QoSProfile" not in text
+        assert "HistoryPolicy" not in text
+        assert "ReliabilityPolicy" not in text
+        assert "from embodied_agent_core.ros_qos import" in text
 
 
 def test_system_readiness_is_typed_profile_based_and_heartbeat_driven():
@@ -1551,7 +1561,8 @@ def test_agent_turn_metrics_use_one_strongly_typed_ros_contract():
     assert "agent_turn_metrics_to_message" in online
     assert "agent_turn_metrics_to_message" in offline
     assert "agent_turn_metrics_message_to_dict" in live_check
-    assert 'AgentTurnMetrics, "/agent/metrics"' in live_check
+    assert '"/agent/metrics"' in live_check
+    assert "diagnostics_qos(depth=10)" in live_check
     assert "_finite_or_nan" in transport
 
     # 显式扫描保证新增脚本也受守卫约束；拆开 legacy 字符串，避免测试命中自身。

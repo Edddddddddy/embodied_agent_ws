@@ -10,6 +10,7 @@ import time
 import numpy as np
 import rclpy
 from embodied_agent_interfaces.msg import RobotActionAck, RobotCommandResult
+from embodied_agent_core.ros_qos import audio_qos, event_qos, sensor_qos
 from embodied_agent_core.runtime_status_transport import action_ack_to_dict
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
@@ -23,28 +24,30 @@ from typed_action_test_utils import result_dict
 class VoiceGazeboProbe(Node):
     def __init__(self):
         super().__init__("voice_gazebo_probe")
-        qos = rclpy.qos.QoSProfile(
-            history=rclpy.qos.HistoryPolicy.KEEP_LAST,
-            depth=20,
-            reliability=rclpy.qos.ReliabilityPolicy.BEST_EFFORT,
-        )
         self.audio_pub = self.create_publisher(
-            UInt8MultiArray, "/audio/clean_pcm", qos
+            UInt8MultiArray, "/audio/clean_pcm", audio_qos(depth=20)
         )
         self.silence_pub = self.create_publisher(
-            Empty, "/audio/silence_timeout", 10
+            Empty, "/audio/silence_timeout", event_qos(depth=10)
         )
         self.position = None
         self.scan_received = False
         self.asr_text = None
         self.action_ack = None
         self.action_result = None
-        self.create_subscription(Odometry, "/odom", self._on_odom, 10)
-        self.create_subscription(LaserScan, "/scan", self._on_scan, 10)
-        self.create_subscription(String, "/agent/asr_final", self._on_asr, 10)
-        self.create_subscription(RobotActionAck, "/robot/action_ack", self._on_ack, 10)
+        self.create_subscription(Odometry, "/odom", self._on_odom, sensor_qos())
+        self.create_subscription(LaserScan, "/scan", self._on_scan, sensor_qos())
         self.create_subscription(
-            RobotCommandResult, "/robot/action_result", self._on_result, 10
+            String, "/agent/asr_final", self._on_asr, event_qos(depth=10)
+        )
+        self.create_subscription(
+            RobotActionAck, "/robot/action_ack", self._on_ack, event_qos(depth=10)
+        )
+        self.create_subscription(
+            RobotCommandResult,
+            "/robot/action_result",
+            self._on_result,
+            event_qos(depth=10),
         )
 
     def _on_odom(self, message):

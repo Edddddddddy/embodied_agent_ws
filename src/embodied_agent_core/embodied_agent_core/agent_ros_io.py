@@ -14,7 +14,7 @@ from embodied_agent_interfaces.msg import (
 from std_msgs.msg import Empty, String, UInt8MultiArray
 
 from .ros_agent_events import RosAgentEventPublisher
-from .ros_qos import audio_stream_qos, command_event_qos
+from .ros_qos import audio_qos, command_qos, diagnostics_qos, event_qos, state_qos
 from .ros_topics import AgentTopicContract
 
 
@@ -55,22 +55,27 @@ class AgentRosIo:
     ) -> None:
         self._node = node
         self.topics = topics or AgentTopicContract()
-        event_qos = command_event_qos(depth=10)
-        audio_qos = audio_stream_qos(depth=20)
+        command_profile = command_qos(depth=10)
+        event_profile = event_qos(depth=10)
+        audio_profile = audio_qos(depth=20)
+        diagnostics_profile = diagnostics_qos(depth=10)
+        state_profile = state_qos()
 
         create = node.create_lifecycle_publisher
-        self._asr_partial = create(String, self.topics.asr_partial, event_qos)
-        self._asr_final = create(String, self.topics.asr_final, event_qos)
-        self._response = create(String, self.topics.response_text, event_qos)
-        self._response_delta = create(String, self.topics.response_delta, event_qos)
+        self._asr_partial = create(String, self.topics.asr_partial, event_profile)
+        self._asr_final = create(String, self.topics.asr_final, event_profile)
+        self._response = create(String, self.topics.response_text, event_profile)
+        self._response_delta = create(String, self.topics.response_delta, event_profile)
         self._action_candidate = create(
-            RobotCommand, self.topics.action_candidate, event_qos
+            RobotCommand, self.topics.action_candidate, command_profile
         )
         self._speaker_enroll_request = create(
-            SpeakerEnrollRequest, self.topics.speaker_enroll_request, event_qos
+            SpeakerEnrollRequest, self.topics.speaker_enroll_request, command_profile
         )
-        self._metrics = create(AgentTurnMetrics, self.topics.metrics, event_qos)
-        self._tts_audio = create(UInt8MultiArray, self.topics.tts_pcm, audio_qos)
+        self._metrics = create(
+            AgentTurnMetrics, self.topics.metrics, diagnostics_profile
+        )
+        self._tts_audio = create(UInt8MultiArray, self.topics.tts_pcm, audio_profile)
         self.events = RosAgentEventPublisher(
             node,
             publisher_factory=node.create_lifecycle_publisher,
@@ -80,22 +85,22 @@ class AgentRosIo:
         # 保存 subscription 引用，使该 Facade 明确拥有完整 ROS 接线生命周期。
         self._subscriptions = [
             node.create_subscription(
-                String, self.topics.text_input, callbacks.text_input, event_qos
+                String, self.topics.text_input, callbacks.text_input, command_profile
             ),
             node.create_subscription(
                 SpeakerIdentity,
                 self.topics.speaker_identity,
                 callbacks.speaker_identity,
-                event_qos,
+                state_profile,
             ),
             node.create_subscription(
-                Empty, self.topics.clear_memory, callbacks.clear_memory, event_qos
+                Empty, self.topics.clear_memory, callbacks.clear_memory, command_profile
             ),
             node.create_subscription(
                 RobotCommandResult,
                 self.topics.action_result,
                 callbacks.action_result,
-                event_qos,
+                event_profile,
             ),
         ]
         if external_wake_event_enabled:
@@ -104,7 +109,7 @@ class AgentRosIo:
                     WakeEvent,
                     self.topics.wake_event_input,
                     callbacks.wake_event_input,
-                    event_qos,
+                    command_profile,
                 )
             )
         if microphone_enabled:
@@ -114,25 +119,25 @@ class AgentRosIo:
                         UInt8MultiArray,
                         self.topics.clean_audio,
                         callbacks.clean_audio,
-                        audio_qos,
+                        audio_profile,
                     ),
                     node.create_subscription(
                         Empty,
                         self.topics.silence_timeout,
                         callbacks.silence_timeout,
-                        event_qos,
+                        event_profile,
                     ),
                     node.create_subscription(
                         Empty,
                         self.topics.speech_started,
                         callbacks.speech_started,
-                        event_qos,
+                        event_profile,
                     ),
                     node.create_subscription(
                         Empty,
                         self.topics.speech_ended,
                         callbacks.speech_ended,
-                        event_qos,
+                        event_profile,
                     ),
                 ]
             )

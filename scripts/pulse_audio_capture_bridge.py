@@ -16,12 +16,12 @@ import subprocess
 import time
 
 from embodied_agent_interfaces.msg import AudioFrontendStatus
+from embodied_agent_core.ros_qos import audio_qos, event_qos, state_qos
 from embodied_agent_core.runtime_status_transport import (
     audio_frontend_status_to_message,
 )
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Empty, UInt8MultiArray
 
 
@@ -66,18 +66,22 @@ class PulseAudioCaptureBridge(Node):
     def __init__(self, args: argparse.Namespace):
         super().__init__("pulse_audio_capture_bridge")
         self.args = args
-        qos = QoSProfile(
-            history=HistoryPolicy.KEEP_LAST,
-            depth=20,
-            reliability=ReliabilityPolicy.BEST_EFFORT,
+        self.clean_pub = self.create_publisher(
+            UInt8MultiArray, "/audio/clean_pcm", audio_qos(depth=20)
         )
-        self.clean_pub = self.create_publisher(UInt8MultiArray, "/audio/clean_pcm", qos)
         self.metrics_pub = self.create_publisher(
-            AudioFrontendStatus, "/audio/frontend_metrics", 10
+            AudioFrontendStatus, "/audio/frontend_metrics", state_qos()
         )
-        self.started_pub = self.create_publisher(Empty, "/audio/speech_started", 10)
-        self.ended_pub = self.create_publisher(Empty, "/audio/speech_ended", 10)
-        self.silence_pub = self.create_publisher(Empty, "/audio/silence_timeout", 10)
+        endpoint_profile = event_qos(depth=10)
+        self.started_pub = self.create_publisher(
+            Empty, "/audio/speech_started", endpoint_profile
+        )
+        self.ended_pub = self.create_publisher(
+            Empty, "/audio/speech_ended", endpoint_profile
+        )
+        self.silence_pub = self.create_publisher(
+            Empty, "/audio/silence_timeout", endpoint_profile
+        )
         self.endpoint_events_enabled = bool(args.endpoint_events_enabled)
         self.endpoint = EndpointDetector(
             args.speech_end_silence_s,

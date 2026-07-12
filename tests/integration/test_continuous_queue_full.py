@@ -20,7 +20,7 @@ from embodied_agent_core.ros_event_transport import (
     queue_event_message_to_dict,
     recognition_feedback_message_to_dict,
 )
-from embodied_agent_core.ros_qos import command_event_qos
+from embodied_agent_core.ros_qos import event_qos
 from rclpy.node import Node
 from std_msgs.msg import String
 from typed_action_test_utils import candidate_dict
@@ -38,12 +38,12 @@ class ContinuousQueueFullProbe(Node):
         self.queue_events = []
         self.feedback = []
         self.candidates = []
-        self.create_subscription(CommandQueueEvent, "/agent/command_queue", self._on_queue, command_event_qos())
+        self.create_subscription(CommandQueueEvent, "/agent/command_queue", self._on_queue, event_qos())
         self.create_subscription(
             RecognitionFeedback,
             "/agent/recognition_feedback",
             self._on_feedback,
-            command_event_qos(),
+            event_qos(),
         )
         self.create_subscription(RobotCommand, "/agent/action_candidate", self._on_candidate, 10)
 

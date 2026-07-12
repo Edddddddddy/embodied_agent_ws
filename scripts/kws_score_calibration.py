@@ -162,6 +162,7 @@ class KwsScoreCalibrationNode:
     def __init__(self, topic: str):
         from embodied_agent_interfaces.msg import KwsScore
         from embodied_agent_core.runtime_status_transport import kws_score_to_dict
+        from embodied_agent_core.ros_qos import sensor_qos
         import rclpy
         from rclpy.node import Node
 
@@ -172,7 +173,7 @@ class KwsScoreCalibrationNode:
                     KwsScore,
                     topic,
                     lambda message: owner._on_score(kws_score_to_dict(message)),
-                    10,
+                    sensor_qos(depth=5),
                 )
 
         self.samples: list[KwsScoreSample] = []

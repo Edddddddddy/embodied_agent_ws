@@ -117,11 +117,14 @@
   可观测的语义槽位，又不让任意字典穿过 ROS 中间件边界。
 - `agent_ros_io.py` 把在线/离线节点共同的 publisher/subscription 接线收敛成 Facade；
   `ros_topics.py` 集中全部 Agent topic，节点只注入业务 callback，不再拼消息或硬编码接口名。
-- `ros_qos.py` 用命名函数表达中间件语义：命令生命周期事件使用 reliable，Agent/session
-  当前状态使用 transient-local，PCM 使用 best-effort。这样 QoS 是模块接口的一部分，而不是
-  散落的 `depth=10`，也不会让 reliable DDS 反压实时音频线程。
-- C++ 使用 `src/embodied_agent_middleware/include/embodied_agent_middleware/qos_profiles.hpp`
-  表达同一套语义；ActionGuard、Action scheduler、音频前端、硬件 adapter 与仿真节点不再各自猜测 QoS。
+- `ros_qos.py` 与 C++ `qos_profiles.hpp` 使用相同的六类命名语义：command/event
+  使用 reliable + volatile，state 使用 reliable + transient-local，sensor/audio 使用
+  best-effort，diagnostics 使用可靠浅队列。VAD/KWS/声纹节点只能选择这些 profile，禁止
+  自行拼 `QoSProfile`；这样修改一次即可同时约束在线、离线和所有语音 Adapter。
+- command 与 event 都是 reliable，但不能合并概念：command 可能改变机器人状态，必须禁止
+  transient-local 重放；event 描述已发生的生命周期事实。state 才允许 late joiner 获取最新值。
+- C++ 的 ActionGuard、Action scheduler、音频前端、硬件 Adapter 与仿真节点复用同一套名称，
+  repository guard 会同时扫描 Python 与 C++，防止后续节点重新引入魔法 `depth=10`。
 - 校验动作类型、速度、时长、颜色、模式等字段。
 - 通过后发布 `/robot/action_command_typed` 强类型 ROS 2 msg。
 - Guard 与 scheduler 尚未完成 DDS discovery 时，命令进入有界 TTL outbox；匹配后

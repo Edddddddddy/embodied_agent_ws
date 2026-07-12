@@ -12,9 +12,9 @@ from pathlib import Path
 
 import rclpy
 from embodied_agent_interfaces.msg import SpeakerIdentity
+from embodied_agent_core.ros_qos import audio_qos, event_qos, state_qos
 from embodied_agent_core.speaker_transport import identity_message_to_dict
 from rclpy.node import Node
-from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Empty, UInt8MultiArray
 
 
@@ -24,18 +24,15 @@ WORKSPACE = Path(__file__).resolve().parents[2]
 class SpeakerIdentityProbe(Node):
     def __init__(self):
         super().__init__("sherpa_speaker_identity_probe")
-        audio_qos = QoSProfile(
-            history=HistoryPolicy.KEEP_LAST,
-            depth=20,
-            reliability=ReliabilityPolicy.BEST_EFFORT,
-        )
         self.audio_pub = self.create_publisher(
-            UInt8MultiArray, "/audio/clean_pcm", audio_qos
+            UInt8MultiArray, "/audio/clean_pcm", audio_qos(depth=20)
         )
-        self.end_pub = self.create_publisher(Empty, "/audio/speech_ended", 10)
+        self.end_pub = self.create_publisher(
+            Empty, "/audio/speech_ended", event_qos(depth=10)
+        )
         self.identities = []
         self.create_subscription(
-            SpeakerIdentity, "/agent/speaker_identity", self._on_identity, 10
+            SpeakerIdentity, "/agent/speaker_identity", self._on_identity, state_qos()
         )
 
     def _on_identity(self, message):

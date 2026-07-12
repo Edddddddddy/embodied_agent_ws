@@ -41,14 +41,17 @@ KWS_PID=$!
 python3 - <<'PY' >"$PUBLISHER_LOG" 2>&1 &
 import time
 import rclpy
+from embodied_agent_core.ros_qos import audio_qos, state_qos
 from embodied_agent_interfaces.msg import AudioFrontendStatus
 from rclpy.node import Node
 from std_msgs.msg import UInt8MultiArray
 
 rclpy.init()
 node = Node("voice_readiness_probe_publisher")
-audio_pub = node.create_publisher(AudioFrontendStatus, "/audio/frontend_metrics", 10)
-pcm_pub = node.create_publisher(UInt8MultiArray, "/audio/clean_pcm", 10)
+audio_pub = node.create_publisher(
+    AudioFrontendStatus, "/audio/frontend_metrics", state_qos()
+)
+pcm_pub = node.create_publisher(UInt8MultiArray, "/audio/clean_pcm", audio_qos())
 deadline = time.monotonic() + 3.0
 metrics = AudioFrontendStatus()
 metrics.rms = 0.025

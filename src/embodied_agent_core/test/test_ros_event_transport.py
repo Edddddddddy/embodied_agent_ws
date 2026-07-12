@@ -21,9 +21,12 @@ from embodied_agent_core.ros_event_transport import (
     wake_event_to_message,
 )
 from embodied_agent_core.ros_qos import (
-    audio_stream_qos,
-    command_event_qos,
-    latched_state_qos,
+    audio_qos,
+    command_qos,
+    diagnostics_qos,
+    event_qos,
+    sensor_qos,
+    state_qos,
 )
 from rclpy.qos import DurabilityPolicy, ReliabilityPolicy
 from embodied_agent_core.wake_provider import WakeEvent, WakeEventKind
@@ -87,17 +90,34 @@ def test_unknown_domain_event_is_rejected_before_reaching_ros_graph():
 
 
 def test_named_qos_profiles_encode_delivery_semantics():
-    command_qos = command_event_qos()
-    state_qos = latched_state_qos()
-    audio_qos = audio_stream_qos()
+    command = command_qos()
+    event = event_qos()
+    state = state_qos()
+    sensor = sensor_qos()
+    audio = audio_qos()
+    diagnostics = diagnostics_qos()
 
-    assert command_qos.reliability == ReliabilityPolicy.RELIABLE
-    assert command_qos.depth == 50
-    assert state_qos.reliability == ReliabilityPolicy.RELIABLE
-    assert state_qos.durability == DurabilityPolicy.TRANSIENT_LOCAL
-    assert state_qos.depth == 1
-    assert audio_qos.reliability == ReliabilityPolicy.BEST_EFFORT
-    assert audio_qos.depth == 20
+    assert command.reliability == ReliabilityPolicy.RELIABLE
+    assert command.durability == DurabilityPolicy.VOLATILE
+    assert command.depth == 50
+    assert event.reliability == ReliabilityPolicy.RELIABLE
+    assert event.depth == 50
+    assert state.reliability == ReliabilityPolicy.RELIABLE
+    assert state.durability == DurabilityPolicy.TRANSIENT_LOCAL
+    assert state.depth == 1
+    assert sensor.reliability == ReliabilityPolicy.BEST_EFFORT
+    assert sensor.depth == 5
+    assert audio.reliability == ReliabilityPolicy.BEST_EFFORT
+    assert audio.depth == 5
+    assert diagnostics.reliability == ReliabilityPolicy.RELIABLE
+    assert diagnostics.depth == 10
+
+
+def test_named_qos_profiles_clamp_invalid_depths():
+    assert command_qos(0).depth == 1
+    assert event_qos(-3).depth == 1
+    assert state_qos(0).depth == 1
+    assert sensor_qos(0).depth == 1
 
 
 def test_wake_event_round_trip_preserves_optional_command_semantics():

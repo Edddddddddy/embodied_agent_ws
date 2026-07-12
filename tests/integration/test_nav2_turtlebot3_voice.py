@@ -17,17 +17,12 @@ from pathlib import Path
 
 import rclpy
 from embodied_agent_interfaces.msg import RobotCommand, RobotCommandResult
+from embodied_agent_core.ros_qos import command_qos, event_qos, sensor_qos, state_qos
 from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
 from lifecycle_msgs.msg import State
 from lifecycle_msgs.srv import GetState
 from nav_msgs.msg import OccupancyGrid, Odometry, Path as NavPath
 from rclpy.node import Node
-from rclpy.qos import (
-    DurabilityPolicy,
-    QoSProfile,
-    ReliabilityPolicy,
-    qos_profile_sensor_data,
-)
 from rclpy.time import Time
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
@@ -38,9 +33,11 @@ from typed_action_test_utils import candidate_dict, result_dict
 class Nav2TurtleBot3VoiceProbe(Node):
     def __init__(self):
         super().__init__("nav2_turtlebot3_voice_probe")
-        self.text_pub = self.create_publisher(String, "/agent/text_input", 10)
+        self.text_pub = self.create_publisher(
+            String, "/agent/text_input", command_qos(depth=10)
+        )
         self.initial_pose_pub = self.create_publisher(
-            PoseWithCovarianceStamped, "/initialpose", 10
+            PoseWithCovarianceStamped, "/initialpose", command_qos(depth=10)
         )
         self.candidates = []
         self.results = []
@@ -56,20 +53,27 @@ class Nav2TurtleBot3VoiceProbe(Node):
         self.waypoint_state_client = self.create_client(
             GetState, "/waypoint_follower/get_state"
         )
-        self.create_subscription(RobotCommand, "/agent/action_candidate", self._on_candidate, 10)
-        self.create_subscription(RobotCommandResult, "/robot/action_result", self._on_result, 10)
-        self.create_subscription(Odometry, "/odom", self._on_odom, 10)
-        self.create_subscription(NavPath, "/plan", self._on_path, 10)
-        self.create_subscription(Twist, "/cmd_vel", self._on_velocity, 10)
-        map_qos = QoSProfile(
-            depth=1,
-            reliability=ReliabilityPolicy.RELIABLE,
-            durability=DurabilityPolicy.TRANSIENT_LOCAL,
-        )
-        self.create_subscription(OccupancyGrid, "/map", self._on_map, map_qos)
         self.create_subscription(
-            LaserScan, "/scan", self._on_scan, qos_profile_sensor_data
+            RobotCommand,
+            "/agent/action_candidate",
+            self._on_candidate,
+            command_qos(depth=10),
         )
+        self.create_subscription(
+            RobotCommandResult,
+            "/robot/action_result",
+            self._on_result,
+            event_qos(depth=10),
+        )
+        self.create_subscription(Odometry, "/odom", self._on_odom, sensor_qos())
+        self.create_subscription(
+            NavPath, "/plan", self._on_path, event_qos(depth=10)
+        )
+        self.create_subscription(
+            Twist, "/cmd_vel", self._on_velocity, command_qos(depth=10)
+        )
+        self.create_subscription(OccupancyGrid, "/map", self._on_map, state_qos())
+        self.create_subscription(LaserScan, "/scan", self._on_scan, sensor_qos())
 
     def _on_candidate(self, message):
         self.candidates.append(candidate_dict(message))

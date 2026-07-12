@@ -9,9 +9,9 @@ import numpy as np
 import rclpy
 from embodied_agent_interfaces.msg import AgentTurnMetrics, RobotActionAck
 from embodied_agent_core.metrics_transport import agent_turn_metrics_message_to_dict
+from embodied_agent_core.ros_qos import audio_qos, diagnostics_qos, event_qos
 from embodied_agent_core.runtime_status_transport import action_ack_to_dict
 from rclpy.node import Node
-from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Empty, String, UInt8MultiArray
 
 from embodied_offline_agent.providers.sherpa_tts import SherpaVitsTts
@@ -20,20 +20,28 @@ from embodied_offline_agent.providers.sherpa_tts import SherpaVitsTts
 class VoiceProbe(Node):
     def __init__(self):
         super().__init__("offline_voice_probe")
-        qos = QoSProfile(
-            history=HistoryPolicy.KEEP_LAST,
-            depth=20,
-            reliability=ReliabilityPolicy.BEST_EFFORT,
+        self.audio_pub = self.create_publisher(
+            UInt8MultiArray, "/audio/clean_pcm", audio_qos(depth=20)
         )
-        self.audio_pub = self.create_publisher(UInt8MultiArray, "/audio/clean_pcm", qos)
-        self.silence_pub = self.create_publisher(Empty, "/audio/silence_timeout", 10)
+        self.silence_pub = self.create_publisher(
+            Empty, "/audio/silence_timeout", event_qos(depth=10)
+        )
         self.final_text = None
         self.ack = None
         self.metrics = None
         self.done = threading.Event()
-        self.create_subscription(String, "/agent/asr_final", self._on_asr, 10)
-        self.create_subscription(RobotActionAck, "/robot/action_ack", self._on_ack, 10)
-        self.create_subscription(AgentTurnMetrics, "/agent/metrics", self._on_metrics, 10)
+        self.create_subscription(
+            String, "/agent/asr_final", self._on_asr, event_qos(depth=10)
+        )
+        self.create_subscription(
+            RobotActionAck, "/robot/action_ack", self._on_ack, event_qos(depth=10)
+        )
+        self.create_subscription(
+            AgentTurnMetrics,
+            "/agent/metrics",
+            self._on_metrics,
+            diagnostics_qos(depth=10),
+        )
 
     def _on_asr(self, message):
         self.final_text = message.data

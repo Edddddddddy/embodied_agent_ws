@@ -45,7 +45,7 @@ from embodied_agent_core.ros_event_transport import (
     recognition_feedback_message_to_dict,
     wake_event_message_to_dict,
 )
-from embodied_agent_core.ros_qos import command_event_qos, latched_state_qos
+from embodied_agent_core.ros_qos import command_qos, event_qos, sensor_qos, state_qos
 from rclpy.node import Node
 from std_msgs.msg import String
 
@@ -484,56 +484,71 @@ class ContinuousVoiceMonitor(Node):
             AsrNluSampleRecorder(sample_output) if sample_output else None
         )
         self.create_subscription(
-            String, "/agent/session_state", self._on_session, latched_state_qos()
+            String, "/agent/session_state", self._on_session, state_qos()
         )
         self.create_subscription(
-            WakeEvent, "/agent/wake_event", self._on_wake, command_event_qos()
+            WakeEvent, "/agent/wake_event", self._on_wake, event_qos()
         )
-        self.create_subscription(KwsEvent, "/agent/kws_event", self._on_kws, 10)
-        self.create_subscription(KwsScore, "/agent/kws_score", self._on_kws_score, 10)
         self.create_subscription(
-            AudioFrontendStatus, "/audio/frontend_metrics", self._on_audio, 10
+            KwsEvent, "/agent/kws_event", self._on_kws, event_qos(depth=10)
         )
-        self.create_subscription(String, "/agent/asr_final", self._on_asr, 10)
-        self.create_subscription(String, "/agent/state", self._on_state, latched_state_qos())
+        self.create_subscription(
+            KwsScore, "/agent/kws_score", self._on_kws_score, sensor_qos(depth=5)
+        )
+        self.create_subscription(
+            AudioFrontendStatus, "/audio/frontend_metrics", self._on_audio, state_qos()
+        )
+        self.create_subscription(
+            String, "/agent/asr_final", self._on_asr, event_qos(depth=10)
+        )
+        self.create_subscription(String, "/agent/state", self._on_state, state_qos())
         self.create_subscription(
             CommandQueueEvent,
             "/agent/command_queue",
             self._on_queue,
-            command_event_qos(),
+            event_qos(),
         )
         self.create_subscription(
             CommandExecutionEvent,
             "/agent/command_execution",
             self._on_execution,
-            command_event_qos(),
+            event_qos(),
         )
         self.create_subscription(
-            RobotCommand, "/agent/action_candidate", self._on_action, 10
+            RobotCommand,
+            "/agent/action_candidate",
+            self._on_action,
+            command_qos(depth=10),
         )
         self.create_subscription(
             RobotCommandFeedback,
             "/robot/action_feedback",
             self._on_action_feedback,
-            10,
+            event_qos(depth=10),
         )
         self.create_subscription(
             RecognitionFeedback,
             "/agent/recognition_feedback",
             self._on_feedback,
-            command_event_qos(),
+            event_qos(),
         )
         self.create_subscription(
             NluParseEvent,
             "/agent/nlu_parse",
             self._on_nlu_parse,
-            command_event_qos(),
+            event_qos(),
         )
         self.create_subscription(
-            RobotCommandResult, "/robot/action_result", self._on_action_result, 10
+            RobotCommandResult,
+            "/robot/action_result",
+            self._on_action_result,
+            event_qos(depth=10),
         )
         self.create_subscription(
-            RobotActionAck, "/robot/action_ack", self._on_action_ack, 10
+            RobotActionAck,
+            "/robot/action_ack",
+            self._on_action_ack,
+            event_qos(depth=10),
         )
 
     def _emit(self, line: str) -> None:

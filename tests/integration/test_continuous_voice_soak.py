@@ -23,7 +23,7 @@ from embodied_agent_core.ros_event_transport import (
     queue_event_message_to_dict,
     wake_event_message_to_dict,
 )
-from embodied_agent_core.ros_qos import command_event_qos, latched_state_qos
+from embodied_agent_core.ros_qos import event_qos, state_qos
 from rclpy.node import Node
 from std_msgs.msg import String
 from typed_action_test_utils import candidate_dict, result_dict
@@ -52,11 +52,11 @@ class ContinuousSoakProbe(Node):
         self.execution_events = []
         self.candidates = []
         self.results = []
-        self.create_subscription(String, "/agent/session_state", self._on_session, latched_state_qos())
-        self.create_subscription(WakeEvent, "/agent/wake_event", self._on_wake, command_event_qos())
-        self.create_subscription(CommandQueueEvent, "/agent/command_queue", self._on_queue, command_event_qos())
+        self.create_subscription(String, "/agent/session_state", self._on_session, state_qos())
+        self.create_subscription(WakeEvent, "/agent/wake_event", self._on_wake, event_qos())
+        self.create_subscription(CommandQueueEvent, "/agent/command_queue", self._on_queue, event_qos())
         self.create_subscription(
-            CommandExecutionEvent, "/agent/command_execution", self._on_execution, command_event_qos()
+            CommandExecutionEvent, "/agent/command_execution", self._on_execution, event_qos()
         )
         self.create_subscription(RobotCommand, "/agent/action_candidate", self._on_candidate, 10)
         self.create_subscription(RobotCommandResult, "/robot/action_result", self._on_result, 10)

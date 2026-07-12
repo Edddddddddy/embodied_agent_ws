@@ -5,8 +5,18 @@ from __future__ import annotations
 import rclpy
 from embodied_agent_interfaces.msg import KwsEvent, KwsScore, WakeEvent
 from rclpy.node import Node
-from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String, UInt8MultiArray
+
+from embodied_agent_core.ros_qos import (
+    audio_qos,
+    command_qos,
+    event_qos,
+    sensor_qos,
+)
+from embodied_agent_core.runtime_status_transport import (
+    kws_event_to_message,
+    kws_score_to_message,
+)
 
 from .keyword_wake import (
     KeywordWakeBridge,
@@ -14,10 +24,6 @@ from .keyword_wake import (
     OpenWakeWordDetector,
     SherpaKeywordWakeDetector,
     TextKeywordWakeDetector,
-)
-from embodied_agent_core.runtime_status_transport import (
-    kws_event_to_message,
-    kws_score_to_message,
 )
 
 
@@ -60,10 +66,19 @@ class KeywordWakeNode(Node):
         )
         self._next_score_publish_at = 0.0
         self._wake_pub = self.create_publisher(
-            WakeEvent, "/agent/wake_event_input", 10
+            WakeEvent, "/agent/wake_event_input", command_qos(depth=10)
         )
-        self._event_pub = self.create_publisher(KwsEvent, "/agent/kws_event", 10)
-        self._score_pub = self.create_publisher(KwsScore, "/agent/kws_score", 10)
+        self._event_pub = self.create_publisher(
+            KwsEvent, "/agent/kws_event", event_qos(depth=10)
+        )
+        self._score_pub = self.create_publisher(
+            KwsScore, "/agent/kws_score", sensor_qos(depth=5)
+        )
+        # 声学 provider 共用同一个实时 PCM profile，避免不同实现产生 DDS
+        # compatibility 漂移；队列深度仍允许通过节点参数按算力调节。
+        audio_profile = audio_qos(
+            depth=int(self.get_parameter("input_queue_depth").value)
+        )
 
         if self._mode == "disabled":
             self.get_logger().info("keyword wake sidecar disabled")
@@ -74,7 +89,12 @@ class KeywordWakeNode(Node):
                 aliases=self.get_parameter("aliases").value,
                 provider_name=str(self.get_parameter("provider_name").value),
             )
-            self.create_subscription(String, "/agent/kws_text_input", self._on_text, 10)
+            self.create_subscription(
+                String,
+                "/agent/kws_text_input",
+                self._on_text,
+                command_qos(depth=10),
+            )
         elif self._mode == "sherpa":
             self._detector = SherpaKeywordWakeDetector(
                 tokens=str(self.get_parameter("sherpa_tokens").value),
@@ -87,13 +107,8 @@ class KeywordWakeNode(Node):
                 provider=str(self.get_parameter("sherpa_provider").value),
                 provider_name=str(self.get_parameter("provider_name").value),
             )
-            audio_qos = QoSProfile(
-                history=HistoryPolicy.KEEP_LAST,
-                depth=int(self.get_parameter("input_queue_depth").value),
-                reliability=ReliabilityPolicy.BEST_EFFORT,
-            )
             self.create_subscription(
-                UInt8MultiArray, "/audio/clean_pcm", self._on_audio, audio_qos
+                UInt8MultiArray, "/audio/clean_pcm", self._on_audio, audio_profile
             )
         elif self._mode == "openwakeword":
             self._detector = OpenWakeWordDetector(
@@ -110,13 +125,8 @@ class KeywordWakeNode(Node):
                 ),
                 provider_name=str(self.get_parameter("provider_name").value),
             )
-            audio_qos = QoSProfile(
-                history=HistoryPolicy.KEEP_LAST,
-                depth=int(self.get_parameter("input_queue_depth").value),
-                reliability=ReliabilityPolicy.BEST_EFFORT,
-            )
             self.create_subscription(
-                UInt8MultiArray, "/audio/clean_pcm", self._on_audio, audio_qos
+                UInt8MultiArray, "/audio/clean_pcm", self._on_audio, audio_profile
             )
         elif self._mode == "livekit":
             self._detector = LiveKitWakeWordDetector(
@@ -126,13 +136,8 @@ class KeywordWakeNode(Node):
                 threshold=float(self.get_parameter("livekit_wakeword_threshold").value),
                 provider_name=str(self.get_parameter("provider_name").value),
             )
-            audio_qos = QoSProfile(
-                history=HistoryPolicy.KEEP_LAST,
-                depth=int(self.get_parameter("input_queue_depth").value),
-                reliability=ReliabilityPolicy.BEST_EFFORT,
-            )
             self.create_subscription(
-                UInt8MultiArray, "/audio/clean_pcm", self._on_audio, audio_qos
+                UInt8MultiArray, "/audio/clean_pcm", self._on_audio, audio_profile
             )
         else:
             raise ValueError(

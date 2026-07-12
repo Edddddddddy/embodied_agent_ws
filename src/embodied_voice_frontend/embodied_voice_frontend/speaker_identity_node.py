@@ -13,9 +13,9 @@ from embodied_agent_interfaces.msg import (
     SpeakerIdentity,
 )
 from rclpy.node import Node
-from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Empty, UInt8MultiArray
 
+from embodied_agent_core.ros_qos import audio_qos, command_qos, event_qos, state_qos
 from embodied_agent_core.speaker_transport import (
     enroll_status_to_message,
     identity_payload_to_message,
@@ -136,22 +136,23 @@ class SpeakerIdentityNode(Node):
         self._enrollment: EnrollmentSession | None = None
         if self._mode == "sherpa":
             self._load_sherpa_backend()
-        self._pub = self.create_publisher(SpeakerIdentity, "/agent/speaker_identity", 10)
+        self._pub = self.create_publisher(
+            SpeakerIdentity, "/agent/speaker_identity", state_qos()
+        )
         self._enroll_status_pub = self.create_publisher(
-            SpeakerEnrollStatus, "/agent/speaker_enroll_status", 10
+            SpeakerEnrollStatus, "/agent/speaker_enroll_status", event_qos(depth=10)
         )
-        audio_qos = QoSProfile(
-            history=HistoryPolicy.KEEP_LAST,
-            depth=20,
-            reliability=ReliabilityPolicy.BEST_EFFORT,
+        self.create_subscription(
+            UInt8MultiArray, "/audio/clean_pcm", self._on_audio, audio_qos(depth=20)
         )
-        self.create_subscription(UInt8MultiArray, "/audio/clean_pcm", self._on_audio, audio_qos)
-        self.create_subscription(Empty, "/audio/speech_ended", self._on_speech_ended, 10)
+        self.create_subscription(
+            Empty, "/audio/speech_ended", self._on_speech_ended, event_qos(depth=10)
+        )
         self.create_subscription(
             SpeakerEnrollRequest,
             "/agent/speaker_enroll_request",
             self._on_enroll_request,
-            10,
+            command_qos(depth=10),
         )
         if bool(self.get_parameter("publish_on_start").value):
             self.create_timer(0.5, self._publish_start_identity_once)

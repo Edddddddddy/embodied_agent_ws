@@ -10,8 +10,8 @@ from pathlib import Path
 import wave
 
 import rclpy
+from embodied_agent_core.ros_qos import audio_qos, event_qos
 from rclpy.node import Node
-from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from embodied_agent_interfaces.msg import VadEvent
 from embodied_agent_core.runtime_status_transport import vad_event_to_dict
 from std_msgs.msg import UInt8MultiArray
@@ -23,13 +23,12 @@ class SileroRuntimeProbe(Node):
         self._frames = frames
         self._index = 0
         self._events: list[dict] = []
-        qos = QoSProfile(
-            history=HistoryPolicy.KEEP_LAST,
-            depth=20,
-            reliability=ReliabilityPolicy.BEST_EFFORT,
+        self._publisher = self.create_publisher(
+            UInt8MultiArray, "/audio/clean_pcm", audio_qos(depth=20)
         )
-        self._publisher = self.create_publisher(UInt8MultiArray, "/audio/clean_pcm", qos)
-        self.create_subscription(VadEvent, "/audio/vad_event", self._on_event, 10)
+        self.create_subscription(
+            VadEvent, "/audio/vad_event", self._on_event, event_qos(depth=10)
+        )
         self._timer = self.create_timer(frame_ms / 1000.0, self._publish_next)
         self.finished_at: float | None = None
 

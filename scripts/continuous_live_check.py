@@ -36,7 +36,12 @@ from embodied_agent_core.ros_event_transport import (
     queue_event_message_to_dict,
     recognition_feedback_message_to_dict,
 )
-from embodied_agent_core.ros_qos import command_event_qos, latched_state_qos
+from embodied_agent_core.ros_qos import (
+    command_qos,
+    diagnostics_qos,
+    event_qos,
+    state_qos,
+)
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from std_msgs.msg import String
@@ -97,44 +102,57 @@ class LiveCheckNode(Node):
         self._candidate_name_by_id: dict[str, str] = {}
         self.action_e2e_latency_ms: list[float] = []
         self.capture_source = capture_source
-        self.create_subscription(String, "/agent/asr_final", self._on_asr, 10)
         self.create_subscription(
-            String, "/agent/session_state", self._on_session, latched_state_qos()
+            String, "/agent/asr_final", self._on_asr, event_qos(depth=10)
+        )
+        self.create_subscription(
+            String, "/agent/session_state", self._on_session, state_qos()
         )
         self.create_subscription(
             CommandQueueEvent,
             "/agent/command_queue",
             self._on_queue,
-            command_event_qos(),
+            event_qos(),
         )
         self.create_subscription(
             CommandExecutionEvent,
             "/agent/command_execution",
             self._on_execution,
-            command_event_qos(),
+            event_qos(),
         )
         self.create_subscription(
-            RobotCommand, "/agent/action_candidate", self._on_candidate, 10
+            RobotCommand,
+            "/agent/action_candidate",
+            self._on_candidate,
+            command_qos(depth=10),
         )
         self.create_subscription(
-            RobotCommandResult, "/robot/action_result", self._on_result, 10
+            RobotCommandResult,
+            "/robot/action_result",
+            self._on_result,
+            event_qos(depth=10),
         )
         self.create_subscription(
             RecognitionFeedback,
             "/agent/recognition_feedback",
             self._on_recognition_feedback,
-            command_event_qos(),
+            event_qos(),
         )
         self.create_subscription(
             NluParseEvent,
             "/agent/nlu_parse",
             self._on_nlu_parse,
-            command_event_qos(),
+            event_qos(),
         )
         self.create_subscription(
-            AgentTurnMetrics, "/agent/metrics", self._on_metrics, command_event_qos()
+            AgentTurnMetrics,
+            "/agent/metrics",
+            self._on_metrics,
+            diagnostics_qos(depth=10),
         )
-        self.create_subscription(Twist, "/cmd_vel", self._on_velocity, 10)
+        self.create_subscription(
+            Twist, "/cmd_vel", self._on_velocity, command_qos(depth=10)
+        )
 
     def _on_asr(self, message: String) -> None:
         self.asr.append(message.data)

@@ -20,7 +20,7 @@ from .ros_event_transport import (
     recognition_feedback_to_message,
     wake_event_to_message,
 )
-from .ros_qos import command_event_qos, latched_state_qos
+from .ros_qos import event_qos, state_qos
 from .ros_topics import AgentTopicContract
 
 
@@ -40,32 +40,32 @@ class RosAgentEventPublisher:
         self._topics = topics or AgentTopicContract()
         create_publisher = publisher_factory or node.create_publisher
         self._state = create_publisher(
-            String, self._topics.state, latched_state_qos()
+            String, self._topics.state, state_qos()
         )
         self._wake = create_publisher(
-            WakeEvent, self._topics.wake_event, command_event_qos()
+            WakeEvent, self._topics.wake_event, event_qos()
         )
         self._session = create_publisher(
-            String, self._topics.session_state, latched_state_qos()
+            String, self._topics.session_state, state_qos()
         )
         self._queue = create_publisher(
-            CommandQueueEvent, self._topics.command_queue, command_event_qos()
+            CommandQueueEvent, self._topics.command_queue, event_qos()
         )
         self._execution = create_publisher(
             CommandExecutionEvent,
             self._topics.command_execution,
-            command_event_qos(),
+            event_qos(),
         )
         self._recognition = create_publisher(
             RecognitionFeedback,
             self._topics.recognition_feedback,
-            command_event_qos(),
+            event_qos(),
         )
         self._nlu = create_publisher(
-            NluParseEvent, self._topics.nlu_parse, command_event_qos()
+            NluParseEvent, self._topics.nlu_parse, event_qos()
         )
         self._health = create_publisher(
-            ComponentHealth, self._topics.component_health, latched_state_qos()
+            ComponentHealth, self._topics.component_health, state_qos()
         )
         self._health_state = ComponentHealth.STATE_UNKNOWN
         self._health_detail = None

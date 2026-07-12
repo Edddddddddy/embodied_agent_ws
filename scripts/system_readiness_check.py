@@ -40,9 +40,9 @@ def main() -> None:
     args = parser.parse_args()
 
     import rclpy
+    from embodied_agent_core.ros_qos import state_qos
     from embodied_agent_interfaces.msg import SystemReadiness
     from rclpy.node import Node
-    from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 
     rclpy.init()
     node = Node("system_readiness_check")
@@ -53,11 +53,8 @@ def main() -> None:
         if not args.profile or message.profile == args.profile:
             latest = message
 
-    qos = QoSProfile(depth=1)
-    qos.reliability = ReliabilityPolicy.RELIABLE
-    qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
     subscription = node.create_subscription(
-        SystemReadiness, "/system/readiness", on_readiness, qos
+        SystemReadiness, "/system/readiness", on_readiness, state_qos()
     )
     deadline = time.monotonic() + max(0.1, args.timeout)
     try:

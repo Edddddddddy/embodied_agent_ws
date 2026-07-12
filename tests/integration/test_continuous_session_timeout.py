@@ -11,7 +11,7 @@ from embodied_agent_core.ros_event_transport import (
     recognition_feedback_message_to_dict,
     wake_event_message_to_dict,
 )
-from embodied_agent_core.ros_qos import command_event_qos, latched_state_qos
+from embodied_agent_core.ros_qos import event_qos, state_qos
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from std_msgs.msg import String
@@ -30,13 +30,13 @@ class SessionTimeoutProbe(Node):
         self.results = []
         self.velocities = []
         self.create_subscription(String, "/agent/state", self._on_state, 10)
-        self.create_subscription(String, "/agent/session_state", self._on_session, latched_state_qos())
-        self.create_subscription(WakeEvent, "/agent/wake_event", self._on_wake, command_event_qos())
+        self.create_subscription(String, "/agent/session_state", self._on_session, state_qos())
+        self.create_subscription(WakeEvent, "/agent/wake_event", self._on_wake, event_qos())
         self.create_subscription(
             RecognitionFeedback,
             "/agent/recognition_feedback",
             self._on_feedback,
-            command_event_qos(),
+            event_qos(),
         )
         self.create_subscription(RobotCommand, "/agent/action_candidate", self._on_candidate, 10)
         self.create_subscription(RobotCommandResult, "/robot/action_result", self._on_result, 10)

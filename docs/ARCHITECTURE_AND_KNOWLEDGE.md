@@ -113,6 +113,22 @@ sequenceDiagram
 - Agent、音频前端、ActionGuard、Action bridge 和 simulation control 周期发布
   `ComponentHealth`；聚合器按 launch profile 生成 `SystemReadiness`，并用心跳超时识别已退出进程。
 
+Python 的 `embodied_agent_core/ros_qos.py` 与 C++ 的
+`embodied_agent_middleware/qos_profiles.hpp` 使用同一组名称和默认深度：
+
+| 语义 | Reliability / Durability | 默认深度 | 典型数据 |
+| --- | --- | ---: | --- |
+| command | reliable / volatile | 50 | 动作候选、清记忆、声纹录入请求 |
+| event | reliable / volatile | 50 | ASR final、队列、执行、VAD/KWS 事件、Action result |
+| state | reliable / transient-local | 1 | Agent/session、当前声纹身份、组件健康 |
+| sensor | best-effort / volatile | 5 | KWS score 等高频遥测 |
+| audio | best-effort / volatile | 5 | clean PCM、TTS PCM |
+| diagnostics | reliable / volatile | 10 | turn metrics、diagnostics |
+
+这里没有强行配置 DDS deadline/liveliness lease：Gazebo、WSLg 音频和不同 RMW 对这些
+策略的支持/默认值并不完全一致。项目用 `ComponentHealth` 心跳、队列丢弃计数和数据质量
+探针检测故障，避免为了名义上的 QoS 完整性制造端点不兼容。
+
 ### `embodied_online_agent`
 
 职责：

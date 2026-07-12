@@ -149,6 +149,7 @@ class VoiceReadinessNode:
             audio_frontend_status_to_dict,
             kws_score_to_dict,
         )
+        from embodied_agent_core.ros_qos import sensor_qos, state_qos
         import rclpy
         from rclpy.node import Node
 
@@ -161,13 +162,13 @@ class VoiceReadinessNode:
                     lambda message: owner._on_audio(
                         audio_frontend_status_to_dict(message)
                     ),
-                    10,
+                    state_qos(),
                 )
                 self.create_subscription(
                     KwsScore,
                     kws_topic,
                     lambda message: owner._on_kws(kws_score_to_dict(message)),
-                    10,
+                    sensor_qos(depth=5),
                 )
 
         self.audio_samples = []

@@ -331,6 +331,7 @@ class AudioCalibrationNode:
         from embodied_agent_core.runtime_status_transport import (
             audio_frontend_status_to_dict,
         )
+        from embodied_agent_core.ros_qos import state_qos
         import rclpy
         from rclpy.node import Node
 
@@ -343,7 +344,7 @@ class AudioCalibrationNode:
                     lambda message: owner._on_metrics(
                         audio_frontend_status_to_dict(message)
                     ),
-                    10,
+                    state_qos(),
                 )
 
         self.samples: list[AudioMetricSample] = []

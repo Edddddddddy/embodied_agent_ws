@@ -9,6 +9,7 @@ import rclpy
 from embodied_agent_interfaces.msg import KwsEvent, KwsScore, WakeEvent
 from embodied_agent_core.ros_event_transport import wake_event_message_to_dict
 from embodied_agent_core.runtime_status_transport import kws_event_to_dict, kws_score_to_dict
+from embodied_agent_core.ros_qos import sensor_qos
 from rclpy.node import Node
 from std_msgs.msg import String, UInt8MultiArray
 
@@ -22,7 +23,9 @@ class LiveKitWakeWordProbe(Node):
         self.score_events = []
         self.create_subscription(WakeEvent, "/agent/wake_event_input", self._on_wake, 10)
         self.create_subscription(KwsEvent, "/agent/kws_event", self._on_kws, 10)
-        self.create_subscription(KwsScore, "/agent/kws_score", self._on_score, 10)
+        self.create_subscription(
+            KwsScore, "/agent/kws_score", self._on_score, sensor_qos(depth=5)
+        )
 
     def _on_wake(self, message):
         self.wake_events.append(wake_event_message_to_dict(message))

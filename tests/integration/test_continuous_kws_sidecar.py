@@ -8,7 +8,7 @@ import time
 import rclpy
 from embodied_agent_interfaces.msg import KwsEvent, RobotCommand, RobotCommandResult, WakeEvent
 from embodied_agent_core.ros_event_transport import wake_event_message_to_dict
-from embodied_agent_core.ros_qos import command_event_qos
+from embodied_agent_core.ros_qos import event_qos
 from embodied_agent_core.runtime_status_transport import kws_event_to_dict
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
@@ -27,7 +27,7 @@ class ContinuousKwsProbe(Node):
         self.results = []
         self.velocities = []
         self.create_subscription(KwsEvent, "/agent/kws_event", self._on_kws_event, 10)
-        self.create_subscription(WakeEvent, "/agent/wake_event", self._on_wake_event, command_event_qos())
+        self.create_subscription(WakeEvent, "/agent/wake_event", self._on_wake_event, event_qos())
         self.create_subscription(RobotCommand, "/agent/action_candidate", self._on_candidate, 10)
         self.create_subscription(RobotCommandResult, "/robot/action_result", self._on_result, 10)
         self.create_subscription(Twist, "/cmd_vel", self._on_velocity, 10)

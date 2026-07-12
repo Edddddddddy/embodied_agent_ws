@@ -21,7 +21,7 @@ from embodied_agent_core.ros_event_transport import (
     recognition_feedback_message_to_dict,
     wake_event_message_to_dict,
 )
-from embodied_agent_core.ros_qos import command_event_qos, latched_state_qos
+from embodied_agent_core.ros_qos import event_qos, state_qos
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from std_msgs.msg import String
@@ -43,18 +43,18 @@ class ContinuousVoiceProbe(Node):
         self.results = []
         self.feedback = []
         self.velocities = []
-        self.create_subscription(String, "/agent/state", self._on_state, latched_state_qos())
-        self.create_subscription(String, "/agent/session_state", self._on_session_state, latched_state_qos())
-        self.create_subscription(WakeEvent, "/agent/wake_event", self._on_wake_event, command_event_qos())
-        self.create_subscription(CommandQueueEvent, "/agent/command_queue", self._on_queue_event, command_event_qos())
+        self.create_subscription(String, "/agent/state", self._on_state, state_qos())
+        self.create_subscription(String, "/agent/session_state", self._on_session_state, state_qos())
+        self.create_subscription(WakeEvent, "/agent/wake_event", self._on_wake_event, event_qos())
+        self.create_subscription(CommandQueueEvent, "/agent/command_queue", self._on_queue_event, event_qos())
         self.create_subscription(
-            CommandExecutionEvent, "/agent/command_execution", self._on_execution_event, command_event_qos()
+            CommandExecutionEvent, "/agent/command_execution", self._on_execution_event, event_qos()
         )
         self.create_subscription(
             RecognitionFeedback,
             "/agent/recognition_feedback",
             self._on_feedback,
-            command_event_qos(),
+            event_qos(),
         )
         self.create_subscription(
             RobotCommand, "/agent/action_candidate", self._on_candidate, 10

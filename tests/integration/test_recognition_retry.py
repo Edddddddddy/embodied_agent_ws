@@ -6,7 +6,7 @@ import time
 import rclpy
 from embodied_agent_interfaces.msg import RecognitionFeedback
 from embodied_agent_core.ros_event_transport import recognition_feedback_message_to_dict
-from embodied_agent_core.ros_qos import command_event_qos, latched_state_qos
+from embodied_agent_core.ros_qos import event_qos, state_qos
 from rclpy.node import Node
 from std_msgs.msg import String
 
@@ -21,10 +21,10 @@ class RetryProbe(Node):
             RecognitionFeedback,
             "/agent/recognition_feedback",
             self._on_feedback,
-            command_event_qos(),
+            event_qos(),
         )
         self.create_subscription(
-            String, "/agent/state", self._on_state, latched_state_qos()
+            String, "/agent/state", self._on_state, state_qos()
         )
 
     def _on_feedback(self, message):

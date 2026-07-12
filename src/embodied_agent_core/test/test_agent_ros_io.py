@@ -1,6 +1,6 @@
 from builtin_interfaces.msg import Time
 from embodied_agent_interfaces.msg import AgentTurnMetrics
-from rclpy.qos import ReliabilityPolicy
+from rclpy.qos import DurabilityPolicy, ReliabilityPolicy
 
 from embodied_agent_core.agent_ros_io import AgentRosCallbacks, AgentRosIo
 from embodied_agent_core.ros_topics import AgentTopicContract
@@ -130,6 +130,15 @@ def test_ros_io_applies_best_effort_only_to_realtime_audio():
         node.publishers[topics.tts_pcm].qos.reliability
         == ReliabilityPolicy.BEST_EFFORT
     )
+    assert (
+        node.publishers[topics.action_candidate].qos.reliability
+        == ReliabilityPolicy.RELIABLE
+    )
+    assert (
+        subscriptions[topics.speaker_identity][3].durability
+        == DurabilityPolicy.TRANSIENT_LOCAL
+    )
+    assert node.publishers[topics.metrics].qos.depth == 10
 
 
 def test_health_heartbeat_is_gated_by_agent_lifecycle():
