@@ -7,11 +7,14 @@ class ActionCommand:
     name: str
     arguments: Dict[str, Any] = field(default_factory=dict)
     request_id: str = ""
+    priority: bool = False
 
     def as_dict(self) -> Dict[str, Any]:
         payload = {"name": self.name, "arguments": self.arguments}
         if self.request_id:
             payload["request_id"] = self.request_id
+        if self.priority:
+            payload["priority"] = True
         return payload
 
 

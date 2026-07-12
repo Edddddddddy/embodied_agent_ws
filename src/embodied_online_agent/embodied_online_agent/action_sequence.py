@@ -1,7 +1,7 @@
 import threading
 import time
 from dataclasses import dataclass
-from typing import Callable, Iterable, List
+from typing import Callable, Iterable
 
 from .types import ActionCommand
 
@@ -15,10 +15,10 @@ class SequencePublishReport:
 
 
 class SequentialActionPublisher:
-    """按 ROS Action 结果节拍发布组合动作。
+    """为组合动作分配 ID、批量发布，并按 ID 等待终态。
 
-    Agent 只知道“发布候选动作”和“收到终态结果”这两个很小的接口；
-    等待、超时、失败急停都封装在这里，避免 online/offline 节点各写一份状态机。
+    真正的 FIFO、Action Client 和优先取消已经收敛到 C++ ActionScheduler；这里仅保留
+    Agent 需要的批次完成语义，避免 Python 与 C++ 同时决定“下一条何时执行”。
     """
 
     def __init__(self, result_timeout_s: float = 12.0):
@@ -82,25 +82,31 @@ class SequentialActionPublisher:
         completed = 0
         with self._condition:
             generation = self._cancel_generation
-        for action in action_list:
+            commands = [self._command_with_request_id(action) for action in action_list]
+
+        # 先把整个批次交给 C++ scheduler。即使后续某一步失败，Python 发出的 STOP
+        # 也会让 scheduler 取消 active 并清空尚未执行的同批命令。
+        for command in commands:
             with self._condition:
                 if self._cancel_generation != generation:
                     return SequencePublishReport(
                         published, completed, True, self._cancel_reason
                     )
-                command = self._command_with_request_id(action)
-                request_id = command.request_id
             publish_payload(command)
             published += 1
-            if not wait_for_results:
-                continue
-            success, reason = self._wait_for_result(request_id, generation)
+        if not wait_for_results:
+            return SequencePublishReport(published, completed, False)
+
+        for command in commands:
+            success, reason = self._wait_for_result(command.request_id, generation)
             if success:
                 completed += 1
                 continue
             if reason == self._cancel_reason:
                 return SequencePublishReport(published, completed, True, reason)
-            publish_payload(self._command_with_request_id(ActionCommand("stop", {})))
+            publish_payload(
+                self._command_with_request_id(ActionCommand("stop", {}, priority=True))
+            )
             return SequencePublishReport(published + 1, completed, True, reason)
         return SequencePublishReport(published, completed, False)
 
@@ -109,7 +115,9 @@ class SequentialActionPublisher:
         if not request_id:
             self._request_sequence += 1
             request_id = f"agent-action-{self._request_sequence}"
-        return ActionCommand(action.name, dict(action.arguments), request_id)
+        return ActionCommand(
+            action.name, dict(action.arguments), request_id, priority=action.priority
+        )
 
     def _wait_for_result(self, request_id: str, generation: int) -> tuple[bool, str]:
         deadline = time.monotonic() + max(0.0, self.result_timeout_s)

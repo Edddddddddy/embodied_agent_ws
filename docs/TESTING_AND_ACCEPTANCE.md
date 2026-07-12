@@ -48,6 +48,7 @@ bash scripts/acceptance_test.sh --help
 | `sherpa-asr-preflight` | 自动/本地模型 | ASR-only 预检：检查 `sherpa_onnx` 和 ZipFormer 模型文件 |
 | `sherpa-asr-smoke` | 自动/本地模型 | ASR-only 真实解码：用 ZipFormer test wav 验证 Sherpa provider |
 | `offline-sherpa-typed` | 自动/本地模型/ROS2 | Sherpa ASR/TTS + llama.cpp 经过 ActionGuard、typed Action 和仿真 `/cmd_vel` |
+| `cpp-action-scheduler` | 自动/ROS2/C++ | 紧密发布多 goal 的 FIFO、急停取消、pending 清理、结果关联和 `/diagnostics` |
 | `navigation-demo` | 自动/仿真 | 语音风格目标点导航与多目标点巡航，覆盖 online/offline mock Agent |
 | `nav2-bridge` | 自动/Nav2 seam | 用 fake Nav2 action server 验证语义地点会发成 NavigateToPose/FollowWaypoints goal |
 | `nav2-preflight` | 自动/Nav2 | 检查 Nav2/TurtleBot3 voice launch 依赖和参数 |
@@ -497,6 +498,21 @@ goal、观察 feedback/result，并验证以下终态：
 
 注意：`client_timed_out` 表示客户端等待结果超时，属于通信/调度故障；
 `timed_out` 表示服务端执行超时，两者不能混为一谈。
+
+### 2.2.2 C++ Action scheduler
+
+```bash
+bash scripts/acceptance_test.sh cpp-action-scheduler
+```
+
+该模式不依赖 Agent 的逐条等待来制造“看似串行”，而是向
+`/robot/action_command_typed` 紧密发布三条命令，验证 C++ 控制层只保留一个 active
+goal 并严格 FIFO。随后在长动作执行中发布 pending turn 和 `priority=true` STOP，验证：
+
+- pending 命令以 `STATUS_CANCELED/queue_cleared_by_priority_command` 明确终止；
+- active goal 收到 ROS 2 Action cancel；
+- STOP 在取消终态后执行成功；
+- `/diagnostics` 最终显示 `state=idle`、`pending_count=0`，并包含累计 accepted/rejected/completed/cleared 计数。
 
 ### 2.3 Gazebo 仿真验收
 

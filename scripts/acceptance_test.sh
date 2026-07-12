@@ -79,6 +79,7 @@ Automated modes:
   wsl-microphone-preflight PulseAudio/WSLg microphone capture check before live demos
   gazebo              Typed Action physical motion verification
   cpp-action-client   Verify C++ typed Action success/feedback/cancel/timeout lifecycle
+  cpp-action-scheduler Verify C++ FIFO, priority cancel, result correlation, diagnostics
   gazebo-voice        Offline synthesized speech through typed Action to Gazebo
   gazebo-voice-online Online voice provider through typed Action to Gazebo
   all                 Run all automated release gates; excludes interactive microphone
@@ -142,6 +143,7 @@ run_base() {
   bash scripts/smoke_test_typed_action.sh
   bash scripts/smoke_test_typed_action_server.sh
   bash scripts/smoke_test_typed_action_pipeline.sh
+  bash scripts/smoke_test_cpp_action_scheduler.sh
   bash scripts/smoke_test_mock_executor.sh
   bash scripts/smoke_test_demo_sequence.sh
   bash scripts/smoke_test_navigation_sequence.sh
@@ -506,6 +508,7 @@ case "$LEVEL" in
   wsl-microphone-preflight) bash scripts/wsl_microphone_preflight.sh ;;
   gazebo) run_gazebo ;;
   cpp-action-client) bash scripts/smoke_test_cpp_action_client.sh ;;
+  cpp-action-scheduler) bash scripts/smoke_test_cpp_action_scheduler.sh ;;
   gazebo-voice) check_offline_runtime; USE_TYPED_ACTIONS=true bash scripts/smoke_test_gazebo_voice.sh ;;
   gazebo-voice-online) bash scripts/smoke_test_gazebo_voice_online.sh ;;
   microphone-offline) bash scripts/accept_voice_simulation_microphone.sh offline ;;

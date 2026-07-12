@@ -222,11 +222,22 @@ def test_robot_action_transport_is_fully_typed_without_legacy_json_adapter():
     assert "Subscription<\n    embodied_agent_interfaces::msg::RobotCommand>" in guard
     assert "RobotCommandFeedback" in bridge
     assert "RobotCommandResult" in bridge
+    assert "ActionScheduler" in bridge
+    assert '"/diagnostics"' in bridge
+    assert "async_cancel_goal" in bridge
     assert "nlohmann/json" not in bridge
     assert "json.loads" not in sequencer
     assert "_legacy_results" not in sequencer
     assert not (cpp / "src" / "robot_command_adapter.cpp").exists()
     assert not (cpp / "include" / "embodied_agent_cpp" / "robot_command_adapter.hpp").exists()
+    assert (cpp / "include" / "embodied_agent_cpp" / "action_scheduler.hpp").is_file()
+    assert (cpp / "src" / "action_scheduler.cpp").is_file()
+    assert (cpp / "test" / "test_action_scheduler.cpp").is_file()
+
+    command_msg = (interfaces / "RobotCommand.msg").read_text(encoding="utf-8")
+    assert "bool priority" in command_msg
+    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(encoding="utf-8")
+    assert "cpp-action-scheduler" in acceptance
 
 
 def test_offline_voice_e2e_reuses_an_existing_llama_server():

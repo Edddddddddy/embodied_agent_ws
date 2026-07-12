@@ -32,7 +32,7 @@
 
 - Agent 先把 LLM 或 fallback parser 的领域动作映射为强类型 `RobotCommand` candidate。
 - C++ ActionGuard 对 candidate 做白名单、字段约束和限幅，再发布受信任的 `RobotCommand`。
-- typed action bridge 将 `RobotCommand` 发送为 `ExecuteRobotCommand` goal。
+- C++ `ActionScheduler` 将受信命令排成单执行槽 FIFO，再由 typed action bridge 发送为 `ExecuteRobotCommand` goal。
 - `typed_action_demo_client` 是面试/调试用最小 C++ action client：从命令行构造
   `RobotCommand`，直接发送 action goal，打印 feedback/result 并用结果决定进程退出码；
   它还支持定时取消、结果等待超时和 `CPP_ACTION_REPORT` 结构化报告。
@@ -130,6 +130,8 @@
 - 命令执行前发布 started，执行后发布 finished。
 - `停下/急停` 是 priority stop：清空队列、取消当前 sequence、立即发布 stop。
 - 非优先命令设置 TTL，太旧会过期丢弃并上报。
+
+控制层还有第二级 C++ 队列，关键代码为 `action_scheduler.hpp/.cpp`：Python 队列管理“哪句用户命令先处理”，C++ 队列管理“哪个受信 Action goal 先执行”。组合动作会先批量发布给 C++；`RobotCommand.priority` 明确区分用户急停和计划 STOP。这样旁路发布者也不能绕过 FIFO，且 Action Client、取消 watchdog、错误码和 `/diagnostics` 都集中在同一个模块。
 
 为什么这样设计：
 
@@ -543,7 +545,7 @@ sidecar 输出实际相似度。多人准确率仍需另建注册/查询数据�
 
 - repository test 保证文件结构和文档入口不漂移。
 - Python 单测覆盖 Agent 侧规则、会话、队列、补全。
-- C++ 单测覆盖 validator、adapter、仿真执行器。
+- C++ 单测覆盖 validator、ActionScheduler、Action client contract、BT 和 pluginlib 仿真执行器。
 - smoke script 覆盖 ROS 2 topic/action/launch 组合。
 - `release-gate` 默认固定 5 条聚合命令，并输出 `logs/acceptance_report.json`；
   `demo-gate` 输出 `logs/demo_acceptance_report.json`，更偏现场展示证据，例如 provider preflight、

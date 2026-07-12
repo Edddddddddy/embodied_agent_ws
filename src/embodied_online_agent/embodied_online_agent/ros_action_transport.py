@@ -31,6 +31,7 @@ def action_command_to_message(action: ActionCommand, *, source: str) -> RobotCom
     message = RobotCommand()
     message.command_id = action.request_id
     message.source = source
+    message.priority = action.priority
     arguments = action.arguments
     if action.name == "move":
         message.action_type = RobotCommand.MOVE
@@ -107,6 +108,7 @@ def command_message_to_dict(message: RobotCommand) -> dict:
         "arguments": arguments,
         "request_id": message.command_id,
         "source": message.source,
+        "priority": message.priority,
     }
     return payload
 

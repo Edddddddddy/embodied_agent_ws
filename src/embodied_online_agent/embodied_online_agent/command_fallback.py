@@ -75,11 +75,11 @@ def parse_fallback_actions(text: str) -> List[ActionCommand]:
     if "沿墙" in normalized or "贴墙" in normalized:
         return [ActionCommand("set_mode", {"mode": "wall_following"})]
     if any(word in normalized for word in ("别动", "不要动")):
-        return [ActionCommand("stop", {})]
+        return [ActionCommand("stop", {}, priority=True)]
     if should_block_model_actions(normalized):
         return []
     if is_navigation_cancel(normalized):
-        return [ActionCommand("cancel_navigation", {})]
+        return [ActionCommand("cancel_navigation", {}, priority=True)]
     if is_patrol_request(normalized):
         waypoints = extract_waypoints(normalized) or DEFAULT_PATROL_WAYPOINTS
         return [
@@ -102,7 +102,7 @@ def parse_fallback_actions(text: str) -> List[ActionCommand]:
         if target:
             return [ActionCommand("navigate_to", {"target": target})]
     if any(word in normalized for word in ("停止", "停下", "急停")):
-        return [ActionCommand("stop", {})]
+        return [ActionCommand("stop", {}, priority=True)]
     if any(word in normalized for word in ("原地转一圈", "旋转一圈", "转一圈")):
         return [ActionCommand("turn", {"angular_z": 0.8, "duration_s": 7.85})]
     if any(word in normalized for word in ("绕圈", "画圆", "转圈")):

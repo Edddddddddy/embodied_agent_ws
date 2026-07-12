@@ -27,7 +27,9 @@ class GazeboProbe(Node):
         self.ack = None
         self.action_result = None
         self.move_result = None
+        self.move_command_id = ""
         self.move_bt_result = None
+        self.command_sequence = 0
         self.create_subscription(Odometry, "/odom", self._on_odom, 10)
         self.create_subscription(LaserScan, "/scan", self._on_scan, 10)
         self.create_subscription(String, "/robot/action_ack", self._on_ack, 10)
@@ -50,7 +52,7 @@ class GazeboProbe(Node):
 
     def _on_result(self, message):
         self.action_result = result_dict(message)
-        if self.action_result.get("message") == "succeeded":
+        if self.action_result.get("command_id") == self.move_command_id:
             self.move_result = self.action_result
 
     def _on_bt(self, message):
@@ -58,8 +60,18 @@ class GazeboProbe(Node):
         if status.get("outcome") == "succeeded":
             self.move_bt_result = status
 
-    def action(self, name, arguments):
-        self.action_pub.publish(candidate_message(name, arguments))
+    def action(self, name, arguments, *, priority=False):
+        self.command_sequence += 1
+        command_id = f"gazebo-probe-{self.command_sequence}"
+        self.action_pub.publish(
+            candidate_message(
+                name,
+                arguments,
+                request_id=command_id,
+                priority=priority,
+            )
+        )
+        return command_id
 
 
 def wait_until(predicate, timeout, description):
@@ -89,7 +101,9 @@ def main():
         )
         time.sleep(1.0)
         start = node.position
-        node.action("move", {"linear_x": 0.18, "duration_s": 2.0})
+        node.move_command_id = node.action(
+            "move", {"linear_x": 0.18, "duration_s": 2.0}
+        )
         wait_until(
             lambda: (
                 node.position is not None
@@ -117,7 +131,7 @@ def main():
         )
         if distance > 0.5:
             raise RuntimeError(f"implausible odometry jump: {distance:.3f} m")
-        node.action("stop", {})
+        node.action("stop", {}, priority=True)
         wait_until(
             lambda: node.ack is not None and node.ack.get("action") == "stop",
             5.0,

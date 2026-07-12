@@ -8,6 +8,7 @@ if(NOT CMAKE_CXX_STANDARD)
 endif()
 
 find_package(ament_cmake REQUIRED)
+find_package(diagnostic_msgs REQUIRED)
 find_package(embodied_agent_interfaces REQUIRED)
 find_package(lifecycle_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
@@ -21,6 +22,7 @@ find_package(Threads REQUIRED)
 pkg_check_modules(PORTAUDIO REQUIRED portaudio-2.0)
 
 add_library(embodied_agent_core
+  src/action_scheduler.cpp
   src/action_validator.cpp
   src/audio_processing.cpp
   src/hardware_protocol.cpp
@@ -50,8 +52,9 @@ ament_target_dependencies(
   action_guard embodied_agent_interfaces lifecycle_msgs rclcpp rclcpp_lifecycle std_msgs)
 
 add_executable(typed_action_bridge src/typed_action_bridge_node.cpp)
+target_link_libraries(typed_action_bridge embodied_agent_core)
 ament_target_dependencies(
-  typed_action_bridge embodied_agent_interfaces rclcpp rclcpp_action)
+  typed_action_bridge diagnostic_msgs embodied_agent_interfaces rclcpp rclcpp_action)
 
 add_executable(typed_action_demo_client src/typed_action_demo_client.cpp)
 target_link_libraries(
@@ -211,6 +214,8 @@ if(BUILD_TESTING)
   target_link_libraries(test_audio_processing embodied_agent_core)
   ament_add_gtest(test_action_validator test/test_action_validator.cpp)
   target_link_libraries(test_action_validator embodied_agent_core)
+  ament_add_gtest(test_action_scheduler test/test_action_scheduler.cpp)
+  target_link_libraries(test_action_scheduler embodied_agent_core)
   ament_add_gtest(test_hardware_protocol test/test_hardware_protocol.cpp)
   target_link_libraries(test_hardware_protocol embodied_agent_core)
   ament_add_gtest(test_hardware_transport test/test_hardware_transport.cpp)

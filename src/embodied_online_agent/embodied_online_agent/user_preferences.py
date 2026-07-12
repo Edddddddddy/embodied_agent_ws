@@ -55,7 +55,12 @@ def _apply_to_action(action: ActionCommand, preferences: Mapping[str, Any]) -> A
     elif action.name == "arc":
         _scale_arc_speed_preserving_shape(args, _movement_speed_factor(preferences))
 
-    return ActionCommand(action.name, args, request_id=action.request_id)
+    return ActionCommand(
+        action.name,
+        args,
+        request_id=action.request_id,
+        priority=action.priority,
+    )
 
 
 def _apply_default_move_duration(args: dict[str, Any], preferences: Mapping[str, Any]) -> None:

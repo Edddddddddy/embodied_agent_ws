@@ -1,6 +1,8 @@
 std_msgs/Header header
 string command_id
 string source
+# priority=true 仅用于用户急停、会话退出和取消导航；组合动作末尾的计划 STOP 保持 false。
+bool priority
 
 uint8 UNKNOWN=0
 uint8 STOP=1

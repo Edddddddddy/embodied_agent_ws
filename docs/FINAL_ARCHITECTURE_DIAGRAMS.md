@@ -33,7 +33,7 @@ flowchart TB
     Candidate["/agent/action_candidate"]
     ActionGuard["C++ ActionGuard<br/>白名单 / 限幅 / 强类型转换"]
     RobotCommand["RobotCommand.msg"]
-    ActionBridge["typed_action_bridge<br/>topic -> ExecuteRobotCommand"]
+    ActionBridge["C++ typed_action_bridge + ActionScheduler<br/>FIFO / 抢占 / Action Client / diagnostics"]
     DemoClient["typed_action_demo_client<br/>最小 rclcpp_action client"]
   end
 
@@ -95,7 +95,7 @@ flowchart TB
 
 - Agent 不直接发 `/cmd_vel`，只产生结构化动作候选。
 - C++ ActionGuard 是 LLM/自然语言输出到机器人执行之间的安全边界。
-- 长动作统一走 `ExecuteRobotCommand.action`，因此可以反馈、取消、超时和返回 result。
+- 长动作统一走 `ExecuteRobotCommand.action`；C++ `ActionScheduler` 保证单 active goal、FIFO、抢占、超时和 result 关联。
 - Gazebo、Mock、Nav2 都是 executor 插件，Agent 和 ActionGuard 不需要知道底层执行后端。
 - 真实麦克风稳定性由 VAD provider、profile 校准、readiness、monitor 和 live report 共同闭环。
 
@@ -153,7 +153,8 @@ sequenceDiagram
 | 连续语音队列 | `src/embodied_online_agent/embodied_online_agent/continuous_voice.py` | `ContinuousVoiceSession`、`ContinuousCommandQueue` |
 | 动作解析 | `command_nlu.py`、`command_fallback.py`、`command_completion.py` | `CommandNLU.parse()`、`parse_fallback_actions()` |
 | C++ 安全边界 | `src/embodied_agent_cpp/src/action_guard_node.cpp`、`action_validator.cpp` | `on_candidate()`、`ActionValidator::validate()` |
-| ROS 2 Action client | `typed_action_bridge_node.cpp`、`typed_action_demo_client.cpp` | `feedback_callback`、`result_callback`、`TypedActionDemoClient::run()` |
+| C++ 动作调度 | `src/embodied_agent_cpp/src/action_scheduler.cpp` | `ActionScheduler::enqueue()`、`complete()` |
+| ROS 2 Action client | `typed_action_bridge_node.cpp`、`typed_action_demo_client.cpp` | `apply_scheduler_events()`、`feedback_callback`、`result_callback`、`TypedActionDemoClient::run()` |
 | ROS 2 Action server | `src/embodied_simulation/src/simulation_control_node.cpp` | `handle_goal()`、`update_active_action()`、`finish_active_action()` |
 | BT/pluginlib 执行 | `command_behavior_tree.cpp`、`robot_executor_plugins.cpp` | `CommandBehaviorTree::tick()`、`GazeboRobotExecutor`、`Nav2RobotExecutor` |
 | 验收留证 | `scripts/showcase_release_gate.py`、`continuous_live_check.py`、`generate_offline_showcase_report.py` | release gate、live report、offline report |

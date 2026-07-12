@@ -25,7 +25,7 @@ sequenceDiagram
   participant Q as Command Queue
   participant L as LLM/Fallback
   participant AG as ActionGuard
-  participant AC as ROS2 Action
+  participant AC as C++ Action Scheduler
   participant SIM as Gazebo Executor
 
   U->>A: voice
@@ -74,6 +74,7 @@ sequenceDiagram
 - `src/audio_frontend_node.cpp`
 - `src/audio_processing.cpp`
 - `src/action_guard_node.cpp`
+- `src/action_scheduler.cpp`
 - `src/typed_action_bridge_node.cpp`
 - `src/hardware_controller_node.cpp`
 - `src/action_validator.cpp`
@@ -82,8 +83,10 @@ sequenceDiagram
 
 - `audio_frontend_node` 处理音频能量、VAD、endpoint、clean PCM 发布。
 - `action_guard_node` 是 LLM 输出到机器人执行之间的安全边界。
-- `typed_action_bridge_node` 把受信任命令转换成 ROS 2 Action goal，并把 feedback/result
-  映射为强类型观测消息。
+- `ActionScheduler` 隐藏 FIFO、队列上限、优先取消、失败清队列和 command_id 关联。
+- `typed_action_bridge_node` 把调度决策适配为 ROS 2 Action Client 调用，并把
+  feedback/result 映射为强类型消息，同时向 `/diagnostics` 发布队列和执行状态。
+- `RobotCommand.priority` 显式区分用户急停/取消与组合动作末尾的计划 STOP，避免按动作名或到达时机猜测抢占语义。
 
 ### `embodied_online_agent`
 
@@ -168,6 +171,7 @@ sequenceDiagram
 | `/robot/action_command_typed` | ActionGuard → bridge | 强类型 RobotCommand |
 | `/robot/action_feedback` | bridge → monitor | `RobotCommandFeedback` |
 | `/robot/action_result` | bridge → Agent | `RobotCommandResult` |
+| `/diagnostics` | C++ scheduler → monitor | active command、pending 深度、取消和累计计数 |
 | `/cmd_vel` | executor → Gazebo | 机器人速度命令 |
 | `robot/execute_command` | bridge → executor | ROS 2 Action |
 

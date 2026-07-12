@@ -10,6 +10,7 @@
   <depend>rclcpp</depend>
   <depend>rclcpp_action</depend>
   <depend>rclcpp_components</depend>
+  <depend>diagnostic_msgs</depend>
   <depend>embodied_agent_interfaces</depend>
   <depend>lifecycle_msgs</depend>
   <depend>rclcpp_lifecycle</depend>

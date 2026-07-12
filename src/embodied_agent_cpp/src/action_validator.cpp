@@ -84,6 +84,13 @@ ValidationResult ActionValidator::validate(
     result.error = "command_id must not be empty";
     return result;
   }
+  if (candidate.priority &&
+    candidate.action_type != RobotCommand::STOP &&
+    candidate.action_type != RobotCommand::CANCEL_NAVIGATION)
+  {
+    result.error = "priority is only valid for stop or cancel_navigation";
+    return result;
+  }
 
   switch (candidate.action_type) {
     case RobotCommand::STOP:

@@ -66,7 +66,18 @@ def test_action_command_maps_to_typed_ros_message(action, expected_type):
     assert message.action_type == expected_type
     assert message.command_id == action.request_id
     assert message.source == "offline_agent"
+    assert message.priority is action.priority
     assert command_message_to_dict(message)["request_id"] == action.request_id
+
+
+def test_priority_stop_metadata_crosses_typed_ros_seam():
+    action = ActionCommand("stop", {}, "urgent-stop", priority=True)
+
+    message = action_command_to_message(action, source="online_agent")
+
+    assert message.action_type == RobotCommand.STOP
+    assert message.priority is True
+    assert command_message_to_dict(message)["priority"] is True
 
 
 def test_unsupported_action_is_rejected_before_ros_publish():

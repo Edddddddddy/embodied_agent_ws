@@ -363,7 +363,14 @@ class CommandNLU:
         if any(intent == "stop" for _, intent in anchors):
             return NluResult(
                 source,
-                [ParsedCommand("stop", "停下", [ActionCommand("stop", {})], 1.0)],
+                [
+                    ParsedCommand(
+                        "stop",
+                        "停下",
+                        [ActionCommand("stop", {}, priority=True)],
+                        1.0,
+                    )
+                ],
             )
         if any(intent == "cancel_navigation" for _, intent in anchors) or is_navigation_cancel(normalized):
             return NluResult(
@@ -372,7 +379,7 @@ class CommandNLU:
                     ParsedCommand(
                         "cancel_navigation",
                         "取消导航",
-                        [ActionCommand("cancel_navigation", {})],
+                        [ActionCommand("cancel_navigation", {}, priority=True)],
                         1.0,
                     )
                 ],

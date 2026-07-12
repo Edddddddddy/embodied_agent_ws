@@ -521,7 +521,7 @@ class OfflineAgentNode(Node):
             "clear", "", QueueSnapshot(True, self._command_queue.size(), dropped)
         )
         self._action_sequencer.cancel("external_sleep")
-        self._publish_actions([ActionCommand("stop", {})])
+        self._publish_actions([ActionCommand("stop", {}, priority=True)])
         session_event = self._voice_session.external_sleep(event.provider)
         self._publish_session_event(session_event)
         self._publish_state("sleeping")
@@ -563,7 +563,7 @@ class OfflineAgentNode(Node):
                     "clear", "", QueueSnapshot(True, self._command_queue.size(), dropped)
                 )
                 self._action_sequencer.cancel("session_sleep")
-                self._publish_actions([ActionCommand("stop", {})])
+                self._publish_actions([ActionCommand("stop", {}, priority=True)])
                 self._publish_state("sleeping")
                 self.get_logger().info("continuous voice session sleeping")
             elif decision.reason == "session_awake":
@@ -625,7 +625,9 @@ class OfflineAgentNode(Node):
                     self.get_logger().info(f"cleared {dropped} queued command(s)")
                 priority_action = "stop" if decision.priority_stop else "cancel_navigation"
                 # 控制面取消不能进入普通队列，否则正在执行的 Nav2 goal 无法被及时抢占。
-                self._publish_actions([ActionCommand(priority_action, {})])
+                self._publish_actions(
+                    [ActionCommand(priority_action, {}, priority=True)]
+                )
                 self._publish_state("listening")
                 return
             self._enqueue_continuous_command(command)

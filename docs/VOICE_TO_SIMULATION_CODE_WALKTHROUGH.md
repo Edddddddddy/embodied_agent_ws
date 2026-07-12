@@ -22,7 +22,7 @@ flowchart LR
   NLU["CommandNLU + fallback + completion<br/>多命令 / 模糊词 / 短命令补全"]
   Candidate["/agent/action_candidate"]
   Guard["C++ ActionGuard<br/>validate / clamp / typed msg"]
-  Bridge["typed_action_bridge_node.cpp<br/>ExecuteRobotCommand client"]
+  Bridge["ActionScheduler + typed_action_bridge<br/>FIFO / cancel / ExecuteRobotCommand client"]
   Server["simulation_control_node.cpp<br/>ExecuteRobotCommand server"]
   BT["BehaviorTree + pluginlib executor"]
   Sim["Gazebo / Nav2 / TurtleBot3"]
@@ -149,6 +149,7 @@ flowchart LR
 | 内容 | 位置 |
 | --- | --- |
 | bridge 文件 | `src/embodied_agent_cpp/src/typed_action_bridge_node.cpp` |
+| 调度核心 | `src/embodied_agent_cpp/include/embodied_agent_cpp/action_scheduler.hpp`、`src/action_scheduler.cpp` |
 | demo client 文件 | `src/embodied_agent_cpp/src/typed_action_demo_client.cpp` |
 | 客户端终态契约 | `src/embodied_agent_cpp/include/embodied_agent_cpp/typed_action_client_contract.hpp` |
 | 结构化审计 | `scripts/audit_cpp_action_reports.py` |
@@ -159,7 +160,10 @@ flowchart LR
 
 设计说明：
 
-- bridge 把 `/robot/action_command_typed` 转换成 `ExecuteRobotCommand` goal。
+- Python sequencer 为组合动作批量分配 command_id 并发布；C++ `ActionScheduler` 决定何时真正发送下一条 goal，避免两层同时调度。
+- bridge 把 `/robot/action_command_typed` 送入 C++ FIFO，再把 `DISPATCH/CANCEL/RESULT` 决策适配为 `ExecuteRobotCommand` Action Client 调用。
+- `RobotCommand.priority=true` 只用于急停、退出会话和取消导航；计划 STOP 仍按 FIFO 执行。
+- 取消超过 `cancel_timeout_s` 会产生 `STATUS_TIMED_OUT/cancel_result_timeout`，不会让队列永久卡住；运行状态发布到 `/diagnostics`。
 - demo client 用于面试和调试：不启动 Agent，也可以直接证明 action server 能执行动作。
 - 长动作不用 service，是因为 service 不适合表达持续执行、反馈和取消。
 - `complete()` 统一生成 `CPP_ACTION_REPORT`，`mark_client_timeout()` 明确标记客户端

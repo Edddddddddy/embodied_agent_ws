@@ -23,7 +23,8 @@ def candidate_message(
     *,
     request_id: str = "integration-command",
     source: str = "integration_test",
+    priority: bool = False,
 ) -> RobotCommand:
     return action_command_to_message(
-        ActionCommand(name, arguments, request_id), source=source
+        ActionCommand(name, arguments, request_id, priority=priority), source=source
     )

@@ -47,6 +47,7 @@
 | Silero ONNX 轻量运行时 | 让成熟 VAD 不依赖 PyTorch 并具备真实推理证据 | 固定 v6.2.1 模型/哈希，纯 ONNX state/context 推理，ROS endpoint 与延迟报告通过 |
 | 离线性能证据收口 | 统一 ASR、LLM、TTS、tokens/s 和真实 E2E 指标 | 增加运行时预热、单槽 prompt cache、`offline-voice-e2e-report` 和严格证据审计；本轮端到首 PCM 多次运行约 1.32–2.11s |
 | 动作控制面全强类型化 | 删除 Agent→ActionGuard 的 JSON 适配层，让候选、受信命令、反馈和结果都使用自定义 ROS 2 接口 | 新增 `RobotCommandFeedback` / `RobotCommandResult`，Agent 直接发布 `RobotCommand`，C++ ActionGuard 直接校验字段；JSON 只保留在日志、指标和硬件协议边界 |
+| C++ Action 调度收敛 | 将受信动作的执行顺序、Action Client、优先取消和状态观测从 Python 收敛到 C++ | 新增可独立测试的 `ActionScheduler`，组合动作批量进入 C++ FIFO；显式 `priority` 区分急停与计划 STOP，并增加取消 watchdog、稳定错误码、`/diagnostics` 和 `cpp-action-scheduler` 验收 |
 
 ## 2. 当前完成度结论
 

@@ -419,7 +419,7 @@ class OnlineAgentNode(Node):
             "clear", "", QueueSnapshot(True, self._command_queue.size(), dropped)
         )
         self.action_sequencer.cancel("external_sleep")
-        self._publish_actions([ActionCommand("stop", {})])
+        self._publish_actions([ActionCommand("stop", {}, priority=True)])
         session_event = self.voice_session.external_sleep(event.provider)
         self._publish_session_event(session_event)
         self._publish_state("sleeping")
@@ -464,7 +464,7 @@ class OnlineAgentNode(Node):
                     "clear", "", QueueSnapshot(True, self._command_queue.size(), dropped)
                 )
                 self.action_sequencer.cancel("session_sleep")
-                self._publish_actions([ActionCommand("stop", {})])
+                self._publish_actions([ActionCommand("stop", {}, priority=True)])
                 self._publish_state("sleeping")
                 self.get_logger().info("continuous voice session sleeping")
             elif decision.reason == "session_awake":
@@ -523,7 +523,9 @@ class OnlineAgentNode(Node):
                 priority_action = "stop" if decision.priority_stop else "cancel_navigation"
                 # 取消导航属于控制面指令：必须绕过 FIFO 和 Action result 等待，
                 # 否则它会排在当前导航之后，语义上等于“导航结束后再取消”。
-                self._publish_actions([ActionCommand(priority_action, {})])
+                self._publish_actions(
+                    [ActionCommand(priority_action, {}, priority=True)]
+                )
                 self._publish_state("listening")
                 return
             self._enqueue_continuous_command(command)

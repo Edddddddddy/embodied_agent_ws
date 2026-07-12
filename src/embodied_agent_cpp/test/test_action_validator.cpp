@@ -146,3 +146,22 @@ TEST(ActionValidatorTest, CancelNavigationRejectsUnrelatedPayload)
   cancel.target = "door";
   EXPECT_FALSE(validator.validate(cancel, "cancel-2", "agent").valid);
 }
+
+TEST(ActionValidatorTest, PriorityIsRestrictedToControlCommands)
+{
+  embodied_agent_cpp::ActionValidator validator;
+
+  auto move = candidate(RobotCommand::MOVE);
+  move.linear_x = 0.2;
+  move.duration_s = 1.0;
+  move.priority = true;
+  const auto invalid = validator.validate(move, "move-priority", "agent");
+  EXPECT_FALSE(invalid.valid);
+  EXPECT_EQ(invalid.error, "priority is only valid for stop or cancel_navigation");
+
+  auto stop = candidate(RobotCommand::STOP);
+  stop.priority = true;
+  const auto valid = validator.validate(stop, "stop-priority", "agent");
+  ASSERT_TRUE(valid.valid) << valid.error;
+  EXPECT_TRUE(valid.command.priority);
+}

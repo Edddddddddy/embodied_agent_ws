@@ -17,6 +17,7 @@
 → 在线/离线 Agent
 → 轻量 NLU / LLM 动作解析
 → C++ ActionGuard 安全校验
+→ C++ ActionScheduler 排队 / 抢占 / 结果关联
 → ROS 2 Action
 → BehaviorTree + pluginlib 仿真执行器
 → Gazebo / TurtleBot3 / Nav2
@@ -33,7 +34,7 @@
 | 4:00 - 6:00 | C++ 安全边界：ActionGuard 如何校验、限幅、拒绝非法动作 | `src/embodied_agent_cpp/src/action_guard_node.cpp`、`src/embodied_agent_cpp/src/action_validator.cpp` |
 | 6:00 - 8:00 | 连续语音：唤醒、去重、filler 过滤、队列、急停抢占 | `src/embodied_online_agent/embodied_online_agent/continuous_voice.py` |
 | 8:00 - 10:00 | 多命令 NLU：一句“右转然后前进一秒”如何拆成顺序队列 | `src/embodied_online_agent/embodied_online_agent/command_nlu.py` |
-| 10:00 - 12:00 | 仿真执行：ROS 2 Action、BehaviorTree、pluginlib、Gazebo `/cmd_vel` | `src/embodied_simulation/src/simulation_control_node.cpp`、`src/embodied_simulation/src/robot_executor_plugins.cpp` |
+| 10:00 - 12:00 | C++ 调度与仿真执行：FIFO、急停抢占、ROS 2 Action、BehaviorTree、pluginlib | `src/embodied_agent_cpp/src/action_scheduler.cpp`、`src/embodied_agent_cpp/src/typed_action_bridge_node.cpp`、`src/embodied_simulation/src/simulation_control_node.cpp` |
 | 12:00 - 13:30 | 离线端侧链路：llama.cpp、Sherpa-TTS、SummerTTS 服务化和延迟统计 | `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py`、`src/embodied_agent_cpp/src/summer_tts_service_node.cpp` |
 | 13:30 - 15:00 | 演示与边界：跑验收命令，说明已完成和后续可做 | `bash scripts/acceptance_test.sh continuous-offline` 或 `navigation-demo` |
 
@@ -113,7 +114,8 @@ CONTINUOUS_LIVE_CHECK_REPORT=logs/nav2-live-check.json \
 | 安全网关 | `src/embodied_agent_cpp/src/action_guard_node.cpp` | `on_candidate()` | Lifecycle node、白名单、限幅、拒绝非法动作 |
 | typed 转换 | `embodied_online_agent/ros_action_transport.py` | `action_command_to_message()` | 将领域动作转成 typed candidate |
 | C++ 安全校验 | `src/embodied_agent_cpp/src/action_validator.cpp` | `ActionValidator::validate()` | 白名单、字段约束、限幅和语义规范化 |
-| ROS 2 Action bridge | `src/embodied_agent_cpp/src/typed_action_bridge_node.cpp` | action client callbacks | topic 命令转 `ExecuteRobotCommand` goal，保留反馈/结果 |
+| C++ 动作调度 | `src/embodied_agent_cpp/src/action_scheduler.cpp` | `ActionScheduler::enqueue()`、`complete()` | 单 active goal、FIFO、急停抢占、失败清队列、稳定错误码 |
+| ROS 2 Action bridge | `src/embodied_agent_cpp/src/typed_action_bridge_node.cpp` | `apply_scheduler_events()`、Action client callbacks | 调度决策适配为 goal/cancel/result，并发布标准 diagnostics |
 | C++ Action demo | `src/embodied_agent_cpp/src/typed_action_demo_client.cpp` | `TypedActionDemoClient::run()` | 最小 `rclcpp_action` client，展示 goal/feedback/result 生命周期 |
 | 仿真控制 | `src/embodied_simulation/src/simulation_control_node.cpp` | `handle_goal()`、`control_tick()`、`finish_active_action()` | ROS 2 Action server、Lifecycle、诊断、超时停止 |
 | 执行后端 | `src/embodied_simulation/src/robot_executor_plugins.cpp` | `GazeboRobotExecutor`、`MockRobotExecutor`、`Nav2RobotExecutor` | pluginlib、Gazebo `/cmd_vel`、Nav2 action bridge |
@@ -123,6 +125,7 @@ CONTINUOUS_LIVE_CHECK_REPORT=logs/nav2-live-check.json \
 
 - 不让 LLM 直接发 `/cmd_vel`：LLM 只产动作候选，C++ ActionGuard 做安全边界，降低失控风险。
 - 不只用 topic 表达长动作：移动、转向、导航都用 ROS 2 Action，天然支持反馈、取消和 result。
+- 不在 Python 里维护可信动作的最终执行状态：C++ `ActionScheduler` 统一负责 FIFO、抢占和 result 关联，Python 只保留语音/NLU 层队列。
 - 不把连续语音写成 Agent 私有逻辑：会话、队列、执行追踪抽到共享模块，online/offline Agent 复用同一套状态机。
 - 不强依赖重型声学模型：默认用 energy VAD + 当前 ASR + 文本唤醒，先保证 WSL/Gazebo 演示可复现；openWakeWord/Silero 等作为后续 seam。
 - 不把 SummerTTS 宣称为当前低延迟默认路径：它已完成 C++ ROS 服务化接入，适合展示端侧 TTS runtime 封装；当前 `<300ms` 低延迟 gate 仍以 Sherpa-TTS 路径为主。

@@ -43,7 +43,8 @@ def test_sequence_publisher_stops_after_failed_step():
         wait_for_results=True,
     )
 
-    assert sent == ["move", "stop"]
+    # 整个批次先交给 C++ scheduler；首步失败后 STOP 会清掉尚未执行的 turn。
+    assert sent == ["move", "turn", "stop"]
     assert report.failed
     assert report.reason == "blocked"
 
@@ -82,6 +83,29 @@ def test_sequence_publisher_waits_for_matching_command_id():
 
     assert [command.name for command in sent] == ["move", "turn"]
     assert sent[0].request_id != sent[1].request_id
+    assert report.completed == 2
+    assert not report.failed
+
+
+def test_sequence_publisher_hands_whole_batch_to_cpp_before_waiting():
+    sequencer = SequentialActionPublisher(result_timeout_s=0.1)
+    sent = []
+
+    def publish(command):
+        sent.append(command)
+        if len(sent) == 2:
+            # 只有两个候选都发布后才模拟 C++ scheduler 返回结果；旧的逐条发布实现
+            # 会在第一条上超时，因此这个测试固定了新的职责边界。
+            for item in sent:
+                sequencer.notify_result(item.request_id, True, "succeeded", status=1)
+
+    report = sequencer.publish(
+        [ActionCommand("move", {}), ActionCommand("turn", {})],
+        publish,
+        wait_for_results=True,
+    )
+
+    assert [item.name for item in sent] == ["move", "turn"]
     assert report.completed == 2
     assert not report.failed
 
