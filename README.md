@@ -18,7 +18,7 @@
 - 识别鲁棒性：支持唤醒词别名、轻量 NLU 多命令识别及速度/距离/角度/时长/地点槽位、模糊命令归一化、短命令补全、重复 ASR final 过滤、语气词过滤、会话超时。
 - ROS 2 工程化：`embodied_agent_core` 是在线/离线 Agent 的单向共享依赖，集中拥有控制面、Lifecycle、执行队列、用户上下文和 ROS I/O 契约；具体 Agent 只保留 provider 适配。`AgentLifecycleRuntime` 固化“关输入→取消→清队列→STOP→等待 worker→STOPPED”的安全顺序；唤醒、识别反馈、NLU、队列、执行、指标和动作 feedback/result 均使用自定义 msg/action；C++ ActionGuard 用有界 TTL outbox 覆盖 DDS 启动发现窗口，ActionScheduler 负责 FIFO、Action Client、优先取消和 watchdog；`ComponentHealth → SystemReadiness` 提供统一启动门禁，并配合 diagnostics、BehaviorTree.CPP 与 pluginlib executor。
 - 中间件契约：Python `ros_qos.py` 与 C++ `qos_profiles.hpp` 共享 `command/event/state/sensor/audio/diagnostics` 六类 QoS 语义；语音前端不再手写 DDS 策略。仿真侧由 `SimulationRosIo` 统一管理 Lifecycle publisher、状态映射和 QoS，控制节点只负责 ROS Action 与执行编排。音频指标、VAD/KWS、仿真状态、动作 ACK 和 BehaviorTree 状态使用自定义消息；JSON 只保留在离线报告/JSONL 证据文件中。
-- 启动契约：在线/离线 launch 复用三层 contract：`agent_launch_contract.py` 管理 Agent 控制面，`voice_frontend_launch_contract.py` 统一音频/VAD/KWS/声纹，`agent_deployment_launch_contract.py` 固定 ActionGuard、Lifecycle 激活顺序与硬件 Adapter；provider launch 只保留自身模型和 TTS 编排。
+- 启动契约：独立 `embodied_agent_bringup` 提供三层 contract：`agent_launch_contract.py` 管理 Agent 控制面，`voice_frontend_launch_contract.py` 统一音频/VAD/KWS/声纹，`agent_deployment_launch_contract.py` 固定 ActionGuard、Lifecycle 激活顺序与硬件 Adapter；领域 core 不依赖 launch，provider launch 只保留自身模型和 TTS 编排。
 - 仿真动作：前进、后退、左转、右转、停止、原地转圈、绕圈、走正方形、演示动作序列。
 - 语音导航：支持“去门口/前往书桌/回到起点”等语义目标点导航，以及“依次去门口、书桌、起点/开始巡航”等多目标点巡航命令；执行中说“取消导航”会绕过 FIFO，抢占当前 Nav2 goal。
 - 用户记忆：声纹身份、录入请求和录入状态使用 typed msg；在线/离线 Agent 共用 `UserContextRuntime + MemoryCommandService`，命令入队时冻结用户身份/偏好快照，再用于 prompt、动作和记忆写入；支持按用户保存行为习惯、语音查询/修改/删除偏好和明细 TTL；声纹 sidecar 已实跑 Sherpa-ONNX 3D-Speaker embedding、真实相似度与 top-1 margin 歧义保护。
@@ -56,6 +56,7 @@ embodied_agent_ws/
 │   ├── embodied_agent_interfaces/   # 全部跨节点 msg/srv/action 契约的唯一来源
 │   ├── embodied_agent_middleware/   # C++ QoS 与 ROS 2 中间件语义契约
 │   ├── embodied_agent_core/         # 在线/离线共享领域模型、编排、记忆与 Python ROS I/O
+│   ├── embodied_agent_bringup/      # launch 参数契约、语音前端与安全部署拓扑
 │   ├── embodied_voice_frontend/     # 在线/离线共享 VAD、KWS、声纹输入 Adapter
 │   ├── embodied_agent_cpp/          # C++ 音频前端、ActionGuard、Action scheduler/client、硬件 mock
 │   ├── embodied_online_agent/       # 在线 Qwen ASR/LLM/TTS provider Adapter

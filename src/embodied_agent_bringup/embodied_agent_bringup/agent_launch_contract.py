@@ -13,7 +13,7 @@ from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.parameter_descriptions import ParameterValue
 
-from .agent_parameters import default_parameter_values
+from embodied_agent_core.agent_parameters import default_parameter_values
 
 
 @dataclass(frozen=True)

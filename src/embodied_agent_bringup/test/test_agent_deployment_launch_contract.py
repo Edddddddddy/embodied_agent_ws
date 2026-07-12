@@ -1,4 +1,4 @@
-from embodied_agent_core.agent_deployment_launch_contract import (
+from embodied_agent_bringup.agent_deployment_launch_contract import (
     AGENT_DEPLOYMENT_ARGUMENTS,
     agent_deployment_nodes,
     declare_agent_deployment_arguments,

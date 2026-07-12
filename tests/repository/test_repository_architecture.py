@@ -1,6 +1,6 @@
 """仓库架构、强类型接口与生命周期边界约束。"""
 
-from repository_test_support import CORE_ROOT, ROOT, VOICE_FRONTEND_ROOT
+from repository_test_support import BRINGUP_ROOT, CORE_ROOT, ROOT, VOICE_FRONTEND_ROOT
 
 
 def test_repository_contracts_remain_split_by_architecture_topic():
@@ -75,9 +75,39 @@ def test_agent_core_is_the_one_way_shared_dependency():
         assert not (old_online_root / adapter).exists()
         assert (VOICE_FRONTEND_ROOT / adapter).is_file()
 
+
+def test_bringup_owns_deployment_topology_without_polluting_domain_core():
+    package = ROOT / "src" / "embodied_agent_bringup"
+    assert (package / "package.xml").is_file()
+    assert (package / "setup.py").is_file()
+    for module in (
+        "agent_launch_contract.py",
+        "voice_frontend_launch_contract.py",
+        "agent_deployment_launch_contract.py",
+    ):
+        assert (BRINGUP_ROOT / module).is_file()
+        assert not (CORE_ROOT / module).exists()
+
+    core_manifest = (
+        ROOT / "src" / "embodied_agent_core" / "package.xml"
+    ).read_text(encoding="utf-8")
+    assert "<exec_depend>launch</exec_depend>" not in core_manifest
+    assert "<exec_depend>launch_ros</exec_depend>" not in core_manifest
+
+    for package_name in (
+        "embodied_online_agent",
+        "embodied_offline_agent",
+        "embodied_simulation",
+    ):
+        manifest = (ROOT / "src" / package_name / "package.xml").read_text(
+            encoding="utf-8"
+        )
+        assert "<exec_depend>embodied_agent_bringup</exec_depend>" in manifest
+
+
 def test_online_and_offline_launch_share_voice_frontend_contract():
     """provider launch 只编排 Agent 特有能力，不复制前端节点和参数映射。"""
-    contract = CORE_ROOT / "voice_frontend_launch_contract.py"
+    contract = BRINGUP_ROOT / "voice_frontend_launch_contract.py"
     assert contract.is_file()
     contract_text = contract.read_text(encoding="utf-8")
     for executable in (
@@ -103,7 +133,7 @@ def test_online_and_offline_launch_share_voice_frontend_contract():
 
 def test_online_and_offline_launch_share_safe_deployment_contract():
     """ActionGuard、Lifecycle 顺序与硬件参数必须有一个权威实现。"""
-    contract = CORE_ROOT / "agent_deployment_launch_contract.py"
+    contract = BRINGUP_ROOT / "agent_deployment_launch_contract.py"
     assert contract.is_file()
     text = contract.read_text(encoding="utf-8")
     assert 'managed_nodes = ["action_guard", agent_name]' in text
@@ -166,7 +196,7 @@ def test_agent_parameter_contract_has_one_authoritative_schema():
 
     online_package = ROOT / "src" / "embodied_online_agent"
     schema = CORE_ROOT / "agent_parameters.py"
-    launch_contract = CORE_ROOT / "agent_launch_contract.py"
+    launch_contract = BRINGUP_ROOT / "agent_launch_contract.py"
     assert schema.is_file()
     assert launch_contract.is_file()
 
@@ -672,7 +702,7 @@ def test_online_and_offline_agents_have_real_lifecycle_resource_ownership():
         offline_root / "launch" / "offline_agent.launch.py"
     ).read_text(encoding="utf-8")
     deployment_contract = (
-        CORE_ROOT / "agent_deployment_launch_contract.py"
+        BRINGUP_ROOT / "agent_deployment_launch_contract.py"
     ).read_text(encoding="utf-8")
     assert 'managed_nodes = ["action_guard", agent_name]' in deployment_contract
     assert 'agent_deployment_nodes("online_agent")' in online_launch

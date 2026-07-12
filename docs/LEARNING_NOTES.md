@@ -202,9 +202,9 @@ publisher 关闭前发布 `ComponentHealth.STATE_STOPPED`，覆盖 transient-loc
 关键代码：
 
 - `src/embodied_agent_core/embodied_agent_core/agent_parameters.py`
-- `src/embodied_agent_core/embodied_agent_core/agent_launch_contract.py`
-- `src/embodied_agent_core/embodied_agent_core/agent_deployment_launch_contract.py`
-- `src/embodied_agent_core/embodied_agent_core/voice_frontend_launch_contract.py`
+- `src/embodied_agent_bringup/embodied_agent_bringup/agent_launch_contract.py`
+- `src/embodied_agent_bringup/embodied_agent_bringup/agent_deployment_launch_contract.py`
+- `src/embodied_agent_bringup/embodied_agent_bringup/voice_frontend_launch_contract.py`
 - `src/embodied_online_agent/embodied_online_agent/online_agent_node.py`
 - `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py`
 - `src/embodied_online_agent/launch/online_agent.launch.py`

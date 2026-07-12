@@ -1,7 +1,7 @@
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
-from embodied_agent_core.voice_frontend_launch_contract import (
+from embodied_agent_bringup.voice_frontend_launch_contract import (
     VOICE_FRONTEND_ARGUMENTS,
     declare_voice_frontend_arguments,
     voice_frontend_configurations,

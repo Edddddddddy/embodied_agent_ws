@@ -2,7 +2,13 @@
 
 import re
 
-from repository_test_support import CORE_ROOT, ROOT, VOICE_FRONTEND_ROOT, _python_literal
+from repository_test_support import (
+    BRINGUP_ROOT,
+    CORE_ROOT,
+    ROOT,
+    VOICE_FRONTEND_ROOT,
+    _python_literal,
+)
 
 
 def test_voice_navigation_places_stay_consistent_across_agent_guard_and_nav2():
@@ -235,7 +241,7 @@ def test_webrtc_vad_sidecar_remains_integrated_as_optional_voice_provider():
     offline_launch = (
         ROOT / "src" / "embodied_offline_agent" / "launch" / "offline_agent.launch.py"
     ).read_text(encoding="utf-8")
-    frontend_launch = (CORE_ROOT / "voice_frontend_launch_contract.py").read_text(
+    frontend_launch = (BRINGUP_ROOT / "voice_frontend_launch_contract.py").read_text(
         encoding="utf-8"
     )
     preflight = (ROOT / "scripts" / "voice_provider_preflight.py").read_text(

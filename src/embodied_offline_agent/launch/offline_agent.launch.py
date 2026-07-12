@@ -5,16 +5,16 @@ from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import LifecycleNode, Node
 from launch_ros.parameter_descriptions import ParameterValue
 
-from embodied_agent_core.agent_deployment_launch_contract import (
+from embodied_agent_bringup.agent_deployment_launch_contract import (
     agent_deployment_nodes,
     declare_agent_deployment_arguments,
 )
-from embodied_agent_core.agent_launch_contract import (
+from embodied_agent_bringup.agent_launch_contract import (
     agent_control_configurations,
     agent_control_parameter_overrides,
     declare_agent_control_arguments,
 )
-from embodied_agent_core.voice_frontend_launch_contract import (
+from embodied_agent_bringup.voice_frontend_launch_contract import (
     declare_voice_frontend_arguments,
     voice_frontend_nodes,
 )

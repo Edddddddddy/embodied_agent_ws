@@ -1,7 +1,7 @@
 from launch.substitutions import LaunchConfiguration
 from launch_ros.parameter_descriptions import ParameterValue
 
-from embodied_agent_core.agent_launch_contract import (
+from embodied_agent_bringup.agent_launch_contract import (
     AGENT_CONTROL_ARGUMENTS,
     FORWARDED_AGENT_ARGUMENT_NAMES,
     agent_control_configurations,

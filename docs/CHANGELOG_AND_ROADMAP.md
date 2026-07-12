@@ -60,6 +60,7 @@
 | voice frontend launch 收敛 | 消除 online/offline 对音频、VAD、KWS、声纹参数和节点的整段复制 | 新增 `voice_frontend_launch_contract.py`，统一 31 个参数和 5 个节点；在线 launch 缩至约 100 行、离线约 156 行 |
 | Agent 安全部署拓扑收敛 | 避免 ActionGuard/Lifecycle manager/硬件 Adapter 顺序与参数在 online/offline 漂移 | 新增 `agent_deployment_launch_contract.py`；统一正序激活、逆序停机及 UART/SPI 类型，在线 launch 进一步缩至约 57 行、离线约 123 行 |
 | 仓库契约测试分区 | 避免结构、部署、语音和仿真守卫继续堆积在 1700 行单文件 | 按 architecture/delivery/voice_runtime 拆为三组，共享只读路径工具；54 项契约保持通过并增加文件规模守卫 |
+| bringup 包分层 | 修正共享 launch contract 放在领域 core 中造成的部署依赖反向污染 | 新增 `embodied_agent_bringup`，依赖方向统一为 bringup → core/voice/C++；core 移除 launch/launch_ros 依赖 |
 | 控制命令启动可靠性 | 修复 DDS discovery 完成前 Guard 发布的 volatile 动作静默丢失 | 新增有界 TTL `GuardedCommandOutbox`；scheduler 匹配后 FIFO 转发，超时/满载明确拒绝，不回放陈旧动作 |
 | C++ 中间件契约收敛 | 清理跨节点散落的 QoS depth 与不一致策略 | 新增独立 `embodied_agent_middleware` 包，统一 command/event/state/sensor/audio/diagnostics QoS，并迁移控制主链路 |
 | 系统就绪状态收敛 | 替代 launch/test 中分散的固定 sleep、topic graph 猜测和日志字符串判断 | 新增 `ComponentHealth`、`SystemReadiness`、心跳超时聚合器和 profile 化启动门禁；保留音频/仿真数据质量探针 |

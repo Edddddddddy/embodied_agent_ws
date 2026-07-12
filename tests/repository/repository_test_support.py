@@ -6,6 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CORE_ROOT = ROOT / "src" / "embodied_agent_core" / "embodied_agent_core"
+BRINGUP_ROOT = ROOT / "src" / "embodied_agent_bringup" / "embodied_agent_bringup"
 VOICE_FRONTEND_ROOT = ROOT / "src" / "embodied_voice_frontend" / "embodied_voice_frontend"
 
 

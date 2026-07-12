@@ -13,6 +13,7 @@
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>embodied_agent_core</exec_depend>
+  <exec_depend>embodied_agent_bringup</exec_depend>
   <exec_depend>embodied_voice_frontend</exec_depend>
   <exec_depend>embodied_agent_interfaces</exec_depend>
   <exec_depend>embodied_agent_cpp</exec_depend>

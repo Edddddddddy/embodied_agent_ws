@@ -186,9 +186,6 @@ Python 的 `embodied_agent_core/ros_qos.py` 与 C++ 的
 - `embodied_agent_core/agent_ros_io.py`
 - `embodied_agent_core/continuous_voice.py`
 - `embodied_agent_core/command_nlu.py`
-- `embodied_agent_core/agent_launch_contract.py`
-- `embodied_agent_core/agent_deployment_launch_contract.py`
-- `embodied_agent_core/voice_frontend_launch_contract.py`
 - `config/command_normalization_zh.yaml`
 - `prompts/system_prompt_zh.txt`
 
@@ -228,6 +225,20 @@ Python 的 `embodied_agent_core/ros_qos.py` 与 C++ 的
   只注入在线直接 ASR 或离线队列 ASR 的 start/stop hook，不再各自复制安全停机状态机。
 - 独立 `ros2 run` 默认 `agent_lifecycle_autostart=true`；组合 launch 显式关闭内部自启动，
   由唯一 manager 管理，避免双重 transition 竞态。
+
+### `embodied_agent_bringup`
+
+职责：
+
+- 单向依赖 `embodied_agent_core`，拥有在线/离线/仿真共用的 launch 参数和节点拓扑。
+- 统一语音前端、安全控制、Lifecycle manager 与硬件 Adapter 的装配。
+- 不承载领域状态机和 provider 实现，避免部署依赖反向污染 core。
+
+核心文件：
+
+- `embodied_agent_bringup/agent_launch_contract.py`
+- `embodied_agent_bringup/voice_frontend_launch_contract.py`
+- `embodied_agent_bringup/agent_deployment_launch_contract.py`
 
 配置覆盖顺序固定为：节点 schema 默认值 → provider YAML → launch 显式覆盖。YAML 只
 保存在线或离线模型相关配置，不再复制队列、会话、记忆等公共默认值；参数不支持运行时
