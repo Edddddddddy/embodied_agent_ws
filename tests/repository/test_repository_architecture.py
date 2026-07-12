@@ -14,6 +14,7 @@ def test_repository_contracts_remain_split_by_architecture_topic():
         path = repository / name
         assert path.is_file()
         assert len(path.read_text(encoding="utf-8").splitlines()) < 900
+    assert (ROOT / "docs" / "ARCHITECTURE_AUDIT.md").is_file()
 
 
 def test_agent_core_is_the_one_way_shared_dependency():

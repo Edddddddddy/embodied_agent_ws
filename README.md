@@ -963,6 +963,7 @@ bash scripts/acceptance_test.sh online
 ## 文档索引
 
 - [架构与模块说明](docs/ARCHITECTURE_AND_KNOWLEDGE.md)
+- [阶段架构审计与保留技术债](docs/ARCHITECTURE_AUDIT.md)
 - [最终架构图与端到端数据流图](docs/FINAL_ARCHITECTURE_DIAGRAMS.md)
 - [测试与验收手册](docs/TESTING_AND_ACCEPTANCE.md)
 - [15 分钟汇报与代码走读稿](docs/PROJECT_PRESENTATION_15MIN.md)
