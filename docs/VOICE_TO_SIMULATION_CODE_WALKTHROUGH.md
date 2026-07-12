@@ -83,10 +83,10 @@ flowchart LR
 
 | 内容 | 位置 |
 | --- | --- |
-| 关键文件 | `src/embodied_online_agent/embodied_online_agent/continuous_voice.py` |
+| 关键文件 | `continuous_voice.py`、`ros_event_transport.py`、`ros_qos.py`、`embodied_agent_interfaces/msg/Command*Event.msg` |
 | 关键类/函数 | `ContinuousVoiceSession`、`ContinuousCommandQueue`、`accept()`、`put()`、`get()` |
-| 主要接口 | `/agent/session_state`、`/agent/command_queue`、`/agent/command_execution` |
-| 技术点 | 文本唤醒、别名归一、重复过滤、filler 过滤、FIFO、TTL、急停抢占 |
+| 主要接口 | `/agent/session_state`、typed `/agent/command_queue`、typed `/agent/command_execution` |
+| 技术点 | 文本唤醒、重复过滤、FIFO、TTL、急停抢占、强类型事件、reliable/transient-local QoS |
 
 设计说明：
 
@@ -94,6 +94,8 @@ flowchart LR
 - 普通命令按 FIFO 入队；执行中收到的新命令等待前一个 Action result。
 - `停下/急停` 是 priority stop：清空队列、抢占当前动作、立即发布 stop。
 - 每条命令带 `command_id/request_id/batch_id`，避免旧 result 误唤醒下一条命令。
+- 队列与执行事件不再通过 `String + JSON` 传播；消息常量约束事件类型，`CommandContext`
+  统一携带 batch/NLU 上下文，monitor 和测试不再各自猜字段。
 
 讲解重点：
 
@@ -136,8 +138,8 @@ flowchart LR
 
 - LLM/NLU 输出永远不被直接信任。
 - ActionGuard 做动作类型白名单、速度/角速度/时长限幅、参数默认值和拒绝原因输出。
-- Agent candidate、guarded command、Action feedback/result 均使用自定义 msg；JSON 只用于
-  人类可读日志和报告序列化，不再作为机器人控制接口。
+- Agent candidate、guarded command、队列/执行事件、Action feedback/result 均使用自定义 msg；
+  JSON 只用于人类可读日志、模型文件和离线报告，不再作为机器人控制或命令生命周期接口。
 
 讲解重点：
 

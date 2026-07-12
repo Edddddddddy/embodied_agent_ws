@@ -15,7 +15,9 @@ import threading
 import time
 
 import rclpy
-from embodied_agent_interfaces.msg import RobotCommand
+from embodied_agent_interfaces.msg import CommandQueueEvent, RobotCommand
+from embodied_online_agent.ros_event_transport import queue_event_message_to_dict
+from embodied_online_agent.ros_qos import command_event_qos
 from rclpy.node import Node
 from std_msgs.msg import String
 from typed_action_test_utils import candidate_dict
@@ -33,14 +35,14 @@ class ContinuousQueueFullProbe(Node):
         self.queue_events = []
         self.feedback = []
         self.candidates = []
-        self.create_subscription(String, "/agent/command_queue", self._on_queue, 10)
+        self.create_subscription(CommandQueueEvent, "/agent/command_queue", self._on_queue, command_event_qos())
         self.create_subscription(
             String, "/agent/recognition_feedback", self._on_feedback, 10
         )
         self.create_subscription(RobotCommand, "/agent/action_candidate", self._on_candidate, 10)
 
     def _on_queue(self, message):
-        self.queue_events.append(json.loads(message.data))
+        self.queue_events.append(queue_event_message_to_dict(message))
 
     def _on_feedback(self, message):
         self.feedback.append(json.loads(message.data))

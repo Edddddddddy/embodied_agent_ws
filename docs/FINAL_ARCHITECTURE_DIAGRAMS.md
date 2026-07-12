@@ -24,7 +24,7 @@ flowchart TB
     OnlineAgent["Online Agent<br/>DashScope/Qwen ASR-LLM-TTS"]
     OfflineAgent["Offline Agent<br/>Sherpa ASR / llama.cpp / Sherpa-TTS"]
     Session["ContinuousVoiceSession<br/>wake / sleep / duplicate / filler"]
-    Queue["ContinuousCommandQueue<br/>FIFO / TTL / priority stop"]
+    Queue["ContinuousCommandQueue<br/>FIFO / TTL / priority stop<br/>typed lifecycle events + named QoS"]
     NLU["Command NLU + normalizer + completion<br/>多命令 / 模糊词 / 短命令补全"]
     Memory["User memory + speaker identity seam<br/>用户画像 / 行为习惯"]
   end

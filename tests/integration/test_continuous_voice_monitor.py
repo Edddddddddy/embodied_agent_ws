@@ -17,6 +17,24 @@ sys.modules.setdefault(
     "rclpy.node",
     types.SimpleNamespace(Node=object),
 )
+
+
+class _FakeQosProfile:
+    def __init__(self, **kwargs):
+        self.settings = kwargs
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+
+sys.modules.setdefault(
+    "rclpy.qos",
+    types.SimpleNamespace(
+        DurabilityPolicy=types.SimpleNamespace(VOLATILE=0, TRANSIENT_LOCAL=1),
+        HistoryPolicy=types.SimpleNamespace(KEEP_LAST=0),
+        QoSProfile=_FakeQosProfile,
+        ReliabilityPolicy=types.SimpleNamespace(RELIABLE=0),
+    ),
+)
 sys.modules.setdefault(
     "std_msgs.msg",
     types.SimpleNamespace(String=object),

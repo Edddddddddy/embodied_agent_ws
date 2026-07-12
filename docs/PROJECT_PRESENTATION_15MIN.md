@@ -109,6 +109,7 @@ CONTINUOUS_LIVE_CHECK_REPORT=logs/nav2-live-check.json \
 | 在线 Agent | `src/embodied_online_agent/embodied_online_agent/online_agent_node.py` | `_on_asr_final()`、`_run_turn()`、`_publish_action_candidate()` | ASR final、LLM/TTS provider、动作候选发布 |
 | 离线 Agent | `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py` | `_commit_asr_endpoint()`、`_run_turn()`、metrics publisher | Sherpa/llama.cpp/TTS 组合、延迟统计 |
 | 连续会话 | `src/embodied_online_agent/embodied_online_agent/continuous_voice.py` | `ContinuousVoiceSession.accept()`、`ContinuousCommandQueue.put()`、`get()` | 唤醒、去重、filler、TTL、急停抢占 |
+| typed 命令事件 | `embodied_agent_interfaces/msg/Command*Event.msg`、`ros_event_transport.py`、`ros_qos.py` | `queue_event_to_message()`、`execution_event_to_message()` | batch context、reliable、transient-local、编译期字段契约 |
 | 多命令 NLU | `src/embodied_online_agent/embodied_online_agent/command_nlu.py` | `CommandNLU.parse()` | 字符级轻量模型、多命令识别、低置信度 fallback |
 | 动作候选协议 | `src/embodied_online_agent/embodied_online_agent/protocol.py` | action payload helpers | Agent 输出结构化动作，不直接控制机器人 |
 | 安全网关 | `src/embodied_agent_cpp/src/action_guard_node.cpp` | `on_candidate()` | Lifecycle node、白名单、限幅、拒绝非法动作 |

@@ -1037,3 +1037,51 @@ def test_cpp_typed_action_demo_client_remains_available():
     assert "typed_action_demo_client" in smoke_script.read_text(encoding="utf-8")
     assert "typed_action_demo_client.cpp" in learning
     assert "typed_action_demo_client.cpp" in presentation
+
+
+def test_command_lifecycle_topics_are_strongly_typed_and_use_named_qos():
+    """队列与执行生命周期属于中间件契约，禁止退回 String + JSON。"""
+
+    interfaces = ROOT / "src" / "embodied_agent_interfaces" / "msg"
+    online = (
+        ROOT
+        / "src"
+        / "embodied_online_agent"
+        / "embodied_online_agent"
+        / "online_agent_node.py"
+    ).read_text(encoding="utf-8")
+    offline = (
+        ROOT
+        / "src"
+        / "embodied_offline_agent"
+        / "embodied_offline_agent"
+        / "offline_agent_node.py"
+    ).read_text(encoding="utf-8")
+    transport = (
+        ROOT
+        / "src"
+        / "embodied_online_agent"
+        / "embodied_online_agent"
+        / "ros_event_transport.py"
+    ).read_text(encoding="utf-8")
+    qos = (
+        ROOT
+        / "src"
+        / "embodied_online_agent"
+        / "embodied_online_agent"
+        / "ros_qos.py"
+    ).read_text(encoding="utf-8")
+
+    assert (interfaces / "CommandContext.msg").is_file()
+    assert (interfaces / "CommandQueueEvent.msg").is_file()
+    assert (interfaces / "CommandExecutionEvent.msg").is_file()
+    for node in (online, offline):
+        assert 'CommandQueueEvent, "/agent/command_queue"' in node
+        assert 'CommandExecutionEvent, "/agent/command_execution"' in node
+        assert 'String, "/agent/command_queue"' not in node
+        assert 'String, "/agent/command_execution"' not in node
+        assert "command_event_qos()" in node
+        assert "latched_state_qos()" in node
+    assert "unsupported queue event" in transport
+    assert "ReliabilityPolicy.RELIABLE" in qos
+    assert "DurabilityPolicy.TRANSIENT_LOCAL" in qos

@@ -107,15 +107,18 @@ class CommandExecutionEvent:
     text: str
     success: Optional[bool] = None
     reason: str = ""
+    metadata: dict = field(default_factory=dict)
 
     def as_dict(self) -> dict:
-        return {
+        payload = {
             "event": self.event,
             "source": self.source,
             "text": self.text,
             "success": self.success,
             "reason": self.reason,
         }
+        payload.update(self.metadata)
+        return payload
 
 
 class CommandExecutionTracker:
@@ -151,7 +154,12 @@ class CommandExecutionTracker:
         )
 
     def execution_started(self, item: "QueuedCommand") -> CommandExecutionEvent:
-        return CommandExecutionEvent("started", self.source, item.text)
+        return CommandExecutionEvent(
+            "started",
+            self.source,
+            item.text,
+            metadata=self._public_metadata(item.context),
+        )
 
     def queue_expired(self, item: "QueuedCommand", *, size: int) -> CommandQueueEvent:
         return CommandQueueEvent(
@@ -172,7 +180,14 @@ class CommandExecutionTracker:
         success: bool,
         reason: str,
     ) -> CommandExecutionEvent:
-        return CommandExecutionEvent("finished", self.source, item.text, success, reason)
+        return CommandExecutionEvent(
+            "finished",
+            self.source,
+            item.text,
+            success,
+            reason,
+            self._public_metadata(item.context),
+        )
 
     @staticmethod
     def _public_metadata(context: object | None) -> dict:

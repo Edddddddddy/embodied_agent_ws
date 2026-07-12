@@ -16,11 +16,21 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import rclpy
-from embodied_agent_interfaces.msg import RobotCommand, RobotCommandResult
+from embodied_agent_interfaces.msg import (
+    CommandExecutionEvent,
+    CommandQueueEvent,
+    RobotCommand,
+    RobotCommandResult,
+)
 from embodied_online_agent.ros_action_transport import (
     command_message_to_dict,
     result_message_to_dict,
 )
+from embodied_online_agent.ros_event_transport import (
+    execution_event_message_to_dict,
+    queue_event_message_to_dict,
+)
+from embodied_online_agent.ros_qos import command_event_qos, latched_state_qos
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from std_msgs.msg import String
@@ -82,9 +92,21 @@ class LiveCheckNode(Node):
         self.action_e2e_latency_ms: list[float] = []
         self.capture_source = capture_source
         self.create_subscription(String, "/agent/asr_final", self._on_asr, 10)
-        self.create_subscription(String, "/agent/session_state", self._on_session, 10)
-        self.create_subscription(String, "/agent/command_queue", self._on_queue, 10)
-        self.create_subscription(String, "/agent/command_execution", self._on_execution, 10)
+        self.create_subscription(
+            String, "/agent/session_state", self._on_session, latched_state_qos()
+        )
+        self.create_subscription(
+            CommandQueueEvent,
+            "/agent/command_queue",
+            self._on_queue,
+            command_event_qos(),
+        )
+        self.create_subscription(
+            CommandExecutionEvent,
+            "/agent/command_execution",
+            self._on_execution,
+            command_event_qos(),
+        )
         self.create_subscription(
             RobotCommand, "/agent/action_candidate", self._on_candidate, 10
         )
@@ -110,11 +132,11 @@ class LiveCheckNode(Node):
     def _on_session(self, message: String) -> None:
         self.session_states.append(message.data)
 
-    def _on_queue(self, message: String) -> None:
-        self.queue_events.append(_json_dict(message.data))
+    def _on_queue(self, message: CommandQueueEvent) -> None:
+        self.queue_events.append(queue_event_message_to_dict(message))
 
-    def _on_execution(self, message: String) -> None:
-        self.execution_events.append(_json_dict(message.data))
+    def _on_execution(self, message: CommandExecutionEvent) -> None:
+        self.execution_events.append(execution_event_message_to_dict(message))
 
     def _on_candidate(self, message: RobotCommand) -> None:
         candidate = command_message_to_dict(message)
@@ -164,14 +186,20 @@ class LiveCheckNode(Node):
             name = str(candidate.get("name") or "")
             if name:
                 candidate_names[name] = candidate_names.get(name, 0) + 1
+        saw_awake = "awake" in self.session_states
+        # transient-local 会在探针刚加入时回放当前 sleeping；验收真正关心的是
+        # 一次会话醒来后是否又正常休眠，不能把启动快照当成“退出控制”证据。
+        saw_sleeping_after_awake = _contains_ordered_states(
+            self.session_states, "awake", "sleeping"
+        )
         checks = {
             f"ASR final >= {thresholds.min_asr}": len(self.asr) >= thresholds.min_asr,
             f"action candidate >= {thresholds.min_candidates}": len(self.candidates)
             >= thresholds.min_candidates,
             f"successful action result >= {thresholds.min_success}": success_count
             >= thresholds.min_success,
-            "session awake observed": "awake" in self.session_states,
-            "session sleeping observed": "sleeping" in self.session_states,
+            "session awake observed": saw_awake,
+            "session sleeping observed": saw_sleeping_after_awake,
             "final cmd_vel is zero": final_zero,
         }
         for required in thresholds.required_candidates or []:
@@ -193,8 +221,8 @@ class LiveCheckNode(Node):
             execution_started_count=started_count,
             execution_finished_count=finished_count,
             action_candidate_names=candidate_names,
-            saw_awake=checks["session awake observed"],
-            saw_sleeping=checks["session sleeping observed"],
+            saw_awake=saw_awake,
+            saw_sleeping=saw_sleeping_after_awake,
             final_cmd_vel_zero=final_zero,
             ok=not missing,
             missing=missing,
@@ -281,6 +309,17 @@ def _json_dict(serialized: str) -> dict:
 
 def _tail(items: list, limit: int = 50) -> list:
     return items[-limit:]
+
+
+def _contains_ordered_states(states: list[str], first: str, second: str) -> bool:
+    """只有 first 之后出现的 second 才能证明完成了一次状态往返。"""
+    seen_first = False
+    for state in states:
+        if state == first:
+            seen_first = True
+        elif state == second and seen_first:
+            return True
+    return False
 
 
 def _has_navigate_target(candidates: list[dict]) -> bool:

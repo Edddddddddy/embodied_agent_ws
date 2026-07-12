@@ -8,7 +8,12 @@ from typing import Iterable
 
 import rclpy
 from ament_index_python.packages import get_package_share_directory
-from embodied_agent_interfaces.msg import RobotCommand, RobotCommandResult
+from embodied_agent_interfaces.msg import (
+    CommandExecutionEvent,
+    CommandQueueEvent,
+    RobotCommand,
+    RobotCommandResult,
+)
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Empty, String, UInt8MultiArray
@@ -32,6 +37,8 @@ from .navigation_phrases import is_navigation_cancel
 from .protocol import SentenceChunker, TaggedStreamParser
 from .recognition_retry import RecognitionRetryTracker
 from .ros_action_transport import action_command_to_message, command_message_to_dict
+from .ros_event_transport import execution_event_to_message, queue_event_to_message
+from .ros_qos import command_event_qos, latched_state_qos
 from .types import ActionCommand
 from .transcript_stabilizer import TranscriptStabilizer
 from .user_preferences import apply_user_preferences
@@ -116,12 +123,18 @@ class OnlineAgentNode(Node):
         self.action_candidate_pub = self.create_publisher(
             RobotCommand, "/agent/action_candidate", 10
         )
-        self.state_pub = self.create_publisher(String, "/agent/state", 10)
+        self.state_pub = self.create_publisher(
+            String, "/agent/state", latched_state_qos()
+        )
         self.wake_event_pub = self.create_publisher(String, "/agent/wake_event", 10)
-        self.session_state_pub = self.create_publisher(String, "/agent/session_state", 10)
-        self.command_queue_pub = self.create_publisher(String, "/agent/command_queue", 10)
+        self.session_state_pub = self.create_publisher(
+            String, "/agent/session_state", latched_state_qos()
+        )
+        self.command_queue_pub = self.create_publisher(
+            CommandQueueEvent, "/agent/command_queue", command_event_qos()
+        )
         self.command_execution_pub = self.create_publisher(
-            String, "/agent/command_execution", 10
+            CommandExecutionEvent, "/agent/command_execution", command_event_qos()
         )
         self.recognition_feedback_pub = self.create_publisher(
             String, "/agent/recognition_feedback", 10
@@ -1065,12 +1078,16 @@ class OnlineAgentNode(Node):
 
     def _publish_command_queue_payload(self, payload):
         self.command_queue_pub.publish(
-            String(data=json.dumps(payload.as_dict(), ensure_ascii=False))
+            queue_event_to_message(
+                payload, stamp=self.get_clock().now().to_msg()
+            )
         )
 
     def _publish_execution_event(self, event):
         self.command_execution_pub.publish(
-            String(data=json.dumps(event.as_dict(), ensure_ascii=False))
+            execution_event_to_message(
+                event, stamp=self.get_clock().now().to_msg()
+            )
         )
 
     def _publish_ignored_recognition(self, transcript: str, reason: str):

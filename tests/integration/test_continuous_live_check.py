@@ -23,8 +23,21 @@ class _FakeNode:
         return None
 
 
+class _FakeQosProfile:
+    def __init__(self, **kwargs):
+        self.settings = kwargs
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+
 sys.modules["rclpy"] = types.SimpleNamespace()
 sys.modules["rclpy.node"] = types.SimpleNamespace(Node=_FakeNode)
+sys.modules["rclpy.qos"] = types.SimpleNamespace(
+    DurabilityPolicy=types.SimpleNamespace(VOLATILE=0, TRANSIENT_LOCAL=1),
+    HistoryPolicy=types.SimpleNamespace(KEEP_LAST=0),
+    QoSProfile=_FakeQosProfile,
+    ReliabilityPolicy=types.SimpleNamespace(RELIABLE=0),
+)
 sys.modules["geometry_msgs.msg"] = types.SimpleNamespace(Twist=object)
 sys.modules["std_msgs.msg"] = types.SimpleNamespace(String=object)
 
@@ -53,6 +66,21 @@ def test_live_check_report_passes_when_required_evidence_is_present():
     assert report.asr_count == 6
     assert report.action_success_count == 4
     assert report.action_candidate_names["move"] == 1
+
+
+def test_initial_latched_sleeping_does_not_fake_session_exit():
+    node = live_check.LiveCheckNode()
+    node.session_states.extend(["sleeping", "awake"])
+    node.asr.extend(["小智"] * 6)
+    node.candidates.extend([{"name": "move"}] * 4)
+    node.results.extend([{"success": True}] * 4)
+    node.velocities.append((0.0, 0.0))
+
+    report = node.build_report(live_check.LiveCheckThresholds())
+
+    assert report.saw_awake
+    assert not report.saw_sleeping
+    assert "session sleeping observed" in report.missing
 
 
 def test_live_check_report_counts_partial_final_recovery_feedback():

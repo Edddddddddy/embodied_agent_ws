@@ -164,9 +164,9 @@ sequenceDiagram
 | `/audio/speech_ended` | audio → Agent | VAD 检测到一句话结束 |
 | `/agent/asr_partial` | ASR → monitor | ASR partial |
 | `/agent/asr_final` | ASR → Agent/monitor | ASR final |
-| `/agent/session_state` | Agent → monitor | awake/sleeping 等会话状态 |
-| `/agent/command_queue` | Agent → monitor | enqueue/rejected/expired/clear |
-| `/agent/command_execution` | Agent → monitor | started/finished |
+| `/agent/session_state` | Agent → monitor | awake/sleeping；reliable + transient-local，晚加入监控可获得当前状态 |
+| `/agent/command_queue` | Agent → monitor | `CommandQueueEvent`：enqueue/rejected/expired/clear、队列深度与 batch context |
+| `/agent/command_execution` | Agent → monitor | `CommandExecutionEvent`：started/finished、结果语义与 batch context |
 | `/agent/action_candidate` | Agent → ActionGuard | `RobotCommand` 强类型候选 |
 | `/robot/action_command_typed` | ActionGuard → bridge | 强类型 RobotCommand |
 | `/robot/action_feedback` | bridge → monitor | `RobotCommandFeedback` |

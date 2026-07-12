@@ -14,6 +14,8 @@ from typing import Any
 
 import rclpy
 from embodied_agent_interfaces.msg import (
+    CommandExecutionEvent,
+    CommandQueueEvent,
     RobotCommand,
     RobotCommandFeedback,
     RobotCommandResult,
@@ -23,6 +25,11 @@ from embodied_online_agent.ros_action_transport import (
     feedback_message_to_dict,
     result_message_to_dict,
 )
+from embodied_online_agent.ros_event_transport import (
+    execution_event_message_to_dict,
+    queue_event_message_to_dict,
+)
+from embodied_online_agent.ros_qos import command_event_qos, latched_state_qos
 from rclpy.node import Node
 from std_msgs.msg import String
 
@@ -460,16 +467,26 @@ class ContinuousVoiceMonitor(Node):
         self._sample_recorder = (
             AsrNluSampleRecorder(sample_output) if sample_output else None
         )
-        self.create_subscription(String, "/agent/session_state", self._on_session, 10)
+        self.create_subscription(
+            String, "/agent/session_state", self._on_session, latched_state_qos()
+        )
         self.create_subscription(String, "/agent/wake_event", self._on_wake, 10)
         self.create_subscription(String, "/agent/kws_event", self._on_kws, 10)
         self.create_subscription(String, "/agent/kws_score", self._on_kws_score, 10)
         self.create_subscription(String, "/audio/frontend_metrics", self._on_audio, 10)
         self.create_subscription(String, "/agent/asr_final", self._on_asr, 10)
-        self.create_subscription(String, "/agent/state", self._on_state, 10)
-        self.create_subscription(String, "/agent/command_queue", self._on_queue, 10)
+        self.create_subscription(String, "/agent/state", self._on_state, latched_state_qos())
         self.create_subscription(
-            String, "/agent/command_execution", self._on_execution, 10
+            CommandQueueEvent,
+            "/agent/command_queue",
+            self._on_queue,
+            command_event_qos(),
+        )
+        self.create_subscription(
+            CommandExecutionEvent,
+            "/agent/command_execution",
+            self._on_execution,
+            command_event_qos(),
         )
         self.create_subscription(
             RobotCommand, "/agent/action_candidate", self._on_action, 10
@@ -521,18 +538,22 @@ class ContinuousVoiceMonitor(Node):
         elif message.data == "queue_full":
             self._emit(format_queue_state(message.data))
 
-    def _on_queue(self, message: String) -> None:
+    def _on_queue(self, message: CommandQueueEvent) -> None:
         self._structured_queue_seen = True
-        self._stats.record_queue(message.data)
+        serialized = json.dumps(queue_event_message_to_dict(message), ensure_ascii=False)
+        self._stats.record_queue(serialized)
         if self._sample_recorder is not None:
             self._sample_recorder.record_json_event(
-                "command_queue", "/agent/command_queue", message.data
+                "command_queue", "/agent/command_queue", serialized
             )
-        self._emit(format_queue_event(message.data))
+        self._emit(format_queue_event(serialized))
 
-    def _on_execution(self, message: String) -> None:
-        self._stats.record_execution(message.data)
-        self._emit(format_execution_event(message.data))
+    def _on_execution(self, message: CommandExecutionEvent) -> None:
+        serialized = json.dumps(
+            execution_event_message_to_dict(message), ensure_ascii=False
+        )
+        self._stats.record_execution(serialized)
+        self._emit(format_execution_event(serialized))
 
     def _on_action(self, message: RobotCommand) -> None:
         serialized = json.dumps(command_message_to_dict(message), ensure_ascii=False)

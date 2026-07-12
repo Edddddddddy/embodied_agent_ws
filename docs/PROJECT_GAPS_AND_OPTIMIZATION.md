@@ -101,18 +101,22 @@
 - 演示前再跑真实麦克风和 Nav2 evidence。
 - 后续可增加录屏、截图、RViz 状态导出。
 
-## 7. C++ 占比还可以提高
+## 7. 控制面和 ROS 2 中间件仍需继续收敛
 
 现状：
 
-- C++ 已覆盖 ActionGuard、typed bridge、audio frontend、simulation executor、SummerTTS service。
-- Python 仍承担连续语音状态机、NLU、memory、monitor 和 provider 编排。
+- C++ 已覆盖 ActionGuard、`ActionScheduler`、Action Client、audio frontend、simulation executor
+  和 SummerTTS service；可信动作的 FIFO、抢占和 result 关联不再由 Python 最终裁决。
+- `/agent/command_queue`、`/agent/command_execution` 已从 `String + JSON` 升级为自定义 msg，
+  并统一 reliable QoS；Agent/session 当前状态开始使用 transient-local。
+- 唤醒事件、识别反馈、音频前端指标、仿真状态等仍有结构化 JSON topic，尚未完全 typed。
 
 优化：
 
-- 优先把诊断、执行状态追踪、部分队列监控 C++ 化。
-- 已补充 `typed_action_demo_client` 作为最小 C++ `rclcpp_action` client 示例；
-  后续继续增加 launch test 和组件化节点展示。
+- 下一步按控制风险排序，把 wake/recognition/simulation state 等跨节点结构化事件升级为 typed msg
+  或标准 `/diagnostics`；普通 ASR/回复文本仍可保留 `std_msgs/String`。
+- 将 `typed_action_bridge` 升级为 Lifecycle/Component node，并统一参数校验和 callback group。
+- 为命令、状态、传感器流分别定义可靠性、durability、deadline/liveliness 策略，而不是统一 depth=10。
 - 保留 Python 在模型编排层的灵活性，不为“全 C++”牺牲迭代速度。
 
 ## 8. 用户记忆和声纹仍需继续产品化
@@ -145,10 +149,27 @@
 - `INTERVIEW_QA.md` 用于追问。
 - 深入实现继续放 `LEARNING_NOTES.md`。
 
-## 10. 下一阶段优先级
+## 10. 代码和脚本组织规模偏大
 
-1. 固定真实演示脚本和 evidence 报告。
-2. 强化真实麦克风稳定性，默认接入一个成熟 VAD/KWS 方案。
-3. 补离线模型 benchmark 报告和动作准确率评估。
-4. 丰富 Nav2 map/world/waypoint/RViz 展示资产和失败诊断报告。
-5. 继续整理面试问答和 C++ 技术亮点。
+现状：
+
+- online/offline Agent 主节点分别超过 1100/1200 行，provider 创建、ROS publisher、连续会话、
+  memory 和 turn pipeline 混在一个类中。
+- `embodied_agent_cpp` 同时承载 audio、control、hardware、TTS 等多个变化方向。
+- `scripts/` 超过 120 个文件，`acceptance_test.sh` 同时承担目录、路由、环境配置和执行逻辑。
+
+优化：
+
+- 先抽取共享 `AgentControlPlane`，隐藏 session/queue/typed event publisher，online/offline 只保留
+  provider 与 turn pipeline 差异；避免继续复制同名私有函数。
+- 等 control/audio/hardware 各自接口稳定后，再拆 ROS package；不在接口仍变化时只为目录好看而拆包。
+- 将验收入口按 `voice/`、`offline/`、`control/`、`navigation/` 分类，根脚本只做稳定命令路由；
+  用 manifest 驱动帮助文本和门禁，逐步删除只包一层命令的重复 smoke 脚本。
+
+## 11. 下一阶段优先级
+
+1. 完成剩余结构化 JSON topic 的 typed/diagnostics 迁移并统一 QoS。
+2. 抽取 online/offline 共用 Agent 控制面，缩小两个主节点接口和职责。
+3. 整理验收脚本 manifest 与分组目录，保留兼容的单一用户入口。
+4. 将 C++ bridge 组件化/Lifecycle 化，补 deadline、liveliness 和故障诊断。
+5. 完成以上架构阶段后，再继续 Nav2 演示和用户记忆功能。

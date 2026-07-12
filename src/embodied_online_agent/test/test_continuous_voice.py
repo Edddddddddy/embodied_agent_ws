@@ -294,13 +294,19 @@ def test_command_execution_tracker_reports_queue_events():
 
 def test_command_execution_tracker_reports_execution_events():
     tracker = CommandExecutionTracker(source="offline")
-    item = QueuedCommand("绕圈", created_at=10.0)
+    item = QueuedCommand(
+        "绕圈",
+        created_at=10.0,
+        context={"batch_id": "offline-nlu-1", "batch_index": 1, "batch_size": 2},
+    )
 
     started = tracker.execution_started(item)
     finished = tracker.execution_finished(item, success=True, reason="completed")
 
     assert started.as_dict()["event"] == "started"
     assert started.as_dict()["text"] == "绕圈"
+    assert started.as_dict()["batch_id"] == "offline-nlu-1"
     assert finished.as_dict()["event"] == "finished"
+    assert finished.as_dict()["batch_size"] == 2
     assert finished.as_dict()["success"] is True
     assert finished.as_dict()["reason"] == "completed"
