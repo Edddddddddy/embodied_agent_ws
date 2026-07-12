@@ -1,4 +1,5 @@
 from builtin_interfaces.msg import Time
+from embodied_agent_interfaces.msg import AgentTurnMetrics
 from rclpy.qos import ReliabilityPolicy
 
 from embodied_online_agent.agent_ros_io import AgentRosCallbacks, AgentRosIo
@@ -75,7 +76,7 @@ def _callbacks():
 
 def test_ros_io_owns_common_topic_contract_without_optional_inputs():
     node = _Node()
-    topics = AgentTopicContract().with_metrics("/offline_agent/metrics")
+    topics = AgentTopicContract()
 
     io = AgentRosIo(
         node,
@@ -96,8 +97,10 @@ def test_ros_io_owns_common_topic_contract_without_optional_inputs():
     assert topics.clean_audio not in subscribed_topics
     io.publish_asr_final("向前走一秒")
     io.publish_tts_audio(b"\x01\x02")
+    io.publish_metrics(AgentTurnMetrics(source="offline"))
     assert node.publishers[topics.asr_final].messages[-1].data == "向前走一秒"
     assert list(node.publishers[topics.tts_pcm].messages[-1].data) == [1, 2]
+    assert node.publishers[topics.metrics].messages[-1].source == "offline"
 
 
 def test_ros_io_applies_best_effort_only_to_realtime_audio():

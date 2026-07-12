@@ -1,14 +1,14 @@
 """在线/离线 Agent 共享的 ROS 2 Topic 契约。"""
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
 class AgentTopicContract:
     """集中保存跨节点接口名，避免在线/离线节点各自复制字符串。
 
-    默认值保持现有公开接口兼容；测试或特殊部署可以用 ``with_metrics``
-    只替换指标 Topic，常规 ROS remap 仍然可以覆盖任一接口。
+    默认值保持现有公开接口兼容；特殊部署继续使用标准 ROS remap 覆盖接口，
+    不在业务节点内制造第二套 topic 名称。
     """
 
     text_input: str = "/agent/text_input"
@@ -38,6 +38,3 @@ class AgentTopicContract:
     recognition_feedback: str = "/agent/recognition_feedback"
     nlu_parse: str = "/agent/nlu_parse"
     component_health: str = "system/component_health"
-
-    def with_metrics(self, topic: str) -> "AgentTopicContract":
-        return replace(self, metrics=topic)

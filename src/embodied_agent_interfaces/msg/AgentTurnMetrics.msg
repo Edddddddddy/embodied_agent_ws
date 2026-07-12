@@ -1,0 +1,44 @@
+# 一次 Agent turn 的跨 provider 可比指标；缺失浮点值使用 NaN。
+int8 TARGET_UNKNOWN=0
+int8 TARGET_MET=1
+int8 TARGET_MISSED=2
+
+builtin_interfaces/Time stamp
+string source
+
+float64 asr_finalize_ms
+float64 asr_to_first_token_ms
+float64 llm_first_token_ms
+float64 tts_first_audio_ms
+float64 end_to_first_audio_ms
+float64 turn_complete_ms
+
+int8 asr_target_status
+int8 llm_target_status
+int8 tts_target_status
+int8 e2e_target_status
+
+string llm_model
+uint32 llm_request_count
+uint32 llm_retry_count
+uint32 llm_token_count
+uint32 llm_stream_chunks
+uint32 llm_prompt_tokens
+uint32 llm_completion_tokens
+float64 llm_provider_first_token_ms
+float64 llm_total_ms
+float64 llm_tokens_per_s
+float64 llm_decode_ms
+float64 llm_decode_tokens_per_s
+int8 llm_provider_first_token_target_status
+string llm_error
+
+uint32 tts_text_chunks
+uint32 tts_synth_calls
+uint32 tts_audio_chunks
+float64 tts_synth_total_ms
+float64 tts_first_text_to_first_audio_ms
+uint32 message_buffer_dropped
+uint32 audio_buffer_dropped
+uint32 message_buffer_high_watermark
+uint32 audio_buffer_high_watermark

@@ -380,9 +380,10 @@ bash scripts/acceptance_test.sh pseudo-tts
 bash scripts/acceptance_test.sh offline
 ```
 
-离线 Agent 的 `/offline_agent/metrics` 会包含 `llm_provider` 字段，用于查看 llama.cpp
-首 token 延迟、token 数和 tokens/s；同时包含 `tts_pipeline` 字段，用于查看伪流式
-TTS 的文本块数、合成调用次数、音频块数和首文本到首音频耗时。如果失败信息指向 `cannot connect to llama-server`，
+在线和离线 Agent 统一在 `/agent/metrics` 发布强类型 `AgentTurnMetrics`，`source` 标识
+provider 模式；消息包含 llama.cpp 首 token、token 数、decode tokens/s，以及伪流式 TTS
+文本块、合成次数、音频块、双缓冲水位和首文本到首音频耗时。缺失延迟使用 NaN、目标状态使用
+显式 UNKNOWN，不会被误判为 0ms。如果失败信息指向 `cannot connect to llama-server`，
 先单独运行上面的 `llama-cpp-preflight/smoke`。
 
 Sherpa-ONNX 语音模型参与的 typed Action 仿真控制闭环：

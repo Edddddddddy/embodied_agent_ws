@@ -665,7 +665,9 @@ sidecar 输出实际相似度。多人准确率仍需另建注册/查询数据�
   冷 prefill 约 4s（节点 ready 前承担），warm Agent turn 首 token 中位数约 `536ms`、P95
   约 `560ms`，API decode 估算中位数约 `28.9 tokens/s`。
 - TTS pipeline 额外记录 `text_chunks`、`synth_calls`、`audio_chunks`、`first_text_to_first_audio_ms`，
-  并合并到 `/offline_agent/metrics.tts_pipeline`。
+  由 `metrics_transport.py` 映射进统一 `/agent/metrics` 的 `AgentTurnMetrics` 字段。
+- 在线/离线不再维护两条 `String + JSON` 指标 topic；`AgentTurnMetrics.source` 区分来源，NaN
+  表达缺失浮点值，`TARGET_UNKNOWN/MET/MISSED` 避免布尔默认值把“未采集”误写成“不达标”。
 - `llama_cpp_preflight.py` 把 binary、模型文件、`/health`、`/v1/models`、低 token 流式 chat 分层验证。
 - `summer_tts_smoke.py` 把 SummerTTS 源码、二进制、模型和真实合成分层验证；`summer-pseudo-tts`
   再验证真实 SummerTTS 能接入项目双缓冲伪流式 pipeline。

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from embodied_agent_interfaces.msg import (
+    AgentTurnMetrics,
     RobotCommand,
     RobotCommandResult,
     SpeakerEnrollRequest,
@@ -68,7 +69,7 @@ class AgentRosIo:
         self._speaker_enroll_request = create(
             SpeakerEnrollRequest, self.topics.speaker_enroll_request, event_qos
         )
-        self._metrics = create(String, self.topics.metrics, event_qos)
+        self._metrics = create(AgentTurnMetrics, self.topics.metrics, event_qos)
         self._tts_audio = create(UInt8MultiArray, self.topics.tts_pcm, audio_qos)
         self.events = RosAgentEventPublisher(
             node,
@@ -154,8 +155,8 @@ class AgentRosIo:
     def publish_speaker_enroll_request(self, message: SpeakerEnrollRequest) -> None:
         self._speaker_enroll_request.publish(message)
 
-    def publish_metrics(self, payload: str) -> None:
-        self._metrics.publish(String(data=payload))
+    def publish_metrics(self, message: AgentTurnMetrics) -> None:
+        self._metrics.publish(message)
 
     def publish_tts_audio(self, pcm16: bytes) -> None:
         self._tts_audio.publish(UInt8MultiArray(data=list(pcm16)))

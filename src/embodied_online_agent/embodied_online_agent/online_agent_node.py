@@ -30,6 +30,7 @@ from .agent_ros_io import AgentRosCallbacks, AgentRosIo
 from .asr_endpoint_runtime import AsrEndpointRuntime
 from .continuous_voice import QueueSnapshot
 from .metrics import LatencyTracker
+from .metrics_transport import agent_turn_metrics_to_message
 from .ros_action_transport import action_command_to_message, command_message_to_dict
 from .ros_event_transport import wake_event_message_to_domain
 from .speaker_transport import enroll_request_to_message, identity_message_to_domain
@@ -705,7 +706,11 @@ class OnlineAgentNode(LifecycleNode):
         snapshot["tts_target_met"] = (
             tts_ms is not None and tts_ms < self._param("tts_first_audio_target_ms")
         )
-        self._ros_io.publish_metrics(json.dumps(snapshot, ensure_ascii=False))
+        self._ros_io.publish_metrics(
+            agent_turn_metrics_to_message(
+                "online", snapshot, stamp=self.get_clock().now().to_msg()
+            )
+        )
         self.get_logger().info(f"latency: {snapshot}")
 
     def _publish_state(self, state: str):

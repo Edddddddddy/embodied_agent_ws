@@ -1497,3 +1497,75 @@ def test_online_and_offline_agents_have_real_lifecycle_resource_ownership():
     assert "agent-lifecycle" in acceptance
     assert (ROOT / "scripts" / "smoke_test_agent_lifecycle.sh").is_file()
     assert (ROOT / "tests" / "integration" / "test_agent_lifecycle.py").is_file()
+
+
+def test_agent_turn_metrics_use_one_strongly_typed_ros_contract():
+    """在线/离线指标必须共享 schema，禁止重新引入双 topic 或 JSON wire。"""
+
+    interface = (
+        ROOT
+        / "src"
+        / "embodied_agent_interfaces"
+        / "msg"
+        / "AgentTurnMetrics.msg"
+    )
+    ros_io = (
+        ROOT
+        / "src"
+        / "embodied_online_agent"
+        / "embodied_online_agent"
+        / "agent_ros_io.py"
+    ).read_text(encoding="utf-8")
+    transport = (
+        ROOT
+        / "src"
+        / "embodied_online_agent"
+        / "embodied_online_agent"
+        / "metrics_transport.py"
+    ).read_text(encoding="utf-8")
+    online = (
+        ROOT
+        / "src"
+        / "embodied_online_agent"
+        / "embodied_online_agent"
+        / "online_agent_node.py"
+    ).read_text(encoding="utf-8")
+    offline = (
+        ROOT
+        / "src"
+        / "embodied_offline_agent"
+        / "embodied_offline_agent"
+        / "offline_agent_node.py"
+    ).read_text(encoding="utf-8")
+    live_check = (ROOT / "scripts" / "continuous_live_check.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert interface.is_file()
+    schema = interface.read_text(encoding="utf-8")
+    assert "TARGET_UNKNOWN" in schema
+    assert "llm_decode_tokens_per_s" in schema
+    assert "tts_first_text_to_first_audio_ms" in schema
+    assert "AgentTurnMetrics" in ros_io
+    assert "String(data=payload)" not in ros_io
+    assert "agent_turn_metrics_to_message" in online
+    assert "agent_turn_metrics_to_message" in offline
+    assert "agent_turn_metrics_message_to_dict" in live_check
+    assert 'AgentTurnMetrics, "/agent/metrics"' in live_check
+    assert "_finite_or_nan" in transport
+
+    # 显式扫描保证新增脚本也受守卫约束；拆开 legacy 字符串，避免测试命中自身。
+    legacy_metrics_topic = "/offline_agent" + "/metrics"
+    tracked = "\n".join(
+        path.read_text(encoding="utf-8", errors="ignore")
+        for root in (
+            ROOT / "src" / "embodied_online_agent",
+            ROOT / "src" / "embodied_offline_agent",
+            ROOT / "scripts",
+            ROOT / "tests",
+            ROOT / "docs",
+        )
+        for path in root.rglob("*")
+        if path.is_file() and path.suffix in {".py", ".sh", ".md"}
+    )
+    assert legacy_metrics_topic not in tracked

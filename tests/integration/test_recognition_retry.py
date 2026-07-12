@@ -6,7 +6,7 @@ import time
 import rclpy
 from embodied_agent_interfaces.msg import RecognitionFeedback
 from embodied_online_agent.ros_event_transport import recognition_feedback_message_to_dict
-from embodied_online_agent.ros_qos import command_event_qos
+from embodied_online_agent.ros_qos import command_event_qos, latched_state_qos
 from rclpy.node import Node
 from std_msgs.msg import String
 
@@ -23,7 +23,9 @@ class RetryProbe(Node):
             self._on_feedback,
             command_event_qos(),
         )
-        self.create_subscription(String, "/agent/state", self._on_state, 10)
+        self.create_subscription(
+            String, "/agent/state", self._on_state, latched_state_qos()
+        )
 
     def _on_feedback(self, message):
         payload = recognition_feedback_message_to_dict(message)
@@ -47,12 +49,16 @@ def main():
     rclpy.init()
     node = RetryProbe()
     try:
-        # DDS 发现完成后再发消息，避免 ros2 topic echo --once 的偶发丢首帧问题。
+        # text_input subscription 在 Lifecycle configure 前就存在；只看订阅数量可能把
+        # 消息发给 inactive Agent。必须同时观察 latched listening 状态和反馈 publisher，
+        # 才能证明业务入口与返回路径都已就绪。
         wait_until(
             node,
-            lambda: node.input_pub.get_subscription_count() > 0,
+            lambda: node.input_pub.get_subscription_count() > 0
+            and node.count_publishers("/agent/recognition_feedback") > 0
+            and node.state == "listening",
             10.0,
-            "online Agent did not subscribe to text input",
+            "online Agent recognition path did not become ready",
         )
         message = String()
         message.data = "完全没听清"

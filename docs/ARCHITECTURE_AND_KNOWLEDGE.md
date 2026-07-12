@@ -160,6 +160,8 @@ sequenceDiagram
   typed 消息封装和音频/事件 QoS；`AgentTopicContract` 是所有 Agent topic 的单一权威来源。
 - `RosAgentEventPublisher` 位于 Facade 内部，只负责控制面领域事件到 typed ROS 消息的
   Adapter；inactive 时停止健康心跳，避免 managed publisher 空转发布。
+- `AgentTurnMetrics + metrics_transport.py` 统一在线/离线 turn 指标；ROS graph 不再传输
+  指标 JSON，报告层才恢复字典结构。NaN 和三态 target status 明确区分“缺失”与真实 0/false。
 - `agent_parameters.py` 是在线/离线节点参数的单一权威来源：公共控制面与 provider
   专属参数分组声明，启动时校验范围/枚举/跨字段约束，并生成只读参数快照。
 - `agent_launch_contract.py` 只暴露部署时常用的控制参数；Gazebo/Nav2 上层 launch

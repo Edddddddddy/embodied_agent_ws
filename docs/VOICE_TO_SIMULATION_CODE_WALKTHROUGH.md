@@ -70,7 +70,7 @@ flowchart LR
 | --- | --- | --- |
 | 关键文件 | `online_agent_node.py`、`asr_endpoint_runtime.py` | `offline_agent_node.py`、共享的 `asr_endpoint_runtime.py` |
 | 关键函数 | `_on_asr_final()`、`AsrEndpointRuntime.request()`、`_run_turn()` | `_on_asr_final()`、`AsrEndpointRuntime.request()`、`_run_turn()` |
-| 主要接口 | `/agent/asr_final`、`/agent/action_candidate`、`/agent/session_state` | `/agent/asr_final`、`/agent/action_candidate`、离线 metrics |
+| 主要接口 | `/agent/asr_final`、`/agent/action_candidate`、`/agent/metrics (source=online)` | `/agent/asr_final`、`/agent/action_candidate`、`/agent/metrics (source=offline)` |
 | 技术点 | 在线 Qwen/DashScope provider、流式响应、TTS/feedback | Sherpa ASR、llama.cpp provider、Sherpa-TTS/SummerTTS seam |
 
 设计说明：

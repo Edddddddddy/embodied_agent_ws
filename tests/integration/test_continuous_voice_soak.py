@@ -129,6 +129,16 @@ def main():
             45.0,
             "not all continuous commands reached robot action results",
         )
+        # robot result 会先解除 ActionSequence 等待，随后 worker 才发布 execution finished。
+        # 因此 result 数量不是控制面生命周期完成的同步屏障，需要单独等待最终 finished。
+        wait_until(
+            lambda: sum(
+                event.get("event") == "finished" for event in node.execution_events
+            )
+            >= len(COMMANDS),
+            10.0,
+            "not all command execution lifecycle events reached finished",
+        )
 
         names = [
             candidate.get("name")

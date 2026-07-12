@@ -63,6 +63,7 @@
 | 用户上下文一致性收敛 | 消除身份、画像 prompt、偏好和低置信度写保护的双份节点逻辑，并修复异步声纹切换竞态 | 新增 `UserContextRuntime/Snapshot`；命令入队时冻结身份/偏好，prompt、动作与 interaction 共用同一快照；预解析动作恢复归入 `AgentControlPlane` |
 | Agent Lifecycle 资源治理 | 让 online/offline 的生命周期状态对应真实 provider、线程和 publisher，而非只保留进程级启停 | 两个 Agent 升级为 `LifecycleNode`；configure/activate/deactivate/cleanup/on_error 统一资源边界，managed publisher、协作取消、安全 STOP、STOPPED health、manager 依赖顺序和 cleanup 后重建均有自动验收 |
 | Agent ROS I/O 契约收敛 | 消除 online/offline 节点重复接线、topic 字符串和 QoS 漂移 | 新增 `AgentRosIo`、不可变 `AgentTopicContract` 与 `audio_stream_qos`；节点只注入 callback，PCM best-effort、控制 reliable、状态 latched，并在 inactive 关闭健康心跳 |
+| Agent turn 指标强类型化 | 删除在线/离线双 topic 与 `String + JSON` 指标协议 | 新增 `AgentTurnMetrics` 和唯一 `metrics_transport.py`；统一 `/agent/metrics`，source 区分模式，NaN/三态 target 表达缺失值，监控与验收共享转换 Adapter |
 
 ## 2. 当前完成度结论
 

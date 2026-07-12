@@ -28,12 +28,12 @@ from embodied_online_agent.agent_parameters import declare_agent_parameters
 from embodied_online_agent.agent_ros_io import AgentRosCallbacks, AgentRosIo
 from embodied_online_agent.asr_endpoint_runtime import AsrEndpointRuntime
 from embodied_online_agent.continuous_voice import QueueSnapshot
+from embodied_online_agent.metrics_transport import agent_turn_metrics_to_message
 from embodied_online_agent.ros_action_transport import (
     action_command_to_message,
     command_message_to_dict,
 )
 from embodied_online_agent.ros_event_transport import wake_event_message_to_domain
-from embodied_online_agent.ros_topics import AgentTopicContract
 from embodied_online_agent.speaker_transport import (
     enroll_request_to_message,
     identity_message_to_domain,
@@ -107,7 +107,6 @@ class OfflineAgentNode(LifecycleNode):
             external_wake_event_enabled=bool(
                 self._param("external_wake_event_enabled")
             ),
-            topics=AgentTopicContract().with_metrics("/offline_agent/metrics"),
         )
         self._events = self._ros_io.events
         self._asr = None
@@ -709,7 +708,11 @@ class OfflineAgentNode(LifecycleNode):
             # 这样验收时能判断是 ASR、LLM 还是 TTS/动作链路导致慢。
             report["llm_provider"] = getattr(self._llm, "last_metrics", {})
             report["tts_pipeline"] = tts_metrics.as_dict()
-            self._ros_io.publish_metrics(json.dumps(report, ensure_ascii=False))
+            self._ros_io.publish_metrics(
+                agent_turn_metrics_to_message(
+                    "offline", report, stamp=self.get_clock().now().to_msg()
+                )
+            )
             self.get_logger().info(f"offline latency: {report}")
         except AgentExecutionCancelled:
             tts_pipeline.abort()
@@ -766,7 +769,11 @@ class OfflineAgentNode(LifecycleNode):
         )
         latency.finish()
         report = latency.report(0, 0)
-        self._ros_io.publish_metrics(json.dumps(report, ensure_ascii=False))
+        self._ros_io.publish_metrics(
+            agent_turn_metrics_to_message(
+                "offline", report, stamp=self.get_clock().now().to_msg()
+            )
+        )
 
     def _enqueue_continuous_command(self, command):
         user_context = self._user_context.snapshot()

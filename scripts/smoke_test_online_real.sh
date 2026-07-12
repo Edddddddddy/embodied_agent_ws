@@ -23,7 +23,8 @@ sleep 4
 ros2 topic pub --once /agent/clear_memory std_msgs/msg/Empty "{}" >/dev/null
 timeout 45 ros2 topic echo --once /robot/action_ack embodied_agent_interfaces/msg/RobotActionAck >"$ACK_LOG" &
 ACK_PID=$!
-timeout 45 ros2 topic echo --once /agent/metrics std_msgs/msg/String >"$METRICS_LOG" &
+timeout 45 ros2 topic echo --once /agent/metrics \
+  embodied_agent_interfaces/msg/AgentTurnMetrics >"$METRICS_LOG" &
 METRICS_PID=$!
 sleep 1
 timeout 10 ros2 topic pub --once /agent/text_input std_msgs/msg/String \

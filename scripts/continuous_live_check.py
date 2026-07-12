@@ -17,6 +17,7 @@ from pathlib import Path
 
 import rclpy
 from embodied_agent_interfaces.msg import (
+    AgentTurnMetrics,
     CommandExecutionEvent,
     CommandQueueEvent,
     NluParseEvent,
@@ -24,6 +25,7 @@ from embodied_agent_interfaces.msg import (
     RobotCommand,
     RobotCommandResult,
 )
+from embodied_online_agent.metrics_transport import agent_turn_metrics_message_to_dict
 from embodied_online_agent.ros_action_transport import (
     command_message_to_dict,
     result_message_to_dict,
@@ -129,10 +131,9 @@ class LiveCheckNode(Node):
             self._on_nlu_parse,
             command_event_qos(),
         )
-        self.create_subscription(String, "/agent/metrics", self._on_metrics, 10)
-        # 在线与离线 Agent 为避免指标语义混淆使用了不同 topic；评测探针同时监听，
-        # 让同一套 benchmark 能覆盖两条链路，而不是让离线报告悄悄缺失延迟数据。
-        self.create_subscription(String, "/offline_agent/metrics", self._on_metrics, 10)
+        self.create_subscription(
+            AgentTurnMetrics, "/agent/metrics", self._on_metrics, command_event_qos()
+        )
         self.create_subscription(Twist, "/cmd_vel", self._on_velocity, 10)
 
     def _on_asr(self, message: String) -> None:
@@ -177,8 +178,8 @@ class LiveCheckNode(Node):
     def _on_velocity(self, message: Twist) -> None:
         self.velocities.append((message.linear.x, message.angular.z))
 
-    def _on_metrics(self, message: String) -> None:
-        self.metrics.append(_json_dict(message.data))
+    def _on_metrics(self, message: AgentTurnMetrics) -> None:
+        self.metrics.append(agent_turn_metrics_message_to_dict(message))
 
     def _on_recognition_feedback(self, message: RecognitionFeedback) -> None:
         payload = recognition_feedback_message_to_dict(message)

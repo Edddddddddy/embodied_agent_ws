@@ -24,7 +24,8 @@ from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Empty, String, UInt8MultiArray
 
-from embodied_agent_interfaces.msg import RobotCommand, RobotCommandResult
+from embodied_agent_interfaces.msg import AgentTurnMetrics, RobotCommand, RobotCommandResult
+from embodied_online_agent.metrics_transport import agent_turn_metrics_message_to_dict
 from typed_action_test_utils import candidate_dict, result_dict
 from embodied_offline_agent.providers.sherpa_tts import SherpaVitsTts
 
@@ -69,7 +70,7 @@ class OfflineSherpaTypedProbe(Node):
             RobotCommand, "/robot/action_command_typed", self._on_typed_command, 10
         )
         self.create_subscription(RobotCommandResult, "/robot/action_result", self._on_result, 10)
-        self.create_subscription(String, "/offline_agent/metrics", self._on_metrics, 10)
+        self.create_subscription(AgentTurnMetrics, "/agent/metrics", self._on_metrics, 10)
         self.create_subscription(Twist, "/cmd_vel", self._on_velocity, 10)
 
     def _on_asr(self, message: String) -> None:
@@ -84,8 +85,8 @@ class OfflineSherpaTypedProbe(Node):
     def _on_result(self, message: RobotCommandResult) -> None:
         self.action_results.append(result_dict(message))
 
-    def _on_metrics(self, message: String) -> None:
-        self.metrics = json.loads(message.data)
+    def _on_metrics(self, message: AgentTurnMetrics) -> None:
+        self.metrics = agent_turn_metrics_message_to_dict(message)
 
     def _on_velocity(self, message: Twist) -> None:
         self.velocities.append((message.linear.x, message.angular.z))
