@@ -5,7 +5,7 @@ from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import LifecycleNode, Node
 from launch_ros.parameter_descriptions import ParameterValue
 
-from embodied_online_agent.agent_launch_contract import (
+from embodied_agent_core.agent_launch_contract import (
     agent_control_configurations,
     agent_control_parameter_overrides,
     declare_agent_control_arguments,
@@ -185,7 +185,7 @@ def generate_launch_description():
             }],
         ),
         Node(
-            package="embodied_online_agent",
+            package="embodied_voice_frontend",
             executable="speaker_identity",
             name="speaker_identity",
             output="screen",
@@ -230,7 +230,7 @@ def generate_launch_description():
             }],
         ),
         Node(
-            package="embodied_online_agent", executable="silero_vad",
+            package="embodied_voice_frontend", executable="silero_vad",
             name="silero_vad", output="screen",
             condition=IfCondition(
                 PythonExpression(["'", vad_provider, "' == 'silero'"])
@@ -260,7 +260,7 @@ def generate_launch_description():
             ],
         ),
         Node(
-            package="embodied_online_agent", executable="webrtc_vad",
+            package="embodied_voice_frontend", executable="webrtc_vad",
             name="webrtc_vad", output="screen",
             condition=IfCondition(
                 PythonExpression(["'", vad_provider, "' == 'webrtc'"])
@@ -284,7 +284,7 @@ def generate_launch_description():
             ],
         ),
         Node(
-            package="embodied_online_agent", executable="keyword_wake",
+            package="embodied_voice_frontend", executable="keyword_wake",
             name="keyword_wake", output="screen",
             condition=IfCondition(
                 PythonExpression(["'", kws_provider, "' != 'none'"])

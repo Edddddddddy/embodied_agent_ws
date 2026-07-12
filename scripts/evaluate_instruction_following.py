@@ -68,7 +68,7 @@ def _actions_equal(actual: list[dict], expected: list[dict], *, tolerance: float
 
 def parse_output(text: str) -> dict[str, Any]:
     _ensure_import_paths()
-    from embodied_online_agent.protocol import TaggedStreamParser
+    from embodied_agent_core.protocol import TaggedStreamParser
 
     parser = TaggedStreamParser()
     events = parser.feed(text)
@@ -82,7 +82,7 @@ def parse_output(text: str) -> dict[str, Any]:
 
 def _effective_actions(user_text: str, actual_actions: list[dict]) -> list[dict]:
     _ensure_import_paths()
-    from embodied_online_agent.command_fallback import (
+    from embodied_agent_core.command_fallback import (
         parse_fallback_actions,
         should_block_model_actions,
     )
@@ -311,7 +311,10 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workspace", default=str(WORKSPACE))
     parser.add_argument("--dataset", default="training/robot_dialogue_seed.jsonl")
-    parser.add_argument("--system-prompt", default="src/embodied_online_agent/prompts/system_prompt_zh.txt")
+    parser.add_argument(
+        "--system-prompt",
+        default="src/embodied_agent_core/prompts/system_prompt_zh.txt",
+    )
     parser.add_argument("--base-url", default="http://127.0.0.1:8080/v1")
     parser.add_argument("--model", default="Qwen3-0.6B-Q8_0.gguf")
     parser.add_argument("--temperature", type=float, default=0.0)

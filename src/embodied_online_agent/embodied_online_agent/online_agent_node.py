@@ -14,31 +14,40 @@ from embodied_agent_interfaces.msg import (
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 from std_msgs.msg import Empty, String, UInt8MultiArray
 
-from .memory import ConversationMemory
-from .user_memory import UserMemoryStore
-from .action_sequence import SequentialActionPublisher
-from .agent_control_plane import (
+from embodied_agent_core.memory import ConversationMemory
+from embodied_agent_core.user_memory import UserMemoryStore
+from embodied_agent_core.action_sequence import SequentialActionPublisher
+from embodied_agent_core.agent_control_plane import (
     AgentControlPlane,
     AgentControlPlaneConfig,
 )
-from .agent_execution_runtime import (
+from embodied_agent_core.agent_execution_runtime import (
     AgentExecutionCancelled,
     AgentExecutionRuntime,
 )
-from .agent_lifecycle_runtime import AgentLifecycleRuntime
-from .agent_parameters import declare_agent_parameters
-from .agent_ros_io import AgentRosCallbacks, AgentRosIo
-from .asr_endpoint_runtime import AsrEndpointRuntime
-from .continuous_voice import QueueSnapshot
-from .metrics import LatencyTracker
-from .metrics_transport import agent_turn_metrics_to_message
-from .ros_action_transport import action_command_to_message, command_message_to_dict
-from .ros_event_transport import wake_event_message_to_domain
-from .speaker_transport import enroll_request_to_message, identity_message_to_domain
-from .streaming_turn import StreamingTurnRuntime
-from .types import ActionCommand
-from .user_context_runtime import UserContextRuntime, UserContextSnapshot
-from .user_preferences import apply_user_preferences
+from embodied_agent_core.agent_lifecycle_runtime import AgentLifecycleRuntime
+from embodied_agent_core.agent_parameters import declare_agent_parameters
+from embodied_agent_core.agent_ros_io import AgentRosCallbacks, AgentRosIo
+from embodied_agent_core.asr_endpoint_runtime import AsrEndpointRuntime
+from embodied_agent_core.continuous_voice import QueueSnapshot
+from embodied_agent_core.metrics import LatencyTracker
+from embodied_agent_core.metrics_transport import agent_turn_metrics_to_message
+from embodied_agent_core.ros_action_transport import (
+    action_command_to_message,
+    command_message_to_dict,
+)
+from embodied_agent_core.ros_event_transport import wake_event_message_to_domain
+from embodied_agent_core.speaker_transport import (
+    enroll_request_to_message,
+    identity_message_to_domain,
+)
+from embodied_agent_core.streaming_turn import StreamingTurnRuntime
+from embodied_agent_core.types import ActionCommand
+from embodied_agent_core.user_context_runtime import (
+    UserContextRuntime,
+    UserContextSnapshot,
+)
+from embodied_agent_core.user_preferences import apply_user_preferences
 from .providers.mock import MockAsr, MockLlm, MockTts
 from .providers.openai_compatible_llm import OpenAiCompatibleLlm
 from .providers.qwen_asr import QwenRealtimeAsr
@@ -256,7 +265,11 @@ class OnlineAgentNode(LifecycleNode):
         if configured:
             path = Path(os.path.expanduser(configured))
         else:
-            path = Path(get_package_share_directory("embodied_online_agent")) / "prompts" / "system_prompt_zh.txt"
+            path = (
+                Path(get_package_share_directory("embodied_agent_core"))
+                / "prompts"
+                / "system_prompt_zh.txt"
+            )
         return path.read_text(encoding="utf-8")
 
     def _command_normalization_path(self) -> Path | str:
@@ -264,7 +277,7 @@ class OnlineAgentNode(LifecycleNode):
         if configured:
             return Path(os.path.expanduser(configured))
         return (
-            Path(get_package_share_directory("embodied_online_agent"))
+            Path(get_package_share_directory("embodied_agent_core"))
             / "config"
             / "command_normalization_zh.yaml"
         )

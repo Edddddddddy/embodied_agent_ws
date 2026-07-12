@@ -481,7 +481,7 @@ bash scripts/build_qwen_lora_q8.sh --execute
 ### 2.2 Python/C++ 单元测试
 
 ```bash
-pytest -q src/embodied_online_agent/test src/embodied_offline_agent/test
+pytest -q src/embodied_agent_core/test src/embodied_voice_frontend/test src/embodied_offline_agent/test
 colcon test --packages-select embodied_agent_cpp embodied_simulation --event-handlers console_direct+
 colcon test-result --verbose
 ```
@@ -929,8 +929,8 @@ sidecar，要求 `/audio/vad_event` 中出现成对的 `speech_started/speech_en
 bash scripts/setup_voice_vad_runtime.sh all
 ```
 
-底层等价方式是安装 `embodied_online_agent[webrtc-vad]` 或
-`embodied_online_agent[silero-vad]` extra；项目脚本会在安装后自动跑 provider preflight。
+底层等价方式是安装 `embodied_voice_frontend[webrtc-vad]` 或
+`embodied_voice_frontend[silero-vad]` extra；项目脚本会在安装后自动跑 provider preflight。
 
 声学唤醒 KWS 也有独立运行时准备入口。先 dry-run：
 

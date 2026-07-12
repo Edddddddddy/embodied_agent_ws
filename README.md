@@ -16,7 +16,7 @@
 - 离线 Agent：预留 Sherpa-onnx ZipFormer ASR、llama.cpp、Sherpa-TTS/SummerTTS 链路，支持 mock 和真实模型验收入口。
 - 连续语音控制：一次“小智”唤醒后，可连续说多条命令；命令排队执行，`停下/急停` 可抢占。
 - 识别鲁棒性：支持唤醒词别名、轻量 NLU 多命令识别及速度/距离/角度/时长/地点槽位、模糊命令归一化、短命令补全、重复 ASR final 过滤、语气词过滤、会话超时。
-- ROS 2 工程化：在线/离线 Agent 与 C++ ActionGuard 均为受管 Lifecycle 节点；`AgentLifecycleRuntime` 组合式拥有 endpoint/execution/active 状态并固化“关输入→取消→清队列→STOP→等待 worker→STOPPED”的安全顺序，节点只保留 provider 差异；两类 provider 共用无 ROS 依赖的 `AgentControlPlane`，端点 timer、命令 worker/busy、NLU 批次入队以及 LLM 流式协议/动作选择均由共享运行时管理；`AgentRosIo + AgentTopicContract + RosAgentEventPublisher` 统一 lifecycle publisher/subscription、topic、消息封装和 QoS；唤醒、识别反馈、NLU、队列、执行、指标和动作 feedback/result 均使用自定义 msg/action；C++ ActionGuard 用有界 TTL outbox 覆盖 DDS 启动发现窗口，ActionScheduler 负责 FIFO、Action Client、优先取消和 watchdog；`ComponentHealth → SystemReadiness` 提供统一启动门禁，并配合 diagnostics、BehaviorTree.CPP 与 pluginlib executor。
+- ROS 2 工程化：`embodied_agent_core` 是在线/离线 Agent 的单向共享依赖，集中拥有控制面、Lifecycle、执行队列、用户上下文和 ROS I/O 契约；具体 Agent 只保留 provider 适配。`AgentLifecycleRuntime` 固化“关输入→取消→清队列→STOP→等待 worker→STOPPED”的安全顺序；唤醒、识别反馈、NLU、队列、执行、指标和动作 feedback/result 均使用自定义 msg/action；C++ ActionGuard 用有界 TTL outbox 覆盖 DDS 启动发现窗口，ActionScheduler 负责 FIFO、Action Client、优先取消和 watchdog；`ComponentHealth → SystemReadiness` 提供统一启动门禁，并配合 diagnostics、BehaviorTree.CPP 与 pluginlib executor。
 - 中间件契约：音频指标、VAD/KWS、仿真状态、动作 ACK 和 BehaviorTree 状态也使用自定义消息；JSON 只保留在离线报告/JSONL 证据文件中，不作为 ROS 2 进程间协议。
 - 仿真动作：前进、后退、左转、右转、停止、原地转圈、绕圈、走正方形、演示动作序列。
 - 语音导航：支持“去门口/前往书桌/回到起点”等语义目标点导航，以及“依次去门口、书桌、起点/开始巡航”等多目标点巡航命令；执行中说“取消导航”会绕过 FIFO，抢占当前 Nav2 goal。
@@ -54,8 +54,10 @@ embodied_agent_ws/
 ├── src/
 │   ├── embodied_agent_interfaces/   # 全部跨节点 msg/srv/action 契约的唯一来源
 │   ├── embodied_agent_middleware/   # C++ QoS 与 ROS 2 中间件语义契约
+│   ├── embodied_agent_core/         # 在线/离线共享领域模型、编排、记忆与 Python ROS I/O
+│   ├── embodied_voice_frontend/     # 在线/离线共享 VAD、KWS、声纹输入 Adapter
 │   ├── embodied_agent_cpp/          # C++ 音频前端、ActionGuard、Action scheduler/client、硬件 mock
-│   ├── embodied_online_agent/       # 共享参数契约/控制面、在线 Qwen Agent、用户记忆/声纹 sidecar
+│   ├── embodied_online_agent/       # 在线 Qwen ASR/LLM/TTS provider Adapter
 │   ├── embodied_offline_agent/      # 离线 Agent、Sherpa/llama.cpp/Sherpa-TTS/SummerTTS 适配
 │   └── embodied_simulation/         # Gazebo/TurtleBot3 执行器、BehaviorTree、pluginlib
 ├── scripts/                         # 一键验收、连续语音、校准、smoke test

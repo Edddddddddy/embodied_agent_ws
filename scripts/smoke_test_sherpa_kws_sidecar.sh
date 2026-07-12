@@ -26,7 +26,7 @@ python3 "$WORKSPACE/scripts/voice_provider_preflight.py" \
 
 KWS_LOG="$(mktemp)"
 
-setsid ros2 run embodied_online_agent keyword_wake --ros-args \
+setsid ros2 run embodied_voice_frontend keyword_wake --ros-args \
   -p mode:=sherpa \
   -p provider_name:=sherpa_kws_test \
   -p sherpa_tokens:="$SHERPA_KWS_TOKENS" \

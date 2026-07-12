@@ -32,8 +32,8 @@
 | 0:00 - 2:00 | 项目背景：为什么要做语音 Agent 到机器人控制的全链路 | `docs/FINAL_ARCHITECTURE_DIAGRAMS.md` 的最终架构图 |
 | 2:00 - 4:00 | ROS 2 接口设计：为什么用 typed msg/action，而不是直接发 `/cmd_vel` | `docs/VOICE_TO_SIMULATION_CODE_WALKTHROUGH.md`、`src/embodied_agent_interfaces/msg/RobotCommand.msg`、`src/embodied_agent_interfaces/action/ExecuteRobotCommand.action` |
 | 4:00 - 6:00 | C++ 安全边界：ActionGuard 如何校验、限幅、拒绝非法动作 | `src/embodied_agent_cpp/src/action_guard_node.cpp`、`src/embodied_agent_cpp/src/action_validator.cpp` |
-| 6:00 - 8:00 | 连续语音：唤醒、去重、filler 过滤、队列、急停抢占 | `src/embodied_online_agent/embodied_online_agent/continuous_voice.py` |
-| 8:00 - 10:00 | 多命令 NLU：一句“右转然后前进一秒”如何拆成顺序队列 | `src/embodied_online_agent/embodied_online_agent/command_nlu.py` |
+| 6:00 - 8:00 | 连续语音：唤醒、去重、filler 过滤、队列、急停抢占 | `src/embodied_agent_core/embodied_agent_core/continuous_voice.py` |
+| 8:00 - 10:00 | 多命令 NLU：一句“右转然后前进一秒”如何拆成顺序队列 | `src/embodied_agent_core/embodied_agent_core/command_nlu.py` |
 | 10:00 - 12:00 | C++ 调度与仿真执行：FIFO、急停抢占、ROS 2 Action、BehaviorTree、pluginlib | `src/embodied_agent_cpp/src/action_scheduler.cpp`、`src/embodied_agent_cpp/src/typed_action_bridge_node.cpp`、`src/embodied_simulation/src/simulation_control_node.cpp` |
 | 12:00 - 13:30 | 离线端侧链路：llama.cpp、Sherpa-TTS、SummerTTS 服务化和延迟统计 | `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py`、`src/embodied_agent_cpp/src/summer_tts_service_node.cpp` |
 | 13:30 - 15:00 | 演示与边界：跑验收命令，说明已完成和后续可做 | `bash scripts/acceptance_test.sh continuous-offline` 或 `navigation-demo` |
@@ -108,12 +108,12 @@ CONTINUOUS_LIVE_CHECK_REPORT=logs/nav2-live-check.json \
 | 音频输入与 VAD | `src/embodied_agent_cpp/src/audio_frontend_node.cpp` | `AudioFrontendNode`、endpoint publisher | C++ 音频前端、VAD、`/audio/speech_started`、`/audio/speech_ended` |
 | 在线 Agent | `src/embodied_online_agent/embodied_online_agent/online_agent_node.py` | `_on_asr_final()`、`_run_turn()`、`_publish_action_candidate()` | ASR final、LLM/TTS provider、动作候选发布 |
 | 离线 Agent | `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py` | `_commit_asr_endpoint()`、`_run_turn()`、metrics publisher | Sherpa/llama.cpp/TTS 组合、延迟统计 |
-| 连续会话 | `src/embodied_online_agent/embodied_online_agent/continuous_voice.py` | `ContinuousVoiceSession.accept()`、`ContinuousCommandQueue.put()`、`get()` | 唤醒、去重、filler、TTL、急停抢占 |
+| 连续会话 | `src/embodied_agent_core/embodied_agent_core/continuous_voice.py` | `ContinuousVoiceSession.accept()`、`ContinuousCommandQueue.put()`、`get()` | 唤醒、去重、filler、TTL、急停抢占 |
 | typed 命令事件 | `embodied_agent_interfaces/msg/Command*Event.msg`、`ros_event_transport.py`、`ros_qos.py` | `queue_event_to_message()`、`execution_event_to_message()` | batch context、reliable、transient-local、编译期字段契约 |
-| 多命令 NLU | `src/embodied_online_agent/embodied_online_agent/command_nlu.py` | `CommandNLU.parse()` | 字符级轻量模型、多命令识别、低置信度 fallback |
-| 动作候选协议 | `src/embodied_online_agent/embodied_online_agent/protocol.py` | action payload helpers | Agent 输出结构化动作，不直接控制机器人 |
+| 多命令 NLU | `src/embodied_agent_core/embodied_agent_core/command_nlu.py` | `CommandNLU.parse()` | 字符级轻量模型、多命令识别、低置信度 fallback |
+| 动作候选协议 | `src/embodied_agent_core/embodied_agent_core/protocol.py` | action payload helpers | Agent 输出结构化动作，不直接控制机器人 |
 | 安全网关 | `src/embodied_agent_cpp/src/action_guard_node.cpp` | `on_candidate()` | Lifecycle node、白名单、限幅、拒绝非法动作 |
-| typed 转换 | `embodied_online_agent/ros_action_transport.py` | `action_command_to_message()` | 将领域动作转成 typed candidate |
+| typed 转换 | `embodied_agent_core/ros_action_transport.py` | `action_command_to_message()` | 将领域动作转成 typed candidate |
 | C++ 安全校验 | `src/embodied_agent_cpp/src/action_validator.cpp` | `ActionValidator::validate()` | 白名单、字段约束、限幅和语义规范化 |
 | C++ 动作调度 | `src/embodied_agent_cpp/src/action_scheduler.cpp` | `ActionScheduler::enqueue()`、`complete()` | 单 active goal、FIFO、急停抢占、失败清队列、稳定错误码 |
 | ROS 2 Action bridge | `src/embodied_agent_cpp/src/typed_action_bridge_node.cpp` | `apply_scheduler_events()`、Action client callbacks | 调度决策适配为 goal/cancel/result，并发布标准 diagnostics |

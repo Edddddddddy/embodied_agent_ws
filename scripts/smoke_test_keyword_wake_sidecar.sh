@@ -5,7 +5,7 @@ source "$WORKSPACE/scripts/activate.sh"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((180 + $$ % 40))}"
 
 LOG_FILE="$(mktemp)"
-setsid ros2 run embodied_online_agent keyword_wake --ros-args \
+setsid ros2 run embodied_voice_frontend keyword_wake --ros-args \
   -p mode:=mock_text \
   -p provider_name:=mock_kws \
   >"$LOG_FILE" 2>&1 &

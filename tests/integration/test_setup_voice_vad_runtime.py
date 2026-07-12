@@ -23,7 +23,7 @@ def test_setup_voice_vad_runtime_dry_run_webrtc_profile():
 
     assert "profile=webrtc" in result.stdout
     assert "DRY RUN" in result.stdout
-    assert "embodied_online_agent[webrtc-vad]" in result.stdout
+    assert "embodied_voice_frontend[webrtc-vad]" in result.stdout
     assert "voice_provider_preflight.py" in result.stdout
     assert "--vad-provider auto" in result.stdout
 
@@ -39,7 +39,7 @@ def test_setup_voice_vad_runtime_dry_run_all_profile_includes_silero():
     )
 
     assert "profile=all" in result.stdout
-    assert "embodied_online_agent[webrtc-vad,silero-vad]" in result.stdout
+    assert "embodied_voice_frontend[webrtc-vad,silero-vad]" in result.stdout
     assert "onnxruntime" not in result.stderr
 
 

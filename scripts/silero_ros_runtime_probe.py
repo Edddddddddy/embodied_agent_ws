@@ -13,7 +13,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from embodied_agent_interfaces.msg import VadEvent
-from embodied_online_agent.runtime_status_transport import vad_event_to_dict
+from embodied_agent_core.runtime_status_transport import vad_event_to_dict
 from std_msgs.msg import UInt8MultiArray
 
 

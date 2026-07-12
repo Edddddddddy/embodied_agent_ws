@@ -6,6 +6,10 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
+CORE_ROOT = ROOT / "src" / "embodied_agent_core" / "embodied_agent_core"
+VOICE_FRONTEND_ROOT = (
+    ROOT / "src" / "embodied_voice_frontend" / "embodied_voice_frontend"
+)
 
 
 def _python_literal(module_path: Path, name: str):
@@ -19,6 +23,66 @@ def _python_literal(module_path: Path, name: str):
                 if isinstance(target, ast.Name) and target.id == name:
                     return ast.literal_eval(node.value)
     raise AssertionError(f"{name} not found in {module_path}")
+
+
+def test_agent_core_is_the_one_way_shared_dependency():
+    """公共实现与输入 Adapter 必须独立，禁止 online/offline 相互依赖。"""
+
+    core_package = ROOT / "src" / "embodied_agent_core"
+    assert (core_package / "package.xml").is_file()
+    assert (core_package / "setup.py").is_file()
+    assert (core_package / "config" / "command_normalization_zh.yaml").is_file()
+    assert (core_package / "prompts" / "system_prompt_zh.txt").is_file()
+    voice_package = ROOT / "src" / "embodied_voice_frontend"
+    assert (voice_package / "package.xml").is_file()
+    assert (voice_package / "setup.py").is_file()
+
+    core_source = "\n".join(
+        path.read_text(encoding="utf-8") for path in CORE_ROOT.glob("*.py")
+    )
+    assert "embodied_online_agent" not in core_source
+    assert "embodied_offline_agent" not in core_source
+
+    for package_name, node_name in (
+        ("embodied_online_agent", "online_agent_node.py"),
+        ("embodied_offline_agent", "offline_agent_node.py"),
+    ):
+        package_root = ROOT / "src" / package_name
+        manifest = (package_root / "package.xml").read_text(encoding="utf-8")
+        node = (package_root / package_name / node_name).read_text(encoding="utf-8")
+        assert "<exec_depend>embodied_agent_core</exec_depend>" in manifest
+        assert "<exec_depend>embodied_voice_frontend</exec_depend>" in manifest
+        other_agent = (
+            "embodied_offline_agent"
+            if package_name == "embodied_online_agent"
+            else "embodied_online_agent"
+        )
+        assert f"<exec_depend>{other_agent}</exec_depend>" not in manifest
+        assert "from embodied_agent_core.agent_control_plane import" in node
+        assert "from embodied_agent_core.agent_lifecycle_runtime import" in node
+
+    # 删除旧实现而非保留转发 shim，确保公共逻辑只有一个权威位置。
+    old_online_root = (
+        ROOT / "src" / "embodied_online_agent" / "embodied_online_agent"
+    )
+    for moved_module in (
+        "agent_control_plane.py",
+        "agent_lifecycle_runtime.py",
+        "agent_ros_io.py",
+        "continuous_voice.py",
+        "ros_event_transport.py",
+    ):
+        assert not (old_online_root / moved_module).exists()
+        assert (CORE_ROOT / moved_module).is_file()
+
+    for adapter in (
+        "keyword_wake_node.py",
+        "silero_vad_node.py",
+        "speaker_identity_node.py",
+        "webrtc_vad_node.py",
+    ):
+        assert not (old_online_root / adapter).exists()
+        assert (VOICE_FRONTEND_ROOT / adapter).is_file()
 
 
 def test_integration_probes_are_not_mixed_with_user_scripts():
@@ -212,13 +276,7 @@ def test_robot_action_transport_is_fully_typed_without_legacy_json_adapter():
     bridge = (cpp / "src" / "typed_action_bridge_node.cpp").read_text(
         encoding="utf-8"
     )
-    sequencer = (
-        ROOT
-        / "src"
-        / "embodied_online_agent"
-        / "embodied_online_agent"
-        / "action_sequence.py"
-    ).read_text(encoding="utf-8")
+    sequencer = (CORE_ROOT / "action_sequence.py").read_text(encoding="utf-8")
 
     assert "Subscription<\n    embodied_agent_interfaces::msg::RobotCommand>" in guard
     assert "RobotCommandFeedback" in bridge
@@ -259,10 +317,8 @@ def test_agent_parameter_contract_has_one_authoritative_schema():
     """在线/离线节点不得重新复制默认参数表，组合 launch 也必须复用转发契约。"""
 
     online_package = ROOT / "src" / "embodied_online_agent"
-    schema = online_package / "embodied_online_agent" / "agent_parameters.py"
-    launch_contract = (
-        online_package / "embodied_online_agent" / "agent_launch_contract.py"
-    )
+    schema = CORE_ROOT / "agent_parameters.py"
+    launch_contract = CORE_ROOT / "agent_launch_contract.py"
     assert schema.is_file()
     assert launch_contract.is_file()
 
@@ -702,13 +758,7 @@ def test_voice_navigation_places_stay_consistent_across_agent_guard_and_nav2():
     这里不限制中文别名，只锁住标准地点名和默认巡航点。
     """
 
-    navigation_phrases = (
-        ROOT
-        / "src"
-        / "embodied_online_agent"
-        / "embodied_online_agent"
-        / "navigation_phrases.py"
-    )
+    navigation_phrases = CORE_ROOT / "navigation_phrases.py"
     action_validator = (
         ROOT / "src" / "embodied_agent_cpp" / "src" / "action_validator.cpp"
     ).read_text(encoding="utf-8")
@@ -756,13 +806,7 @@ def test_audio_endpoint_events_remain_wired_through_frontend_and_agents():
         / "embodied_offline_agent"
         / "offline_agent_node.py"
     ).read_text(encoding="utf-8")
-    agent_topics = (
-        ROOT
-        / "src"
-        / "embodied_online_agent"
-        / "embodied_online_agent"
-        / "ros_topics.py"
-    ).read_text(encoding="utf-8")
+    agent_topics = (CORE_ROOT / "ros_topics.py").read_text(encoding="utf-8")
     audio_smoke = (ROOT / "scripts" / "smoke_test_audio_endpoint.sh").read_text(
         encoding="utf-8"
     )
@@ -826,24 +870,14 @@ def test_continuous_voice_state_machine_remains_shared_by_online_and_offline_age
     """online/offline Agent 必须共享连续会话、队列与执行追踪模块。
 
     连续语音控制最容易在修 bug 时退回“两份差不多的状态机”。这里用结构测试锁住
-    deep module 边界：状态机/队列/执行事件在 embodied_online_agent.continuous_voice，
+    deep module 边界：状态机/队列/执行事件在 embodied_agent_core.continuous_voice，
     两个 Agent 只负责 ROS wiring 和 provider 差异。
     """
 
-    shared = (
-        ROOT
-        / "src"
-        / "embodied_online_agent"
-        / "embodied_online_agent"
-        / "continuous_voice.py"
-    ).read_text(encoding="utf-8")
-    control_plane = (
-        ROOT
-        / "src"
-        / "embodied_online_agent"
-        / "embodied_online_agent"
-        / "agent_control_plane.py"
-    ).read_text(encoding="utf-8")
+    shared = (CORE_ROOT / "continuous_voice.py").read_text(encoding="utf-8")
+    control_plane = (CORE_ROOT / "agent_control_plane.py").read_text(
+        encoding="utf-8"
+    )
     online_agent = (
         ROOT
         / "src"
@@ -878,27 +912,13 @@ def test_continuous_voice_state_machine_remains_shared_by_online_and_offline_age
         assert ".command_nlu.parse(command)" not in node
         assert "threading.Timer(" not in node
 
-    execution_runtime = (
-        ROOT
-        / "src"
-        / "embodied_online_agent"
-        / "embodied_online_agent"
-        / "agent_execution_runtime.py"
-    ).read_text(encoding="utf-8")
-    endpoint_runtime = (
-        ROOT
-        / "src"
-        / "embodied_online_agent"
-        / "embodied_online_agent"
-        / "asr_endpoint_runtime.py"
-    ).read_text(encoding="utf-8")
-    streaming_turn = (
-        ROOT
-        / "src"
-        / "embodied_online_agent"
-        / "embodied_online_agent"
-        / "streaming_turn.py"
-    ).read_text(encoding="utf-8")
+    execution_runtime = (CORE_ROOT / "agent_execution_runtime.py").read_text(
+        encoding="utf-8"
+    )
+    endpoint_runtime = (CORE_ROOT / "asr_endpoint_runtime.py").read_text(
+        encoding="utf-8"
+    )
+    streaming_turn = (CORE_ROOT / "streaming_turn.py").read_text(encoding="utf-8")
     assert "class AgentExecutionRuntime" in execution_runtime
     assert "class AsrEndpointRuntime" in endpoint_runtime
     assert "class StreamingTurnRuntime" in streaming_turn
@@ -995,21 +1015,21 @@ def test_webrtc_vad_sidecar_remains_integrated_as_optional_voice_provider():
     这里锁住 entry point、launch 条件、preflight auto fallback 和文档入口。
     """
 
-    setup_py = (ROOT / "src" / "embodied_online_agent" / "setup.py").read_text(
+    setup_py = (ROOT / "src" / "embodied_voice_frontend" / "setup.py").read_text(
         encoding="utf-8"
     )
     sidecar = (
         ROOT
         / "src"
-        / "embodied_online_agent"
-        / "embodied_online_agent"
+        / "embodied_voice_frontend"
+        / "embodied_voice_frontend"
         / "silero_vad_sidecar.py"
     ).read_text(encoding="utf-8")
     node_path = (
         ROOT
         / "src"
-        / "embodied_online_agent"
-        / "embodied_online_agent"
+        / "embodied_voice_frontend"
+        / "embodied_voice_frontend"
         / "webrtc_vad_node.py"
     )
     online_launch = (
@@ -1034,7 +1054,7 @@ def test_webrtc_vad_sidecar_remains_integrated_as_optional_voice_provider():
     assert node_path.is_file()
     assert "webrtc-vad" in setup_py
     assert "silero-vad" in setup_py
-    assert "webrtc_vad = embodied_online_agent.webrtc_vad_node:main" in setup_py
+    assert "webrtc_vad = embodied_voice_frontend.webrtc_vad_node:main" in setup_py
     assert "class WebRtcVadProvider" in sidecar
     assert "class SileroOnnxVadProvider" in sidecar
     assert "WebRTC VAD frame_ms must be one of [10, 20, 30]" in sidecar
@@ -1056,20 +1076,20 @@ def test_webrtc_vad_sidecar_remains_integrated_as_optional_voice_provider():
     assert "setup_voice_vad_runtime.sh webrtc" in acceptance_doc
     assert "webrtc-vad-sidecar" in acceptance_doc
     assert "silero-vad-runtime" in acceptance_doc
-    assert "embodied_online_agent[webrtc-vad]" in acceptance_doc
+    assert "embodied_voice_frontend[webrtc-vad]" in acceptance_doc
 
 
 def test_acoustic_keyword_wake_runtime_entrypoints_remain_available():
     """声学唤醒不能只停留在 mock_text seam，需要有可部署的 provider/runtime 入口。"""
 
-    setup_py = (ROOT / "src" / "embodied_online_agent" / "setup.py").read_text(
+    setup_py = (ROOT / "src" / "embodied_voice_frontend" / "setup.py").read_text(
         encoding="utf-8"
     )
     keyword_wake = (
         ROOT
         / "src"
-        / "embodied_online_agent"
-        / "embodied_online_agent"
+        / "embodied_voice_frontend"
+        / "embodied_voice_frontend"
         / "keyword_wake.py"
     ).read_text(encoding="utf-8")
     preflight = (ROOT / "scripts" / "voice_provider_preflight.py").read_text(
@@ -1196,41 +1216,11 @@ def test_voice_control_events_are_strongly_typed_and_use_named_qos():
         / "embodied_offline_agent"
         / "offline_agent_node.py"
     ).read_text(encoding="utf-8")
-    transport = (
-        ROOT
-        / "src"
-        / "embodied_online_agent"
-        / "embodied_online_agent"
-        / "ros_event_transport.py"
-    ).read_text(encoding="utf-8")
-    qos = (
-        ROOT
-        / "src"
-        / "embodied_online_agent"
-        / "embodied_online_agent"
-        / "ros_qos.py"
-    ).read_text(encoding="utf-8")
-    event_adapter = (
-        ROOT
-        / "src"
-        / "embodied_online_agent"
-        / "embodied_online_agent"
-        / "ros_agent_events.py"
-    ).read_text(encoding="utf-8")
-    ros_io = (
-        ROOT
-        / "src"
-        / "embodied_online_agent"
-        / "embodied_online_agent"
-        / "agent_ros_io.py"
-    ).read_text(encoding="utf-8")
-    topics = (
-        ROOT
-        / "src"
-        / "embodied_online_agent"
-        / "embodied_online_agent"
-        / "ros_topics.py"
-    ).read_text(encoding="utf-8")
+    transport = (CORE_ROOT / "ros_event_transport.py").read_text(encoding="utf-8")
+    qos = (CORE_ROOT / "ros_qos.py").read_text(encoding="utf-8")
+    event_adapter = (CORE_ROOT / "ros_agent_events.py").read_text(encoding="utf-8")
+    ros_io = (CORE_ROOT / "agent_ros_io.py").read_text(encoding="utf-8")
+    topics = (CORE_ROOT / "ros_topics.py").read_text(encoding="utf-8")
 
     assert (interfaces / "CommandContext.msg").is_file()
     assert (interfaces / "CommandQueueEvent.msg").is_file()
@@ -1292,17 +1282,17 @@ def test_runtime_status_topics_are_strongly_typed():
         assert (interfaces / name).is_file()
 
     online = ROOT / "src" / "embodied_online_agent" / "embodied_online_agent"
-    runtime_transport = (online / "runtime_status_transport.py").read_text(
+    runtime_transport = (CORE_ROOT / "runtime_status_transport.py").read_text(
         encoding="utf-8"
     )
     assert "action_ack_to_dict" in runtime_transport
     assert "simulation_state_to_dict" in runtime_transport
-    assert not (online / "wake_event_input.py").exists()
+    assert not (CORE_ROOT / "wake_event_input.py").exists()
 
     sources = [
-        online / "keyword_wake_node.py",
-        online / "silero_vad_node.py",
-        online / "webrtc_vad_node.py",
+        VOICE_FRONTEND_ROOT / "keyword_wake_node.py",
+        VOICE_FRONTEND_ROOT / "silero_vad_node.py",
+        VOICE_FRONTEND_ROOT / "webrtc_vad_node.py",
         ROOT / "src" / "embodied_agent_cpp" / "src" / "audio_frontend_node.cpp",
         ROOT / "src" / "embodied_simulation" / "src" / "simulation_control_node.cpp",
     ]
@@ -1330,11 +1320,11 @@ def test_speaker_memory_has_one_deep_module_and_typed_transport():
     ):
         assert (interfaces / name).is_file()
     online_root = ROOT / "src" / "embodied_online_agent" / "embodied_online_agent"
-    service = (online_root / "memory_command_service.py").read_text(encoding="utf-8")
-    context_runtime = (online_root / "user_context_runtime.py").read_text(
+    service = (CORE_ROOT / "memory_command_service.py").read_text(encoding="utf-8")
+    context_runtime = (CORE_ROOT / "user_context_runtime.py").read_text(
         encoding="utf-8"
     )
-    transport = (online_root / "speaker_transport.py").read_text(encoding="utf-8")
+    transport = (CORE_ROOT / "speaker_transport.py").read_text(encoding="utf-8")
     online = (online_root / "online_agent_node.py").read_text(encoding="utf-8")
     offline = (
         ROOT
@@ -1343,7 +1333,9 @@ def test_speaker_memory_has_one_deep_module_and_typed_transport():
         / "embodied_offline_agent"
         / "offline_agent_node.py"
     ).read_text(encoding="utf-8")
-    sidecar = (online_root / "speaker_identity_node.py").read_text(encoding="utf-8")
+    sidecar = (VOICE_FRONTEND_ROOT / "speaker_identity_node.py").read_text(
+        encoding="utf-8"
+    )
 
     assert "class MemoryCommandService" in service
     assert "def handle(" in service
@@ -1455,12 +1447,10 @@ def test_online_and_offline_agents_have_real_lifecycle_resource_ownership():
     offline_node = (
         offline_root / "embodied_offline_agent" / "offline_agent_node.py"
     ).read_text(encoding="utf-8")
-    ros_io = (
-        online_root / "embodied_online_agent" / "agent_ros_io.py"
-    ).read_text(encoding="utf-8")
-    lifecycle_runtime = (
-        online_root / "embodied_online_agent" / "agent_lifecycle_runtime.py"
-    ).read_text(encoding="utf-8")
+    ros_io = (CORE_ROOT / "agent_ros_io.py").read_text(encoding="utf-8")
+    lifecycle_runtime = (CORE_ROOT / "agent_lifecycle_runtime.py").read_text(
+        encoding="utf-8"
+    )
 
     for class_name, node in (
         ("OnlineAgentNode", online_node),
@@ -1499,7 +1489,7 @@ def test_online_and_offline_agents_have_real_lifecycle_resource_ownership():
     ):
         assert ordered_step in lifecycle_runtime
     assert (
-        online_root / "test" / "test_agent_lifecycle_runtime.py"
+        ROOT / "src" / "embodied_agent_core" / "test" / "test_agent_lifecycle_runtime.py"
     ).is_file()
 
     online_launch = (online_root / "launch" / "online_agent.launch.py").read_text(
@@ -1531,20 +1521,8 @@ def test_agent_turn_metrics_use_one_strongly_typed_ros_contract():
         / "msg"
         / "AgentTurnMetrics.msg"
     )
-    ros_io = (
-        ROOT
-        / "src"
-        / "embodied_online_agent"
-        / "embodied_online_agent"
-        / "agent_ros_io.py"
-    ).read_text(encoding="utf-8")
-    transport = (
-        ROOT
-        / "src"
-        / "embodied_online_agent"
-        / "embodied_online_agent"
-        / "metrics_transport.py"
-    ).read_text(encoding="utf-8")
+    ros_io = (CORE_ROOT / "agent_ros_io.py").read_text(encoding="utf-8")
+    transport = (CORE_ROOT / "metrics_transport.py").read_text(encoding="utf-8")
     online = (
         ROOT
         / "src"

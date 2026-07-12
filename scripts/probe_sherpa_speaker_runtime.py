@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 import sherpa_onnx
 
-from embodied_online_agent.speaker_identity_node import classify_speaker_scores
+from embodied_voice_frontend.speaker_identity_node import classify_speaker_scores
 
 
 WORKSPACE = Path(__file__).resolve().parents[1]

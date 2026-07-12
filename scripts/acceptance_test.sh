@@ -122,10 +122,12 @@ require_file() {
 run_base() {
   bash scripts/run_core_tests.sh
   colcon build --symlink-install --allow-overriding \
-    embodied_agent_interfaces embodied_agent_cpp embodied_online_agent \
+    embodied_agent_interfaces embodied_agent_core embodied_voice_frontend \
+    embodied_agent_cpp embodied_online_agent \
     embodied_offline_agent embodied_simulation
   colcon test --packages-select \
-    embodied_agent_interfaces embodied_agent_cpp embodied_online_agent \
+    embodied_agent_interfaces embodied_agent_core embodied_voice_frontend \
+    embodied_agent_cpp embodied_online_agent \
     embodied_offline_agent embodied_simulation \
     --event-handlers console_direct+
   colcon test-result --verbose

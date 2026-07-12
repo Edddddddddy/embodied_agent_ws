@@ -10,7 +10,7 @@ import time
 import numpy as np
 import rclpy
 from embodied_agent_interfaces.msg import RobotActionAck, RobotCommandResult
-from embodied_online_agent.runtime_status_transport import action_ack_to_dict
+from embodied_agent_core.runtime_status_transport import action_ack_to_dict
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan

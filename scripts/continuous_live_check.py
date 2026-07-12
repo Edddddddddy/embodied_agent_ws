@@ -25,18 +25,18 @@ from embodied_agent_interfaces.msg import (
     RobotCommand,
     RobotCommandResult,
 )
-from embodied_online_agent.metrics_transport import agent_turn_metrics_message_to_dict
-from embodied_online_agent.ros_action_transport import (
+from embodied_agent_core.metrics_transport import agent_turn_metrics_message_to_dict
+from embodied_agent_core.ros_action_transport import (
     command_message_to_dict,
     result_message_to_dict,
 )
-from embodied_online_agent.ros_event_transport import (
+from embodied_agent_core.ros_event_transport import (
     execution_event_message_to_dict,
     nlu_parse_message_to_dict,
     queue_event_message_to_dict,
     recognition_feedback_message_to_dict,
 )
-from embodied_online_agent.ros_qos import command_event_qos, latched_state_qos
+from embodied_agent_core.ros_qos import command_event_qos, latched_state_qos
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from std_msgs.msg import String

@@ -30,7 +30,7 @@ class Model:
 PY
 
 PYTHONPATH="$FAKE_PACKAGE_DIR:${PYTHONPATH:-}" \
-setsid ros2 run embodied_online_agent keyword_wake --ros-args \
+setsid ros2 run embodied_voice_frontend keyword_wake --ros-args \
   -p mode:=openwakeword \
   -p provider_name:=openwakeword_test \
   -p openwakeword_threshold:=0.5 \

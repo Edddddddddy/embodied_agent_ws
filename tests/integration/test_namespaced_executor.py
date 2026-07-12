@@ -10,7 +10,7 @@ from diagnostic_msgs.msg import DiagnosticArray
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from embodied_agent_interfaces.msg import BehaviorTreeStatus, RobotCommand, RobotCommandResult
-from embodied_online_agent.runtime_status_transport import behavior_tree_status_to_dict
+from embodied_agent_core.runtime_status_transport import behavior_tree_status_to_dict
 from typed_action_test_utils import result_dict
 
 

@@ -12,7 +12,7 @@ from pathlib import Path
 
 import rclpy
 from embodied_agent_interfaces.msg import SpeakerIdentity
-from embodied_online_agent.speaker_transport import identity_message_to_dict
+from embodied_agent_core.speaker_transport import identity_message_to_dict
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Empty, UInt8MultiArray

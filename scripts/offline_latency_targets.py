@@ -267,7 +267,7 @@ def main() -> int:
         type=Path,
         default=WORKSPACE
         / "src"
-        / "embodied_online_agent"
+        / "embodied_agent_core"
         / "prompts"
         / "system_prompt_zh.txt",
     )

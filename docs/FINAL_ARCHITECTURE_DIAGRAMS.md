@@ -148,9 +148,9 @@ sequenceDiagram
 | 阶段 | 关键文件 | 关键函数/类 |
 | --- | --- | --- |
 | 音频与端点 | `src/embodied_agent_cpp/src/audio_frontend_node.cpp` | `AudioFrontendNode` |
-| 成熟 VAD sidecar | `src/embodied_online_agent/embodied_online_agent/silero_vad_sidecar.py`、`webrtc_vad_node.py` | `StreamingVadEndpoint`、`WebRtcVadProvider` |
+| 成熟 VAD sidecar | `src/embodied_voice_frontend/embodied_voice_frontend/silero_vad_sidecar.py`、`webrtc_vad_node.py` | `StreamingVadEndpoint`、`WebRtcVadProvider` |
 | 在线/离线 Agent | `online_agent_node.py`、`offline_agent_node.py` | `_on_asr_final()`、`_commit_asr_endpoint()`、`_run_turn()` |
-| 连续语音队列 | `src/embodied_online_agent/embodied_online_agent/continuous_voice.py` | `ContinuousVoiceSession`、`ContinuousCommandQueue` |
+| 连续语音队列 | `src/embodied_agent_core/embodied_agent_core/continuous_voice.py` | `ContinuousVoiceSession`、`ContinuousCommandQueue` |
 | 动作解析 | `command_nlu.py`、`command_fallback.py`、`command_completion.py` | `CommandNLU.parse()`、`parse_fallback_actions()` |
 | C++ 安全边界 | `src/embodied_agent_cpp/src/action_guard_node.cpp`、`action_validator.cpp` | `on_candidate()`、`ActionValidator::validate()` |
 | C++ 动作调度 | `src/embodied_agent_cpp/src/action_scheduler.cpp` | `ActionScheduler::enqueue()`、`complete()` |

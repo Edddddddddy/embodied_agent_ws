@@ -73,7 +73,7 @@ grep -R "ContinuousCommandQueue" -n src tests scripts --exclude='*.pyc'
 
 ```bash
 source scripts/activate.sh
-pytest -q src/embodied_online_agent/test src/embodied_offline_agent/test
+pytest -q src/embodied_agent_core/test src/embodied_voice_frontend/test src/embodied_offline_agent/test
 ```
 
 如果涉及构建后的包或 ROS topic/action：
@@ -145,7 +145,7 @@ gh pr checks --watch
 ```bash
 pytest -q tests/repository
 bash tests/integration/test_acceptance_cli.sh
-pytest -q src/embodied_online_agent/test src/embodied_offline_agent/test
+pytest -q src/embodied_agent_core/test src/embodied_voice_frontend/test src/embodied_offline_agent/test
 ```
 
 连续语音：

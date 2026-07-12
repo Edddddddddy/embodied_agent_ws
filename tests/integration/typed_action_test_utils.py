@@ -1,12 +1,12 @@
 """Shared typed-action helpers for standalone ROS integration probes."""
 
 from embodied_agent_interfaces.msg import RobotCommand, RobotCommandResult
-from embodied_online_agent.ros_action_transport import (
+from embodied_agent_core.ros_action_transport import (
     action_command_to_message,
     command_message_to_dict,
     result_message_to_dict,
 )
-from embodied_online_agent.types import ActionCommand
+from embodied_agent_core.types import ActionCommand
 
 
 def candidate_dict(message: RobotCommand) -> dict:

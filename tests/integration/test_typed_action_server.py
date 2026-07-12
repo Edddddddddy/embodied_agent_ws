@@ -11,7 +11,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 from embodied_agent_interfaces.action import ExecuteRobotCommand
 from embodied_agent_interfaces.msg import BehaviorTreeStatus, RobotCommand
-from embodied_online_agent.runtime_status_transport import behavior_tree_status_to_dict
+from embodied_agent_core.runtime_status_transport import behavior_tree_status_to_dict
 
 
 class ActionProbe(Node):

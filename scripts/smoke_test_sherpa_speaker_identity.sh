@@ -32,7 +32,7 @@ printf '%s %s\n%s %s\n%s %s\n' \
   "$SPEAKER_ID" "$WAV" \
   "$SPEAKER_ID" "$WAV" >"$SPEAKER_FILE"
 
-setsid ros2 run embodied_online_agent speaker_identity --ros-args \
+setsid ros2 run embodied_voice_frontend speaker_identity --ros-args \
   -p mode:=sherpa \
   -p publish_on_start:=false \
   -p sherpa_model:="$MODEL" \

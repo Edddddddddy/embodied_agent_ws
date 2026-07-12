@@ -27,25 +27,25 @@ from embodied_agent_interfaces.msg import (
     RobotCommandResult,
     WakeEvent,
 )
-from embodied_online_agent.runtime_status_transport import (
+from embodied_agent_core.runtime_status_transport import (
     action_ack_to_dict,
     audio_frontend_status_to_dict,
     kws_event_to_dict,
     kws_score_to_dict,
 )
-from embodied_online_agent.ros_action_transport import (
+from embodied_agent_core.ros_action_transport import (
     command_message_to_dict,
     feedback_message_to_dict,
     result_message_to_dict,
 )
-from embodied_online_agent.ros_event_transport import (
+from embodied_agent_core.ros_event_transport import (
     execution_event_message_to_dict,
     nlu_parse_message_to_dict,
     queue_event_message_to_dict,
     recognition_feedback_message_to_dict,
     wake_event_message_to_dict,
 )
-from embodied_online_agent.ros_qos import command_event_qos, latched_state_qos
+from embodied_agent_core.ros_qos import command_event_qos, latched_state_qos
 from rclpy.node import Node
 from std_msgs.msg import String
 

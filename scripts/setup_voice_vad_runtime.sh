@@ -72,7 +72,7 @@ PYTHON_BIN="${PYTHON_BIN:-$WORKSPACE/.venv/bin/python}"
 if [[ ! -x "$PYTHON_BIN" ]]; then
   PYTHON_BIN="python3"
 fi
-PACKAGE_SPEC="$WORKSPACE/src/embodied_online_agent[$EXTRAS]"
+PACKAGE_SPEC="$WORKSPACE/src/embodied_voice_frontend[$EXTRAS]"
 
 echo "Voice VAD runtime setup: profile=$PROFILE workspace=$WORKSPACE"
 echo "Python: $PYTHON_BIN"

@@ -499,17 +499,36 @@ def test_voice_launches_expose_audio_enhancer_arguments():
         assert "silero_model_path" in content, path
         assert "silero_use_onnx" in content, path
         assert "silero_threshold" in content, path
-        assert "continuous_command_queue_size" in content, path
-        assert "continuous_duplicate_window_s" in content, path
-        assert "command_normalization_enabled" in content, path
-        assert "command_normalization_feedback_enabled" in content, path
-        assert "command_normalization_fuzzy_threshold" in content, path
-        assert "command_normalization_path" in content, path
-        assert "command_completion_enabled" in content, path
-        assert "asr_commit_delay_ms" in content, path
         assert "openwakeword_models" in content, path
         assert "livekit_wakeword_models" in content, path
         assert "sherpa_tokens" in content, path
+
+    # 公共控制面参数已收敛到 core 契约；具体 launch 只调用生成函数，禁止重新
+    # 复制 queue/normalization/endpoint 参数名和默认值。
+    contract = (
+        ROOT
+        / "src"
+        / "embodied_agent_core"
+        / "embodied_agent_core"
+        / "agent_launch_contract.py"
+    ).read_text(encoding="utf-8")
+    for name in (
+        "continuous_command_queue_size",
+        "continuous_duplicate_window_s",
+        "command_normalization_enabled",
+        "command_normalization_feedback_enabled",
+        "command_normalization_fuzzy_threshold",
+        "command_normalization_path",
+        "command_completion_enabled",
+        "asr_commit_delay_ms",
+    ):
+        assert name in contract
+
+    assert "declare_forwarded_agent_arguments" in files[0].read_text(
+        encoding="utf-8"
+    )
+    for path in files[1:]:
+        assert "declare_agent_control_arguments" in path.read_text(encoding="utf-8")
 
 
 def test_continuous_voice_control_stops_monitor_gracefully_for_summary():
@@ -553,14 +572,23 @@ def test_online_and_offline_publish_queue_rejected_feedback():
 
     for path in files:
         content = path.read_text(encoding="utf-8")
-        assert "_publish_queue_rejected_recognition" in content, path
-        assert "self._events.publish_queue_rejected" in content, path
+        assert "self._control.enqueue_command(" in content, path
+        assert "self._events.publish_enqueue_decision(decision)" in content, path
 
     shared_events = (
         ROOT
         / "src"
-        / "embodied_online_agent"
-        / "embodied_online_agent"
+        / "embodied_agent_core"
+        / "embodied_agent_core"
         / "ros_agent_events.py"
     ).read_text(encoding="utf-8")
+    control_plane = (
+        ROOT
+        / "src"
+        / "embodied_agent_core"
+        / "embodied_agent_core"
+        / "agent_control_plane.py"
+    ).read_text(encoding="utf-8")
     assert '"status": "queue_rejected"' in shared_events
+    assert "def publish_queue_rejected(" in shared_events
+    assert "def _queue_rejected_feedback(" in control_plane

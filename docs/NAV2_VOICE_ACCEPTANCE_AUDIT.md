@@ -6,7 +6,7 @@
 
 | 需求 | 当前实现位置 | 自动化证据 | 完成判断 |
 | --- | --- | --- | --- |
-| 语音/文本命令能表达目标点导航 | `src/embodied_online_agent/embodied_online_agent/command_nlu.py`、`command_fallback.py` | `bash scripts/acceptance_test.sh continuous-navigation` | 已有自动化证据 |
+| 语音/文本命令能表达目标点导航 | `src/embodied_agent_core/embodied_agent_core/command_nlu.py`、`command_fallback.py` | `bash scripts/acceptance_test.sh continuous-navigation` | 已有自动化证据 |
 | 支持自然话术，例如“先去门口再去书桌最后回起点” | `command_nlu.py` 的自然多目标解析逻辑 | `bash scripts/acceptance_test.sh continuous-navigation-natural` | 已有自动化证据 |
 | 多目标点巡航输出 `follow_waypoints` | `command_nlu.py`、`ros_action_transport.py` | `continuous-navigation`、`continuous-navigation-natural` | 已有自动化证据 |
 | 所有动作经过 C++ ActionGuard 限幅与强类型校验 | `src/embodied_agent_cpp/src/action_guard_node.cpp`、`action_validator.cpp` | `bash scripts/smoke_test_typed_action.sh`、`colcon test --packages-select embodied_agent_cpp` | 已有自动化证据 |

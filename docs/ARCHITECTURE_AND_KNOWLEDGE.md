@@ -119,30 +119,62 @@ sequenceDiagram
 
 - 在线语音 Agent。
 - 接入 Qwen/DashScope ASR、OpenAI-compatible LLM、Qwen TTS。
-- 负责连续语音控制、命令补全、动作解析、TTS 流式响应。
 
 核心文件：
 
 - `embodied_online_agent/online_agent_node.py`
-- `embodied_online_agent/agent_parameters.py`
-- `embodied_online_agent/agent_launch_contract.py`
-- `embodied_online_agent/agent_control_plane.py`
-- `embodied_online_agent/agent_execution_runtime.py`
-- `embodied_online_agent/asr_endpoint_runtime.py`
-- `embodied_online_agent/streaming_turn.py`
-- `embodied_online_agent/user_context_runtime.py`
-- `embodied_online_agent/ros_agent_events.py`
-- `embodied_online_agent/continuous_voice.py`
-- `embodied_online_agent/command_normalizer.py`
-- `embodied_online_agent/command_completion.py`
-- `embodied_online_agent/command_fallback.py`
-- `embodied_online_agent/action_sequence.py`
-- `prompts/system_prompt_zh.txt`
+- `embodied_online_agent/providers/`
 
 说明：
 
 - 在线模式用于验证云端 ASR/LLM/TTS 的端到端链路。
 - mock 模式用于无密钥、无模型的自动测试。
+
+### `embodied_voice_frontend`
+
+职责：
+
+- 为在线/离线 Agent 提供相同的 VAD、KWS 和声纹输入 Adapter。
+- 隔离 openWakeWord、Silero ONNX、WebRTC VAD、Sherpa KWS/声纹等可选依赖。
+- 让 offline 与 online 不需要为了复用语音前端而互相形成包依赖。
+
+核心文件：
+
+- `embodied_voice_frontend/silero_vad_sidecar.py`
+- `embodied_voice_frontend/silero_vad_node.py`
+- `embodied_voice_frontend/webrtc_vad_node.py`
+- `embodied_voice_frontend/keyword_wake_node.py`
+- `embodied_voice_frontend/speaker_identity_node.py`
+
+说明：
+
+- provider 模型均为可选依赖；mock/energy 路径不要求下载大型模型。
+- 节点通过 `embodied_agent_core` 的 typed transport 发布 VAD/KWS/声纹事件。
+
+### `embodied_agent_core`
+
+职责：
+
+- 作为 online/offline 的单向共享依赖，隐藏连续会话、NLU、执行、Lifecycle、记忆和 ROS I/O 复杂度。
+- 保存共享提示词和命令归一化配置，具体 provider 包不再拥有公共业务资源。
+- 不导入 `embodied_online_agent` 或 `embodied_offline_agent`，避免循环和反向代码依赖。
+
+核心文件：
+
+- `embodied_agent_core/agent_control_plane.py`
+- `embodied_agent_core/agent_execution_runtime.py`
+- `embodied_agent_core/agent_lifecycle_runtime.py`
+- `embodied_agent_core/asr_endpoint_runtime.py`
+- `embodied_agent_core/streaming_turn.py`
+- `embodied_agent_core/user_context_runtime.py`
+- `embodied_agent_core/agent_ros_io.py`
+- `embodied_agent_core/continuous_voice.py`
+- `embodied_agent_core/command_nlu.py`
+- `config/command_normalization_zh.yaml`
+- `prompts/system_prompt_zh.txt`
+
+说明：
+
 - `AgentControlPlane` 是在线/离线共用的领域控制面：统一参数映射、归一化、会话门控、
   补全、重试、优先控制、NLU 拆批、队列和 batch id；不依赖 `rclpy`。
 - `AgentExecutionRuntime` 统一 busy 状态、连续队列 worker、started/finished 事件和异常
@@ -184,7 +216,7 @@ sequenceDiagram
 
 - 离线语音 Agent。
 - 预留 Sherpa-onnx ZipFormer ASR、llama.cpp、Sherpa-TTS 的真实模型路径。
-- 复用在线 Agent 的连续语音、命令归一化、补全、动作序列逻辑。
+- 复用 `embodied_agent_core` 的连续语音、命令归一化、补全、动作序列逻辑。
 - 通过 `AgentControlPlane` 复用完整 ASR-final 控制决策，仅保留离线 provider、
   latency 和伪流式 TTS 差异。
 

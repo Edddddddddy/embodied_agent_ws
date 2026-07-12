@@ -24,7 +24,8 @@ from pathlib import Path
 CORE_COMMANDS: tuple[tuple[str, str], ...] = (
     (
         "python_repository_and_agent_units",
-        "pytest -q tests/repository src/embodied_online_agent/test src/embodied_offline_agent/test",
+        "pytest -q tests/repository src/embodied_agent_core/test "
+        "src/embodied_voice_frontend/test src/embodied_offline_agent/test",
     ),
     (
         "cli_and_instruction_parser",

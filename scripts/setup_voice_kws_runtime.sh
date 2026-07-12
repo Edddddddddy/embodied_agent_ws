@@ -95,11 +95,11 @@ write_sherpa_env() {
 }
 
 install_openwakeword() {
-  run_or_print "$PYTHON_BIN" -m pip install -e "$WORKSPACE/src/embodied_online_agent[kws]"
+  run_or_print "$PYTHON_BIN" -m pip install -e "$WORKSPACE/src/embodied_voice_frontend[kws]"
 }
 
 install_livekit() {
-  run_or_print "$PYTHON_BIN" -m pip install -e "$WORKSPACE/src/embodied_online_agent[livekit-kws]"
+  run_or_print "$PYTHON_BIN" -m pip install -e "$WORKSPACE/src/embodied_voice_frontend[livekit-kws]"
 }
 
 prepare_sherpa() {
@@ -125,7 +125,7 @@ case "$PROFILE" in
     KWS_PROVIDER_TO_CHECK="livekit"
     ;;
   all)
-    run_or_print "$PYTHON_BIN" -m pip install -e "$WORKSPACE/src/embodied_online_agent[kws,livekit-kws]"
+    run_or_print "$PYTHON_BIN" -m pip install -e "$WORKSPACE/src/embodied_voice_frontend[kws,livekit-kws]"
     prepare_sherpa
     KWS_PROVIDER_TO_CHECK="openwakeword"
     ;;

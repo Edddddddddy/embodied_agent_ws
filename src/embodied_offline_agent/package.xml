@@ -9,7 +9,8 @@
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
-  <exec_depend>embodied_online_agent</exec_depend>
+  <exec_depend>embodied_agent_core</exec_depend>
+  <exec_depend>embodied_voice_frontend</exec_depend>
   <exec_depend>embodied_agent_interfaces</exec_depend>
   <exec_depend>embodied_agent_cpp</exec_depend>
   <exec_depend>nav2_lifecycle_manager</exec_depend>

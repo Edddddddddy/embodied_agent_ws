@@ -23,7 +23,7 @@ def test_setup_voice_kws_runtime_dry_run_openwakeword_profile():
 
     assert "profile=openwakeword" in result.stdout
     assert "DRY RUN" in result.stdout
-    assert "embodied_online_agent[kws]" in result.stdout
+    assert "embodied_voice_frontend[kws]" in result.stdout
     assert "KWS_PROVIDER=openwakeword" in result.stdout
     assert "voice_provider_preflight.py" in result.stdout
 
@@ -63,7 +63,7 @@ def test_setup_voice_kws_runtime_dry_run_all_profile_includes_openwakeword_and_s
     )
 
     assert "profile=all" in result.stdout
-    assert "embodied_online_agent[kws,livekit-kws]" in result.stdout
+    assert "embodied_voice_frontend[kws,livekit-kws]" in result.stdout
     assert "setup_sherpa_asr_runtime.sh" in result.stdout
 
 

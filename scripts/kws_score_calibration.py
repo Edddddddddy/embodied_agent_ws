@@ -161,7 +161,7 @@ def format_report(report: KwsScoreReport) -> str:
 class KwsScoreCalibrationNode:
     def __init__(self, topic: str):
         from embodied_agent_interfaces.msg import KwsScore
-        from embodied_online_agent.runtime_status_transport import kws_score_to_dict
+        from embodied_agent_core.runtime_status_transport import kws_score_to_dict
         import rclpy
         from rclpy.node import Node
 

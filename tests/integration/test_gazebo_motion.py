@@ -14,7 +14,7 @@ from embodied_agent_interfaces.msg import (
     RobotCommand,
     RobotCommandResult,
 )
-from embodied_online_agent.runtime_status_transport import (
+from embodied_agent_core.runtime_status_transport import (
     action_ack_to_dict,
     behavior_tree_status_to_dict,
 )

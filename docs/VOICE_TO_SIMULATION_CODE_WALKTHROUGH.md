@@ -123,7 +123,7 @@ flowchart LR
 
 | 内容 | 位置 |
 | --- | --- |
-| 关键文件 | `src/embodied_online_agent/embodied_online_agent/command_nlu.py`、`command_fallback.py`、`command_completion.py` |
+| 关键文件 | `src/embodied_agent_core/embodied_agent_core/command_nlu.py`、`command_fallback.py`、`command_completion.py` |
 | 关键函数 | `CommandNLU.parse()`、`parse_fallback_actions()`、短命令补全函数 |
 | 输入 | ASR final，例如“向右转，然后向前走一秒” |
 | 输出 | 动作序列，例如 `turn -> move` |
@@ -146,7 +146,7 @@ flowchart LR
 | --- | --- |
 | 动作候选发布 | `online_agent_node.py`、`offline_agent_node.py` |
 | 安全校验 | `src/embodied_agent_cpp/src/action_guard_node.cpp` |
-| 领域动作→ROS msg | `src/embodied_online_agent/embodied_online_agent/ros_action_transport.py` |
+| 领域动作→ROS msg | `src/embodied_agent_core/embodied_agent_core/ros_action_transport.py` |
 | 校验器 | `src/embodied_agent_cpp/src/action_validator.cpp` |
 | 主要接口 | `/agent/action_candidate` → `/robot/action_command_typed`，拒绝时 `/robot/action_rejected` |
 | 技术点 | C++ lifecycle node、白名单、限幅、typed msg、安全边界 |
@@ -243,8 +243,8 @@ bash scripts/acceptance_test.sh cpp-action-client
 1. `src/embodied_agent_interfaces/msg/RobotCommand.msg`
 2. `src/embodied_agent_interfaces/action/ExecuteRobotCommand.action`
 3. `src/embodied_agent_cpp/src/action_guard_node.cpp`
-4. `src/embodied_online_agent/embodied_online_agent/continuous_voice.py`
-5. `src/embodied_online_agent/embodied_online_agent/command_nlu.py`
+4. `src/embodied_agent_core/embodied_agent_core/continuous_voice.py`
+5. `src/embodied_agent_core/embodied_agent_core/command_nlu.py`
 6. `src/embodied_agent_cpp/src/typed_action_bridge_node.cpp`
 7. `src/embodied_simulation/src/simulation_control_node.cpp`
 8. `src/embodied_simulation/src/robot_executor_plugins.cpp`

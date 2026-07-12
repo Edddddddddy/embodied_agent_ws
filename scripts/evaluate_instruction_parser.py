@@ -9,10 +9,10 @@ import math
 from pathlib import Path
 from typing import Any
 
-from embodied_online_agent.command_completion import CommandCompleter
-from embodied_online_agent.command_fallback import parse_fallback_actions, should_block_model_actions
-from embodied_online_agent.command_nlu import CommandNLU
-from embodied_online_agent.command_normalizer import CommandNormalizer
+from embodied_agent_core.command_completion import CommandCompleter
+from embodied_agent_core.command_fallback import parse_fallback_actions, should_block_model_actions
+from embodied_agent_core.command_nlu import CommandNLU
+from embodied_agent_core.command_normalizer import CommandNormalizer
 
 
 def _canonical(value: Any) -> Any:

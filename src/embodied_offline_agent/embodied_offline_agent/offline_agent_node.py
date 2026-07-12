@@ -14,39 +14,39 @@ from embodied_agent_interfaces.msg import (
 )
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 
-from embodied_online_agent.memory import ConversationMemory
-from embodied_online_agent.action_sequence import SequentialActionPublisher
-from embodied_online_agent.agent_control_plane import (
+from embodied_agent_core.memory import ConversationMemory
+from embodied_agent_core.action_sequence import SequentialActionPublisher
+from embodied_agent_core.agent_control_plane import (
     AgentControlPlane,
     AgentControlPlaneConfig,
 )
-from embodied_online_agent.agent_execution_runtime import (
+from embodied_agent_core.agent_execution_runtime import (
     AgentExecutionCancelled,
     AgentExecutionRuntime,
 )
-from embodied_online_agent.agent_lifecycle_runtime import AgentLifecycleRuntime
-from embodied_online_agent.agent_parameters import declare_agent_parameters
-from embodied_online_agent.agent_ros_io import AgentRosCallbacks, AgentRosIo
-from embodied_online_agent.asr_endpoint_runtime import AsrEndpointRuntime
-from embodied_online_agent.continuous_voice import QueueSnapshot
-from embodied_online_agent.metrics_transport import agent_turn_metrics_to_message
-from embodied_online_agent.ros_action_transport import (
+from embodied_agent_core.agent_lifecycle_runtime import AgentLifecycleRuntime
+from embodied_agent_core.agent_parameters import declare_agent_parameters
+from embodied_agent_core.agent_ros_io import AgentRosCallbacks, AgentRosIo
+from embodied_agent_core.asr_endpoint_runtime import AsrEndpointRuntime
+from embodied_agent_core.continuous_voice import QueueSnapshot
+from embodied_agent_core.metrics_transport import agent_turn_metrics_to_message
+from embodied_agent_core.ros_action_transport import (
     action_command_to_message,
     command_message_to_dict,
 )
-from embodied_online_agent.ros_event_transport import wake_event_message_to_domain
-from embodied_online_agent.speaker_transport import (
+from embodied_agent_core.ros_event_transport import wake_event_message_to_domain
+from embodied_agent_core.speaker_transport import (
     enroll_request_to_message,
     identity_message_to_domain,
 )
-from embodied_online_agent.streaming_turn import StreamingTurnRuntime
-from embodied_online_agent.types import ActionCommand
-from embodied_online_agent.user_context_runtime import (
+from embodied_agent_core.streaming_turn import StreamingTurnRuntime
+from embodied_agent_core.types import ActionCommand
+from embodied_agent_core.user_context_runtime import (
     UserContextRuntime,
     UserContextSnapshot,
 )
-from embodied_online_agent.user_memory import UserMemoryStore
-from embodied_online_agent.user_preferences import apply_user_preferences
+from embodied_agent_core.user_memory import UserMemoryStore
+from embodied_agent_core.user_preferences import apply_user_preferences
 
 from .latency import OfflineLatency
 from .pseudo_streaming_tts import PseudoStreamingTtsPipeline
@@ -84,7 +84,7 @@ class OfflineAgentNode(LifecycleNode):
             self._param("action_sequence_wait_timeout_s")
         )
         prompt_path = Path(
-            get_package_share_directory("embodied_online_agent")
+            get_package_share_directory("embodied_agent_core")
         ) / "prompts" / "system_prompt_zh.txt"
         configured_prompt = self._param("system_prompt_path")
         self._system_prompt = Path(os.path.expanduser(configured_prompt)).read_text(encoding="utf-8") if configured_prompt else prompt_path.read_text(encoding="utf-8")
@@ -286,7 +286,7 @@ class OfflineAgentNode(LifecycleNode):
         if configured:
             return Path(os.path.expanduser(configured))
         return (
-            Path(get_package_share_directory("embodied_online_agent"))
+            Path(get_package_share_directory("embodied_agent_core"))
             / "config"
             / "command_normalization_zh.yaml"
         )

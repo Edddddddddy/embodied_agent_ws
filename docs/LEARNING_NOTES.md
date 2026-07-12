@@ -66,7 +66,7 @@
 - `src/embodied_agent_interfaces/msg/SimulationState.msg`
 - `src/embodied_agent_interfaces/msg/RobotActionAck.msg`
 - `src/embodied_agent_interfaces/msg/BehaviorTreeStatus.msg`
-- `src/embodied_online_agent/embodied_online_agent/runtime_status_transport.py`
+- `src/embodied_agent_core/embodied_agent_core/runtime_status_transport.py`
 - `src/embodied_agent_cpp/src/audio_frontend_node.cpp`
 - `src/embodied_simulation/src/simulation_control_node.cpp`
 
@@ -103,7 +103,7 @@
 - `src/embodied_agent_cpp/src/guarded_command_outbox.cpp`
 - `src/embodied_agent_cpp/include/embodied_agent_cpp/action_validator.hpp`
 - `src/embodied_agent_cpp/src/action_validator.cpp`
-- `src/embodied_online_agent/embodied_online_agent/ros_action_transport.py`
+- `src/embodied_agent_core/embodied_agent_core/ros_action_transport.py`
 
 设计方式：
 
@@ -167,9 +167,9 @@ Gazebo odom/scan 等数据质量探针仍单独保留，避免把“进程活着
 
 - `src/embodied_online_agent/embodied_online_agent/online_agent_node.py`
 - `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py`
-- `src/embodied_online_agent/embodied_online_agent/agent_execution_runtime.py`
-- `src/embodied_online_agent/embodied_online_agent/agent_lifecycle_runtime.py`
-- `src/embodied_online_agent/embodied_online_agent/asr_endpoint_runtime.py`
+- `src/embodied_agent_core/embodied_agent_core/agent_execution_runtime.py`
+- `src/embodied_agent_core/embodied_agent_core/agent_lifecycle_runtime.py`
+- `src/embodied_agent_core/embodied_agent_core/asr_endpoint_runtime.py`
 - `scripts/smoke_test_agent_lifecycle.sh`
 - `tests/integration/test_agent_lifecycle.py`
 
@@ -198,8 +198,8 @@ publisher 关闭前发布 `ComponentHealth.STATE_STOPPED`，覆盖 transient-loc
 
 关键代码：
 
-- `src/embodied_online_agent/embodied_online_agent/agent_parameters.py`
-- `src/embodied_online_agent/embodied_online_agent/agent_launch_contract.py`
+- `src/embodied_agent_core/embodied_agent_core/agent_parameters.py`
+- `src/embodied_agent_core/embodied_agent_core/agent_launch_contract.py`
 - `src/embodied_online_agent/embodied_online_agent/online_agent_node.py`
 - `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py`
 - `src/embodied_online_agent/launch/online_agent.launch.py`
@@ -249,13 +249,13 @@ ActionGuard 方案对比：
 
 关键代码：
 
-- `src/embodied_online_agent/embodied_online_agent/continuous_voice.py`
-- `src/embodied_online_agent/embodied_online_agent/agent_execution_runtime.py`
-- `src/embodied_online_agent/embodied_online_agent/agent_control_plane.py`
-- `src/embodied_online_agent/embodied_online_agent/agent_control_plane.py`
-- `src/embodied_online_agent/embodied_online_agent/ros_agent_events.py`
-- `src/embodied_online_agent/embodied_online_agent/wakeword.py`
-- `src/embodied_online_agent/embodied_online_agent/wake_provider.py`
+- `src/embodied_agent_core/embodied_agent_core/continuous_voice.py`
+- `src/embodied_agent_core/embodied_agent_core/agent_execution_runtime.py`
+- `src/embodied_agent_core/embodied_agent_core/agent_control_plane.py`
+- `src/embodied_agent_core/embodied_agent_core/agent_control_plane.py`
+- `src/embodied_agent_core/embodied_agent_core/ros_agent_events.py`
+- `src/embodied_agent_core/embodied_agent_core/wakeword.py`
+- `src/embodied_agent_core/embodied_agent_core/wake_provider.py`
 - `scripts/continuous_voice_monitor.py`
 
 设计方式：
@@ -288,7 +288,7 @@ ActionGuard 方案对比：
 
 关键代码：
 
-- `src/embodied_online_agent/embodied_online_agent/continuous_voice.py`
+- `src/embodied_agent_core/embodied_agent_core/continuous_voice.py`
 - `src/embodied_online_agent/embodied_online_agent/online_agent_node.py`
 - `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py`
 
@@ -322,9 +322,9 @@ ActionGuard 方案对比：
 
 关键代码：
 
-- `src/embodied_online_agent/embodied_online_agent/streaming_turn.py`
-- `src/embodied_online_agent/embodied_online_agent/protocol.py`
-- `src/embodied_online_agent/embodied_online_agent/command_fallback.py`
+- `src/embodied_agent_core/embodied_agent_core/streaming_turn.py`
+- `src/embodied_agent_core/embodied_agent_core/protocol.py`
+- `src/embodied_agent_core/embodied_agent_core/command_fallback.py`
 
 `StreamingTurnRuntime` 隐藏 `TaggedStreamParser`、`SentenceChunker`、确定性命令优先级和
 语义安全拦截。在线节点把 `on_speakable` 接到网络 TTS 队列，离线节点把同一回调接到
@@ -348,7 +348,7 @@ ActionGuard 方案对比：
 - `src/embodied_agent_cpp/src/audio_processing.cpp`
 - `src/embodied_online_agent/embodied_online_agent/online_agent_node.py`
 - `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py`
-- `src/embodied_online_agent/embodied_online_agent/asr_endpoint_runtime.py`
+- `src/embodied_agent_core/embodied_agent_core/asr_endpoint_runtime.py`
 - `scripts/audio_frontend_calibration.py`
 - `scripts/voice_calibration_report.py`
 
@@ -365,7 +365,7 @@ ActionGuard 方案对比：
 - `StreamingVadEndpoint` 使用“连续帧起点确认 + 较低结束阈值”的状态机：起点去抖负责过滤
   短噪声，阈值滞回负责避免概率在临界值附近反复切换。相比单一能量阈值，它更适合长时间
   麦克风控制；相比直接调用模型工具函数，独立 endpoint 状态机更容易单测和替换 provider。
-  它会安装 `embodied_online_agent[webrtc-vad]`、`embodied_online_agent[silero-vad]`
+  它会安装 `embodied_voice_frontend[webrtc-vad]`、`embodied_voice_frontend[silero-vad]`
   对应 extra，并在安装后跑 provider preflight。
 - `voice_provider_preflight.py` 不只判断 PASS/BLOCKED，还会在 auto 降级或显式 provider
   缺依赖时输出 `recommendations`。这样真实麦克风演示前可以从“缺什么包”直接走到
@@ -426,11 +426,11 @@ ActionGuard 方案对比：
 
 关键代码：
 
-- `src/embodied_online_agent/embodied_online_agent/command_normalizer.py`
-- `src/embodied_online_agent/config/command_normalization_zh.yaml`
-- `src/embodied_online_agent/embodied_online_agent/command_completion.py`
-- `src/embodied_online_agent/embodied_online_agent/transcript_stabilizer.py`
-- `src/embodied_online_agent/test/test_command_completion.py`
+- `src/embodied_agent_core/embodied_agent_core/command_normalizer.py`
+- `src/embodied_agent_core/config/command_normalization_zh.yaml`
+- `src/embodied_agent_core/embodied_agent_core/command_completion.py`
+- `src/embodied_agent_core/embodied_agent_core/transcript_stabilizer.py`
+- `src/embodied_agent_core/test/test_command_completion.py`
 
 设计方式：
 
@@ -462,8 +462,8 @@ ActionGuard 方案对比：
 - `src/embodied_online_agent/embodied_online_agent/providers/qwen_asr.py`
 - `src/embodied_online_agent/embodied_online_agent/providers/openai_compatible_llm.py`
 - `src/embodied_online_agent/embodied_online_agent/providers/qwen_tts.py`
-- `src/embodied_online_agent/prompts/system_prompt_zh.txt`
-- `src/embodied_online_agent/embodied_online_agent/protocol.py`
+- `src/embodied_agent_core/prompts/system_prompt_zh.txt`
+- `src/embodied_agent_core/embodied_agent_core/protocol.py`
 
 设计方式：
 
@@ -489,8 +489,8 @@ ActionGuard 方案对比：
 
 关键代码：
 
-- `src/embodied_online_agent/embodied_online_agent/command_nlu.py`
-- `src/embodied_online_agent/config/command_nlu_zh.json`
+- `src/embodied_agent_core/embodied_agent_core/command_nlu.py`
+- `src/embodied_agent_core/config/command_nlu_zh.json`
 - `scripts/train_command_nlu.py`
 - `tests/integration/test_continuous_multi_command.py`
 
@@ -545,15 +545,15 @@ distance / angle / duration / navigation` 等 tag 分组，避免只用总体准
 
 关键代码：
 
-- `src/embodied_online_agent/embodied_online_agent/speaker_identity_node.py`
-- `src/embodied_online_agent/embodied_online_agent/memory_command_service.py`
-- `src/embodied_online_agent/embodied_online_agent/user_context_runtime.py`
-- `src/embodied_online_agent/embodied_online_agent/speaker_transport.py`
+- `src/embodied_voice_frontend/embodied_voice_frontend/speaker_identity_node.py`
+- `src/embodied_agent_core/embodied_agent_core/memory_command_service.py`
+- `src/embodied_agent_core/embodied_agent_core/user_context_runtime.py`
+- `src/embodied_agent_core/embodied_agent_core/speaker_transport.py`
 - `src/embodied_agent_interfaces/msg/SpeakerIdentity.msg`
 - `src/embodied_agent_interfaces/msg/SpeakerEnrollRequest.msg`
 - `src/embodied_agent_interfaces/msg/SpeakerEnrollStatus.msg`
-- `src/embodied_online_agent/embodied_online_agent/user_memory.py`
-- `src/embodied_online_agent/embodied_online_agent/user_preferences.py`
+- `src/embodied_agent_core/embodied_agent_core/user_memory.py`
+- `src/embodied_agent_core/embodied_agent_core/user_preferences.py`
 - `src/embodied_online_agent/embodied_online_agent/online_agent_node.py`
 - `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py`
 - `tests/integration/test_speaker_memory_mock.py`
@@ -754,7 +754,9 @@ sidecar 输出实际相似度。多人准确率仍需另建注册/查询数据�
 - `tests/repository/test_repository_layout.py`
 - `tests/integration/test_acceptance_cli.sh`
 - `tests/integration/test_continuous_voice_control.py`
-- `src/embodied_online_agent/test/`
+- `src/embodied_agent_core/test/`：共享领域与运行时
+- `src/embodied_voice_frontend/test/`：VAD、KWS、声纹输入 Adapter
+- `tests/integration/test_online_api.py`：在线 provider Adapter
 - `src/embodied_offline_agent/test/`
 - `src/embodied_agent_cpp/test/`
 - `src/embodied_simulation/test/`
@@ -789,11 +791,11 @@ sidecar 输出实际相似度。多人准确率仍需另建注册/查询数据�
 
 关键代码：
 
-- `src/embodied_online_agent/embodied_online_agent/navigation_phrases.py`
-- `src/embodied_online_agent/embodied_online_agent/command_nlu.py`
-- `src/embodied_online_agent/embodied_online_agent/command_fallback.py`
+- `src/embodied_agent_core/embodied_agent_core/navigation_phrases.py`
+- `src/embodied_agent_core/embodied_agent_core/command_nlu.py`
+- `src/embodied_agent_core/embodied_agent_core/command_fallback.py`
 - `src/embodied_agent_interfaces/msg/RobotCommand.msg`
-- `src/embodied_online_agent/embodied_online_agent/ros_action_transport.py`
+- `src/embodied_agent_core/embodied_agent_core/ros_action_transport.py`
 - `src/embodied_agent_cpp/src/action_validator.cpp`
 - `src/embodied_simulation/include/embodied_simulation/nav2_places.hpp`
 - `src/embodied_simulation/config/places.yaml`

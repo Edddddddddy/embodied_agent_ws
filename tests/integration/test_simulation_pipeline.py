@@ -8,7 +8,7 @@ import time
 
 import rclpy
 from embodied_agent_interfaces.msg import RobotActionAck, RobotCommand, SimulationState
-from embodied_online_agent.runtime_status_transport import (
+from embodied_agent_core.runtime_status_transport import (
     action_ack_to_dict,
     simulation_state_to_dict,
 )

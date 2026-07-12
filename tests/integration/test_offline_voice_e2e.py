@@ -8,8 +8,8 @@ from pathlib import Path
 import numpy as np
 import rclpy
 from embodied_agent_interfaces.msg import AgentTurnMetrics, RobotActionAck
-from embodied_online_agent.metrics_transport import agent_turn_metrics_message_to_dict
-from embodied_online_agent.runtime_status_transport import action_ack_to_dict
+from embodied_agent_core.metrics_transport import agent_turn_metrics_message_to_dict
+from embodied_agent_core.runtime_status_transport import action_ack_to_dict
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Empty, String, UInt8MultiArray

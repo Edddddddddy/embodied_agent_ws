@@ -328,7 +328,7 @@ class AudioCalibrationNode:
 
     def __init__(self, topic: str):
         from embodied_agent_interfaces.msg import AudioFrontendStatus
-        from embodied_online_agent.runtime_status_transport import (
+        from embodied_agent_core.runtime_status_transport import (
             audio_frontend_status_to_dict,
         )
         import rclpy

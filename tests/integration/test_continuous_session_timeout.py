@@ -7,11 +7,11 @@ import time
 
 import rclpy
 from embodied_agent_interfaces.msg import RecognitionFeedback, RobotCommand, RobotCommandResult, WakeEvent
-from embodied_online_agent.ros_event_transport import (
+from embodied_agent_core.ros_event_transport import (
     recognition_feedback_message_to_dict,
     wake_event_message_to_dict,
 )
-from embodied_online_agent.ros_qos import command_event_qos, latched_state_qos
+from embodied_agent_core.ros_qos import command_event_qos, latched_state_qos
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from std_msgs.msg import String

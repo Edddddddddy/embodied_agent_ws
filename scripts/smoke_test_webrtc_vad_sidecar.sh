@@ -22,7 +22,7 @@ setsid ros2 run embodied_agent_cpp audio_frontend --ros-args \
   >"$AUDIO_LOG" 2>&1 &
 AUDIO_PID=$!
 
-setsid ros2 run embodied_online_agent webrtc_vad --ros-args \
+setsid ros2 run embodied_voice_frontend webrtc_vad --ros-args \
   -p enabled:=true \
   -p sample_rate:=16000 \
   -p frame_ms:=20 \

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import rclpy
 from embodied_agent_interfaces.msg import RobotCommand, SpeakerEnrollRequest, SpeakerIdentity
-from embodied_online_agent.speaker_transport import identity_payload_to_message
+from embodied_agent_core.speaker_transport import identity_payload_to_message
 from std_msgs.msg import String
 from typed_action_test_utils import candidate_dict
 

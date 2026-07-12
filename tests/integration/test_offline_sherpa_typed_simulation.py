@@ -25,7 +25,7 @@ from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Empty, String, UInt8MultiArray
 
 from embodied_agent_interfaces.msg import AgentTurnMetrics, RobotCommand, RobotCommandResult
-from embodied_online_agent.metrics_transport import agent_turn_metrics_message_to_dict
+from embodied_agent_core.metrics_transport import agent_turn_metrics_message_to_dict
 from typed_action_test_utils import candidate_dict, result_dict
 from embodied_offline_agent.providers.sherpa_tts import SherpaVitsTts
 

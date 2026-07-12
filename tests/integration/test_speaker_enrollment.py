@@ -5,7 +5,7 @@ from pathlib import Path
 
 import rclpy
 from embodied_agent_interfaces.msg import SpeakerEnrollRequest, SpeakerEnrollStatus
-from embodied_online_agent.speaker_transport import enroll_status_to_dict
+from embodied_agent_core.speaker_transport import enroll_status_to_dict
 from std_msgs.msg import Empty, UInt8MultiArray
 
 

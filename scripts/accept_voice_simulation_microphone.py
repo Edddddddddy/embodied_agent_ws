@@ -14,9 +14,9 @@ from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
-from embodied_online_agent.ros_action_transport import command_message_to_dict
-from embodied_online_agent.ros_event_transport import recognition_feedback_message_to_dict
-from embodied_online_agent.runtime_status_transport import action_ack_to_dict
+from embodied_agent_core.ros_action_transport import command_message_to_dict
+from embodied_agent_core.ros_event_transport import recognition_feedback_message_to_dict
+from embodied_agent_core.runtime_status_transport import action_ack_to_dict
 
 
 class MicrophoneAcceptanceProbe(Node):

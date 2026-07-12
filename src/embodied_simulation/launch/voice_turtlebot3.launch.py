@@ -14,7 +14,7 @@ from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import LifecycleNode, Node
 from launch_ros.parameter_descriptions import ParameterValue
 
-from embodied_online_agent.agent_launch_contract import (
+from embodied_agent_core.agent_launch_contract import (
     declare_forwarded_agent_arguments,
     forwarded_agent_configurations,
     forwarded_agent_launch_arguments,

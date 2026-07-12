@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 import wave
 
-from embodied_online_agent.silero_vad_sidecar import SileroOnnxVadProvider
+from embodied_voice_frontend.silero_vad_sidecar import SileroOnnxVadProvider
 
 
 DEFAULT_MODEL = Path("models/silero_vad/silero_vad.onnx")

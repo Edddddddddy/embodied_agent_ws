@@ -7,8 +7,8 @@ import time
 
 import rclpy
 from embodied_agent_interfaces.msg import KwsEvent, KwsScore, WakeEvent
-from embodied_online_agent.ros_event_transport import wake_event_message_to_dict
-from embodied_online_agent.runtime_status_transport import kws_event_to_dict, kws_score_to_dict
+from embodied_agent_core.ros_event_transport import wake_event_message_to_dict
+from embodied_agent_core.runtime_status_transport import kws_event_to_dict, kws_score_to_dict
 from rclpy.node import Node
 from std_msgs.msg import String, UInt8MultiArray
 

@@ -15,7 +15,7 @@ python3 "$WORKSPACE/scripts/voice_provider_preflight.py" \
   --silero-use-onnx true
 
 VAD_LOG="$(mktemp)"
-setsid ros2 run embodied_online_agent silero_vad --ros-args \
+setsid ros2 run embodied_voice_frontend silero_vad --ros-args \
   -p enabled:=true \
   -p use_onnx:=true \
   -p model_path:="$MODEL" \
