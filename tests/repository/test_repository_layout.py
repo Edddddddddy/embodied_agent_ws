@@ -55,6 +55,7 @@ def test_critical_full_chain_probes_remain_discoverable():
         "test_nav2_bridge_sequence.py",
         "test_nav2_turtlebot3_voice.py",
         "test_offline_sherpa_typed_simulation.py",
+        "test_agent_lifecycle.py",
     }
     present = {path.name for path in integration.glob("test_*")}
     assert required <= present
@@ -806,7 +807,7 @@ def test_continuous_mode_does_not_drop_busy_asr_or_endpoint_commits():
         # endpoint 的 busy/continuous gate 已下沉到共享 runtime 构造参数；节点 wrapper
         # 只负责转发 source，避免 online/offline 再复制计时与 timer 状态机。
         assert "self._asr_endpoint.request(source)" in source
-        assert "blocked=lambda: self._execution.is_busy()" in source
+        assert "blocked=lambda: self._is_busy()" in source
         assert "and not self._continuous_enabled" in source
 
 
@@ -1408,3 +1409,50 @@ def test_system_readiness_is_typed_profile_based_and_heartbeat_driven():
         encoding="utf-8"
     )
     assert '"/system/readiness"' in check
+
+
+def test_online_and_offline_agents_have_real_lifecycle_resource_ownership():
+    online_root = ROOT / "src" / "embodied_online_agent"
+    offline_root = ROOT / "src" / "embodied_offline_agent"
+    online_node = (
+        online_root / "embodied_online_agent" / "online_agent_node.py"
+    ).read_text(encoding="utf-8")
+    offline_node = (
+        offline_root / "embodied_offline_agent" / "offline_agent_node.py"
+    ).read_text(encoding="utf-8")
+
+    for class_name, node in (
+        ("OnlineAgentNode", online_node),
+        ("OfflineAgentNode", offline_node),
+    ):
+        assert f"class {class_name}(LifecycleNode)" in node
+        for callback in (
+            "on_configure",
+            "on_activate",
+            "on_deactivate",
+            "on_cleanup",
+            "on_shutdown",
+            "on_error",
+        ):
+            assert f"def {callback}(" in node
+        assert "create_lifecycle_publisher" in node
+        assert "start_background_turn(" in node
+        assert "threading.Thread(\n            target=self._run_turn" not in node
+
+    online_launch = (online_root / "launch" / "online_agent.launch.py").read_text(
+        encoding="utf-8"
+    )
+    offline_launch = (
+        offline_root / "launch" / "offline_agent.launch.py"
+    ).read_text(encoding="utf-8")
+    assert '["action_guard", "online_agent"]' in online_launch
+    assert '["action_guard", "offline_agent"]' in offline_launch
+    for launch in (online_launch, offline_launch):
+        assert '"agent_lifecycle_autostart": False' in launch
+
+    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
+        encoding="utf-8"
+    )
+    assert "agent-lifecycle" in acceptance
+    assert (ROOT / "scripts" / "smoke_test_agent_lifecycle.sh").is_file()
+    assert (ROOT / "tests" / "integration" / "test_agent_lifecycle.py").is_file()

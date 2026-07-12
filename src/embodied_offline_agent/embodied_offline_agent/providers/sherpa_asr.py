@@ -57,6 +57,12 @@ class SherpaZipformerAsr:
         self._stream = self._recognizer.create_stream()
         self._last_partial = ""
 
+    def reset(self):
+        """Lifecycle 再激活时丢弃停用前的半句音频，防止跨会话拼接。"""
+
+        self._stream = self._recognizer.create_stream()
+        self._last_partial = ""
+
     def _decode_ready(self):
         while self._recognizer.is_ready(self._stream):
             self._recognizer.decode_stream(self._stream)

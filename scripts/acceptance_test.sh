@@ -9,6 +9,7 @@ Usage: acceptance_test.sh MODE
 
 Automated modes:
   core                Typical developer gate: repository, Python unit, C++ unit tests
+  agent-lifecycle     Online/offline configure -> activate -> deactivate -> reactivate
   preflight           Check offline model/runtime files
   mock                Build, unit tests, and dependency-free ROS smokes
   online              Minimal-token live ASR/LLM/TTS verification
@@ -140,6 +141,8 @@ run_base() {
   bash scripts/smoke_test_voice_readiness.sh
   pytest -q tests/integration/test_voice_provider_preflight.py
   bash scripts/smoke_test_lifecycle.sh
+  bash scripts/smoke_test_agent_lifecycle.sh online
+  bash scripts/smoke_test_agent_lifecycle.sh offline
   bash scripts/smoke_test_typed_action.sh
   bash scripts/smoke_test_typed_action_server.sh
   bash scripts/smoke_test_typed_action_pipeline.sh
@@ -228,6 +231,7 @@ run_isolated_ros_smoke() {
 
 case "$LEVEL" in
   core) bash scripts/run_core_tests.sh ;;
+  agent-lifecycle) bash scripts/smoke_test_agent_lifecycle.sh online; bash scripts/smoke_test_agent_lifecycle.sh offline ;;
   preflight) check_offline_runtime ;;
   mock) run_base ;;
   online) run_online ;;

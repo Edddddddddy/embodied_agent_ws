@@ -90,6 +90,18 @@ def _positive_text(value: Any) -> bool:
 
 
 COMMON_PARAMETER_SPECS = (
+    ParameterSpec(
+        "agent_lifecycle_autostart",
+        True,
+        "独立 ros2 run 时是否自行 configure/activate；launch manager 场景应关闭。",
+    ),
+    ParameterSpec(
+        "agent_deactivate_timeout_s",
+        5.0,
+        "Lifecycle deactivate 等待 LLM/TTS/队列线程静默的超时。",
+        0.1,
+        120.0,
+    ),
     ParameterSpec("microphone_enabled", False, "是否订阅实时麦克风音频。"),
     ParameterSpec("audio_sample_rate", 16000, "ASR 输入采样率。", 8000, 192000),
     ParameterSpec("wake_word_enabled", True, "是否要求唤醒词后才接受命令。"),

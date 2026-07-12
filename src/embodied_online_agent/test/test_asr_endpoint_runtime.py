@@ -104,3 +104,26 @@ def test_provider_commit_failure_is_reported_without_escaping_timer_callback():
     assert runtime.request("speech_ended") is False
     assert len(errors) == 1
     assert str(errors[0]) == "transport closed"
+
+
+def test_lifecycle_cancel_invalidates_old_timer_but_allows_next_activation():
+    _FakeTimer.created.clear()
+    commits = []
+    runtime = AsrEndpointRuntime(
+        delay_ms=100,
+        blocked=lambda: False,
+        commit=lambda: commits.append("commit"),
+        on_endpoint=lambda _source, _delay: None,
+        on_commit=lambda _source: None,
+        timer_factory=_FakeTimer,
+    )
+
+    assert runtime.request("first_activation") is True
+    old_timer = _FakeTimer.created[-1]
+    runtime.cancel_pending()
+    old_timer.fire()
+    assert commits == []
+
+    assert runtime.request("second_activation") is True
+    _FakeTimer.created[-1].fire()
+    assert commits == ["commit"]

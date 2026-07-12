@@ -14,7 +14,7 @@ from embodied_agent_interfaces.msg import (
     SpeakerIdentity as SpeakerIdentityMessage,
     WakeEvent as WakeEventMessage,
 )
-from rclpy.node import Node
+from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Empty, String, UInt8MultiArray
 
@@ -24,7 +24,10 @@ from embodied_online_agent.agent_control_plane import (
     AgentControlPlane,
     AgentControlPlaneConfig,
 )
-from embodied_online_agent.agent_execution_runtime import AgentExecutionRuntime
+from embodied_online_agent.agent_execution_runtime import (
+    AgentExecutionCancelled,
+    AgentExecutionRuntime,
+)
 from embodied_online_agent.agent_parameters import declare_agent_parameters
 from embodied_online_agent.asr_endpoint_runtime import AsrEndpointRuntime
 from embodied_online_agent.continuous_voice import QueueSnapshot
@@ -52,7 +55,7 @@ from .pseudo_streaming_tts import PseudoStreamingTtsPipeline
 from .providers.mock import MockOfflineAsr, MockOfflineLlm, MockOfflineTts
 
 
-class OfflineAgentNode(Node):
+class OfflineAgentNode(LifecycleNode):
     def __init__(self):
         super().__init__("offline_agent")
         # 在线/离线共享同一控制面参数契约，离线模型参数则由 offline profile 扩展。
@@ -60,6 +63,7 @@ class OfflineAgentNode(Node):
         self._agent_parameters = declare_agent_parameters(self, "offline")
         self._mode = self._param("mode")
         self._stopping = False
+        self._lifecycle_active = False
         self._continuous_enabled = bool(self._param("continuous_control_enabled"))
         self._latency = OfflineLatency()
         self._asr_events: queue.Queue[tuple[str, bytes | None]] = queue.Queue(maxsize=64)
@@ -89,24 +93,38 @@ class OfflineAgentNode(Node):
         configured_prompt = self._param("system_prompt_path")
         self._system_prompt = Path(os.path.expanduser(configured_prompt)).read_text(encoding="utf-8") if configured_prompt else prompt_path.read_text(encoding="utf-8")
 
-        self._asr_partial_pub = self.create_publisher(String, "/agent/asr_partial", 10)
-        self._asr_final_pub = self.create_publisher(String, "/agent/asr_final", 10)
-        self._response_delta_pub = self.create_publisher(String, "/agent/response_delta", 10)
-        self._response_pub = self.create_publisher(String, "/agent/response_text", 10)
-        self._action_pub = self.create_publisher(
+        self._asr_partial_pub = self.create_lifecycle_publisher(
+            String, "/agent/asr_partial", 10
+        )
+        self._asr_final_pub = self.create_lifecycle_publisher(
+            String, "/agent/asr_final", 10
+        )
+        self._response_delta_pub = self.create_lifecycle_publisher(
+            String, "/agent/response_delta", 10
+        )
+        self._response_pub = self.create_lifecycle_publisher(
+            String, "/agent/response_text", 10
+        )
+        self._action_pub = self.create_lifecycle_publisher(
             RobotCommand, "/agent/action_candidate", 10
         )
-        self._events = RosAgentEventPublisher(self)
-        self._speaker_enroll_request_pub = self.create_publisher(
+        self._events = RosAgentEventPublisher(
+            self, publisher_factory=self.create_lifecycle_publisher
+        )
+        self._speaker_enroll_request_pub = self.create_lifecycle_publisher(
             SpeakerEnrollRequestMessage, "/agent/speaker_enroll_request", 10
         )
-        self._metrics_pub = self.create_publisher(String, "/offline_agent/metrics", 10)
+        self._metrics_pub = self.create_lifecycle_publisher(
+            String, "/offline_agent/metrics", 10
+        )
         audio_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
             depth=20,
             reliability=ReliabilityPolicy.BEST_EFFORT,
         )
-        self._audio_pub = self.create_publisher(UInt8MultiArray, "/audio/tts_pcm", audio_qos)
+        self._audio_pub = self.create_lifecycle_publisher(
+            UInt8MultiArray, "/audio/tts_pcm", audio_qos
+        )
         self.create_subscription(String, "/agent/text_input", self._on_text, 10)
         if self._param("external_wake_event_enabled"):
             self.create_subscription(
@@ -125,50 +143,182 @@ class OfflineAgentNode(Node):
         self.create_subscription(
             RobotCommandResult, "/robot/action_result", self._on_action_result, 10
         )
-        self._asr, self._llm, self._tts = self._create_providers()
-        if self._mode == "offline" and self._param("runtime_warmup_enabled"):
-            self._warmup_runtime()
-        self._execution = AgentExecutionRuntime(
-            self._control,
-            execute_item=self._run_queued_turn,
-            publish_execution=self._events.publish_execution,
-            publish_queue=self._events.publish_queue,
-            on_error=lambda error: self.get_logger().error(
-                f"continuous command failed: {error}"
-            ),
-        )
-        self._asr_endpoint = AsrEndpointRuntime(
-            delay_ms=self._param("asr_commit_delay_ms"),
-            blocked=lambda: self._execution.is_busy()
-            and not self._continuous_enabled,
-            commit=lambda: self._enqueue_asr(("commit", None), preserve=True),
-            on_endpoint=self._on_asr_endpoint,
-            on_commit=self._events.publish_asr_commit,
-            on_duplicate=lambda source: self.get_logger().debug(
-                f"ignored duplicate ASR commit from {source}"
-            ),
-            on_error=lambda error: self.get_logger().error(
-                f"ASR endpoint commit failed: {error}"
-            ),
-        )
+        self._asr = None
+        self._llm = None
+        self._tts = None
+        self._execution = None
+        self._asr_endpoint = None
         if self._param("microphone_enabled"):
-            self._asr.start(self._on_asr_partial, self._on_asr_final)
             self.create_subscription(UInt8MultiArray, "/audio/clean_pcm", self._on_audio, audio_qos)
             self.create_subscription(Empty, "/audio/silence_timeout", self._on_silence, 10)
             self.create_subscription(Empty, "/audio/speech_started", self._on_speech_started, 10)
             self.create_subscription(Empty, "/audio/speech_ended", self._on_speech_ended, 10)
-            self._asr_thread = threading.Thread(target=self._run_asr, daemon=True)
-            self._asr_thread.start()
-        else:
+        self._asr_thread = None
+
+    def on_configure(self, _state: State) -> TransitionCallbackReturn:
+        """加载离线模型并创建运行时；模型失败不会进入 inactive/active。"""
+
+        managed = super().on_configure(_state)
+        if managed != TransitionCallbackReturn.SUCCESS:
+            return managed
+        try:
+            self._asr, self._llm, self._tts = self._create_providers()
+            if self._mode == "offline" and self._param("runtime_warmup_enabled"):
+                self._warmup_runtime()
+            self._execution = AgentExecutionRuntime(
+                self._control,
+                execute_item=self._run_queued_turn,
+                publish_execution=self._events.publish_execution,
+                publish_queue=self._events.publish_queue,
+                on_error=lambda error: self.get_logger().error(
+                    f"continuous command failed: {error}"
+                ),
+            )
+            self._asr_endpoint = AsrEndpointRuntime(
+                delay_ms=self._param("asr_commit_delay_ms"),
+                blocked=lambda: self._is_busy()
+                and not self._continuous_enabled,
+                commit=lambda: self._enqueue_asr(("commit", None), preserve=True),
+                on_endpoint=self._on_asr_endpoint,
+                on_commit=self._events.publish_asr_commit,
+                on_duplicate=lambda source: self.get_logger().debug(
+                    f"ignored duplicate ASR commit from {source}"
+                ),
+                on_error=lambda error: self.get_logger().error(
+                    f"ASR endpoint commit failed: {error}"
+                ),
+            )
+            self.get_logger().info("offline agent configured")
+            return TransitionCallbackReturn.SUCCESS
+        except Exception as exc:
+            self.get_logger().error(f"offline agent configure failed: {exc}")
+            self._release_resources()
+            return TransitionCallbackReturn.FAILURE
+
+    def on_activate(self, state: State) -> TransitionCallbackReturn:
+        if self._execution is None or self._asr_endpoint is None or self._asr is None:
+            self.get_logger().error("offline agent activate requested before configure")
+            return TransitionCallbackReturn.FAILURE
+        result = super().on_activate(state)
+        if result != TransitionCallbackReturn.SUCCESS:
+            return result
+        try:
+            self._lifecycle_active = True
+            if self._param("microphone_enabled"):
+                self._drain_asr_events()
+                if hasattr(self._asr, "reset"):
+                    self._asr.reset()
+                self._asr.start(self._on_asr_partial, self._on_asr_final)
+                self._asr_thread = threading.Thread(
+                    target=self._run_asr, daemon=True
+                )
+                self._asr_thread.start()
+            if not self._execution.start():
+                raise RuntimeError("previous Agent turn did not quiesce")
+            self._publish_state("listening")
+            self._events.publish_ready(
+                f"provider_mode={self._mode};"
+                f"microphone={self._param('microphone_enabled')}"
+            )
+            self.get_logger().info(
+                f"offline agent active: mode={self._mode}, "
+                f"microphone={self._param('microphone_enabled')}"
+            )
+            return TransitionCallbackReturn.SUCCESS
+        except Exception as exc:
+            self.get_logger().error(f"offline agent activate failed: {exc}")
+            self.on_deactivate(state)
+            return TransitionCallbackReturn.FAILURE
+
+    def on_deactivate(self, state: State) -> TransitionCallbackReturn:
+        self._lifecycle_active = False
+        if self._asr_endpoint is not None:
+            self._asr_endpoint.cancel_pending()
+        self._action_sequencer.cancel("lifecycle_deactivated")
+        self._control.command_queue.clear()
+        self._events.publish_session_event(
+            self._control.reset_session("lifecycle")
+        )
+        self._publish_actions([ActionCommand("stop", {}, priority=True)])
+        asr_quiesced = self._stop_asr_worker()
+        execution_quiesced = self._execution is None or self._execution.stop(
+            self._param("agent_deactivate_timeout_s")
+        )
+        if not asr_quiesced or not execution_quiesced:
+            self._publish_state("deactivate_timeout")
+            self._events.publish_stopped("deactivate_timeout")
+            self.get_logger().error("offline agent deactivate timed out")
+            return TransitionCallbackReturn.FAILURE
+        self._publish_state("inactive")
+        self._events.publish_stopped("lifecycle_inactive")
+        result = super().on_deactivate(state)
+        self.get_logger().info("offline agent inactive")
+        return result
+
+    def on_cleanup(self, _state: State) -> TransitionCallbackReturn:
+        self._lifecycle_active = False
+        if not self._release_resources():
+            return TransitionCallbackReturn.FAILURE
+        self.get_logger().info("offline agent cleaned up")
+        return super().on_cleanup(_state)
+
+    def on_shutdown(self, _state: State) -> TransitionCallbackReturn:
+        self.shutdown()
+        return super().on_shutdown(_state)
+
+    def on_error(self, state: State) -> TransitionCallbackReturn:
+        self._lifecycle_active = False
+        self._release_resources()
+        self.get_logger().error("offline agent recovered to unconfigured after error")
+        return super().on_error(state)
+
+    def autostart_if_enabled(self) -> None:
+        if not self._param("agent_lifecycle_autostart"):
+            return
+        if self.trigger_configure() != TransitionCallbackReturn.SUCCESS:
+            raise RuntimeError("offline agent lifecycle configure failed")
+        if self.trigger_activate() != TransitionCallbackReturn.SUCCESS:
+            raise RuntimeError("offline agent lifecycle activate failed")
+
+    def _stop_asr_worker(self) -> bool:
+        if self._asr_thread is None:
+            return True
+        self._enqueue_asr(("stop", None), preserve=True)
+        self._asr_thread.join(
+            timeout=float(self._param("agent_deactivate_timeout_s"))
+        )
+        stopped = not self._asr_thread.is_alive()
+        if stopped:
             self._asr_thread = None
-        self._execution.start()
-        self._publish_state("listening")
-        self._events.publish_ready(
-            f"provider_mode={self._mode};microphone={self._param('microphone_enabled')}"
+            self._drain_asr_events()
+        return stopped
+
+    def _drain_asr_events(self) -> None:
+        while True:
+            try:
+                self._asr_events.get_nowait()
+                self._asr_events.task_done()
+            except queue.Empty:
+                return
+
+    def _release_resources(self) -> bool:
+        if self._asr_endpoint is not None:
+            self._asr_endpoint.close()
+            self._asr_endpoint = None
+        execution_quiesced = self._execution is None or self._execution.stop(
+            self._param("agent_deactivate_timeout_s")
         )
-        self.get_logger().info(
-            f"offline agent ready: mode={self._mode}, microphone={self._param('microphone_enabled')}"
-        )
+        asr_quiesced = self._stop_asr_worker()
+        if not execution_quiesced or not asr_quiesced:
+            self.get_logger().error("offline Agent threads are still running")
+            return False
+        self._execution = None
+        if self._tts is not None and hasattr(self._tts, "close"):
+            self._tts.close()
+        self._asr = None
+        self._llm = None
+        self._tts = None
+        return True
 
     def _param(self, name):
         return self._agent_parameters.get(name)
@@ -253,7 +403,9 @@ class OfflineAgentNode(Node):
     def _warmup_runtime(self):
         """在 ready 前预热真实 system+history 前缀，避免首条语音承担 prefill。"""
         started = time.perf_counter()
-        llm_report = self._llm.warmup(self._llm_messages("只回复：就绪。"))
+        llm_report = self._llm.warmup(
+            self._llm_messages("只回复：就绪。", self._user_context.snapshot())
+        )
         tts_started = time.perf_counter()
         warmup_pcm = self._tts.synthesize("好。")
         report = {
@@ -296,26 +448,35 @@ class OfflineAgentNode(Node):
         )
 
     def _on_audio(self, message):
+        if not self._lifecycle_active or self._asr is None:
+            return
         if self._is_busy() and not self._continuous_enabled:
             return
         self._enqueue_asr(("audio", bytes(message.data)))
 
     def _on_silence(self, _message):
+        if not self._lifecycle_active:
+            return
         self._commit_asr_endpoint("silence_timeout")
 
     def _on_speech_started(self, _message):
+        if not self._lifecycle_active:
+            return
         if self._is_busy() and not self._continuous_enabled:
             return
         self._control.transcript_stabilizer.clear()
         self._publish_state("speech_detected")
 
     def _on_speech_ended(self, _message):
+        if not self._lifecycle_active:
+            return
         if not self._param("speech_endpoint_events_enabled"):
             return
         self._commit_asr_endpoint("speech_ended")
 
     def _commit_asr_endpoint(self, source):
-        self._asr_endpoint.request(source)
+        if self._asr_endpoint is not None:
+            self._asr_endpoint.request(source)
 
     def _on_asr_endpoint(self, source, delay_ms):
         # 每个 utterance 建立独立延迟对象，端点时刻是离线 E2E 的统一起点。
@@ -358,15 +519,19 @@ class OfflineAgentNode(Node):
                 self._asr_events.task_done()
 
     def _is_busy(self):
-        return self._execution.is_busy()
+        return self._execution is not None and self._execution.is_busy()
 
     def _on_asr_partial(self, text):
+        if not self._lifecycle_active:
+            return
         if self._is_busy() and not self._continuous_enabled:
             return
         self._control.transcript_stabilizer.observe_partial(text)
         self._asr_partial_pub.publish(String(data=text))
 
     def _on_asr_final(self, text):
+        if not self._lifecycle_active:
+            return
         if self._is_busy() and not self._continuous_enabled:
             self._control.transcript_stabilizer.clear()
             self.get_logger().warning(
@@ -385,6 +550,9 @@ class OfflineAgentNode(Node):
         self._accept_transcript(text)
 
     def _on_text(self, message):
+        if not self._lifecycle_active:
+            self.get_logger().debug("ignored text input while Agent is inactive")
+            return
         self._control.transcript_stabilizer.clear()
         self._latency = OfflineLatency()
         self._latency.mark_silence()
@@ -393,6 +561,8 @@ class OfflineAgentNode(Node):
         self._accept_transcript(message.data)
 
     def _on_wake_event_input(self, message):
+        if not self._lifecycle_active:
+            return
         try:
             event = wake_event_message_to_domain(message)
         except ValueError as error:
@@ -474,16 +644,15 @@ class OfflineAgentNode(Node):
         if self._continuous_enabled:
             self._enqueue_continuous_command(command)
             return
-        if not self._execution.try_begin_turn():
-            self.get_logger().warning("offline agent busy; overlapping utterance dropped")
+        if self._execution is None:
             return
         turn_latency = self._latency
         user_context = self._user_context.snapshot()
-        threading.Thread(
-            target=self._run_turn,
-            args=(command, turn_latency, user_context),
-            daemon=True,
-        ).start()
+        if not self._execution.start_background_turn(
+            self._run_turn, command, turn_latency, user_context
+        ):
+            self.get_logger().warning("offline agent busy; overlapping utterance dropped")
+            return
 
     def _handle_memory_command(self, command):
         result = self._user_context.handle_command(command)
@@ -497,16 +666,21 @@ class OfflineAgentNode(Node):
             )
         self._response_delta_pub.publish(String(data=result.response))
         self._response_pub.publish(String(data=result.response))
-        threading.Thread(
-            target=self._speak_memory_response, args=(result.response,), daemon=True
-        ).start()
+        if self._execution is not None and not self._execution.start_background_turn(
+            self._speak_memory_response, result.response
+        ):
+            self.get_logger().debug("memory response TTS skipped while Agent is busy")
         return True
 
     def _speak_memory_response(self, response):
         try:
+            self._execution.raise_if_stopping()
             self._audio_pub.publish(
                 UInt8MultiArray(data=list(self._tts.synthesize(response)))
             )
+            self._execution.raise_if_stopping()
+        except AgentExecutionCancelled:
+            raise
         except Exception as exc:
             self.get_logger().warning(f"memory response TTS failed: {exc}")
 
@@ -541,7 +715,9 @@ class OfflineAgentNode(Node):
             messages = self._llm_messages(user_text, user_context)
             latency.mark_llm_start()
             for token in self._llm.stream(messages):
+                self._execution.raise_if_stopping()
                 turn.feed(token)
+            self._execution.raise_if_stopping()
             result = turn.finish(user_text)
             if result.action_source == "blocked" and result.model_actions:
                 self.get_logger().warning(
@@ -575,15 +751,19 @@ class OfflineAgentNode(Node):
             report["tts_pipeline"] = tts_metrics.as_dict()
             self._metrics_pub.publish(String(data=json.dumps(report, ensure_ascii=False)))
             self.get_logger().info(f"offline latency: {report}")
+        except AgentExecutionCancelled:
+            tts_pipeline.abort()
+            self.get_logger().info(
+                "offline turn cancelled by lifecycle transition"
+            )
+            raise
         except Exception as exc:
             tts_pipeline.abort()
             self.get_logger().error(f"offline turn failed: {exc}")
             self._publish_state("error")
-            if self._execution.is_worker_thread():
-                raise
+            raise
         finally:
-            self._execution.finish_turn()
-            if not self._stopping:
+            if not self._stopping and self._lifecycle_active:
                 self._publish_state("listening")
 
     def _run_queued_turn(self, item):
@@ -681,6 +861,8 @@ class OfflineAgentNode(Node):
         return report
 
     def _should_wait_for_action_results(self, action_list):
+        if self._execution is None:
+            return len(action_list) > 1
         return self._execution.should_wait_for_action_results(
             len(action_list)
         )
@@ -708,13 +890,12 @@ class OfflineAgentNode(Node):
         self._events.publish_recognition(payload)
 
     def shutdown(self):
+        if self._stopping:
+            return
         self._stopping = True
-        self._asr_endpoint.close()
+        self._lifecycle_active = False
         self._action_sequencer.cancel("shutdown")
-        self._execution.stop()
-        if self._asr_thread:
-            self._enqueue_asr(("stop", None), preserve=True)
-            self._asr_thread.join(timeout=2.0)
+        self._release_resources()
 
 
 def main(args=None):
@@ -722,6 +903,7 @@ def main(args=None):
     node = None
     try:
         node = OfflineAgentNode()
+        node.autostart_if_enabled()
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass

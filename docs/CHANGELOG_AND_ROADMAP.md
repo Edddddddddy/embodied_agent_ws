@@ -61,6 +61,7 @@
 | Agent 并发运行时收敛 | 消除端点 timer、busy/worker 和多命令 NLU 入队的双份状态机 | 新增 `AsrEndpointRuntime`、`AgentExecutionRuntime` 和 `CommandEnqueueDecision`；统一异常隔离、busy 复位、batch metadata 与关闭时 timer/cancel 语义 |
 | LLM 流式协议收敛 | 消除 online/offline 的 token parser、TTS 分句与动作选择双份实现 | 新增 `StreamingTurnRuntime/Result`；统一格式错误回退、确定性动作优先级、语义安全阻断和记忆动作口径，provider 仅保留 TTS/latency adapter |
 | 用户上下文一致性收敛 | 消除身份、画像 prompt、偏好和低置信度写保护的双份节点逻辑，并修复异步声纹切换竞态 | 新增 `UserContextRuntime/Snapshot`；命令入队时冻结身份/偏好，prompt、动作与 interaction 共用同一快照；预解析动作恢复归入 `AgentControlPlane` |
+| Agent Lifecycle 资源治理 | 让 online/offline 的生命周期状态对应真实 provider、线程和 publisher，而非只保留进程级启停 | 两个 Agent 升级为 `LifecycleNode`；configure/activate/deactivate/cleanup/on_error 统一资源边界，managed publisher、协作取消、安全 STOP、STOPPED health、manager 依赖顺序和 cleanup 后重建均有自动验收 |
 
 ## 2. 当前完成度结论
 

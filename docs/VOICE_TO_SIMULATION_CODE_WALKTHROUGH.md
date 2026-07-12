@@ -77,6 +77,8 @@ flowchart LR
 
 - 在线/离线 Agent 通过 `AgentControlPlane.accept_transcript()` 复用同一套归一化、
   会话、补全、重试和优先控制决策；差异集中在 provider、延迟统计和 TTS pipeline。
+- 两个 Agent 都是 `LifecycleNode`：只有 ACTIVE 才接受语音/文本；deactivate 会先发布
+  priority STOP，再取消流式 turn 和 worker，避免“节点显示 inactive 但机器人仍在执行”。
 - 声纹身份先进入 `UserContextRuntime`；命令开始处理时冻结 `UserContextSnapshot`，随后
   system prompt、动作偏好与交互记忆共享同一身份快照，避免异步声纹更新造成用户串写。
 - ASR final 不直接进入 LLM，而是先经过连续语音会话层，避免 filler、重复 final、未唤醒文本误触发。

@@ -156,6 +156,35 @@
 SystemReadiness 则回答“当前 launch profile 的必需组件是否全部可用”。三者互补；麦克风 RMS、
 Gazebo odom/scan 等数据质量探针仍单独保留，避免把“进程活着”误当成功能可用。
 
+### Agent Lifecycle：状态必须对应真实资源
+
+关键代码：
+
+- `src/embodied_online_agent/embodied_online_agent/online_agent_node.py`
+- `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py`
+- `src/embodied_online_agent/embodied_online_agent/agent_execution_runtime.py`
+- `src/embodied_online_agent/embodied_online_agent/asr_endpoint_runtime.py`
+- `scripts/smoke_test_agent_lifecycle.sh`
+- `tests/integration/test_agent_lifecycle.py`
+
+生命周期映射为：`configure` 创建/预热 ASR、LLM、TTS 和运行时；`activate` 激活 managed
+publisher 并启动 ASR/命令 worker；`deactivate` 关闭输入门、取消 endpoint timer、清队列、
+发布 priority STOP，再协作取消模型流和等待线程；`cleanup` 关闭连接并释放 provider。
+`AgentExecutionRuntime` 统一拥有连续 worker 和非连续 turn 线程，停用时通过取消标志让 token
+循环尽快退出；若线程未在超时内静默，transition 明确失败，不会悄悄启动第二套 worker。
+
+launch manager 的顺序是 `ActionGuard → Agent`：启动时下游安全边界先就绪，停用时按逆序让
+Agent 先停车、Guard 后退出。独立 `ros2 run` 使用内部 autostart 保持调试便利；组合 launch
+关闭内部 autostart，防止 manager 与节点同时触发 transition。deactivate 还会在 lifecycle
+publisher 关闭前发布 `ComponentHealth.STATE_STOPPED`，覆盖 transient-local 的旧 READY 缓存。
+
+方案对比：
+
+- 只增加 lifecycle service、资源仍在构造函数启动：状态可查询，但无法安全停用或重建。
+- 每次 deactivate 都销毁模型：语义简单，但重激活延迟大。
+- 当前方案：模型在 configure/cleanup 间持有，I/O 在线程在 activate/deactivate 间运行；
+  兼顾资源语义、快速重激活和异常恢复。
+
 ### 参数 schema 与 launch profile：为什么配置也是接口
 
 关键代码：

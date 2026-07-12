@@ -170,6 +170,13 @@ class AgentControlPlane:
         self._nlu_batch_sequence += 1
         return f"{self.source}-nlu-{self._nlu_batch_sequence}"
 
+    def reset_session(self, provider: str = "lifecycle"):
+        """停用边界清除唤醒、重复命令、partial 和重试状态。"""
+
+        self.retry_tracker.succeeded()
+        self.transcript_stabilizer.clear()
+        return self.voice_session.external_sleep(provider)
+
     @staticmethod
     def preparsed_actions(context: object) -> tuple[ActionCommand, ...]:
         """从私有队列上下文恢复强类型动作，节点不再解析 NLU 内部表示。"""

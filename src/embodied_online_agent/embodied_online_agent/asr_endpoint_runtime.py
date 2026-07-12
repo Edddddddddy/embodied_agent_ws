@@ -41,6 +41,7 @@ class AsrEndpointRuntime:
         self._lock = threading.Lock()
         self._last_request_at = float("-inf")
         self._closed = False
+        self._generation = 0
         self._timers: set[object] = set()
 
     def request(self, source: str) -> bool:
@@ -56,15 +57,16 @@ class AsrEndpointRuntime:
                 self._on_duplicate(source)
                 return False
             self._last_request_at = now
+            generation = self._generation
 
         self._on_endpoint(source, self._delay_ms)
         if self._delay_ms <= 0:
-            return self._perform_commit(source)
+            return self._perform_commit(source, generation)
 
         timer = self._timer_factory(
             self._delay_ms / 1000.0,
             self._timer_fired,
-            args=(source,),
+            args=(source, generation),
         )
         timer.daemon = True
         with self._lock:
@@ -74,17 +76,17 @@ class AsrEndpointRuntime:
         timer.start()
         return True
 
-    def _timer_fired(self, source: str) -> None:
+    def _timer_fired(self, source: str, generation: int) -> None:
         try:
-            self._perform_commit(source)
+            self._perform_commit(source, generation)
         finally:
             current = threading.current_thread()
             with self._lock:
                 self._timers.discard(current)
 
-    def _perform_commit(self, source: str) -> bool:
+    def _perform_commit(self, source: str, generation: int) -> bool:
         with self._lock:
-            if self._closed:
+            if self._closed or generation != self._generation:
                 return False
         if self._blocked():
             return False
@@ -102,6 +104,20 @@ class AsrEndpointRuntime:
 
         with self._lock:
             self._closed = True
+            self._generation += 1
+            timers = tuple(self._timers)
+            self._timers.clear()
+        for timer in timers:
+            timer.cancel()
+
+    def cancel_pending(self) -> None:
+        """Lifecycle 停用时取消本代 endpoint，但允许后续重新 activate。"""
+
+        with self._lock:
+            if self._closed:
+                return
+            self._generation += 1
+            self._last_request_at = float("-inf")
             timers = tuple(self._timers)
             self._timers.clear()
         for timer in timers:

@@ -8,11 +8,11 @@ from embodied_online_agent.agent_control_plane import (
 from embodied_online_agent.agent_execution_runtime import AgentExecutionRuntime
 
 
-def _control() -> AgentControlPlane:
+def _control(*, continuous: bool = True) -> AgentControlPlane:
     return AgentControlPlane(
         AgentControlPlaneConfig(
             source="test",
-            continuous_enabled=True,
+            continuous_enabled=continuous,
             queue_size=4,
             command_max_age_s=30.0,
             wake_words=["小智"],
@@ -73,7 +73,7 @@ def test_worker_isolates_one_failure_and_resets_busy_after_preparsed_turn():
 
 
 def test_non_continuous_turn_gate_is_atomic_and_multi_action_always_waits():
-    control = _control()
+    control = _control(continuous=False)
     runtime = AgentExecutionRuntime(
         control,
         execute_item=lambda _item: None,
@@ -88,3 +88,99 @@ def test_non_continuous_turn_gate_is_atomic_and_multi_action_always_waits():
     runtime.finish_turn()
     assert runtime.try_begin_turn() is True
     runtime.finish_turn()
+
+
+def test_background_turn_is_owned_cancelled_and_restartable():
+    control = _control(continuous=False)
+    entered = threading.Event()
+    cancelled = threading.Event()
+    errors = []
+
+    def execute():
+        entered.set()
+        try:
+            while True:
+                runtime.raise_if_stopping()
+                time.sleep(0.005)
+        finally:
+            cancelled.set()
+
+    runtime = AgentExecutionRuntime(
+        control,
+        execute_item=lambda _item: None,
+        publish_execution=lambda _event: None,
+        publish_queue=lambda _event: None,
+        on_error=errors.append,
+    )
+    assert runtime.start() is True
+    assert runtime.start_background_turn(execute) is True
+    assert entered.wait(timeout=1.0)
+
+    assert runtime.stop(timeout_s=1.0) is True
+    assert cancelled.is_set()
+    assert runtime.is_busy() is False
+    assert errors == []
+
+    completed = threading.Event()
+    assert runtime.start() is True
+    assert runtime.start_background_turn(completed.set) is True
+    assert completed.wait(timeout=1.0)
+    deadline = time.monotonic() + 1.0
+    while runtime.is_busy() and time.monotonic() < deadline:
+        time.sleep(0.005)
+    assert runtime.is_busy() is False
+    assert runtime.stop() is True
+
+
+def test_stop_reports_non_cooperative_turn_instead_of_starting_a_second_owner():
+    control = _control(continuous=False)
+    release = threading.Event()
+    entered = threading.Event()
+    runtime = AgentExecutionRuntime(
+        control,
+        execute_item=lambda _item: None,
+        publish_execution=lambda _event: None,
+        publish_queue=lambda _event: None,
+        on_error=lambda _error: None,
+    )
+    runtime.start()
+
+    def execute():
+        entered.set()
+        release.wait(timeout=1.0)
+
+    assert runtime.start_background_turn(execute) is True
+    assert entered.wait(timeout=1.0)
+    assert runtime.stop(timeout_s=0.01) is False
+    assert runtime.start() is False
+    release.set()
+    assert runtime.stop(timeout_s=1.0) is True
+
+
+def test_continuous_worker_waits_for_managed_background_turn():
+    control = _control(continuous=True)
+    background_entered = threading.Event()
+    release_background = threading.Event()
+    command_executed = threading.Event()
+    runtime = AgentExecutionRuntime(
+        control,
+        execute_item=lambda _item: command_executed.set(),
+        publish_execution=lambda _event: None,
+        publish_queue=lambda _event: None,
+        on_error=lambda _error: None,
+    )
+    runtime.start()
+
+    def background():
+        background_entered.set()
+        release_background.wait(timeout=1.0)
+
+    assert runtime.start_background_turn(background) is True
+    assert background_entered.wait(timeout=1.0)
+    control.command_queue.put("queued-after-memory-response")
+    time.sleep(0.05)
+    assert command_executed.is_set() is False
+
+    release_background.set()
+    assert command_executed.wait(timeout=1.0)
+    assert runtime.stop() is True

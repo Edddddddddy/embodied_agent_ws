@@ -162,6 +162,11 @@ sequenceDiagram
   专属参数分组声明，启动时校验范围/枚举/跨字段约束，并生成只读参数快照。
 - `agent_launch_contract.py` 只暴露部署时常用的控制参数；Gazebo/Nav2 上层 launch
   复用同一转发表，模型路径等仍由各自 YAML profile 管理。
+- online/offline Agent 使用真正的 `LifecycleNode` 和 lifecycle publisher：configure 创建
+  provider，activate 启动 ASR/队列线程，deactivate 先发布 STOP/STOPPED health 再停线程，
+  cleanup 释放连接与模型对象。launch manager 按 `ActionGuard → Agent` 激活、逆序停用。
+- 独立 `ros2 run` 默认 `agent_lifecycle_autostart=true`；组合 launch 显式关闭内部自启动，
+  由唯一 manager 管理，避免双重 transition 竞态。
 
 配置覆盖顺序固定为：节点 schema 默认值 → provider YAML → launch 显式覆盖。YAML 只
 保存在线或离线模型相关配置，不再复制队列、会话、记忆等公共默认值；参数不支持运行时

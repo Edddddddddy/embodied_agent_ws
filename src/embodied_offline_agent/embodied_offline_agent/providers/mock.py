@@ -26,6 +26,9 @@ class MockOfflineAsr:
             self._final(self._scripted_finals.pop(0))
         return None
 
+    def reset(self):
+        return None
+
 
 class MockOfflineLlm:
     def __init__(self, token_delay_s: float = 0.0):

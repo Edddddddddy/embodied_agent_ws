@@ -190,3 +190,17 @@ def test_preparsed_actions_are_restored_only_from_valid_mapping_context():
     assert actions[0].request_id == "command-1"
     assert actions[0].priority is True
     assert control.preparsed_actions(None) == ()
+
+
+def test_lifecycle_reset_closes_session_and_forgets_duplicate_state():
+    control = AgentControlPlane(_config())
+    control.accept_transcript("小智", wake_word_required=True)
+    accepted = control.accept_transcript("向前走一秒", wake_word_required=True)
+    assert accepted.directive == "command"
+
+    event = control.reset_session()
+
+    assert event.session_state == "sleeping"
+    rejected = control.accept_transcript("向前走一秒", wake_word_required=True)
+    assert rejected.directive == "retry"
+    assert rejected.recognition_feedback[-1]["reason"] == "wake_word_not_detected"

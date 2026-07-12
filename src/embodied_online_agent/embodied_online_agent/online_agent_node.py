@@ -13,7 +13,7 @@ from embodied_agent_interfaces.msg import (
     SpeakerIdentity as SpeakerIdentityMessage,
     WakeEvent as WakeEventMessage,
 )
-from rclpy.node import Node
+from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Empty, String, UInt8MultiArray
 
@@ -24,7 +24,10 @@ from .agent_control_plane import (
     AgentControlPlane,
     AgentControlPlaneConfig,
 )
-from .agent_execution_runtime import AgentExecutionRuntime
+from .agent_execution_runtime import (
+    AgentExecutionCancelled,
+    AgentExecutionRuntime,
+)
 from .agent_parameters import declare_agent_parameters
 from .asr_endpoint_runtime import AsrEndpointRuntime
 from .continuous_voice import QueueSnapshot
@@ -43,7 +46,7 @@ from .providers.qwen_asr import QwenRealtimeAsr
 from .providers.qwen_tts import QwenRealtimeTts
 
 
-class OnlineAgentNode(Node):
+class OnlineAgentNode(LifecycleNode):
     def __init__(self):
         super().__init__("online_agent")
         # 参数在连接云端 provider 前完成声明和校验，避免错误配置到运行中才暴露。
@@ -51,6 +54,7 @@ class OnlineAgentNode(Node):
         self._agent_parameters = declare_agent_parameters(self, "online")
         self.mode = self._param("mode")
         self._stopping = False
+        self._lifecycle_active = False
         self._continuous_enabled = bool(self._param("continuous_control_enabled"))
         self.metrics = LatencyTracker()
         self._control = AgentControlPlane(
@@ -75,18 +79,30 @@ class OnlineAgentNode(Node):
         )
         self.system_prompt = self._load_system_prompt()
 
-        self.asr_partial_pub = self.create_publisher(String, "/agent/asr_partial", 10)
-        self.asr_final_pub = self.create_publisher(String, "/agent/asr_final", 10)
-        self.response_pub = self.create_publisher(String, "/agent/response_text", 10)
-        self.response_delta_pub = self.create_publisher(String, "/agent/response_delta", 10)
-        self.action_candidate_pub = self.create_publisher(
+        self.asr_partial_pub = self.create_lifecycle_publisher(
+            String, "/agent/asr_partial", 10
+        )
+        self.asr_final_pub = self.create_lifecycle_publisher(
+            String, "/agent/asr_final", 10
+        )
+        self.response_pub = self.create_lifecycle_publisher(
+            String, "/agent/response_text", 10
+        )
+        self.response_delta_pub = self.create_lifecycle_publisher(
+            String, "/agent/response_delta", 10
+        )
+        self.action_candidate_pub = self.create_lifecycle_publisher(
             RobotCommand, "/agent/action_candidate", 10
         )
-        self._events = RosAgentEventPublisher(self)
-        self.speaker_enroll_request_pub = self.create_publisher(
+        self._events = RosAgentEventPublisher(
+            self, publisher_factory=self.create_lifecycle_publisher
+        )
+        self.speaker_enroll_request_pub = self.create_lifecycle_publisher(
             SpeakerEnrollRequestMessage, "/agent/speaker_enroll_request", 10
         )
-        self.metrics_pub = self.create_publisher(String, "/agent/metrics", 10)
+        self.metrics_pub = self.create_lifecycle_publisher(
+            String, "/agent/metrics", 10
+        )
         self.create_subscription(String, "/agent/text_input", self._on_text_input, 10)
         if self._param("external_wake_event_enabled"):
             self.create_subscription(
@@ -110,44 +126,18 @@ class OnlineAgentNode(Node):
             depth=20,
             reliability=ReliabilityPolicy.BEST_EFFORT,
         )
-        self.tts_audio_pub = self.create_publisher(
+        self.tts_audio_pub = self.create_lifecycle_publisher(
             UInt8MultiArray, "/audio/tts_pcm", audio_qos
         )
-        self.asr, self.llm, self.tts = self._create_providers()
-        if self.mode == "online" and self._param("online_warmup_enabled"):
-            if hasattr(self.tts, "connect"):
-                self.tts.connect()
-            if hasattr(self.llm, "warmup"):
-                self.llm.warmup()
-        self._execution = AgentExecutionRuntime(
-            self._control,
-            execute_item=self._run_queued_turn,
-            publish_execution=self._events.publish_execution,
-            publish_queue=self._events.publish_queue,
-            on_error=lambda error: self.get_logger().error(
-                f"continuous command failed: {error}"
-            ),
-            before_execute=lambda _item: self._prepare_queued_turn(),
-        )
-        self._asr_endpoint = AsrEndpointRuntime(
-            delay_ms=self._param("asr_commit_delay_ms"),
-            blocked=lambda: self._execution.is_busy()
-            and not self._continuous_enabled,
-            commit=self.asr.commit,
-            on_endpoint=self._events.publish_asr_endpoint,
-            on_commit=self._events.publish_asr_commit,
-            on_duplicate=lambda source: self.get_logger().debug(
-                f"ignored duplicate ASR commit from {source}"
-            ),
-            on_error=lambda error: self.get_logger().error(
-                f"ASR endpoint commit failed: {error}"
-            ),
-        )
+        self.asr = None
+        self.llm = None
+        self.tts = None
+        self._execution = None
+        self._asr_endpoint = None
         self.audio_subscription = None
         self.silence_subscription = None
 
         if self._param("microphone_enabled"):
-            self.asr.start(self._on_asr_partial, self._on_asr_final)
             self.audio_subscription = self.create_subscription(
                 UInt8MultiArray,
                 "/audio/clean_pcm",
@@ -172,15 +162,150 @@ class OnlineAgentNode(Node):
                 self._on_speech_ended,
                 10,
             )
+    def on_configure(self, _state: State) -> TransitionCallbackReturn:
+        """创建 provider 和并发运行时；失败时节点保持 unconfigured。"""
 
-        self._execution.start()
-        self._publish_state("listening")
-        self._events.publish_ready(
-            f"provider_mode={self.mode};microphone={self._param('microphone_enabled')}"
+        managed = super().on_configure(_state)
+        if managed != TransitionCallbackReturn.SUCCESS:
+            return managed
+        try:
+            self.asr, self.llm, self.tts = self._create_providers()
+            if self.mode == "online" and self._param("online_warmup_enabled"):
+                if hasattr(self.tts, "connect"):
+                    self.tts.connect()
+                if hasattr(self.llm, "warmup"):
+                    self.llm.warmup()
+            self._execution = AgentExecutionRuntime(
+                self._control,
+                execute_item=self._run_queued_turn,
+                publish_execution=self._events.publish_execution,
+                publish_queue=self._events.publish_queue,
+                on_error=lambda error: self.get_logger().error(
+                    f"continuous command failed: {error}"
+                ),
+                before_execute=lambda _item: self._prepare_queued_turn(),
+            )
+            self._asr_endpoint = AsrEndpointRuntime(
+                delay_ms=self._param("asr_commit_delay_ms"),
+                blocked=lambda: self._is_busy()
+                and not self._continuous_enabled,
+                commit=self.asr.commit,
+                on_endpoint=self._events.publish_asr_endpoint,
+                on_commit=self._events.publish_asr_commit,
+                on_duplicate=lambda source: self.get_logger().debug(
+                    f"ignored duplicate ASR commit from {source}"
+                ),
+                on_error=lambda error: self.get_logger().error(
+                    f"ASR endpoint commit failed: {error}"
+                ),
+            )
+            self.get_logger().info("online agent configured")
+            return TransitionCallbackReturn.SUCCESS
+        except Exception as exc:
+            self.get_logger().error(f"online agent configure failed: {exc}")
+            self._release_resources()
+            return TransitionCallbackReturn.FAILURE
+
+    def on_activate(self, state: State) -> TransitionCallbackReturn:
+        if self._execution is None or self._asr_endpoint is None or self.asr is None:
+            self.get_logger().error("online agent activate requested before configure")
+            return TransitionCallbackReturn.FAILURE
+        result = super().on_activate(state)
+        if result != TransitionCallbackReturn.SUCCESS:
+            return result
+        try:
+            self._lifecycle_active = True
+            if self._param("microphone_enabled"):
+                self.asr.start(self._on_asr_partial, self._on_asr_final)
+            if not self._execution.start():
+                raise RuntimeError("previous Agent turn did not quiesce")
+            self._publish_state("listening")
+            self._events.publish_ready(
+                f"provider_mode={self.mode};"
+                f"microphone={self._param('microphone_enabled')}"
+            )
+            self.get_logger().info(
+                f"online agent active: mode={self.mode}, "
+                f"microphone={self._param('microphone_enabled')}"
+            )
+            return TransitionCallbackReturn.SUCCESS
+        except Exception as exc:
+            self.get_logger().error(f"online agent activate failed: {exc}")
+            self.on_deactivate(state)
+            return TransitionCallbackReturn.FAILURE
+
+    def on_deactivate(self, state: State) -> TransitionCallbackReturn:
+        self._lifecycle_active = False
+        if self._asr_endpoint is not None:
+            self._asr_endpoint.cancel_pending()
+        self.action_sequencer.cancel("lifecycle_deactivated")
+        self._control.command_queue.clear()
+        self._events.publish_session_event(
+            self._control.reset_session("lifecycle")
         )
-        self.get_logger().info(
-            f"online agent ready: mode={self.mode}, microphone={self._param('microphone_enabled')}"
+        # publisher 仍处于 active 时先发安全 STOP，再停 provider 和工作线程。
+        self._publish_actions([ActionCommand("stop", {}, priority=True)])
+        if self.asr is not None:
+            self.asr.stop()
+        quiesced = self._execution is None or self._execution.stop(
+            self._param("agent_deactivate_timeout_s")
         )
+        if not quiesced:
+            self._publish_state("deactivate_timeout")
+            self._events.publish_stopped("deactivate_timeout")
+            self.get_logger().error("online agent deactivate timed out")
+            return TransitionCallbackReturn.FAILURE
+        self._publish_state("inactive")
+        self._events.publish_stopped("lifecycle_inactive")
+        result = super().on_deactivate(state)
+        self.get_logger().info("online agent inactive")
+        return result
+
+    def on_cleanup(self, _state: State) -> TransitionCallbackReturn:
+        self._lifecycle_active = False
+        if not self._release_resources():
+            return TransitionCallbackReturn.FAILURE
+        self.get_logger().info("online agent cleaned up")
+        return super().on_cleanup(_state)
+
+    def on_shutdown(self, _state: State) -> TransitionCallbackReturn:
+        self.shutdown()
+        return super().on_shutdown(_state)
+
+    def on_error(self, state: State) -> TransitionCallbackReturn:
+        self._lifecycle_active = False
+        self._release_resources()
+        self.get_logger().error("online agent recovered to unconfigured after error")
+        return super().on_error(state)
+
+    def autostart_if_enabled(self) -> None:
+        """保留 ros2 run 的易用性；组合 launch 则交给 lifecycle manager。"""
+
+        if not self._param("agent_lifecycle_autostart"):
+            return
+        if self.trigger_configure() != TransitionCallbackReturn.SUCCESS:
+            raise RuntimeError("online agent lifecycle configure failed")
+        if self.trigger_activate() != TransitionCallbackReturn.SUCCESS:
+            raise RuntimeError("online agent lifecycle activate failed")
+
+    def _release_resources(self) -> bool:
+        if self._asr_endpoint is not None:
+            self._asr_endpoint.close()
+            self._asr_endpoint = None
+        if self.asr is not None:
+            self.asr.stop()
+        if self._execution is not None and not self._execution.stop(
+            self._param("agent_deactivate_timeout_s")
+        ):
+            self.get_logger().error("online Agent threads are still running")
+            return False
+        self._execution = None
+        self.asr = None
+        if self.tts is not None:
+            self.tts.close()
+            self.tts = None
+        self.llm = None
+        return True
 
     def _param(self, name):
         return self._agent_parameters.get(name)
@@ -244,20 +369,28 @@ class OnlineAgentNode(Node):
         return ["" if item.strip() in {"", "-"} else item.strip() for item in scripted.split("|")]
 
     def _on_asr_partial(self, text: str):
+        if not self._lifecycle_active:
+            return
         if self._is_busy() and not self._continuous_enabled:
             return
         self._control.transcript_stabilizer.observe_partial(text)
         self.asr_partial_pub.publish(String(data=text))
 
     def _on_clean_audio(self, message: UInt8MultiArray):
+        if not self._lifecycle_active or self.asr is None:
+            return
         if self._is_busy() and not self._continuous_enabled:
             return
         self.asr.push_audio(bytes(message.data))
 
     def _on_silence_timeout(self, _message: Empty):
+        if not self._lifecycle_active:
+            return
         self._commit_asr_endpoint("silence_timeout")
 
     def _on_speech_started(self, _message: Empty):
+        if not self._lifecycle_active:
+            return
         if self._is_busy() and not self._continuous_enabled:
             return
         # speech_started 是 utterance 边界，先清掉异常遗留的上一句 partial。
@@ -265,17 +398,22 @@ class OnlineAgentNode(Node):
         self._publish_state("speech_detected")
 
     def _on_speech_ended(self, _message: Empty):
+        if not self._lifecycle_active:
+            return
         if not self._param("speech_endpoint_events_enabled"):
             return
         self._commit_asr_endpoint("speech_ended")
 
     def _commit_asr_endpoint(self, source: str):
-        self._asr_endpoint.request(source)
+        if self._asr_endpoint is not None:
+            self._asr_endpoint.request(source)
 
     def _is_busy(self):
-        return self._execution.is_busy()
+        return self._execution is not None and self._execution.is_busy()
 
     def _on_asr_final(self, text: str):
+        if not self._lifecycle_active:
+            return
         if self._is_busy() and not self._continuous_enabled:
             self._control.transcript_stabilizer.clear()
             self.get_logger().warning("agent is busy; suppressing overlapping ASR final")
@@ -291,11 +429,16 @@ class OnlineAgentNode(Node):
         self._accept_transcript(text)
 
     def _on_text_input(self, message: String):
+        if not self._lifecycle_active:
+            self.get_logger().debug("ignored text input while Agent is inactive")
+            return
         self._control.transcript_stabilizer.clear()
         self.asr_final_pub.publish(String(data=message.data))
         self._accept_transcript(message.data)
 
     def _on_wake_event_input(self, message: WakeEventMessage):
+        if not self._lifecycle_active:
+            return
         try:
             event = wake_event_message_to_domain(message)
         except ValueError as error:
@@ -380,17 +523,14 @@ class OnlineAgentNode(Node):
         if self._continuous_enabled:
             self._enqueue_continuous_command(command)
             return
-        if not self._execution.try_begin_turn():
+        if self._execution is None:
+            return
+        user_context = self._user_context.snapshot()
+        if not self._execution.start_background_turn(
+            self._run_direct_turn, command, user_context
+        ):
             self.get_logger().warning("agent is busy; dropping overlapping utterance")
             return
-        self.metrics.reset()
-        self.metrics.mark_asr_final()
-        user_context = self._user_context.snapshot()
-        threading.Thread(
-            target=self._run_turn,
-            args=(command, user_context),
-            daemon=True,
-        ).start()
 
     def _handle_memory_command(self, command: str) -> bool:
         result = self._user_context.handle_command(command)
@@ -404,20 +544,31 @@ class OnlineAgentNode(Node):
             )
         self.response_delta_pub.publish(String(data=result.response))
         self.response_pub.publish(String(data=result.response))
-        threading.Thread(
-            target=self._speak_memory_response, args=(result.response,), daemon=True
-        ).start()
+        if self._execution is not None and not self._execution.start_background_turn(
+            self._speak_memory_response, result.response
+        ):
+            self.get_logger().debug("memory response TTS skipped while Agent is busy")
         return True
 
     def _speak_memory_response(self, response: str) -> None:
         try:
+            self._execution.raise_if_stopping()
             self.tts.synthesize([response], self._on_tts_audio)
+            self._execution.raise_if_stopping()
+        except AgentExecutionCancelled:
+            raise
         except Exception as exc:
             self.get_logger().warning(f"memory response TTS failed: {exc}")
 
     def _prepare_queued_turn(self):
         self.metrics.reset()
         self.metrics.mark_asr_final()
+
+    def _run_direct_turn(
+        self, user_text: str, user_context: UserContextSnapshot
+    ) -> None:
+        self._prepare_queued_turn()
+        self._run_turn(user_text, user_context)
 
     def _run_turn(self, user_text: str, user_context: UserContextSnapshot):
         self._publish_state("thinking")
@@ -466,8 +617,10 @@ class OnlineAgentNode(Node):
             )
             self.metrics.mark_llm_requested()
             for token in self.llm.stream(messages):
+                self._execution.raise_if_stopping()
                 turn.feed(token)
 
+            self._execution.raise_if_stopping()
             result = turn.finish(user_text)
             if result.action_source == "blocked" and result.model_actions:
                 self.get_logger().warning("model actions blocked by semantic safety policy")
@@ -495,17 +648,20 @@ class OnlineAgentNode(Node):
                 success=not action_report.failed,
             )
             self._publish_metrics()
+        except AgentExecutionCancelled:
+            text_queue.put(None)
+            tts_thread.join(timeout=2.0)
+            self.get_logger().info("agent turn cancelled by lifecycle transition")
+            raise
         except Exception as exc:
             text_queue.put(None)
+            tts_thread.join(timeout=2.0)
             self.get_logger().error(f"agent turn failed: {exc}")
             self._publish_state("error")
-            # 连续 worker 需要拿到异常，才能发布 success=false 并继续处理下一条；
-            # 非连续模式仍在独立 turn 线程内消费异常，避免无意义的线程 traceback。
-            if self._execution.is_worker_thread():
-                raise
+            # worker 与非连续 turn 都由 AgentExecutionRuntime 拥有，异常统一交回运行时收口。
+            raise
         finally:
-            self._execution.finish_turn()
-            if not self._stopping:
+            if not self._stopping and self._lifecycle_active:
                 self._publish_state("listening")
 
     def _run_queued_turn(self, item):
@@ -589,6 +745,8 @@ class OnlineAgentNode(Node):
         return report
 
     def _should_wait_for_action_results(self, action_list):
+        if self._execution is None:
+            return len(action_list) > 1
         return self._execution.should_wait_for_action_results(
             len(action_list)
         )
@@ -633,12 +791,12 @@ class OnlineAgentNode(Node):
         self._events.publish_recognition(payload)
 
     def shutdown(self):
+        if self._stopping:
+            return
         self._stopping = True
-        self._asr_endpoint.close()
+        self._lifecycle_active = False
         self.action_sequencer.cancel("shutdown")
-        self._execution.stop()
-        self.asr.stop()
-        self.tts.close()
+        self._release_resources()
 
 
 def main(args=None):
@@ -646,6 +804,7 @@ def main(args=None):
     node = None
     try:
         node = OnlineAgentNode()
+        node.autostart_if_enabled()
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass

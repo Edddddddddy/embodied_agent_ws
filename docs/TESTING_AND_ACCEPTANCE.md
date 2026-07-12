@@ -29,6 +29,7 @@ bash scripts/acceptance_test.sh --help
 | 模式 | 类型 | 说明 |
 | --- | --- | --- |
 | `mock` | 自动 | 构建、单测、无模型 ROS smoke 主链路 |
+| `agent-lifecycle` | 自动/ROS2 | 在线/离线 Agent 的未激活门控、流式 turn 取消、安全 STOP、重复激活与 cleanup 后重建 |
 | `online` | 自动/联网 | DashScope 在线 ASR/LLM/TTS 最小 token 验证 |
 | `offline` | 自动/本地模型 | Sherpa/llama.cpp/Sherpa-TTS 真实离线链路 |
 | `offline-runtime-versions` | 自动/本地版本 | 检查 llama.cpp、SummerTTS、sherpa-onnx 是否匹配阶段固定版本 |

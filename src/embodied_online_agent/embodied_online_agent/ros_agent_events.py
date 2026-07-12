@@ -26,37 +26,45 @@ from .ros_qos import command_event_qos, latched_state_qos
 class RosAgentEventPublisher:
     """统一控制面 topic、时间戳和 QoS，节点只表达业务事件。"""
 
-    def __init__(self, node: Node, component_name: str = "agent"):
+    def __init__(
+        self,
+        node: Node,
+        component_name: str = "agent",
+        *,
+        publisher_factory=None,
+    ):
         self._node = node
         self._component_name = component_name
-        self._state = node.create_publisher(
+        create_publisher = publisher_factory or node.create_publisher
+        self._state = create_publisher(
             String, "/agent/state", latched_state_qos()
         )
-        self._wake = node.create_publisher(
+        self._wake = create_publisher(
             WakeEvent, "/agent/wake_event", command_event_qos()
         )
-        self._session = node.create_publisher(
+        self._session = create_publisher(
             String, "/agent/session_state", latched_state_qos()
         )
-        self._queue = node.create_publisher(
+        self._queue = create_publisher(
             CommandQueueEvent, "/agent/command_queue", command_event_qos()
         )
-        self._execution = node.create_publisher(
+        self._execution = create_publisher(
             CommandExecutionEvent,
             "/agent/command_execution",
             command_event_qos(),
         )
-        self._recognition = node.create_publisher(
+        self._recognition = create_publisher(
             RecognitionFeedback,
             "/agent/recognition_feedback",
             command_event_qos(),
         )
-        self._nlu = node.create_publisher(
+        self._nlu = create_publisher(
             NluParseEvent, "/agent/nlu_parse", command_event_qos()
         )
-        self._health = node.create_publisher(
+        self._health = create_publisher(
             ComponentHealth, "system/component_health", latched_state_qos()
         )
+        self._health_state = ComponentHealth.STATE_UNKNOWN
         self._health_detail = None
         self._health_timer = node.create_timer(1.0, self._publish_health_heartbeat)
 
@@ -68,6 +76,14 @@ class RosAgentEventPublisher:
 
     def publish_ready(self, detail: str) -> None:
         """Agent provider 完成创建/预热后发布统一组件就绪状态。"""
+        self._health_state = ComponentHealth.STATE_READY
+        self._health_detail = detail
+        self._publish_health_heartbeat()
+
+    def publish_stopped(self, detail: str) -> None:
+        """在 Lifecycle publisher 停用前覆盖 transient-local READY 缓存。"""
+
+        self._health_state = ComponentHealth.STATE_STOPPED
         self._health_detail = detail
         self._publish_health_heartbeat()
 
@@ -77,7 +93,7 @@ class RosAgentEventPublisher:
         message = ComponentHealth()
         message.stamp = self._stamp()
         message.component = self._component_name
-        message.state = ComponentHealth.STATE_READY
+        message.state = self._health_state
         message.detail = self._health_detail
         self._health.publish(message)
 

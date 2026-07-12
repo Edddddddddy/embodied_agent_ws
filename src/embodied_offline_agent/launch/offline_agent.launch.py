@@ -157,11 +157,12 @@ def generate_launch_description():
         DeclareLaunchArgument("uart_baud_rate", default_value="115200"),
         DeclareLaunchArgument("spi_device", default_value="/dev/spidev0.0"),
         DeclareLaunchArgument("spi_speed_hz", default_value="1000000"),
-        Node(
+        LifecycleNode(
             package="embodied_offline_agent", executable="offline_agent",
-            name="offline_agent", output="screen",
+            name="offline_agent", namespace="", output="screen",
             parameters=[config, {
                 **agent_control_parameter_overrides(),
+                "agent_lifecycle_autostart": False,
                 "asr_hotwords_score": ParameterValue(
                     asr_hotwords_score, value_type=float
                 ),
@@ -314,10 +315,10 @@ def generate_launch_description():
         ),
         Node(
             package="nav2_lifecycle_manager", executable="lifecycle_manager",
-            name="action_guard_lifecycle_manager", output="screen",
+            name="agent_control_lifecycle_manager", output="screen",
             parameters=[{
                 "autostart": ParameterValue(lifecycle_autostart, value_type=bool),
-                "node_names": ["action_guard"],
+                "node_names": ["action_guard", "offline_agent"],
                 "bond_timeout": 0.0,
             }],
         ),
