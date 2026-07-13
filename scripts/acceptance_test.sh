@@ -116,6 +116,7 @@ Automated modes:
   robotics-gate       Unified ROS/Nav2/SLAM/dynamic-obstacle evidence gate
   demo-gate           Pre-demo automatic evidence gate with logs/demo_acceptance_report.json
   demo-evidence-checklist Summarize automatic/live/visual demo evidence into JSON/Markdown
+  runtime-evidence-summary Summarize online/offline 5-minute, LLM, and latency evidence
   wsl-microphone-preflight PulseAudio/WSLg microphone capture check before live demos
   gazebo              Typed Action physical motion verification
   cpp-action-client   Verify C++ typed Action success/feedback/cancel/timeout lifecycle
@@ -133,9 +134,9 @@ Interactive modes:
   continuous-nav2-offline  Long-running microphone target navigation with Nav2/TurtleBot3
   continuous-nav2-online   Long-running microphone target navigation with Nav2/TurtleBot3
   continuous-nav2-evidence {offline|online}  Run Nav2 microphone demo and live-check evidence in one terminal
-  continuous-voice-evidence {offline|online}  Run microphone demo and 3-minute benchmark in one terminal
+  continuous-voice-evidence {offline|online}  Run microphone demo and 5-minute benchmark in one terminal
   continuous-live-check {offline|online}  Observe a running live microphone demo and score evidence
-  continuous-voice-benchmark {offline|online}  Score a 3-minute, 10-command microphone benchmark
+  continuous-voice-benchmark {offline|online}  Score a 5-minute, 10-command microphone benchmark
   continuous-nav2-live-check {offline|online}  Score a running live Nav2 microphone demo
   continuous-live-report REPORT_FILE  Re-score a saved continuous live-check report
   voice-benchmark-report REPORT_FILE  Evaluate recognition/action/false-trigger/latency metrics
@@ -734,7 +735,10 @@ case "$LEVEL" in
       exit 2
     fi
     echo "continuous-live-check=$CHECK_MODE：请先在另一个终端启动 acceptance_test.sh continuous-$CHECK_MODE"
-    LIVE_CHECK_ARGS=(--duration "${CONTINUOUS_LIVE_CHECK_DURATION:-180}")
+    LIVE_CHECK_ARGS=(
+      --agent-mode "$CHECK_MODE"
+      --duration "${CONTINUOUS_LIVE_CHECK_DURATION:-180}"
+    )
     if [[ -n "${CONTINUOUS_LIVE_CHECK_REPORT:-}" ]]; then
       LIVE_CHECK_ARGS+=(--output "$CONTINUOUS_LIVE_CHECK_REPORT")
     fi
@@ -747,7 +751,7 @@ case "$LEVEL" in
       exit 2
     fi
     REPORT_PATH="${VOICE_BENCHMARK_LIVE_REPORT:-logs/continuous_voice_${CHECK_MODE}_live_report.json}"
-    SUMMARY_PATH="${VOICE_BENCHMARK_REPORT:-logs/voice_benchmark_report.json}"
+    SUMMARY_PATH="${VOICE_BENCHMARK_REPORT:-logs/voice_benchmark_${CHECK_MODE}_report.json}"
     REPORT_PATH="$(realpath -m "$REPORT_PATH")"
     SUMMARY_PATH="$(realpath -m "$SUMMARY_PATH")"
     CONTROL_ARGS=()
@@ -761,8 +765,9 @@ case "$LEVEL" in
     if python3 scripts/continuous_live_check.py \
         --scenario benchmark \
         --capture-source real_microphone \
+        --agent-mode "$CHECK_MODE" \
         "${CONTROL_ARGS[@]}" \
-        --duration "${VOICE_BENCHMARK_DURATION:-180}" \
+        --duration "${VOICE_BENCHMARK_DURATION:-300}" \
         --progress-interval "${VOICE_BENCHMARK_PROGRESS_INTERVAL:-15}" \
         --min-asr 12 \
         --min-candidates 10 \
@@ -786,7 +791,7 @@ case "$LEVEL" in
       echo "FAIL: 报告已经生成，但当前指标未达到门槛；请把上述两个文件发给 Codex。" >&2
       exit 1
     fi
-    echo "PASS: 三分钟连续语音量化验收通过"
+    echo "PASS: 五分钟连续语音量化验收通过"
     ;;
   continuous-nav2-live-check)
     CHECK_MODE="${2:-offline}"
@@ -797,6 +802,7 @@ case "$LEVEL" in
     echo "continuous-nav2-live-check=$CHECK_MODE：请先在另一个终端启动 acceptance_test.sh continuous-nav2-$CHECK_MODE"
     LIVE_CHECK_ARGS=(
       --scenario nav2 \
+      --agent-mode "$CHECK_MODE" \
       --duration "${CONTINUOUS_LIVE_CHECK_DURATION:-240}" \
       --min-asr "${CONTINUOUS_NAV2_LIVE_MIN_ASR:-4}" \
       --min-candidates "${CONTINUOUS_NAV2_LIVE_MIN_CANDIDATES:-2}" \
@@ -817,6 +823,9 @@ case "$LEVEL" in
       exit 2
     fi
     python3 scripts/continuous_live_check.py --input-report "$REPORT_PATH"
+    ;;
+  runtime-evidence-summary)
+    python3 scripts/generate_runtime_evidence_summary.py
     ;;
   voice-benchmark-report)
     REPORT_PATH="${2:-}"

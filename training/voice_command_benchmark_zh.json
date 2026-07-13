@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "continuous_voice_10_command_zh",
-  "recommended_duration_s": 180,
+  "recommended_duration_s": 300,
   "wake_phrase": "小智",
   "sleep_phrase": "退出控制",
   "commands": [

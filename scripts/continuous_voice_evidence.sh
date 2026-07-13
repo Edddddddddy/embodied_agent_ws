@@ -3,10 +3,10 @@ set -euo pipefail
 
 WORKSPACE="${WORKSPACE:-/home/ubuntu/embodied_agent_ws}"
 MODE="${1:-offline}"
-CHECK_DURATION="${VOICE_BENCHMARK_DURATION:-180}"
+CHECK_DURATION="${VOICE_BENCHMARK_DURATION:-300}"
 STARTUP_WAIT="${CONTINUOUS_VOICE_EVIDENCE_STARTUP_WAIT:-25}"
 LIVE_REPORT="${VOICE_BENCHMARK_LIVE_REPORT:-logs/continuous_voice_${MODE}_live_report.json}"
-SUMMARY_REPORT="${VOICE_BENCHMARK_REPORT:-logs/voice_benchmark_report.json}"
+SUMMARY_REPORT="${VOICE_BENCHMARK_REPORT:-logs/voice_benchmark_${MODE}_report.json}"
 DRY_RUN="${CONTINUOUS_VOICE_EVIDENCE_DRY_RUN:-false}"
 
 if [[ "$MODE" != "offline" && "$MODE" != "online" ]]; then

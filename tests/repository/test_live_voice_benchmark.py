@@ -22,10 +22,15 @@ SCENARIO = {
 }
 
 
-def _report(duration: float = 180.0) -> dict:
+def _report(duration: float = 300.0) -> dict:
     return {
         "duration_s": duration,
         "capture_source": "real_microphone",
+        "agent_mode": "offline",
+        "queue_rejected_count": 1,
+        "command_enqueue_count": 10,
+        "ignored_transcript_count": 2,
+        "recognition_retry_count": 1,
         "asr_final_recovery_count": 2,
         "asr_samples": [f"命令{index}" for index in range(10)],
         "action_candidate_samples": [
@@ -53,7 +58,7 @@ def _report(duration: float = 180.0) -> dict:
     }
 
 
-def test_benchmark_passes_complete_three_minute_evidence() -> None:
+def test_benchmark_passes_complete_five_minute_evidence() -> None:
     result = MODULE.evaluate(_report(), SCENARIO)
     assert result["passed"] is True
     assert result["recognition_rate"] == 1.0
@@ -62,14 +67,17 @@ def test_benchmark_passes_complete_three_minute_evidence() -> None:
     assert result["latency"]["asr_final_to_action_result_ms"]["p95_ms"] == 1800.0
     assert result["evidence_scope"] == "operator_declared_real_microphone"
     assert result["asr_final_recovery_count"] == 2
+    assert result["agent_mode"] == "offline"
+    assert result["queue_rejected_count"] == 1
+    assert result["queue_reject_rate"] == 0.0909
 
 
 def test_benchmark_marks_short_run_and_false_trigger_as_incomplete() -> None:
-    report = _report(duration=60.0)
+    report = _report(duration=180.0)
     report["action_candidate_samples"].extend({"name": "wave"} for _ in range(3))
     result = MODULE.evaluate(report, SCENARIO)
     assert result["passed"] is False
-    assert result["checks"]["duration_at_least_180s"] is False
+    assert result["checks"]["duration_at_least_300s"] is False
     assert result["checks"]["false_trigger_rate_at_most_10pct"] is False
     assert result["evidence_scope"] == "synthetic_short_or_unspecified"
 

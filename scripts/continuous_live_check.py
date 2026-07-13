@@ -82,10 +82,18 @@ class LiveCheckReport:
     metrics_samples: list[dict] = field(default_factory=list)
     action_e2e_latency_ms: list[float] = field(default_factory=list)
     capture_source: str = "unspecified"
+    agent_mode: str = "unspecified"
+    queue_rejected_count: int = 0
+    ignored_transcript_count: int = 0
+    recognition_retry_count: int = 0
 
 
 class LiveCheckNode(Node):
-    def __init__(self, capture_source: str = "unspecified"):
+    def __init__(
+        self,
+        capture_source: str = "unspecified",
+        agent_mode: str = "unspecified",
+    ):
         super().__init__("continuous_live_check")
         self.asr: list[str] = []
         self.session_states: list[str] = []
@@ -102,6 +110,7 @@ class LiveCheckNode(Node):
         self._candidate_name_by_id: dict[str, str] = {}
         self.action_e2e_latency_ms: list[float] = []
         self.capture_source = capture_source
+        self.agent_mode = agent_mode
         self.create_subscription(
             String, "/agent/asr_final", self._on_asr, event_qos(depth=10)
         )
@@ -245,6 +254,21 @@ class LiveCheckNode(Node):
             for item in self.recognition_feedback
             if item.get("status") == "asr_final_recovered"
         )
+        queue_rejected_count = sum(
+            1
+            for item in self.recognition_feedback
+            if item.get("status") == "queue_rejected"
+        )
+        ignored_count = sum(
+            1
+            for item in self.recognition_feedback
+            if item.get("status") == "ignored"
+        )
+        retry_count = sum(
+            1
+            for item in self.recognition_feedback
+            if item.get("status") in {"retry", "session_timeout"}
+        )
         return LiveCheckReport(
             asr_count=len(self.asr),
             action_candidate_count=len(self.candidates),
@@ -272,6 +296,10 @@ class LiveCheckNode(Node):
             metrics_samples=_tail(self.metrics),
             action_e2e_latency_ms=_tail(self.action_e2e_latency_ms),
             capture_source=self.capture_source,
+            agent_mode=self.agent_mode,
+            queue_rejected_count=queue_rejected_count,
+            ignored_transcript_count=ignored_count,
+            recognition_retry_count=retry_count,
         )
 
 
@@ -328,6 +356,10 @@ def evaluate_report(report: LiveCheckReport, thresholds: LiveCheckThresholds) ->
         metrics_samples=report.metrics_samples,
         action_e2e_latency_ms=report.action_e2e_latency_ms,
         capture_source=report.capture_source,
+        agent_mode=report.agent_mode,
+        queue_rejected_count=report.queue_rejected_count,
+        ignored_transcript_count=report.ignored_transcript_count,
+        recognition_retry_count=report.recognition_retry_count,
     )
 
 
@@ -524,6 +556,10 @@ def load_report(path: str) -> LiveCheckReport:
             float(value) for value in payload.get("action_e2e_latency_ms", [])
         ],
         capture_source=str(payload.get("capture_source", "unspecified")),
+        agent_mode=str(payload.get("agent_mode", "unspecified")),
+        queue_rejected_count=int(payload.get("queue_rejected_count", 0)),
+        ignored_transcript_count=int(payload.get("ignored_transcript_count", 0)),
+        recognition_retry_count=int(payload.get("recognition_retry_count", 0)),
     )
 
 
@@ -629,6 +665,12 @@ def main() -> None:
         help="显式声明输入证据来源；时长本身不能证明是真人麦克风",
     )
     parser.add_argument(
+        "--agent-mode",
+        choices=("unspecified", "offline", "online"),
+        default="unspecified",
+        help="记录本次证据来自在线还是离线 Agent",
+    )
+    parser.add_argument(
         "--control-managed",
         action="store_true",
         help="控制链路已由一键留证脚本后台管理，不再提示另开终端",
@@ -680,7 +722,10 @@ def main() -> None:
     print(f"开始统计 {args.duration:.0f}s 内的连续语音链路事件...", flush=True)
 
     rclpy.init()
-    node = LiveCheckNode(capture_source=args.capture_source)
+    node = LiveCheckNode(
+        capture_source=args.capture_source,
+        agent_mode=args.agent_mode,
+    )
     executor = rclpy.executors.SingleThreadedExecutor()
     executor.add_node(node)
     thread = threading.Thread(target=executor.spin, daemon=True)

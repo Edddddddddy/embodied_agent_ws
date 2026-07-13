@@ -119,6 +119,27 @@ def test_live_check_report_counts_partial_final_recovery_feedback():
     assert report.recognition_feedback_samples[0]["recovered"] == "把灯设成蓝色"
 
 
+def test_live_check_report_counts_queue_reject_ignore_and_retry_feedback():
+    node = live_check.LiveCheckNode(agent_mode="online")
+    for status in (
+        live_check.RecognitionFeedback.STATUS_QUEUE_REJECTED,
+        live_check.RecognitionFeedback.STATUS_IGNORED,
+        live_check.RecognitionFeedback.STATUS_RETRY,
+    ):
+        message = live_check.RecognitionFeedback()
+        message.status = status
+        node._on_recognition_feedback(message)
+
+    report = node.build_report(
+        live_check.LiveCheckThresholds(min_asr=0, min_candidates=0, min_success=0)
+    )
+
+    assert report.agent_mode == "online"
+    assert report.queue_rejected_count == 1
+    assert report.ignored_transcript_count == 1
+    assert report.recognition_retry_count == 1
+
+
 def test_live_check_report_requires_navigation_candidates():
     node = live_check.LiveCheckNode()
     node.asr.extend(["小智", "去门口", "前往书桌", "依次去门口书桌起点"])

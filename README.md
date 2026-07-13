@@ -122,6 +122,19 @@ bash scripts/acceptance_test.sh wsl-microphone-preflight
 bash scripts/acceptance_test.sh continuous-offline
 ```
 
+正式长稳留证使用 5 分钟入口，online/offline 分别写报告：
+
+```bash
+bash scripts/acceptance_test.sh continuous-voice-evidence offline
+bash scripts/acceptance_test.sh continuous-voice-evidence online
+bash scripts/acceptance_test.sh runtime-evidence-summary
+```
+
+报告把模型原始指令准确率、fallback 后系统有效率、queue reject、误触发和延迟 P50/P95
+分开统计；测试失败也会保留 JSON，禁止用 fallback 后结果冒充模型原始能力。
+当前哪些指标已经证明、哪些仍缺少真人留证，见
+[运行时证据状态](docs/RUNTIME_EVIDENCE_STATUS.md)。
+
 推荐话术：
 
 ```text
@@ -265,6 +278,7 @@ CONTINUOUS_SAMPLE_LOG=logs/asr_nlu_samples.jsonl \
 ## 文档入口
 
 - [15 分钟汇报与代码走读](docs/PROJECT_PRESENTATION_15MIN.md)
+- [运行时证据状态](docs/RUNTIME_EVIDENCE_STATUS.md)
 - [语音到仿真完整调用链](docs/VOICE_TO_SIMULATION_CODE_WALKTHROUGH.md)
 - [最终架构图与时序图](docs/FINAL_ARCHITECTURE_DIAGRAMS.md)
 - [架构与知识点](docs/ARCHITECTURE_AND_KNOWLEDGE.md)
