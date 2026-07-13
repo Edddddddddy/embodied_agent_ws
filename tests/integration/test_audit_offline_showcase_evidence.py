@@ -1,0 +1,258 @@
+#!/usr/bin/env python3
+"""离线展示报告证据审计测试。"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[2]
+SCRIPT = ROOT / "scripts" / "audit_offline_showcase_evidence.py"
+
+
+def _write_report(
+    path: Path,
+    *,
+    latency_status: str = "not_run",
+    instruction_following: dict | None = None,
+) -> None:
+    instruction_block = instruction_following or {
+        "status": "not_run",
+        "reason": "not measured in default report",
+    }
+    report = {
+        "schema_version": 1,
+        "scenario": "offline_deployment_showcase",
+        "model_inventory": {
+            "ok": True,
+            "total_size_mb": 1234.5,
+            "items": [
+                {"key": "llm_qwen3_0_6b_q8", "exists": True, "size_mb": 620.0},
+                {"key": "asr_zipformer_encoder", "exists": True, "size_mb": 42.0},
+            ],
+        },
+        "runtime_versions": {
+            "ok": True,
+            "items": [{"name": "llama.cpp", "expected": "pinned", "actual": "pinned", "ok": True}],
+        },
+        "instruction_parser": {
+            "dataset": "training/robot_instruction_eval.jsonl",
+            "passed": 39,
+            "total": 39,
+            "accuracy": 1.0,
+            "failed_cases": [],
+        },
+        "latency": {"status": latency_status, "reason": "not measured in default report"},
+        "llama_decode_benchmark": {
+            "status": "not_run",
+            "reason": "not measured in default report",
+        },
+        "instruction_following": instruction_block,
+        "asr_tts_benchmark": {"status": "not_run", "reason": "not measured in default report"},
+        "voice_e2e": {"status": "not_run", "reason": "not measured in default report"},
+        "claim_evidence": {
+            "schema_version": 1,
+            "summary": {"proven": 2, "missing": 3, "not_reproduced": 1, "not_default": 1},
+            "items": [
+                {"key": "q8_gguf_model", "status": "proven"},
+                {"key": "deterministic_parser_accuracy", "status": "proven"},
+                {"key": "llama_decode_speed", "status": "missing"},
+                {"key": "llm_first_token_latency", "status": "missing"},
+                {"key": "offline_llm_instruction_following", "status": "missing"},
+                {"key": "offline_voice_e2e", "status": "missing"},
+                {"key": "lora_training", "status": "not_reproduced"},
+                {"key": "summertts_low_latency", "status": "not_default"},
+            ],
+            "allowed_claims": ["可以说：当前离线链路具备可复查证据。"],
+            "restricted_claims": ["不要说：LoRA 微调训练已经复现。"],
+        },
+    }
+    path.write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
+
+
+def test_offline_evidence_audit_warns_when_latency_is_not_measured(tmp_path):
+    report = tmp_path / "offline_showcase_report.json"
+    output = tmp_path / "offline_evidence_audit.json"
+    _write_report(report)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--input",
+            str(report),
+            "--output",
+            str(output),
+        ],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+
+    summary = json.loads(result.stdout)
+    audit = json.loads(output.read_text(encoding="utf-8"))
+    assert summary["status"] == "PASS"
+    assert audit["ok"] is True
+    assert "latency:not_measured" in audit["warnings"]
+    assert "llama_decode_benchmark:not_measured" in audit["warnings"]
+    assert "instruction_following:not_measured" in audit["warnings"]
+    assert audit["evidence"]["instruction_parser"]["status"] == "proven"
+    assert audit["evidence"]["latency"]["status"] == "missing"
+    assert audit["evidence"]["llama_decode_benchmark"]["status"] == "missing"
+    assert audit["evidence"]["instruction_following"]["status"] == "missing"
+    assert audit["evidence"]["voice_e2e"]["status"] == "missing"
+    assert audit["evidence"]["claim_evidence"]["status"] == "proven"
+    assert audit["evidence"]["claim_evidence"]["items"]["lora_training"] == "not_reproduced"
+    assert "claim_evidence:llama_decode_speed:missing" in audit["warnings"]
+    gap_by_key = {item["key"]: item for item in audit["benchmark_gap_plan"]}
+    assert gap_by_key["latency"]["command"] == "bash scripts/acceptance_test.sh offline-latency"
+    assert gap_by_key["llama_decode_benchmark"]["command"] == "bash scripts/acceptance_test.sh llama-decode-benchmark"
+    assert gap_by_key["instruction_following"]["command"] == "bash scripts/acceptance_test.sh instruction-following-eval"
+    assert gap_by_key["asr_tts_benchmark"]["proves"] == ["asr_tts_realtime_factor"]
+    assert gap_by_key["voice_e2e"]["proves"] == ["offline_voice_e2e"]
+    assert gap_by_key["lora_training"]["required_for_claim"] is False
+    assert any("不要说" in item and "首 token" in item for item in audit["claim_guidance"])
+
+
+def test_offline_evidence_audit_can_require_real_latency(tmp_path):
+    report = tmp_path / "offline_showcase_report.json"
+    _write_report(report)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--input",
+            str(report),
+            "--require-latency",
+        ],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    summary = json.loads(result.stdout)
+    assert result.returncode == 1
+    assert summary["status"] == "FAIL"
+    assert "latency:required_but_not_measured" in summary["blockers"]
+
+
+def test_offline_evidence_audit_can_require_llama_decode_benchmark(tmp_path):
+    report = tmp_path / "offline_showcase_report.json"
+    _write_report(report)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--input",
+            str(report),
+            "--require-llama-bench",
+        ],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    summary = json.loads(result.stdout)
+    assert result.returncode == 1
+    assert summary["status"] == "FAIL"
+    assert "llama_decode_benchmark:required_but_not_measured" in summary["blockers"]
+
+
+def test_offline_evidence_audit_can_require_voice_e2e(tmp_path):
+    report = tmp_path / "offline_showcase_report.json"
+    _write_report(report)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--input",
+            str(report),
+            "--require-voice-e2e",
+        ],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    summary = json.loads(result.stdout)
+    assert result.returncode == 1
+    assert summary["status"] == "FAIL"
+    assert "voice_e2e:required_but_not_measured" in summary["blockers"]
+
+
+def test_offline_evidence_audit_can_require_instruction_following(tmp_path):
+    report = tmp_path / "offline_showcase_report.json"
+    _write_report(report)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--input",
+            str(report),
+            "--require-instruction-following",
+        ],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    summary = json.loads(result.stdout)
+    assert result.returncode == 1
+    assert summary["status"] == "FAIL"
+    assert "instruction_following:required_but_not_measured" in summary["blockers"]
+
+
+def test_offline_evidence_audit_warns_when_instruction_following_score_is_low(tmp_path):
+    report = tmp_path / "offline_showcase_report.json"
+    output = tmp_path / "offline_evidence_audit.json"
+    _write_report(
+        report,
+        instruction_following={
+            "returncode": 0,
+            "ok": True,
+            "payload": {
+                "model_score": 0.25,
+                "effective_score": 0.875,
+                "model_passed": 2,
+                "effective_passed": 7,
+                "total": 8,
+            },
+        },
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--input",
+            str(report),
+            "--output",
+            str(output),
+        ],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+
+    audit = json.loads(output.read_text(encoding="utf-8"))
+    assert json.loads(result.stdout)["status"] == "PASS"
+    assert audit["evidence"]["instruction_following"]["status"] == "proven"
+    assert audit["evidence"]["instruction_following"]["model_score"] == 0.25
+    assert "instruction_following:model_score_below_0.70" in audit["warnings"]
+    gap_keys = {item["key"] for item in audit["benchmark_gap_plan"]}
+    assert "instruction_following" not in gap_keys

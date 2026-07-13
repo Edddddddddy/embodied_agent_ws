@@ -42,6 +42,10 @@ class FakeNode:
         self.service_name = service_name
         return self.client
 
+    def destroy_client(self, client):
+        self.destroyed_client = client
+        return True
+
 
 def test_summer_tts_ros_provider_returns_pcm_and_updates_sample_rate():
     response = SimpleNamespace(
@@ -80,4 +84,16 @@ def test_summer_tts_ros_provider_surfaces_service_error():
     provider = SummerTtsRosClient(FakeNode(FakeClient(response)), timeout_s=0.01)
 
     with pytest.raises(SummerTtsRosError, match="bad model"):
+        provider.synthesize("你好")
+
+
+def test_summer_tts_ros_provider_releases_client_on_lifecycle_cleanup():
+    node = FakeNode(FakeClient(None))
+    provider = SummerTtsRosClient(node)
+
+    provider.close()
+    provider.close()
+
+    assert node.destroyed_client is node.client
+    with pytest.raises(SummerTtsRosError, match="closed"):
         provider.synthesize("你好")

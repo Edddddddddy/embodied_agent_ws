@@ -10,12 +10,29 @@ import threading
 import time
 
 import rclpy
+from embodied_agent_interfaces.msg import (
+    CommandExecutionEvent,
+    CommandQueueEvent,
+    RecognitionFeedback,
+    RobotCommand,
+    RobotCommandResult,
+)
+from embodied_agent_core.ros_event_transport import (
+    execution_event_message_to_dict,
+    queue_event_message_to_dict,
+    recognition_feedback_message_to_dict,
+)
+from embodied_agent_core.ros_qos import event_qos, state_qos
 from rclpy.node import Node
 from std_msgs.msg import Empty, String
+from typed_action_test_utils import candidate_dict, result_dict
 
 
-EXPECTED_ASR = ["小智", "向前走一秒", "左转", "前进", "后退一秒", "退出控制"]
-EXPECTED_CANDIDATES = ["move", "turn", "move", "move"]
+EXPECTED_ASR = [
+    "小智", "向前走一秒", "左转", "前进", "后退一秒",
+    "把灯设成蓝色", "把灯", "我九十", "退出",
+]
+EXPECTED_CANDIDATES = ["move", "turn", "move", "move", "set_led"]
 
 
 class EndpointAsrProbe(Node):
@@ -30,16 +47,19 @@ class EndpointAsrProbe(Node):
         self.candidates = []
         self.results = []
         self.create_subscription(String, "/agent/asr_final", self._on_asr, 10)
-        self.create_subscription(String, "/agent/session_state", self._on_session, 10)
-        self.create_subscription(String, "/agent/command_queue", self._on_queue, 10)
+        self.create_subscription(String, "/agent/session_state", self._on_session, state_qos())
+        self.create_subscription(CommandQueueEvent, "/agent/command_queue", self._on_queue, event_qos())
         self.create_subscription(
-            String, "/agent/command_execution", self._on_execution, 10
+            CommandExecutionEvent, "/agent/command_execution", self._on_execution, event_qos()
         )
-        self.create_subscription(String, "/agent/action_candidate", self._on_candidate, 10)
+        self.create_subscription(RobotCommand, "/agent/action_candidate", self._on_candidate, 10)
         self.create_subscription(
-            String, "/agent/recognition_feedback", self._on_recognition_feedback, 10
+            RecognitionFeedback,
+            "/agent/recognition_feedback",
+            self._on_recognition_feedback,
+            event_qos(),
         )
-        self.create_subscription(String, "/robot/action_result", self._on_result, 10)
+        self.create_subscription(RobotCommandResult, "/robot/action_result", self._on_result, 10)
 
     def _on_asr(self, message):
         self.asr_finals.append(message.data)
@@ -48,19 +68,19 @@ class EndpointAsrProbe(Node):
         self.session_states.append(message.data)
 
     def _on_queue(self, message):
-        self.queue_events.append(json.loads(message.data))
+        self.queue_events.append(queue_event_message_to_dict(message))
 
     def _on_execution(self, message):
-        self.execution_events.append(json.loads(message.data))
+        self.execution_events.append(execution_event_message_to_dict(message))
 
     def _on_candidate(self, message):
-        self.candidates.append(json.loads(message.data))
+        self.candidates.append(candidate_dict(message))
 
     def _on_recognition_feedback(self, message):
-        self.recognition_feedback.append(json.loads(message.data))
+        self.recognition_feedback.append(recognition_feedback_message_to_dict(message))
 
     def _on_result(self, message):
-        self.results.append(json.loads(message.data))
+        self.results.append(result_dict(message))
 
 
 def wait_until(predicate, timeout, description):
@@ -100,7 +120,7 @@ def main():
         publish_endpoint(node, 1)
         wait_until(lambda: "awake" in node.session_states, 5.0, "wake ASR final missing")
 
-        publish_endpoint(node, 4)
+        publish_endpoint(node, 5)
         wait_until(
             lambda: len(node.candidates) >= len(EXPECTED_CANDIDATES),
             25.0,
@@ -112,12 +132,46 @@ def main():
             "endpoint ASR commands did not reach robot action results",
         )
 
+        recovered = [
+            item for item in node.recognition_feedback
+            if item.get("status") == "asr_final_recovered"
+        ]
+        if not any(
+            item.get("original_final") == "把灯"
+            and item.get("recovered") == "把灯设成蓝色"
+            for item in recovered
+        ):
+            raise RuntimeError(
+                f"safe partial tail was not recovered: {node.recognition_feedback}"
+            )
+
+        # 无可信 partial 的缺颜色/方向样本必须提示重说，不能让 LLM 猜动作。
+        publish_endpoint(node, 2)
+        wait_until(
+            lambda: {
+                item.get("reason") for item in node.recognition_feedback
+            }.issuperset({"missing_led_color", "missing_turn_direction"}),
+            5.0,
+            "incomplete command retry feedback missing",
+        )
+        candidate_count_before_exit = len(node.candidates)
+        if candidate_count_before_exit != len(EXPECTED_CANDIDATES):
+            raise RuntimeError(
+                f"incomplete ASR command unexpectedly produced actions: {node.candidates}"
+            )
+
         publish_endpoint(node, 1)
         wait_until(
             lambda: "sleeping" in node.session_states,
             5.0,
             "endpoint ASR exit command did not close the session",
         )
+        # 退出会话会主动发布 stop 归零，因此只允许新增这一条安全动作。
+        candidates_after_exit = node.candidates[candidate_count_before_exit:]
+        if [item.get("name") for item in candidates_after_exit] != ["stop"]:
+            raise RuntimeError(
+                f"exit did not produce exactly one stop action: {candidates_after_exit}"
+            )
 
         names = [
             candidate.get("name")
@@ -145,6 +199,14 @@ def main():
         if not expected_completed.issubset(completed_pairs):
             raise RuntimeError(
                 f"short ASR finals were not completed: {node.recognition_feedback}"
+            )
+        retry_reasons = {
+            item.get("reason") for item in node.recognition_feedback
+            if item.get("status") == "retry"
+        }
+        if not {"missing_led_color", "missing_turn_direction"}.issubset(retry_reasons):
+            raise RuntimeError(
+                f"incomplete command retries were not published: {node.recognition_feedback}"
             )
         endpoint_feedback = [
             item for item in node.recognition_feedback
@@ -174,6 +236,8 @@ def main():
                         event.get("event") for event in node.execution_events
                     ],
                     "completed_commands": sorted(completed_pairs),
+                    "partial_recovery_count": len(recovered),
+                    "incomplete_retry_reasons": sorted(retry_reasons),
                     "asr_endpoint_count": len(endpoint_feedback),
                     "asr_commit_count": len(commit_feedback),
                     "session_states_tail": node.session_states[-6:],

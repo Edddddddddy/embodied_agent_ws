@@ -6,9 +6,14 @@ import threading
 import time
 
 import rclpy
+from embodied_agent_interfaces.msg import KwsEvent, RobotCommand, RobotCommandResult, WakeEvent
+from embodied_agent_core.ros_event_transport import wake_event_message_to_dict
+from embodied_agent_core.ros_qos import event_qos
+from embodied_agent_core.runtime_status_transport import kws_event_to_dict
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from std_msgs.msg import String
+from typed_action_test_utils import candidate_dict, result_dict
 
 
 class ContinuousKwsProbe(Node):
@@ -21,23 +26,23 @@ class ContinuousKwsProbe(Node):
         self.candidates = []
         self.results = []
         self.velocities = []
-        self.create_subscription(String, "/agent/kws_event", self._on_kws_event, 10)
-        self.create_subscription(String, "/agent/wake_event", self._on_wake_event, 10)
-        self.create_subscription(String, "/agent/action_candidate", self._on_candidate, 10)
-        self.create_subscription(String, "/robot/action_result", self._on_result, 10)
+        self.create_subscription(KwsEvent, "/agent/kws_event", self._on_kws_event, 10)
+        self.create_subscription(WakeEvent, "/agent/wake_event", self._on_wake_event, event_qos())
+        self.create_subscription(RobotCommand, "/agent/action_candidate", self._on_candidate, 10)
+        self.create_subscription(RobotCommandResult, "/robot/action_result", self._on_result, 10)
         self.create_subscription(Twist, "/cmd_vel", self._on_velocity, 10)
 
     def _on_kws_event(self, message):
-        self.kws_events.append(json.loads(message.data))
+        self.kws_events.append(kws_event_to_dict(message))
 
     def _on_wake_event(self, message):
-        self.wake_events.append(json.loads(message.data))
+        self.wake_events.append(wake_event_message_to_dict(message))
 
     def _on_candidate(self, message):
-        self.candidates.append(json.loads(message.data))
+        self.candidates.append(candidate_dict(message))
 
     def _on_result(self, message):
-        self.results.append(json.loads(message.data))
+        self.results.append(result_dict(message))
 
     def _on_velocity(self, message):
         self.velocities.append((message.linear.x, message.angular.z))

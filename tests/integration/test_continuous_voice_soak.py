@@ -11,8 +11,22 @@ import threading
 import time
 
 import rclpy
+from embodied_agent_interfaces.msg import (
+    CommandExecutionEvent,
+    CommandQueueEvent,
+    RobotCommand,
+    RobotCommandResult,
+    WakeEvent,
+)
+from embodied_agent_core.ros_event_transport import (
+    execution_event_message_to_dict,
+    queue_event_message_to_dict,
+    wake_event_message_to_dict,
+)
+from embodied_agent_core.ros_qos import event_qos, state_qos
 from rclpy.node import Node
 from std_msgs.msg import String
+from typed_action_test_utils import candidate_dict, result_dict
 
 
 COMMANDS = [
@@ -38,32 +52,32 @@ class ContinuousSoakProbe(Node):
         self.execution_events = []
         self.candidates = []
         self.results = []
-        self.create_subscription(String, "/agent/session_state", self._on_session, 10)
-        self.create_subscription(String, "/agent/wake_event", self._on_wake, 10)
-        self.create_subscription(String, "/agent/command_queue", self._on_queue, 10)
+        self.create_subscription(String, "/agent/session_state", self._on_session, state_qos())
+        self.create_subscription(WakeEvent, "/agent/wake_event", self._on_wake, event_qos())
+        self.create_subscription(CommandQueueEvent, "/agent/command_queue", self._on_queue, event_qos())
         self.create_subscription(
-            String, "/agent/command_execution", self._on_execution, 10
+            CommandExecutionEvent, "/agent/command_execution", self._on_execution, event_qos()
         )
-        self.create_subscription(String, "/agent/action_candidate", self._on_candidate, 10)
-        self.create_subscription(String, "/robot/action_result", self._on_result, 10)
+        self.create_subscription(RobotCommand, "/agent/action_candidate", self._on_candidate, 10)
+        self.create_subscription(RobotCommandResult, "/robot/action_result", self._on_result, 10)
 
     def _on_session(self, message):
         self.session_states.append(message.data)
 
     def _on_wake(self, message):
-        self.wake_events.append(json.loads(message.data))
+        self.wake_events.append(wake_event_message_to_dict(message))
 
     def _on_queue(self, message):
-        self.queue_events.append(json.loads(message.data))
+        self.queue_events.append(queue_event_message_to_dict(message))
 
     def _on_execution(self, message):
-        self.execution_events.append(json.loads(message.data))
+        self.execution_events.append(execution_event_message_to_dict(message))
 
     def _on_candidate(self, message):
-        self.candidates.append(json.loads(message.data))
+        self.candidates.append(candidate_dict(message))
 
     def _on_result(self, message):
-        self.results.append(json.loads(message.data))
+        self.results.append(result_dict(message))
 
 
 def wait_until(predicate, timeout, description):
@@ -114,6 +128,16 @@ def main():
             lambda: len(node.results) >= len(EXPECTED_CANDIDATES),
             45.0,
             "not all continuous commands reached robot action results",
+        )
+        # robot result 会先解除 ActionSequence 等待，随后 worker 才发布 execution finished。
+        # 因此 result 数量不是控制面生命周期完成的同步屏障，需要单独等待最终 finished。
+        wait_until(
+            lambda: sum(
+                event.get("event") == "finished" for event in node.execution_events
+            )
+            >= len(COMMANDS),
+            10.0,
+            "not all command execution lifecycle events reached finished",
         )
 
         names = [

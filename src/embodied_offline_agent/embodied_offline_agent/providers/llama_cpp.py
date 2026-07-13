@@ -10,9 +10,14 @@ class LlamaCppMetrics:
     request_count: int = 0
     retry_count: int = 0
     token_count: int = 0
+    stream_chunks: int = 0
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
     first_token_ms: float | None = None
     total_ms: float | None = None
     tokens_per_s: float | None = None
+    decode_ms: float | None = None
+    decode_tokens_per_s: float | None = None
     first_token_target_met: bool | None = None
     model: str = ""
     base_url: str = ""
@@ -62,6 +67,11 @@ class LlamaCppLlm:
     def last_metrics(self) -> dict:
         return self._last_metrics.as_dict()
 
+    def warmup(self, messages: Iterable[dict]) -> dict:
+        """Prime llama-server's model kernels and reusable system-prompt KV prefix."""
+        text = "".join(self.stream(messages))
+        return {"text": text, "metrics": self.last_metrics}
+
     def stream(self, messages: Iterable[dict]):
         message_list = list(messages)
         attempts = self._max_retries + 1
@@ -77,13 +87,16 @@ class LlamaCppLlm:
             try:
                 response = self._create_stream(message_list)
                 for event in response:
+                    self._record_usage(metrics, event)
                     delta = self._event_delta(event)
                     if not delta:
                         continue
                     now = time.perf_counter()
                     if metrics.first_token_ms is None:
                         metrics.first_token_ms = (now - started) * 1000.0
-                    metrics.token_count += 1
+                    metrics.stream_chunks += 1
+                    # usage 事件通常在流末尾到达；在异常路径中先以 chunk 数保留证据。
+                    metrics.token_count = metrics.stream_chunks
                     emitted_any_token = True
                     yield delta
                 self._finish_metrics(metrics, started)
@@ -104,6 +117,7 @@ class LlamaCppLlm:
             temperature=self._temperature,
             max_tokens=self._max_tokens,
             stream=True,
+            stream_options={"include_usage": True},
             extra_body={
                 "chat_template_kwargs": {"enable_thinking": False},
                 "seed": self._seed,
@@ -118,10 +132,32 @@ class LlamaCppLlm:
         delta = getattr(choices[0], "delta", None)
         return getattr(delta, "content", None) if delta is not None else None
 
+    @staticmethod
+    def _record_usage(metrics: LlamaCppMetrics, event) -> None:
+        usage = getattr(event, "usage", None)
+        if usage is None:
+            return
+        prompt_tokens = getattr(usage, "prompt_tokens", None)
+        completion_tokens = getattr(usage, "completion_tokens", None)
+        if isinstance(prompt_tokens, int):
+            metrics.prompt_tokens = prompt_tokens
+        if isinstance(completion_tokens, int):
+            metrics.completion_tokens = completion_tokens
+            metrics.token_count = completion_tokens
+
     def _finish_metrics(self, metrics: LlamaCppMetrics, started: float) -> None:
         metrics.total_ms = (time.perf_counter() - started) * 1000.0
+        if metrics.completion_tokens is not None:
+            metrics.token_count = metrics.completion_tokens
         if metrics.token_count and metrics.total_ms and metrics.total_ms > 0:
             metrics.tokens_per_s = metrics.token_count / (metrics.total_ms / 1000.0)
+        if metrics.first_token_ms is not None and metrics.total_ms is not None:
+            metrics.decode_ms = max(0.0, metrics.total_ms - metrics.first_token_ms)
+            remaining_tokens = max(0, metrics.token_count - 1)
+            if remaining_tokens and metrics.decode_ms > 0:
+                metrics.decode_tokens_per_s = remaining_tokens / (
+                    metrics.decode_ms / 1000.0
+                )
         if metrics.first_token_ms is not None:
             metrics.first_token_target_met = metrics.first_token_ms <= self._first_token_warn_ms
 

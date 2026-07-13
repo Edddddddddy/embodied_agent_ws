@@ -1,32 +1,13 @@
 offline_agent:
   ros__parameters:
-    mode: mock
-    microphone_enabled: false
-    audio_sample_rate: 16000
-    wake_word_enabled: true
-    wake_words: ["小智", "你好小智"]
-    wake_word_aliases: ["小志", "小治", "晓智", "晓志"]
-    wake_active_timeout_s: 10.0
-    continuous_control_enabled: false
-    voice_session_timeout_s: 60.0
-    continuous_command_queue_size: 8
-    continuous_command_max_age_s: 30.0
-    speech_endpoint_events_enabled: true
-    external_wake_event_enabled: true
-    command_normalization_enabled: true
-    command_normalization_feedback_enabled: true
-    command_normalization_fuzzy_threshold: 0.82
-    # 留空时加载 embodied_online_agent/config/command_normalization_zh.yaml。
-    # 离线/在线共用同一份错词表，避免两条链路行为不一致。
-    command_normalization_path: ""
-    memory_path: "~/.ros/embodied_agent/offline_memory.json"
-    memory_max_turns: 6
-    system_prompt_path: ""
+    # 公共会话/队列/记忆参数由 embodied_agent_core/agent_parameters.py 统一管理；
+    # 本文件仅保留 ZipFormer、llama.cpp 与离线 TTS provider 的部署配置。
     asr_model_dir: "/home/ubuntu/embodied_agent_ws/models/sherpa-onnx-streaming-zipformer-small-bilingual-zh-en-2023-02-16"
     asr_num_threads: 2
     asr_decoding_method: modified_beam_search
     asr_hotwords_file: ""
-    asr_hotwords_score: 2.0
+    # 领域命令很短，适度提高上下文偏置可减少“取消导航->取消刀”等槽位错听。
+    asr_hotwords_score: 3.0
     asr_max_active_paths: 4
     asr_modeling_unit: cjkchar
     recognition_max_retries: 3
@@ -38,6 +19,8 @@ offline_agent:
     llm_timeout_s: 30.0
     llm_max_retries: 1
     llm_first_token_warn_ms: 1000.0
+    # 单用户端侧 Agent 在 ready 前预热公共 system prompt 和 TTS，避免首条命令承担冷启动。
+    runtime_warmup_enabled: true
     # tts_provider=sherpa 是当前稳定默认值；切到 summer 时会调用
     # third_party/SummerTTS/build/tts_test，适合展示 C++ 离线 TTS runtime 接入。
     tts_provider: sherpa

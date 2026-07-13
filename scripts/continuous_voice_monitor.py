@@ -6,12 +6,46 @@ import importlib.util
 import json
 import signal
 import sys
+import time
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import rclpy
+from embodied_agent_interfaces.msg import (
+    AudioFrontendStatus,
+    CommandExecutionEvent,
+    CommandQueueEvent,
+    KwsEvent,
+    KwsScore,
+    NluParseEvent,
+    RecognitionFeedback,
+    RobotActionAck,
+    RobotCommand,
+    RobotCommandFeedback,
+    RobotCommandResult,
+    WakeEvent,
+)
+from embodied_agent_core.runtime_status_transport import (
+    action_ack_to_dict,
+    audio_frontend_status_to_dict,
+    kws_event_to_dict,
+    kws_score_to_dict,
+)
+from embodied_agent_core.ros_action_transport import (
+    command_message_to_dict,
+    feedback_message_to_dict,
+    result_message_to_dict,
+)
+from embodied_agent_core.ros_event_transport import (
+    execution_event_message_to_dict,
+    nlu_parse_message_to_dict,
+    queue_event_message_to_dict,
+    recognition_feedback_message_to_dict,
+    wake_event_message_to_dict,
+)
+from embodied_agent_core.ros_qos import command_qos, event_qos, sensor_qos, state_qos
 from rclpy.node import Node
 from std_msgs.msg import String
 
@@ -188,6 +222,10 @@ def format_recognition_feedback(serialized: str) -> str:
         original = payload.get("original", "")
         completed = payload.get("completed", "")
         return f"[complete] {original} -> {completed}"
+    if payload.get("status") == "asr_final_recovered":
+        original = payload.get("original_final", "")
+        recovered = payload.get("recovered", "")
+        return f"[asr-recover] {original} -> {recovered}"
     if payload.get("status") == "nlu_parsed":
         batch_id = payload.get("batch_id", "?")
         commands = payload.get("commands") or []
@@ -233,6 +271,42 @@ def install_signal_handlers() -> None:
     signal.signal(signal.SIGTERM, _interrupt_monitor)
 
 
+class AsrNluSampleRecorder:
+    """Append real ASR/NLU/action events to JSONL for later regression tests.
+
+    真实麦克风问题通常不是“代码完全错”，而是 ASR final 带错字、漏字或多命令粘连。
+    monitor 已经订阅了这些 topic，因此在这里可选落盘，后续把失败样本补进
+    `training/robot_instruction_eval.jsonl` 或 NLU 单测。
+    """
+
+    def __init__(self, output_path: str | Path):
+        self.output_path = Path(output_path).expanduser()
+        self.output_path.parent.mkdir(parents=True, exist_ok=True)
+        self._sequence = 0
+
+    def record(self, kind: str, topic: str, payload: dict[str, Any]) -> None:
+        self._sequence += 1
+        item = {
+            "schema_version": 1,
+            "sequence": self._sequence,
+            "ts": round(time.time(), 3),
+            "kind": kind,
+            "topic": topic,
+            **payload,
+        }
+        with self.output_path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(item, ensure_ascii=False, sort_keys=True) + "\n")
+
+    def record_asr(self, text: str) -> None:
+        self.record("asr_final", "/agent/asr_final", {"text": text})
+
+    def record_json_event(self, kind: str, topic: str, serialized: str) -> None:
+        payload = _json_dict(serialized)
+        if not payload:
+            payload = {"raw": serialized}
+        self.record(kind, topic, payload)
+
+
 @dataclass
 class MonitorStats:
     """长时间语音演示的轻量统计器。
@@ -249,6 +323,7 @@ class MonitorStats:
     ignored: int = 0
     normalized: int = 0
     completed: int = 0
+    recovered: int = 0
     enqueued: int = 0
     rejected: int = 0
     expired: int = 0
@@ -283,6 +358,8 @@ class MonitorStats:
             self.normalized += 1
         elif status == "completed":
             self.completed += 1
+        elif status == "asr_final_recovered":
+            self.recovered += 1
         elif status == "retry":
             self.retry += 1
         elif status == "session_timeout":
@@ -325,6 +402,7 @@ class MonitorStats:
             f"timeout={self.timeout} "
             f"asr={self.asr} ignored={self.ignored} "
             f"normalized={self.normalized} completed={self.completed} "
+            f"recovered={self.recovered} "
             f"enqueued={self.enqueued} "
             f"rejected={self.rejected} expired={self.expired} started={self.started} "
             f"finished={self.finished} succeeded={self.succeeded} failed={self.failed}"
@@ -397,31 +475,81 @@ class MonitorStats:
 
 
 class ContinuousVoiceMonitor(Node):
-    def __init__(self, *, audio_sample_limit: int = 600):
+    def __init__(self, *, audio_sample_limit: int = 600, sample_output: str = ""):
         super().__init__("continuous_voice_monitor")
         self._queued_seen = 0
         self._structured_queue_seen = False
         self._stats = MonitorStats(audio_sample_limit=audio_sample_limit)
-        self.create_subscription(String, "/agent/session_state", self._on_session, 10)
-        self.create_subscription(String, "/agent/wake_event", self._on_wake, 10)
-        self.create_subscription(String, "/agent/kws_event", self._on_kws, 10)
-        self.create_subscription(String, "/agent/kws_score", self._on_kws_score, 10)
-        self.create_subscription(String, "/audio/frontend_metrics", self._on_audio, 10)
-        self.create_subscription(String, "/agent/asr_final", self._on_asr, 10)
-        self.create_subscription(String, "/agent/state", self._on_state, 10)
-        self.create_subscription(String, "/agent/command_queue", self._on_queue, 10)
-        self.create_subscription(
-            String, "/agent/command_execution", self._on_execution, 10
-        )
-        self.create_subscription(String, "/agent/action_candidate", self._on_action, 10)
-        self.create_subscription(
-            String, "/robot/action_feedback", self._on_action_feedback, 10
+        self._sample_recorder = (
+            AsrNluSampleRecorder(sample_output) if sample_output else None
         )
         self.create_subscription(
-            String, "/agent/recognition_feedback", self._on_feedback, 10
+            String, "/agent/session_state", self._on_session, state_qos()
         )
-        self.create_subscription(String, "/robot/action_result", self._on_result, 10)
-        self.create_subscription(String, "/robot/action_ack", self._on_result, 10)
+        self.create_subscription(
+            WakeEvent, "/agent/wake_event", self._on_wake, event_qos()
+        )
+        self.create_subscription(
+            KwsEvent, "/agent/kws_event", self._on_kws, event_qos(depth=10)
+        )
+        self.create_subscription(
+            KwsScore, "/agent/kws_score", self._on_kws_score, sensor_qos(depth=5)
+        )
+        self.create_subscription(
+            AudioFrontendStatus, "/audio/frontend_metrics", self._on_audio, state_qos()
+        )
+        self.create_subscription(
+            String, "/agent/asr_final", self._on_asr, event_qos(depth=10)
+        )
+        self.create_subscription(String, "/agent/state", self._on_state, state_qos())
+        self.create_subscription(
+            CommandQueueEvent,
+            "/agent/command_queue",
+            self._on_queue,
+            event_qos(),
+        )
+        self.create_subscription(
+            CommandExecutionEvent,
+            "/agent/command_execution",
+            self._on_execution,
+            event_qos(),
+        )
+        self.create_subscription(
+            RobotCommand,
+            "/agent/action_candidate",
+            self._on_action,
+            command_qos(depth=10),
+        )
+        self.create_subscription(
+            RobotCommandFeedback,
+            "/robot/action_feedback",
+            self._on_action_feedback,
+            event_qos(depth=10),
+        )
+        self.create_subscription(
+            RecognitionFeedback,
+            "/agent/recognition_feedback",
+            self._on_feedback,
+            event_qos(),
+        )
+        self.create_subscription(
+            NluParseEvent,
+            "/agent/nlu_parse",
+            self._on_nlu_parse,
+            event_qos(),
+        )
+        self.create_subscription(
+            RobotCommandResult,
+            "/robot/action_result",
+            self._on_action_result,
+            event_qos(depth=10),
+        )
+        self.create_subscription(
+            RobotActionAck,
+            "/robot/action_ack",
+            self._on_action_ack,
+            event_qos(depth=10),
+        )
 
     def _emit(self, line: str) -> None:
         print(line, flush=True)
@@ -429,22 +557,30 @@ class ContinuousVoiceMonitor(Node):
     def _on_session(self, message: String) -> None:
         self._emit(format_session_state(message.data))
 
-    def _on_wake(self, message: String) -> None:
-        self._stats.record_wake(message.data)
-        self._emit(format_wake_event(message.data))
+    def _on_wake(self, message: WakeEvent) -> None:
+        serialized = json.dumps(wake_event_message_to_dict(message), ensure_ascii=False)
+        self._stats.record_wake(serialized)
+        self._emit(format_wake_event(serialized))
 
-    def _on_kws(self, message: String) -> None:
-        self._emit(format_kws_event(message.data))
+    def _on_kws(self, message: KwsEvent) -> None:
+        serialized = json.dumps(kws_event_to_dict(message), ensure_ascii=False)
+        self._emit(format_kws_event(serialized))
 
-    def _on_kws_score(self, message: String) -> None:
-        self._emit(format_kws_score(message.data))
+    def _on_kws_score(self, message: KwsScore) -> None:
+        serialized = json.dumps(kws_score_to_dict(message), ensure_ascii=False)
+        self._emit(format_kws_score(serialized))
 
-    def _on_audio(self, message: String) -> None:
-        self._stats.record_audio(message.data)
-        self._emit(format_audio_metrics(message.data))
+    def _on_audio(self, message: AudioFrontendStatus) -> None:
+        serialized = json.dumps(
+            audio_frontend_status_to_dict(message), ensure_ascii=False
+        )
+        self._stats.record_audio(serialized)
+        self._emit(format_audio_metrics(serialized))
 
     def _on_asr(self, message: String) -> None:
         self._stats.record_asr(message.data)
+        if self._sample_recorder is not None:
+            self._sample_recorder.record_asr(message.data)
         self._emit(format_asr_final(message.data))
 
     def _on_state(self, message: String) -> None:
@@ -454,28 +590,72 @@ class ContinuousVoiceMonitor(Node):
         elif message.data == "queue_full":
             self._emit(format_queue_state(message.data))
 
-    def _on_queue(self, message: String) -> None:
+    def _on_queue(self, message: CommandQueueEvent) -> None:
         self._structured_queue_seen = True
-        self._stats.record_queue(message.data)
-        self._emit(format_queue_event(message.data))
+        serialized = json.dumps(queue_event_message_to_dict(message), ensure_ascii=False)
+        self._stats.record_queue(serialized)
+        if self._sample_recorder is not None:
+            self._sample_recorder.record_json_event(
+                "command_queue", "/agent/command_queue", serialized
+            )
+        self._emit(format_queue_event(serialized))
 
-    def _on_execution(self, message: String) -> None:
-        self._stats.record_execution(message.data)
-        self._emit(format_execution_event(message.data))
+    def _on_execution(self, message: CommandExecutionEvent) -> None:
+        serialized = json.dumps(
+            execution_event_message_to_dict(message), ensure_ascii=False
+        )
+        self._stats.record_execution(serialized)
+        self._emit(format_execution_event(serialized))
 
-    def _on_action(self, message: String) -> None:
-        self._emit(format_action_candidate(message.data))
+    def _on_action(self, message: RobotCommand) -> None:
+        serialized = json.dumps(command_message_to_dict(message), ensure_ascii=False)
+        if self._sample_recorder is not None:
+            self._sample_recorder.record_json_event(
+                "action_candidate", "/agent/action_candidate", serialized
+            )
+        self._emit(format_action_candidate(serialized))
 
-    def _on_action_feedback(self, message: String) -> None:
-        self._emit(format_action_feedback(message.data))
+    def _on_action_feedback(self, message: RobotCommandFeedback) -> None:
+        serialized = json.dumps(feedback_message_to_dict(message), ensure_ascii=False)
+        self._emit(format_action_feedback(serialized))
 
-    def _on_feedback(self, message: String) -> None:
-        self._stats.record_recognition_feedback(message.data)
-        self._emit(format_recognition_feedback(message.data))
+    def _on_feedback(self, message: RecognitionFeedback) -> None:
+        serialized = json.dumps(
+            recognition_feedback_message_to_dict(message), ensure_ascii=False
+        )
+        self._record_recognition_feedback(serialized)
 
-    def _on_result(self, message: String) -> None:
-        self._stats.record_result(message.data)
-        self._emit(format_action_result(message.data))
+    def _on_nlu_parse(self, message: NluParseEvent) -> None:
+        serialized = json.dumps(nlu_parse_message_to_dict(message), ensure_ascii=False)
+        self._record_recognition_feedback(serialized)
+
+    def _record_recognition_feedback(self, serialized: str) -> None:
+        self._stats.record_recognition_feedback(serialized)
+        if self._sample_recorder is not None:
+            self._sample_recorder.record_json_event(
+                "recognition_feedback", "/agent/recognition_feedback", serialized
+            )
+        self._emit(format_recognition_feedback(serialized))
+
+    def _handle_result(self, serialized: str, *, topic: str, kind: str) -> None:
+        self._stats.record_result(serialized)
+        if self._sample_recorder is not None:
+            self._sample_recorder.record_json_event(kind, topic, serialized)
+        self._emit(format_action_result(serialized))
+
+    def _on_action_result(self, message: RobotCommandResult) -> None:
+        self._handle_result(
+            json.dumps(result_message_to_dict(message), ensure_ascii=False),
+            topic="/robot/action_result",
+            kind="action_result",
+        )
+
+    def _on_action_ack(self, message: RobotActionAck) -> None:
+        self._handle_result(
+            json.dumps(action_ack_to_dict(message), ensure_ascii=False),
+            topic="/robot/action_ack",
+            kind="action_ack",
+        )
 
     def emit_summary(self) -> None:
         self._emit(self._stats.format_summary())
@@ -489,10 +669,18 @@ def main() -> None:
         default=600,
         help="保留最近 N 条 /audio/frontend_metrics 用于退出 summary，避免长时间演示无限增长。",
     )
+    parser.add_argument(
+        "--sample-output",
+        default="",
+        help="可选 JSONL 文件；记录 ASR final、NLU/补全/归一化、动作候选和 result，便于沉淀真实错词回归集。",
+    )
     args = parser.parse_args()
     install_signal_handlers()
     rclpy.init()
-    node = ContinuousVoiceMonitor(audio_sample_limit=args.audio_sample_limit)
+    node = ContinuousVoiceMonitor(
+        audio_sample_limit=args.audio_sample_limit,
+        sample_output=args.sample_output,
+    )
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

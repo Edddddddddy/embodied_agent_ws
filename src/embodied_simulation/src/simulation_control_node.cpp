@@ -11,12 +11,10 @@
 #include <sstream>
 #include <string>
 
-#include <embodied_agent_interfaces/action/execute_robot_command.hpp>
 #include <ament_index_cpp/get_package_share_directory.hpp>
-#include <diagnostic_msgs/msg/diagnostic_array.hpp>
-#include <geometry_msgs/msg/twist.hpp>
+#include <embodied_agent_interfaces/action/execute_robot_command.hpp>
+#include <embodied_agent_interfaces/msg/component_health.hpp>
 #include <lifecycle_msgs/msg/state.hpp>
-#include <nlohmann/json.hpp>
 #include <pluginlib/class_loader.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -26,13 +24,15 @@
 #include <std_msgs/msg/empty.hpp>
 #include <std_msgs/msg/string.hpp>
 
-#include "embodied_simulation/action_execution.hpp"
+#include "embodied_simulation/active_action_runtime.hpp"
 #include "embodied_simulation/command_behavior_tree.hpp"
 #include "embodied_simulation/executor_diagnostics.hpp"
 #include "embodied_simulation/node_configuration.hpp"
 #include "embodied_simulation/robot_executor.hpp"
 #include "embodied_simulation/simulation_controller.hpp"
 #include "embodied_simulation/simulation_control_factory.hpp"
+#include "embodied_simulation/simulation_ros_io.hpp"
+#include "embodied_agent_middleware/qos_profiles.hpp"
 
 namespace embodied_simulation
 {
@@ -80,18 +80,8 @@ protected:
         executor_plugin_.c_str(), error.what());
       return CallbackReturn::FAILURE;
     }
-    cmd_vel_pub_ = create_publisher<geometry_msgs::msg::Twist>(
-      "cmd_vel", rclcpp::QoS(10).reliable());
-    mode_pub_ = create_publisher<std_msgs::msg::String>(
-      "robot/control_mode", rclcpp::QoS(10).reliable());
-    state_pub_ = create_publisher<std_msgs::msg::String>(
-      "robot/simulation_state", rclcpp::QoS(10).reliable());
-    action_ack_pub_ = create_publisher<std_msgs::msg::String>(
-      "robot/action_ack", rclcpp::QoS(10).reliable());
-    bt_status_pub_ = create_publisher<std_msgs::msg::String>(
-      "robot/bt_status", rclcpp::QoS(10).reliable());
-    diagnostics_pub_ = create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
-      "diagnostics", rclcpp::QoS(10).reliable());
+    ros_io_ = std::make_unique<SimulationRosIo>(*this);
+    ros_io_->configure();
     use_behavior_tree_ = bool_parameter("use_behavior_tree", true);
     if (use_behavior_tree_) {
       const auto default_tree =
@@ -112,6 +102,9 @@ protected:
         return CallbackReturn::FAILURE;
       }
     }
+    // ROS 节点只保留通信和 Lifecycle 职责；动作进度、超时、取消及 BT 终态
+    // 统一交给可独立测试的运行时，避免 Nav2/定时动作各自维护一套状态机。
+    action_runtime_ = std::make_unique<ActiveActionRuntime>(behavior_tree_.get());
     action_server_ = rclcpp_action::create_server<ExecuteRobotCommand>(
       this,
       "robot/execute_command",
@@ -125,13 +118,13 @@ protected:
         &SimulationControlNode::handle_accepted, this,
         std::placeholders::_1));
     mode_sub_ = create_subscription<std_msgs::msg::String>(
-      "robot/control_mode_request", rclcpp::QoS(10).reliable(),
+      "robot/control_mode_request", embodied_agent_middleware::command_qos(10),
       std::bind(&SimulationControlNode::on_mode_request, this, _1));
     emergency_sub_ = create_subscription<std_msgs::msg::Empty>(
-      "robot/emergency_stop", rclcpp::QoS(10).reliable(),
+      "robot/emergency_stop", embodied_agent_middleware::command_qos(10),
       std::bind(&SimulationControlNode::on_emergency_stop, this, _1));
 
-    auto scan_qos = rclcpp::SensorDataQoS().keep_last(5);
+    const auto scan_qos = embodied_agent_middleware::sensor_qos();
     scan_sub_ = create_subscription<sensor_msgs::msg::LaserScan>(
       "scan", scan_qos,
       std::bind(&SimulationControlNode::on_scan, this, _1));
@@ -155,15 +148,9 @@ protected:
 
   CallbackReturn on_activate(const rclcpp_lifecycle::State &) override
   {
-    cmd_vel_pub_->on_activate();
-    mode_pub_->on_activate();
-    state_pub_->on_activate();
-    action_ack_pub_->on_activate();
-    bt_status_pub_->on_activate();
-    diagnostics_pub_->on_activate();
+    ros_io_->activate(executor_->mode_name(), executor_backend_);
     timer_->reset();
     diagnostics_timer_->reset();
-    publish_mode();
     RCLCPP_INFO(get_logger(), "simulation control activated; mode=manual");
     return CallbackReturn::SUCCESS;
   }
@@ -171,27 +158,24 @@ protected:
   CallbackReturn on_deactivate(const rclcpp_lifecycle::State &) override
   {
     if (active_goal_) {
-      if (behavior_tree_) {
-        publish_bt_status(behavior_tree_->cancel("deactivated"));
+      if (action_runtime_) {
+        if (const auto tree = action_runtime_->cancel_tree("deactivated")) {
+          publish_bt_status(*tree);
+        }
       }
       finish_active_action(ActionExecutionState::kCanceled, "deactivated");
     }
     if (executor_) {
       executor_->stop();
     }
-    publish_zero_velocity();
+    ros_io_->publish_zero_velocity();
     if (timer_) {
       timer_->cancel();
     }
     if (diagnostics_timer_) {
       diagnostics_timer_->cancel();
     }
-    diagnostics_pub_->on_deactivate();
-    bt_status_pub_->on_deactivate();
-    action_ack_pub_->on_deactivate();
-    state_pub_->on_deactivate();
-    mode_pub_->on_deactivate();
-    cmd_vel_pub_->on_deactivate();
+    ros_io_->deactivate("lifecycle_deactivated");
     RCLCPP_INFO(get_logger(), "simulation control deactivated and stopped");
     return CallbackReturn::SUCCESS;
   }
@@ -350,8 +334,10 @@ private:
   void handle_accepted(const std::shared_ptr<GoalHandle> goal_handle)
   {
     if (active_goal_) {
-      if (behavior_tree_) {
-        publish_bt_status(behavior_tree_->cancel("preempted_by_new_goal"));
+      if (action_runtime_) {
+        if (const auto tree = action_runtime_->cancel_tree("preempted_by_new_goal")) {
+          publish_bt_status(*tree);
+        }
       }
       finish_active_action(
         ActionExecutionState::kCanceled, "preempted_by_new_goal");
@@ -406,59 +392,63 @@ private:
       if (initial.outcome == CommandTreeOutcome::kRejected) {
         finish_immediate_action(goal_handle, false, initial.detail);
         publish_action_ack("unknown", "rejected", initial.detail);
-        active_goal_.reset();
-        action_active_ = false;
+        clear_pending_long_action();
         return;
       }
     }
 
     const double now = now_seconds();
+    std::string action_name;
     if (command.action_type == Command::MOVE) {
       if (!executor_->execute(command, now)) {
         finish_immediate_action(goal_handle, false, "executor_rejected");
-        active_goal_.reset();
+        clear_pending_long_action();
         return;
       }
-      active_action_name_ = "move";
+      action_name = "move";
     } else if (command.action_type == Command::TURN) {
       if (!executor_->execute(command, now)) {
         finish_immediate_action(goal_handle, false, "executor_rejected");
-        active_goal_.reset();
+        clear_pending_long_action();
         return;
       }
-      active_action_name_ = "turn";
+      action_name = "turn";
     } else if (command.action_type == Command::NAVIGATE_TO) {
       if (!executor_->execute(command, now)) {
-        finish_immediate_action(goal_handle, false, "executor_rejected");
-        active_goal_.reset();
+        const auto detail = executor_->external_action_detail();
+        finish_immediate_action(
+          goal_handle, false, detail.empty() ? "executor_rejected" : detail);
+        clear_pending_long_action();
         return;
       }
-      active_action_name_ = "navigate_to";
+      action_name = "navigate_to";
     } else if (command.action_type == Command::FOLLOW_WAYPOINTS) {
       if (!executor_->execute(command, now)) {
-        finish_immediate_action(goal_handle, false, "executor_rejected");
-        active_goal_.reset();
+        const auto detail = executor_->external_action_detail();
+        finish_immediate_action(
+          goal_handle, false, detail.empty() ? "executor_rejected" : detail);
+        clear_pending_long_action();
         return;
       }
-      active_action_name_ = "follow_waypoints";
+      action_name = "follow_waypoints";
     } else {
       finish_immediate_action(goal_handle, false, "invalid_command");
-      active_goal_.reset();
+      clear_pending_long_action();
       return;
     }
     active_goal_ = goal_handle;
     action_active_ = true;
-    active_action_uses_external_result_ =
-      (active_action_name_ == "navigate_to" ||
-      active_action_name_ == "follow_waypoints") &&
+    const bool uses_external_result =
+      (action_name == "navigate_to" || action_name == "follow_waypoints") &&
       executor_->external_action_update().has_value();
-    const double execution_duration_s = active_action_uses_external_result_ ?
+    const double execution_duration_s = uses_external_result ?
       action_timeout_s_ + 1.0 : command.duration_s;
-    action_execution_.emplace(
-      execution_duration_s, action_timeout_s_, now);
+    action_runtime_->start(
+      action_name, execution_duration_s, action_timeout_s_, now,
+      uses_external_result);
     publish_action_feedback(
       ExecuteRobotCommand::Feedback::PHASE_ACCEPTED, 0.0F, "accepted");
-    publish_action_ack(active_action_name_, "accepted");
+    publish_action_ack(action_name, "accepted");
   }
 
   void finish_immediate_action(
@@ -476,6 +466,17 @@ private:
       goal_handle->succeed(result);
     } else {
       goal_handle->abort(result);
+    }
+  }
+
+  void clear_pending_long_action()
+  {
+    // BT 校验发生在 executor 接受之前；启动失败时必须同时清掉诊断状态，
+    // 否则 diagnostics 会长期误报 action_active=true。
+    active_goal_.reset();
+    action_active_ = false;
+    if (action_runtime_) {
+      action_runtime_->reset();
     }
   }
 
@@ -499,6 +500,9 @@ private:
       return;
     }
     executor_->stop();
+    // reset 前先保存名称，确保最终 ACK 仍能关联到刚完成的 goal。
+    const std::string action_name = action_runtime_ ?
+      action_runtime_->action_name() : "unknown";
     auto result = std::make_shared<ExecuteRobotCommand::Result>();
     result->success = state == ActionExecutionState::kSucceeded;
     result->message = message;
@@ -519,80 +523,41 @@ private:
       result->status = ExecuteRobotCommand::Result::STATUS_BLOCKED;
       active_goal_->abort(result);
     }
-    publish_action_ack(active_action_name_, message);
+    publish_action_ack(action_name, message);
     active_goal_.reset();
     action_active_ = false;
-    active_action_uses_external_result_ = false;
-    action_execution_.reset();
-    active_action_name_.clear();
+    if (action_runtime_) {
+      action_runtime_->reset();
+    }
   }
 
   bool update_active_action(const ControllerOutput & output, double now)
   {
-    if (!active_goal_ || !action_execution_) {
+    if (!active_goal_ || !action_runtime_ || !action_runtime_->active()) {
       return false;
     }
-    const auto timed_update = action_execution_->update(
-      now, active_goal_->is_canceling(), output.safety_stopped);
-    auto update = timed_update;
-    if (active_action_uses_external_result_ &&
-      timed_update.state == ActionExecutionState::kRunning)
-    {
-      // Nav2 是外部 action server，真正的完成/失败要以 Nav2 result 为准；
-      // duration_s 在这里只作为兜底超时进度，避免目标点还没到就被本节点提前取消。
-      if (const auto external_update = executor_->external_action_update()) {
-        update = *external_update;
-        update.progress = std::max(update.progress, timed_update.progress);
-      }
+    ActiveActionInput input;
+    input.now_s = now;
+    input.cancel_requested = active_goal_->is_canceling();
+    input.safety_stopped = output.safety_stopped;
+    input.safety_reason = output.reason;
+    if (action_runtime_->uses_external_result()) {
+      // Nav2 是外部 Action Server，完成/失败以其 result 为准；本地计时只负责
+      // 进度下限和最终超时，避免 duration_s 到点便错误宣告到达目标。
+      input.external_update = executor_->external_action_update();
+      input.external_detail = executor_->external_action_detail();
     }
-    if (behavior_tree_) {
-      const std::string detail =
-        update.state == ActionExecutionState::kSucceeded ? "succeeded" :
-        update.state == ActionExecutionState::kCanceled ? "canceled" :
-        update.state == ActionExecutionState::kTimedOut ? "timed_out" :
-        output.reason;
-      const auto tree_result = behavior_tree_->tick(
-        output.safety_stopped, update.state, detail);
-      publish_bt_status(tree_result);
-      if (tree_result.outcome == CommandTreeOutcome::kRunning) {
-        publish_action_feedback(
-          ExecuteRobotCommand::Feedback::PHASE_EXECUTING,
-          static_cast<float>(update.progress), tree_result.stage + ":" + detail);
-        return false;
-      }
-      if (tree_result.outcome == CommandTreeOutcome::kSucceeded) {
-        finish_active_action(ActionExecutionState::kSucceeded, tree_result.detail);
-      } else if (tree_result.outcome == CommandTreeOutcome::kCanceled) {
-        finish_active_action(ActionExecutionState::kCanceled, tree_result.detail);
-      } else if (tree_result.outcome == CommandTreeOutcome::kTimedOut) {
-        finish_active_action(ActionExecutionState::kTimedOut, tree_result.detail);
-      } else {
-        finish_active_action(ActionExecutionState::kBlocked, tree_result.detail);
-      }
-      return true;
+    const auto decision = action_runtime_->update(input);
+    if (decision.tree_result) {
+      publish_bt_status(*decision.tree_result);
     }
-    if (update.state == ActionExecutionState::kRunning) {
+    if (!decision.terminal()) {
       publish_action_feedback(
         ExecuteRobotCommand::Feedback::PHASE_EXECUTING,
-        static_cast<float>(update.progress), output.reason);
+        static_cast<float>(decision.progress), decision.detail);
       return false;
     }
-    switch (update.state) {
-      case ActionExecutionState::kSucceeded:
-        finish_active_action(update.state, "succeeded");
-        break;
-      case ActionExecutionState::kCanceled:
-        finish_active_action(update.state, "canceled");
-        break;
-      case ActionExecutionState::kBlocked:
-        finish_active_action(update.state, output.reason);
-        break;
-      case ActionExecutionState::kTimedOut:
-        finish_active_action(update.state, "timed_out");
-        break;
-      case ActionExecutionState::kRunning:
-        break;
-    }
+    finish_active_action(decision.state, decision.detail);
     return true;
   }
 
@@ -644,78 +609,26 @@ private:
     const std::string & status,
     const std::string & detail = "")
   {
-    nlohmann::json payload{
-      {"action", action},
-      {"backend", executor_ ? executor_->backend_name() : "unconfigured"},
-      {"sequence", ++action_sequence_},
-      {"status", status},
-    };
-    if (!detail.empty()) {
-      payload["detail"] = detail;
-    }
-    std_msgs::msg::String message;
-    message.data = payload.dump();
-    action_ack_pub_->publish(message);
-  }
-
-  static const char * tree_outcome_name(CommandTreeOutcome outcome)
-  {
-    switch (outcome) {
-      case CommandTreeOutcome::kRunning: return "running";
-      case CommandTreeOutcome::kSucceeded: return "succeeded";
-      case CommandTreeOutcome::kRejected: return "rejected";
-      case CommandTreeOutcome::kCanceled: return "canceled";
-      case CommandTreeOutcome::kTimedOut: return "timed_out";
-      case CommandTreeOutcome::kBlocked: return "blocked";
-      case CommandTreeOutcome::kFailed: return "failed";
-    }
-    return "failed";
+    ros_io_->publish_action_ack(
+      action, status,
+      executor_ ? executor_->backend_name() : "unconfigured", detail);
   }
 
   void publish_bt_status(const CommandTreeResult & result)
   {
-    if (!bt_status_pub_ || !bt_status_pub_->is_activated()) {
-      return;
-    }
     const std::string command_id = active_goal_ ?
       active_goal_->get_goal()->command.command_id : "";
-    const std::string signature = command_id + ":" + result.stage + ":" +
-      tree_outcome_name(result.outcome) + ":" + result.detail;
-    if (signature == last_bt_status_) {
-      return;
-    }
-    last_bt_status_ = signature;
-    std_msgs::msg::String message;
-    message.data = nlohmann::json{
-      {"command_id", command_id},
-      {"stage", result.stage},
-      {"outcome", tree_outcome_name(result.outcome)},
-      {"detail", result.detail},
-    }.dump();
-    bt_status_pub_->publish(message);
-    RCLCPP_INFO(
-      get_logger(), "BT %s -> %s (%s)", result.stage.c_str(),
-      tree_outcome_name(result.outcome), result.detail.c_str());
+    ros_io_->publish_bt_status(result, command_id);
   }
 
   void publish_mode()
   {
-    std_msgs::msg::String message;
-    message.data = executor_->mode_name();
-    mode_pub_->publish(message);
-  }
-
-  void publish_zero_velocity()
-  {
-    if (!cmd_vel_pub_ || !cmd_vel_pub_->is_activated()) {
-      return;
-    }
-    cmd_vel_pub_->publish(geometry_msgs::msg::Twist());
+    ros_io_->publish_mode(executor_->mode_name());
   }
 
   void publish_diagnostics()
   {
-    if (!diagnostics_pub_ || !diagnostics_pub_->is_activated() || !executor_) {
+    if (!ros_io_ || !executor_) {
       return;
     }
     ControllerOutput output;
@@ -724,14 +637,14 @@ private:
       output = diagnostic_output_;
     }
     // 回调组可以并行运行；传给纯函数的内容全部来自锁保护快照或只读配置。
-    const auto status = make_executor_diagnostic({
+    ros_io_->publish_diagnostics({
       get_fully_qualified_name(), get_current_state().label(), executor_plugin_,
       executor_backend_, SimulationController::mode_name(output.mode), output.reason,
       action_active_, output.sensor_stale, output.safety_stopped});
-    diagnostic_msgs::msg::DiagnosticArray message;
-    message.header.stamp = now();
-    message.status.push_back(status);
-    diagnostics_pub_->publish(message);
+    // readiness 使用周期心跳判断进程是否仍存活，不能只依赖启动时的一次 latched 状态。
+    ros_io_->publish_health(
+      embodied_agent_interfaces::msg::ComponentHealth::STATE_READY,
+      "executor_ready:" + executor_backend_);
   }
 
   void reset_interfaces()
@@ -749,21 +662,18 @@ private:
     scan_sub_.reset();
     emergency_sub_.reset();
     mode_sub_.reset();
-    diagnostics_pub_.reset();
-    bt_status_pub_.reset();
-    action_ack_pub_.reset();
-    state_pub_.reset();
-    mode_pub_.reset();
-    cmd_vel_pub_.reset();
+    if (ros_io_) {
+      ros_io_->reset();
+    }
+    ros_io_.reset();
     active_goal_.reset();
     action_active_ = false;
-    active_action_uses_external_result_ = false;
-    action_execution_.reset();
-    active_action_name_.clear();
-    action_sequence_ = 0;
+    if (action_runtime_) {
+      action_runtime_->reset();
+    }
+    action_runtime_.reset();
     executor_backend_.clear();
     behavior_tree_.reset();
-    last_bt_status_.clear();
   }
 
   void control_tick()
@@ -776,59 +686,30 @@ private:
     }
     const bool action_stopped = update_active_action(output, now);
     if (executor_->publishes_cmd_vel()) {
-      geometry_msgs::msg::Twist velocity;
-      velocity.linear.x = action_stopped ? 0.0 : output.velocity.linear_x;
-      velocity.angular.z = action_stopped ? 0.0 : output.velocity.angular_z;
-      cmd_vel_pub_->publish(velocity);
+      ros_io_->publish_velocity(
+        action_stopped ? 0.0 : output.velocity.linear_x,
+        action_stopped ? 0.0 : output.velocity.angular_z);
     }
-
-    nlohmann::json state{
-      {"mode", SimulationController::mode_name(output.mode)},
-      {"sensor_stale", output.sensor_stale},
-      {"safety_stopped", output.safety_stopped},
-      {"front_distance", std::isfinite(output.front_distance) ?
-        nlohmann::json(output.front_distance) : nlohmann::json(nullptr)},
-      {"right_distance", std::isfinite(output.right_distance) ?
-        nlohmann::json(output.right_distance) : nlohmann::json(nullptr)},
-      {"reason", output.reason},
-      {"linear_x", output.velocity.linear_x},
-      {"angular_z", output.velocity.angular_z},
-    };
-    std_msgs::msg::String state_message;
-    state_message.data = state.dump();
-    state_pub_->publish(state_message);
+    ros_io_->publish_state(output);
   }
 
   pluginlib::ClassLoader<RobotExecutor> executor_loader_;
   std::shared_ptr<RobotExecutor> executor_;
   std::string executor_plugin_;
   std::string executor_backend_;
-  rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr
-    cmd_vel_pub_;
-  rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::String>::SharedPtr mode_pub_;
-  rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::String>::SharedPtr state_pub_;
-  rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::String>::SharedPtr
-    action_ack_pub_;
-  rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::String>::SharedPtr
-    bt_status_pub_;
-  rclcpp_lifecycle::LifecyclePublisher<
-    diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diagnostics_pub_;
+  std::unique_ptr<SimulationRosIo> ros_io_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr mode_sub_;
   rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr emergency_sub_;
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
   rclcpp::TimerBase::SharedPtr timer_;
   rclcpp::TimerBase::SharedPtr diagnostics_timer_;
   rclcpp::CallbackGroup::SharedPtr diagnostics_callback_group_;
-  std::uint64_t action_sequence_{0};
   double action_timeout_s_{12.0};
   rclcpp_action::Server<ExecuteRobotCommand>::SharedPtr action_server_;
   std::shared_ptr<GoalHandle> active_goal_;
-  std::optional<ActionExecution> action_execution_;
-  std::string active_action_name_;
-  bool active_action_uses_external_result_{false};
   bool use_behavior_tree_{true};
   std::unique_ptr<CommandBehaviorTree> behavior_tree_;
-  std::string last_bt_status_;
+  std::unique_ptr<ActiveActionRuntime> action_runtime_;
   std::atomic_bool action_active_{false};
   std::mutex diagnostics_mutex_;
   ControllerOutput diagnostic_output_;

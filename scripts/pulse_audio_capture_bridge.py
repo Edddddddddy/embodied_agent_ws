@@ -9,17 +9,20 @@ PortAudio 在 WSL 里有时会落到不存在的 ALSA card 0，导致 C++ audio_
 from __future__ import annotations
 
 import argparse
-import json
 import math
 import shutil
 import struct
 import subprocess
 import time
 
+from embodied_agent_interfaces.msg import AudioFrontendStatus
+from embodied_agent_core.ros_qos import audio_qos, event_qos, state_qos
+from embodied_agent_core.runtime_status_transport import (
+    audio_frontend_status_to_message,
+)
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
-from std_msgs.msg import Empty, String, UInt8MultiArray
+from std_msgs.msg import Empty, UInt8MultiArray
 
 
 class EndpointDetector:
@@ -63,16 +66,23 @@ class PulseAudioCaptureBridge(Node):
     def __init__(self, args: argparse.Namespace):
         super().__init__("pulse_audio_capture_bridge")
         self.args = args
-        qos = QoSProfile(
-            history=HistoryPolicy.KEEP_LAST,
-            depth=20,
-            reliability=ReliabilityPolicy.BEST_EFFORT,
+        self.clean_pub = self.create_publisher(
+            UInt8MultiArray, "/audio/clean_pcm", audio_qos(depth=20)
         )
-        self.clean_pub = self.create_publisher(UInt8MultiArray, "/audio/clean_pcm", qos)
-        self.metrics_pub = self.create_publisher(String, "/audio/frontend_metrics", 10)
-        self.started_pub = self.create_publisher(Empty, "/audio/speech_started", 10)
-        self.ended_pub = self.create_publisher(Empty, "/audio/speech_ended", 10)
-        self.silence_pub = self.create_publisher(Empty, "/audio/silence_timeout", 10)
+        self.metrics_pub = self.create_publisher(
+            AudioFrontendStatus, "/audio/frontend_metrics", state_qos()
+        )
+        endpoint_profile = event_qos(depth=10)
+        self.started_pub = self.create_publisher(
+            Empty, "/audio/speech_started", endpoint_profile
+        )
+        self.ended_pub = self.create_publisher(
+            Empty, "/audio/speech_ended", endpoint_profile
+        )
+        self.silence_pub = self.create_publisher(
+            Empty, "/audio/silence_timeout", endpoint_profile
+        )
+        self.endpoint_events_enabled = bool(args.endpoint_events_enabled)
         self.endpoint = EndpointDetector(
             args.speech_end_silence_s,
             args.min_utterance_ms / 1000.0,
@@ -131,11 +141,12 @@ class PulseAudioCaptureBridge(Node):
         speech = rms >= self.args.vad_rms_threshold
         frame_s = len(samples) / float(self.args.sample_rate)
         started, ended = self.endpoint.update(speech, frame_s)
-        if started:
-            self.started_pub.publish(Empty())
-        if ended:
-            self.ended_pub.publish(Empty())
-            self.silence_pub.publish(Empty())
+        if self.endpoint_events_enabled:
+            if started:
+                self.started_pub.publish(Empty())
+            if ended:
+                self.ended_pub.publish(Empty())
+                self.silence_pub.publish(Empty())
 
         now = time.monotonic()
         if now - self.last_metrics_at >= self.args.metrics_period_s:
@@ -145,6 +156,7 @@ class PulseAudioCaptureBridge(Node):
                 "peak": peak,
                 "speech": speech,
                 "vad_provider": "energy",
+                "endpoint_events_enabled": self.endpoint_events_enabled,
                 "audio_enhancer_requested": "pulse_bridge",
                 "audio_enhancer_active": "pulse_bridge",
                 "aec_active": False,
@@ -155,7 +167,11 @@ class PulseAudioCaptureBridge(Node):
                 "dropped_input_frames": self.dropped_input_frames,
                 "dropped_playback_chunks": 0,
             }
-            self.metrics_pub.publish(String(data=json.dumps(payload, ensure_ascii=False)))
+            self.metrics_pub.publish(
+                audio_frontend_status_to_message(
+                    payload, stamp=self.get_clock().now().to_msg()
+                )
+            )
 
 
 def main() -> None:
@@ -168,7 +184,14 @@ def main() -> None:
     parser.add_argument("--min-utterance-ms", type=float, default=100.0)
     parser.add_argument("--max-utterance-s", type=float, default=12.0)
     parser.add_argument("--metrics-period-s", type=float, default=0.5)
+    parser.add_argument(
+        "--endpoint-events-enabled",
+        choices=("true", "false"),
+        default="true",
+        help="publish speech_started/speech_ended events; set false when a VAD sidecar owns endpoints",
+    )
     args = parser.parse_args()
+    args.endpoint_events_enabled = args.endpoint_events_enabled == "true"
 
     rclpy.init()
     node = PulseAudioCaptureBridge(args)

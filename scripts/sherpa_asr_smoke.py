@@ -153,7 +153,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-active-paths", type=int, default=4)
     parser.add_argument("--modeling-unit", default="cjkchar")
     parser.add_argument("--hotwords-file", default="")
-    parser.add_argument("--hotwords-score", type=float, default=2.0)
+    parser.add_argument("--hotwords-score", type=float, default=3.0)
     parser.add_argument("--chunk-samples", type=int, default=1600)
     parser.add_argument("--allow-empty", action="store_true")
     parser.add_argument(

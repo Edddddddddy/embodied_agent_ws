@@ -1,4 +1,6 @@
 #include <atomic>
+#include <algorithm>
+#include <chrono>
 #include <memory>
 #include <string>
 
@@ -7,8 +9,11 @@
 #include "rclcpp_lifecycle/lifecycle_node.hpp"
 #include "std_msgs/msg/string.hpp"
 
-#include "embodied_agent_cpp/robot_command_adapter.hpp"
+#include "embodied_agent_cpp/action_validator.hpp"
+#include "embodied_agent_cpp/guarded_command_outbox.hpp"
+#include "embodied_agent_interfaces/msg/component_health.hpp"
 #include "embodied_agent_interfaces/msg/robot_command.hpp"
+#include "embodied_agent_middleware/qos_profiles.hpp"
 
 namespace embodied_agent_cpp
 {
@@ -28,16 +33,29 @@ public:
 protected:
   CallbackReturn on_configure(const rclcpp_lifecycle::State &) override
   {
+    const auto max_pending = static_cast<std::size_t>(std::max<std::int64_t>(
+      1, declare_parameter<int>("downstream_buffer_size", 32)));
+    downstream_wait_timeout_s_ = std::max(
+      0.1, declare_parameter<double>("downstream_wait_timeout_s", 3.0));
+    outbox_ = std::make_unique<GuardedCommandOutbox>(max_pending);
     typed_command_publisher_ =
       create_publisher<embodied_agent_interfaces::msg::RobotCommand>(
-      "/robot/action_command_typed", 10);
+      "/robot/action_command_typed", embodied_agent_middleware::command_qos());
     rejection_publisher_ = create_publisher<std_msgs::msg::String>(
-      "/robot/action_rejected", 10);
-    candidate_subscription_ = create_subscription<std_msgs::msg::String>(
-      "/agent/action_candidate", 10,
-      [this](const std_msgs::msg::String::SharedPtr message) {
+      "/robot/action_rejected", embodied_agent_middleware::event_qos());
+    health_publisher_ =
+      create_publisher<embodied_agent_interfaces::msg::ComponentHealth>(
+      "system/component_health", embodied_agent_middleware::state_qos());
+    candidate_subscription_ = create_subscription<
+      embodied_agent_interfaces::msg::RobotCommand>(
+      "/agent/action_candidate", embodied_agent_middleware::command_qos(),
+      [this](
+        const embodied_agent_interfaces::msg::RobotCommand::SharedPtr message) {
         on_candidate(message);
       });
+    outbox_timer_ = create_wall_timer(
+      std::chrono::milliseconds(50), [this]() {flush_outbox();});
+    outbox_timer_->cancel();
     command_sequence_ = 0;
     RCLCPP_INFO(get_logger(), "ActionGuard configured");
     return CallbackReturn::SUCCESS;
@@ -47,12 +65,24 @@ protected:
   {
     typed_command_publisher_->on_activate();
     rejection_publisher_->on_activate();
+    health_publisher_->on_activate();
+    downstream_ever_ready_ = false;
+    publish_health(
+      embodied_agent_interfaces::msg::ComponentHealth::STATE_STARTING,
+      "waiting_for_action_scheduler");
+    outbox_timer_->reset();
     RCLCPP_INFO(get_logger(), "ActionGuard activated");
     return CallbackReturn::SUCCESS;
   }
 
   CallbackReturn on_deactivate(const rclcpp_lifecycle::State &) override
   {
+    outbox_timer_->cancel();
+    outbox_->clear();
+    publish_health(
+      embodied_agent_interfaces::msg::ComponentHealth::STATE_STOPPED,
+      "lifecycle_deactivated");
+    health_publisher_->on_deactivate();
     typed_command_publisher_->on_deactivate();
     rejection_publisher_->on_deactivate();
     RCLCPP_INFO(get_logger(), "ActionGuard deactivated");
@@ -61,8 +91,11 @@ protected:
 
   CallbackReturn on_cleanup(const rclcpp_lifecycle::State &) override
   {
+    outbox_timer_.reset();
+    outbox_.reset();
     candidate_subscription_.reset();
     rejection_publisher_.reset();
+    health_publisher_.reset();
     typed_command_publisher_.reset();
     command_sequence_ = 0;
     RCLCPP_INFO(get_logger(), "ActionGuard cleaned up");
@@ -71,8 +104,11 @@ protected:
 
   CallbackReturn on_shutdown(const rclcpp_lifecycle::State &) override
   {
+    outbox_timer_.reset();
+    outbox_.reset();
     candidate_subscription_.reset();
     rejection_publisher_.reset();
+    health_publisher_.reset();
     typed_command_publisher_.reset();
     RCLCPP_INFO(get_logger(), "ActionGuard shut down");
     return CallbackReturn::SUCCESS;
@@ -85,17 +121,17 @@ private:
            lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE;
   }
 
-  void on_candidate(const std_msgs::msg::String::SharedPtr message)
+  void on_candidate(
+    const embodied_agent_interfaces::msg::RobotCommand::SharedPtr message)
   {
     if (!is_active()) {
       RCLCPP_DEBUG(get_logger(), "ignored action candidate while inactive");
       return;
     }
     const std::string command_id = "guard-" + std::to_string(++command_sequence_);
-    // ActionGuard 是 LLM 输出和机器人执行之间的安全边界：
-    // 这里只接受能通过 adapter 校验/限幅的候选动作，并只发布强类型 RobotCommand。
-    // 旧版 /robot/action_command 字符串命令已删除，避免仿真执行链路出现双入口。
-    auto result = adapter_.convert(message->data, command_id, "agent");
+    // ActionGuard 是 Agent 输出和机器人执行之间的安全边界。候选消息虽然已经
+    // 强类型化，数值范围、无关字段和动作白名单仍必须在 C++ 侧重新校验。
+    auto result = validator_.validate(*message, command_id, "agent");
     std_msgs::msg::String output;
     if (!result.valid) {
       output.data = result.error;
@@ -103,21 +139,104 @@ private:
       RCLCPP_WARN(get_logger(), "action rejected: %s", result.error.c_str());
       return;
     }
-    result.typed_command.header.stamp = now();
-    typed_command_publisher_->publish(result.typed_command);
+    if (!outbox_->enqueue(result.command, steady_now_seconds())) {
+      output.data = "action_downstream_buffer_full:" + result.command.command_id;
+      rejection_publisher_->publish(output);
+      RCLCPP_ERROR(
+        get_logger(), "action downstream buffer full: command_id=%s",
+        result.command.command_id.c_str());
+      return;
+    }
     RCLCPP_INFO(
       get_logger(), "action accepted: command_id=%s type=%u",
-      result.typed_command.command_id.c_str(), result.typed_command.action_type);
+      result.command.command_id.c_str(), result.command.action_type);
+    flush_outbox();
   }
 
-  RobotCommandAdapter adapter_;
+  double steady_now_seconds() const
+  {
+    return std::chrono::duration<double>(
+      std::chrono::steady_clock::now().time_since_epoch()).count();
+  }
+
+  void flush_outbox()
+  {
+    if (!is_active() || !outbox_) {
+      return;
+    }
+    const bool downstream_ready =
+      typed_command_publisher_->get_subscription_count() > 0;
+    const auto drain = outbox_->drain(
+      downstream_ready,
+      steady_now_seconds(), downstream_wait_timeout_s_);
+    if (downstream_ready) {
+      downstream_ever_ready_ = true;
+      publish_health(
+        embodied_agent_interfaces::msg::ComponentHealth::STATE_READY,
+        "action_scheduler_matched");
+    } else {
+      publish_health(
+        downstream_ever_ready_ ?
+        embodied_agent_interfaces::msg::ComponentHealth::STATE_DEGRADED :
+        embodied_agent_interfaces::msg::ComponentHealth::STATE_STARTING,
+        downstream_ever_ready_ ?
+        "action_scheduler_disconnected" : "waiting_for_action_scheduler");
+    }
+    for (const auto & command_id : drain.expired_command_ids) {
+      std_msgs::msg::String rejection;
+      rejection.data = "action_downstream_unavailable:" + command_id;
+      rejection_publisher_->publish(rejection);
+      RCLCPP_ERROR(
+        get_logger(), "action expired before scheduler discovery: command_id=%s",
+        command_id.c_str());
+      publish_health(
+        embodied_agent_interfaces::msg::ComponentHealth::STATE_DEGRADED,
+        "action_scheduler_unavailable");
+    }
+    for (auto command : drain.ready) {
+      command.header.stamp = now();
+      typed_command_publisher_->publish(command);
+    }
+  }
+
+  void publish_health(const std::uint8_t state, const std::string & detail)
+  {
+    const double now_s = steady_now_seconds();
+    if (!health_publisher_ || !health_publisher_->is_activated() ||
+      (last_health_state_ == state && last_health_detail_ == detail &&
+      now_s - last_health_publish_s_ < 1.0))
+    {
+      return;
+    }
+    embodied_agent_interfaces::msg::ComponentHealth message;
+    message.stamp = now();
+    message.component = "action_guard";
+    message.state = state;
+    message.detail = detail;
+    health_publisher_->publish(message);
+    last_health_state_ = state;
+    last_health_detail_ = detail;
+    last_health_publish_s_ = now_s;
+  }
+
+  ActionValidator validator_;
   std::atomic_uint64_t command_sequence_{0};
+  double downstream_wait_timeout_s_{3.0};
+  bool downstream_ever_ready_{false};
+  std::uint8_t last_health_state_{255};
+  std::string last_health_detail_;
+  double last_health_publish_s_{0.0};
+  std::unique_ptr<GuardedCommandOutbox> outbox_;
+  rclcpp::TimerBase::SharedPtr outbox_timer_;
   rclcpp_lifecycle::LifecyclePublisher<
     embodied_agent_interfaces::msg::RobotCommand>::SharedPtr
     typed_command_publisher_;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::String>::SharedPtr
     rejection_publisher_;
-  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr candidate_subscription_;
+  rclcpp_lifecycle::LifecyclePublisher<
+    embodied_agent_interfaces::msg::ComponentHealth>::SharedPtr health_publisher_;
+  rclcpp::Subscription<
+    embodied_agent_interfaces::msg::RobotCommand>::SharedPtr candidate_subscription_;
 };
 
 }  // namespace embodied_agent_cpp

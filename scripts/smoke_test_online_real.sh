@@ -21,16 +21,17 @@ cleanup() {
 trap cleanup EXIT
 sleep 4
 ros2 topic pub --once /agent/clear_memory std_msgs/msg/Empty "{}" >/dev/null
-timeout 45 ros2 topic echo --once /robot/action_ack std_msgs/msg/String >"$ACK_LOG" &
+timeout 45 ros2 topic echo --once /robot/action_ack embodied_agent_interfaces/msg/RobotActionAck >"$ACK_LOG" &
 ACK_PID=$!
-timeout 45 ros2 topic echo --once /agent/metrics std_msgs/msg/String >"$METRICS_LOG" &
+timeout 45 ros2 topic echo --once /agent/metrics \
+  embodied_agent_interfaces/msg/AgentTurnMetrics >"$METRICS_LOG" &
 METRICS_PID=$!
 sleep 1
 timeout 10 ros2 topic pub --once /agent/text_input std_msgs/msg/String \
   "{data: '小智，向前走一秒'}" >/dev/null
 wait "$ACK_PID" || { cat "$LAUNCH_LOG"; exit 1; }
 wait "$METRICS_PID" || { cat "$LAUNCH_LOG"; exit 1; }
-grep -q '"action":"move"' "$ACK_LOG"
+grep -q '^action: move' "$ACK_LOG"
 grep -q 'llm_first_token_ms' "$METRICS_LOG"
 echo "PASS: live online LLM -> TTS -> action guard -> hardware mock"
 cat "$METRICS_LOG"

@@ -1,11 +1,12 @@
-import json
 import os
 import struct
 import time
 from pathlib import Path
 
 import rclpy
-from std_msgs.msg import Empty, String, UInt8MultiArray
+from embodied_agent_interfaces.msg import SpeakerEnrollRequest, SpeakerEnrollStatus
+from embodied_agent_core.speaker_transport import enroll_status_to_dict
+from std_msgs.msg import Empty, UInt8MultiArray
 
 
 def _spin_until(node, predicate, timeout_s=8.0):
@@ -23,12 +24,14 @@ def main():
     node = rclpy.create_node("speaker_enrollment_test")
     statuses = []
     node.create_subscription(
-        String,
+        SpeakerEnrollStatus,
         "/agent/speaker_enroll_status",
-        lambda msg: statuses.append(json.loads(msg.data)),
+        lambda msg: statuses.append(enroll_status_to_dict(msg)),
         10,
     )
-    request_pub = node.create_publisher(String, "/agent/speaker_enroll_request", 10)
+    request_pub = node.create_publisher(
+        SpeakerEnrollRequest, "/agent/speaker_enroll_request", 10
+    )
     audio_pub = node.create_publisher(UInt8MultiArray, "/audio/clean_pcm", 10)
     ended_pub = node.create_publisher(Empty, "/audio/speech_ended", 10)
 
@@ -41,11 +44,8 @@ def main():
     ), "speaker identity node subscriptions were not ready"
 
     request_pub.publish(
-        String(
-            data=json.dumps(
-                {"speaker_id": "lcy", "display_name": "小李", "samples_required": 3},
-                ensure_ascii=False,
-            )
+        SpeakerEnrollRequest(
+            speaker_id="lcy", display_name="小李", samples_required=3
         )
     )
     assert _spin_until(node, lambda: any(item.get("status") == "started" for item in statuses))

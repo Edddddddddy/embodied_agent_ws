@@ -12,15 +12,37 @@ ROOT = Path(__file__).resolve().parents[2]
 MONITOR = ROOT / "scripts" / "continuous_voice_monitor.py"
 sys.path.insert(0, str(ROOT / "scripts"))
 
-sys.modules.setdefault("rclpy", types.SimpleNamespace())
-sys.modules.setdefault(
-    "rclpy.node",
-    types.SimpleNamespace(Node=object),
-)
-sys.modules.setdefault(
-    "std_msgs.msg",
-    types.SimpleNamespace(String=object),
-)
+try:
+    import rclpy  # noqa: F401
+except ImportError:
+    sys.modules.setdefault("rclpy", types.SimpleNamespace())
+    sys.modules.setdefault(
+        "rclpy.node",
+        types.SimpleNamespace(Node=object),
+    )
+
+
+class _FakeQosProfile:
+    def __init__(self, **kwargs):
+        self.settings = kwargs
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+
+if "rclpy.node" not in sys.modules:
+    sys.modules.setdefault(
+        "rclpy.qos",
+        types.SimpleNamespace(
+            DurabilityPolicy=types.SimpleNamespace(VOLATILE=0, TRANSIENT_LOCAL=1),
+            HistoryPolicy=types.SimpleNamespace(KEEP_LAST=0),
+            QoSProfile=_FakeQosProfile,
+            ReliabilityPolicy=types.SimpleNamespace(RELIABLE=0),
+        ),
+    )
+    sys.modules.setdefault(
+        "std_msgs.msg",
+        types.SimpleNamespace(String=object),
+    )
 
 spec = importlib.util.spec_from_file_location("continuous_voice_monitor", MONITOR)
 monitor = importlib.util.module_from_spec(spec)
@@ -142,6 +164,22 @@ def test_monitor_formats_command_completion_feedback():
     assert monitor.format_recognition_feedback(feedback) == "[complete] 左转 -> 左转九十度"
 
 
+def test_monitor_formats_partial_final_recovery_feedback():
+    feedback = json.dumps(
+        {
+            "status": "asr_final_recovered",
+            "original_final": "把灯",
+            "recovered": "把灯设成蓝色",
+        },
+        ensure_ascii=False,
+    )
+
+    assert (
+        monitor.format_recognition_feedback(feedback)
+        == "[asr-recover] 把灯 -> 把灯设成蓝色"
+    )
+
+
 def test_monitor_formats_asr_endpoint_and_commit_feedback():
     endpoint = json.dumps(
         {"status": "asr_endpoint", "source": "speech_ended", "delay_ms": 300},
@@ -257,7 +295,7 @@ def test_monitor_stats_summarizes_long_running_session():
     stats.record_result(json.dumps({"success": True, "message": "succeeded"}))
 
     assert stats.format_summary() == (
-        "[summary] wake=1 sleep=1 retry=1 timeout=1 asr=1 ignored=1 normalized=1 completed=0 enqueued=1 rejected=1 expired=1 "
+        "[summary] wake=1 sleep=1 retry=1 timeout=1 asr=1 ignored=1 normalized=1 completed=0 recovered=0 enqueued=1 rejected=1 expired=1 "
         "started=1 finished=1 succeeded=1 failed=0\n"
         "[advice] 出现 queue_full：请放慢连续说话节奏，或适当增大 CONTINUOUS_COMMAND_QUEUE_SIZE。\n"
         "[advice] 有命令过期：机器人执行较慢或说话过快，可缩短演示话术或增大 CONTINUOUS_COMMAND_MAX_AGE。"
@@ -386,11 +424,56 @@ def test_monitor_stats_keeps_bounded_recent_audio_samples():
     assert "max_rms=0.0300" in summary
 
 
+def test_asr_nlu_sample_recorder_writes_jsonl(tmp_path):
+    output = tmp_path / "asr_nlu_samples.jsonl"
+    recorder = monitor.AsrNluSampleRecorder(output)
+
+    recorder.record_asr("向右转然后向前走一秒")
+    recorder.record_json_event(
+        "recognition_feedback",
+        "/agent/recognition_feedback",
+        json.dumps(
+            {
+                "status": "nlu_parsed",
+                "batch_id": "demo-1",
+                "commands": [
+                    {"intent": "turn_right", "span_text": "向右转"},
+                    {"intent": "move_forward", "span_text": "向前走一秒"},
+                ],
+            },
+            ensure_ascii=False,
+        ),
+    )
+    recorder.record_json_event(
+        "action_candidate",
+        "/agent/action_candidate",
+        json.dumps(
+            {"name": "move", "arguments": {"linear_x": 0.2, "duration_s": 1.0}},
+            ensure_ascii=False,
+        ),
+    )
+
+    rows = [
+        json.loads(line)
+        for line in output.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert [row["kind"] for row in rows] == [
+        "asr_final",
+        "recognition_feedback",
+        "action_candidate",
+    ]
+    assert rows[0]["text"] == "向右转然后向前走一秒"
+    assert rows[1]["status"] == "nlu_parsed"
+    assert rows[2]["name"] == "move"
+
+
 def test_monitor_exposes_audio_sample_limit_cli_option():
     content = MONITOR.read_text(encoding="utf-8")
 
     assert "--audio-sample-limit" in content
-    assert "ContinuousVoiceMonitor(audio_sample_limit=args.audio_sample_limit)" in content
+    assert "--sample-output" in content
+    assert "sample_output=args.sample_output" in content
 
 
 def test_monitor_signal_handler_uses_keyboard_interrupt_for_summary_path():

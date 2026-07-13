@@ -11,7 +11,8 @@ if [[ "$AGENT_KIND" != "online" && "$AGENT_KIND" != "offline" ]]; then
   exit 2
 fi
 
-MOCK_ASR_FINALS="小智|向前走一秒|左转|前进|后退一秒|退出控制"
+MOCK_ASR_FINALS="小智|向前走一秒|左转|前进|后退一秒|把灯|把灯|我九十|退出"
+MOCK_ASR_PARTIALS="-|-|-|-|-|把灯设成蓝色|-|-|-"
 LOG_FILE="$(mktemp)"
 PIDS=()
 cleanup() {
@@ -43,6 +44,7 @@ if [[ "$AGENT_KIND" == "online" ]]; then
     -p continuous_control_enabled:=true \
     -p asr_commit_delay_ms:=100 \
     -p mock_asr_finals:="$MOCK_ASR_FINALS" \
+    -p mock_asr_partials:="$MOCK_ASR_PARTIALS" \
     -p voice_session_timeout_s:=60.0 \
     -p action_sequence_wait_timeout_s:=12.0 \
     >>"$LOG_FILE" 2>&1 &
@@ -54,6 +56,7 @@ else
     -p continuous_control_enabled:=true \
     -p asr_commit_delay_ms:=100 \
     -p mock_asr_finals:="$MOCK_ASR_FINALS" \
+    -p mock_asr_partials:="$MOCK_ASR_PARTIALS" \
     -p voice_session_timeout_s:=60.0 \
     -p action_sequence_wait_timeout_s:=12.0 \
     >>"$LOG_FILE" 2>&1 &

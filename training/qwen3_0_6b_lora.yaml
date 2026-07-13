@@ -1,4 +1,4 @@
-### LLaMA-Factory training placeholder; review and expand the dataset before running.
+### LLaMA-Factory SFT/LoRA configuration. Seed data only validates the pipeline.
 model_name_or_path: Qwen/Qwen3-0.6B
 trust_remote_code: true
 stage: sft
@@ -6,6 +6,8 @@ do_train: true
 finetuning_type: lora
 lora_target: all
 dataset_dir: training
+# 审核完成后可改为：robot_dialogue_seed,robot_dialogue_lora_approved
+# 不要直接把 robot_dialogue_lora_candidates 当作训练集，候选样例必须先人工审核。
 dataset: robot_dialogue_seed
 template: qwen3_nothink
 cutoff_len: 1024

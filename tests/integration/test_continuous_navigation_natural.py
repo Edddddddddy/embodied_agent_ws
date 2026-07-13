@@ -13,8 +13,24 @@ import threading
 import time
 
 import rclpy
+from embodied_agent_interfaces.msg import (
+    CommandExecutionEvent,
+    CommandQueueEvent,
+    NluParseEvent,
+    RecognitionFeedback,
+    RobotCommand,
+    RobotCommandResult,
+)
+from embodied_agent_core.ros_event_transport import (
+    execution_event_message_to_dict,
+    nlu_parse_message_to_dict,
+    queue_event_message_to_dict,
+    recognition_feedback_message_to_dict,
+)
+from embodied_agent_core.ros_qos import event_qos
 from rclpy.node import Node
 from std_msgs.msg import String
+from typed_action_test_utils import candidate_dict, result_dict
 
 
 class NaturalNavigationProbe(Node):
@@ -26,26 +42,40 @@ class NaturalNavigationProbe(Node):
         self.execution_events = []
         self.recognition_feedback = []
         self.results = []
-        self.create_subscription(String, "/agent/action_candidate", self._on_candidate, 10)
-        self.create_subscription(String, "/agent/command_queue", self._on_queue, 10)
-        self.create_subscription(String, "/agent/command_execution", self._on_execution, 10)
-        self.create_subscription(String, "/agent/recognition_feedback", self._on_recognition, 10)
-        self.create_subscription(String, "/robot/action_result", self._on_result, 10)
+        self.create_subscription(RobotCommand, "/agent/action_candidate", self._on_candidate, 10)
+        self.create_subscription(CommandQueueEvent, "/agent/command_queue", self._on_queue, event_qos())
+        self.create_subscription(CommandExecutionEvent, "/agent/command_execution", self._on_execution, event_qos())
+        self.create_subscription(
+            RecognitionFeedback,
+            "/agent/recognition_feedback",
+            self._on_recognition,
+            event_qos(),
+        )
+        self.create_subscription(
+            NluParseEvent,
+            "/agent/nlu_parse",
+            self._on_nlu_parse,
+            event_qos(),
+        )
+        self.create_subscription(RobotCommandResult, "/robot/action_result", self._on_result, 10)
 
     def _on_candidate(self, message):
-        self.candidates.append(json.loads(message.data))
+        self.candidates.append(candidate_dict(message))
 
     def _on_queue(self, message):
-        self.queue_events.append(json.loads(message.data))
+        self.queue_events.append(queue_event_message_to_dict(message))
 
     def _on_execution(self, message):
-        self.execution_events.append(json.loads(message.data))
+        self.execution_events.append(execution_event_message_to_dict(message))
 
     def _on_recognition(self, message):
-        self.recognition_feedback.append(json.loads(message.data))
+        self.recognition_feedback.append(recognition_feedback_message_to_dict(message))
+
+    def _on_nlu_parse(self, message):
+        self.recognition_feedback.append(nlu_parse_message_to_dict(message))
 
     def _on_result(self, message):
-        self.results.append(json.loads(message.data))
+        self.results.append(result_dict(message))
 
 
 def wait_until(predicate, timeout, description):

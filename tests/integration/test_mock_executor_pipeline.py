@@ -6,17 +6,27 @@ import threading
 import time
 
 import rclpy
+from embodied_agent_interfaces.msg import (
+    BehaviorTreeStatus,
+    RobotActionAck,
+    RobotCommand,
+    RobotCommandResult,
+)
+from embodied_agent_core.runtime_status_transport import (
+    action_ack_to_dict,
+    behavior_tree_status_to_dict,
+)
 from diagnostic_msgs.msg import DiagnosticArray
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
-from std_msgs.msg import String
+from typed_action_test_utils import candidate_message, result_dict
 
 
 class MockExecutorProbe(Node):
     def __init__(self):
         super().__init__("mock_executor_probe")
         self.candidate_pub = self.create_publisher(
-            String, "/agent/action_candidate", 10
+            RobotCommand, "/agent/action_candidate", 10
         )
         self.velocities = []
         self.ack = None
@@ -24,11 +34,11 @@ class MockExecutorProbe(Node):
         self.bt_status = None
         self.diagnostic = None
         self.create_subscription(Twist, "/cmd_vel", self._on_velocity, 10)
-        self.create_subscription(String, "/robot/action_ack", self._on_ack, 10)
+        self.create_subscription(RobotActionAck, "/robot/action_ack", self._on_ack, 10)
         self.create_subscription(
-            String, "/robot/action_result", self._on_result, 10
+            RobotCommandResult, "/robot/action_result", self._on_result, 10
         )
-        self.create_subscription(String, "/robot/bt_status", self._on_bt, 10)
+        self.create_subscription(BehaviorTreeStatus, "/robot/bt_status", self._on_bt, 10)
         self.create_subscription(
             DiagnosticArray, "/diagnostics", self._on_diagnostics, 10
         )
@@ -37,17 +47,17 @@ class MockExecutorProbe(Node):
         self.velocities.append((message.linear.x, message.angular.z))
 
     def _on_ack(self, message):
-        payload = json.loads(message.data)
+        payload = action_ack_to_dict(message)
         if payload.get("action") == "move":
             self.ack = payload
 
     def _on_result(self, message):
-        payload = json.loads(message.data)
+        payload = result_dict(message)
         if payload.get("message") == "succeeded":
             self.result = payload
 
     def _on_bt(self, message):
-        payload = json.loads(message.data)
+        payload = behavior_tree_status_to_dict(message)
         if payload.get("outcome") == "succeeded":
             self.bt_status = payload
 
@@ -82,11 +92,9 @@ def main():
             "mock executor pipeline was not discovered",
         )
         time.sleep(0.5)
-        command = {
-            "name": "move",
-            "arguments": {"linear_x": 0.15, "duration_s": 0.3},
-        }
-        node.candidate_pub.publish(String(data=json.dumps(command)))
+        node.candidate_pub.publish(
+            candidate_message("move", {"linear_x": 0.15, "duration_s": 0.3})
+        )
         wait_until(
             lambda: node.result is not None
             and node.bt_status is not None

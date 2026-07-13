@@ -6,6 +6,9 @@ import threading
 import time
 
 import rclpy
+from embodied_agent_interfaces.msg import KwsEvent, WakeEvent
+from embodied_agent_core.ros_event_transport import wake_event_message_to_dict
+from embodied_agent_core.runtime_status_transport import kws_event_to_dict
 from rclpy.node import Node
 from std_msgs.msg import String
 
@@ -16,14 +19,18 @@ class KeywordWakeProbe(Node):
         self.text_pub = self.create_publisher(String, "/agent/kws_text_input", 10)
         self.wake_events = []
         self.kws_events = []
-        self.create_subscription(String, "/agent/wake_event_input", self._on_wake, 10)
-        self.create_subscription(String, "/agent/kws_event", self._on_kws, 10)
+        self.wake_sub = self.create_subscription(
+            WakeEvent, "/agent/wake_event_input", self._on_wake, 10
+        )
+        self.kws_sub = self.create_subscription(
+            KwsEvent, "/agent/kws_event", self._on_kws, 10
+        )
 
     def _on_wake(self, message):
-        self.wake_events.append(json.loads(message.data))
+        self.wake_events.append(wake_event_message_to_dict(message))
 
     def _on_kws(self, message):
-        self.kws_events.append(json.loads(message.data))
+        self.kws_events.append(kws_event_to_dict(message))
 
 
 def wait_until(predicate, timeout, description):
@@ -47,6 +54,17 @@ def main():
             lambda: node.text_pub.get_subscription_count() > 0,
             10.0,
             "keyword_wake did not subscribe to /agent/kws_text_input",
+        )
+        # DDS 发现是双向异步的：只看到输入订阅者，并不代表测试端已经发现
+        # sidecar 的输出 publisher。等待完整通信图后再发送唯一一条测试消息，
+        # 避免启动负载较高时出现“节点已就绪但事件偶发丢失”的假失败。
+        wait_until(
+            lambda: (
+                node.wake_sub.get_publisher_count() > 0
+                and node.kws_sub.get_publisher_count() > 0
+            ),
+            10.0,
+            "probe did not discover keyword_wake output publishers",
         )
         node.text_pub.publish(String(data="你好小志"))
         wait_until(

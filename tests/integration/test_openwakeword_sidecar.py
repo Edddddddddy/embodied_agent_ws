@@ -6,6 +6,10 @@ import threading
 import time
 
 import rclpy
+from embodied_agent_interfaces.msg import KwsEvent, KwsScore, WakeEvent
+from embodied_agent_core.ros_event_transport import wake_event_message_to_dict
+from embodied_agent_core.runtime_status_transport import kws_event_to_dict, kws_score_to_dict
+from embodied_agent_core.ros_qos import sensor_qos
 from rclpy.node import Node
 from std_msgs.msg import String, UInt8MultiArray
 
@@ -17,18 +21,20 @@ class OpenWakeWordProbe(Node):
         self.wake_events = []
         self.kws_events = []
         self.score_events = []
-        self.create_subscription(String, "/agent/wake_event_input", self._on_wake, 10)
-        self.create_subscription(String, "/agent/kws_event", self._on_kws, 10)
-        self.create_subscription(String, "/agent/kws_score", self._on_score, 10)
+        self.create_subscription(WakeEvent, "/agent/wake_event_input", self._on_wake, 10)
+        self.create_subscription(KwsEvent, "/agent/kws_event", self._on_kws, 10)
+        self.create_subscription(
+            KwsScore, "/agent/kws_score", self._on_score, sensor_qos(depth=5)
+        )
 
     def _on_wake(self, message):
-        self.wake_events.append(json.loads(message.data))
+        self.wake_events.append(wake_event_message_to_dict(message))
 
     def _on_kws(self, message):
-        self.kws_events.append(json.loads(message.data))
+        self.kws_events.append(kws_event_to_dict(message))
 
     def _on_score(self, message):
-        self.score_events.append(json.loads(message.data))
+        self.score_events.append(kws_score_to_dict(message))
 
 
 def wait_until(predicate, timeout, description):
@@ -70,13 +76,14 @@ def main():
             "keyword_wake openwakeword mode did not publish wake events",
         )
         wake = node.wake_events[0]
+        detected = node.kws_events[0]
         score = node.score_events[0]
         if wake.get("kind") != "wake" or wake.get("provider") != "openwakeword_test":
             raise RuntimeError(f"unexpected wake payload: {wake}")
         if wake.get("transcript") != "fake_wake":
             raise RuntimeError(f"unexpected detected keyword: {wake}")
-        if wake.get("score", 0.0) < 0.5:
-            raise RuntimeError(f"unexpected low score: {wake}")
+        if detected.get("score", 0.0) < 0.5:
+            raise RuntimeError(f"unexpected low score: {detected}")
         if score.get("top_keyword") != "fake_wake" or not score.get("above_threshold"):
             raise RuntimeError(f"unexpected score payload: {score}")
         print(

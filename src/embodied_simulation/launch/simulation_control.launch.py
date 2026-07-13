@@ -22,6 +22,9 @@ def generate_launch_description():
     autostart = LaunchConfiguration("autostart")
     use_composition = LaunchConfiguration("use_composition")
     namespace = LaunchConfiguration("namespace")
+    readiness_required_components = LaunchConfiguration(
+        "readiness_required_components"
+    )
     node_parameters = [
         LaunchConfiguration("config"),
         {
@@ -50,6 +53,11 @@ def generate_launch_description():
         DeclareLaunchArgument("action_timeout_s", default_value="12.0"),
         DeclareLaunchArgument("use_composition", default_value="false"),
         DeclareLaunchArgument("namespace", default_value=""),
+        DeclareLaunchArgument("readiness_profile", default_value="execution"),
+        DeclareLaunchArgument(
+            "readiness_required_components",
+            default_value="simulation_control,typed_action_bridge",
+        ),
         LifecycleNode(
             package="embodied_simulation",
             executable="simulation_control_node",
@@ -94,6 +102,18 @@ def generate_launch_description():
             name="typed_action_bridge",
             namespace=namespace,
             output="screen",
+            condition=IfCondition(use_typed_actions),
+        ),
+        Node(
+            package="embodied_agent_middleware",
+            executable="system_readiness_node",
+            name="system_readiness",
+            namespace=namespace,
+            output="screen",
+            parameters=[{
+                "profile": LaunchConfiguration("readiness_profile"),
+                "required_components_csv": readiness_required_components,
+            }],
             condition=IfCondition(use_typed_actions),
         ),
     ])

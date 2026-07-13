@@ -23,18 +23,57 @@
 | 真实 Nav2 验收修复 | 跑通 TurtleBot3/Nav2 目标点导航与多目标点巡航 | 修复官方 launch 布尔参数、AMCL initialpose 和导航长动作超时；`nav2-turtlebot3` PASS |
 | 真实麦克风 Nav2 连续导航 | 支持一次唤醒后连续说多个目标点/巡航命令并进入 Nav2 队列执行 | 新增 `continuous-nav2-offline/online`、AMCL initialpose 辅助脚本和 live-check 入口 |
 | 连续导航队列回归 | 自动验证连续会话中目标点导航与多目标点巡航不会丢队列 | 新增 `continuous-navigation`，覆盖多目标点 NLU、队列元数据和 request_id/result 关联 |
+| Nav2 韧性重型验收 | 用真实 Gazebo/雷达/costmap 证明动态重规划和不可达失败反馈 | 新增 `nav2-resilience`，动态插入前方障碍、比较全局路径净空，并验证地图外目标 aborted 与停车 |
 | Nav2 现场验收增强 | 让真实麦克风辅助计分更贴近导航目标 | `continuous-nav2-live-check` 额外要求出现 `navigate_to` 与 `follow_waypoints` |
 | 真实麦克风验收留证 | 让现场验收结果可保存、可复查 | `CONTINUOUS_LIVE_CHECK_REPORT=...` 可导出 live-check 证据报告 |
 | 真实麦克风报告复核 | 让现场报告可以脱离仿真环境二次判定 | 新增 `continuous-live-report` / `continuous-nav2-live-report` |
 | 一键式 Nav2 现场留证 | 降低真实麦克风 Nav2 验收操作复杂度 | 新增 `continuous-nav2-evidence`，单终端启动控制、计分、保存报告并清理进程 |
 | 一键留证 dry-run | 让现场验收脚本可自动测试、可提前检查参数 | `CONTINUOUS_NAV2_EVIDENCE_DRY_RUN=true` 打印控制/计分命令但不启动仿真 |
+| 成熟 VAD 自动选择 | 连续语音默认优先使用可用的 Silero VAD，缺依赖时降级 energy | `VAD_PROVIDER=auto`、`voice_provider_preflight.py` 自动解析、普通/Nav2 连续脚本统一 |
 | 自然多目标导航话术 | 提升真实语音目标点/巡航表达容错 | 支持“先去门口再去书桌最后回起点”“巡逻门口书桌起点”，同时保留两目标语句拆成多个 `navigate_to` 入队 |
 | 自然导航验收入口 | 将自然多目标话术纳入 ROS pipeline 回归 | 新增 `continuous-navigation-natural`，覆盖自然话术到 `follow_waypoints` 队列执行 |
 | Sherpa-ONNX ASR-only 部署 | 开始真实部署离线 ASR 推理框架，先隔离验证 ASR 层 | 新增 `setup_sherpa_asr_runtime.sh`、`sherpa_asr_smoke.py`、`sherpa-asr-preflight/smoke` 验收入口 |
 | Sherpa-ONNX 离线完整链路验证 | 验证真实 Sherpa 语音模型进入 ROS2 typed Action 控制闭环 | 新增 `offline-sherpa-typed`，覆盖 Sherpa-TTS 音频、ZipFormer ASR、Offline Agent、ActionGuard、ExecuteRobotCommand、`/cmd_vel` |
 | 离线 TTS 版本收口 | 固定 llama.cpp / SummerTTS / sherpa-onnx 版本并补充低延迟 gate | 新增 `OFFLINE_RUNTIME_VERSIONS.md`、`offline-runtime-versions`、`offline-latency` |
 | SummerTTS 服务化 | 将 SummerTTS 从命令行 provider 升级为常驻 C++ ROS service | 新增 `SynthesizeSpeech.srv`、`summer_tts_service`、`tts_provider:=summer_ros`、`summer-tts-service` |
+| SummerTTS 短文本缓存 | 优化“收到/好的/正在执行”等重复反馈的服务延迟 | `SynthesizeSpeech.srv` 增加 `cache_hit`，`summer_tts_service_probe.py` 输出首轮/缓存命中耗时 |
+| 指令解析评测增强 | 把 deterministic parser 证据从 seed 样例扩展为代表集 | `robot_instruction_eval.jsonl` 扩展到 43 条，覆盖速度/距离/角度/时长/地点槽位及长动作分段，`instruction-parser-eval` 输出分 tag 指标与失败用例 |
 | 求职展示版收口 | 固定演示路径、汇报稿、代码走读地图和发布门禁 | 新增 `PROJECT_PRESENTATION_15MIN.md`，README 指向阶段发布 gate |
+| Nav2 演示资产本地化 | 减少对官方 `tb3_sandbox` map/world 入口的展示依赖 | 新增 `voice_demo.yaml`、`voice_demo.sdf.xacro`，`nav2-assets` 审计本地 map/world/RViz |
+| 成熟 VAD 预检闭环 | 降低真实麦克风现场排障成本 | `provider-preflight` 输出 `recommendations`，连续语音启动时提示 WebRTC/Silero setup 命令 |
+| WebRTC VAD 运行时验收 | 让成熟 VAD 不只停留在 preflight | 新增 `webrtc-vad-sidecar`，验证 WebRTC VAD sidecar 可启动并接管 endpoint |
+| Sherpa KWS 部署闭环 | 让声学唤醒路径可复制验收 | `setup_voice_kws_runtime.sh sherpa` 生成 `logs/sherpa_kws.env`，`sherpa-kws-sidecar` 验证真实 KeywordSpotter 启动 |
+| KWS 阈值校准闭环 | 让现场 KWS 分数能直接变成下一轮参数 | `voice-calibration-report` 写出 `OPENWAKEWORD_THRESHOLD` / `LIVEKIT_WAKEWORD_THRESHOLD` 推荐值 |
+| Silero ONNX 轻量运行时 | 让成熟 VAD 不依赖 PyTorch 并具备真实推理证据 | 固定 v6.2.1 模型/哈希，纯 ONNX state/context 推理，ROS endpoint 与延迟报告通过 |
+| 离线性能证据收口 | 统一 ASR、LLM、TTS、tokens/s 和真实 E2E 指标 | 增加运行时预热、单槽 prompt cache、`offline-voice-e2e-report` 和严格证据审计；本轮端到首 PCM 多次运行约 1.32–2.11s |
+| 动作控制面全强类型化 | 删除 Agent→ActionGuard 的 JSON 适配层，让候选、受信命令、反馈和结果都使用自定义 ROS 2 接口 | 新增 `RobotCommandFeedback` / `RobotCommandResult`，Agent 直接发布 `RobotCommand`，C++ ActionGuard 直接校验字段；JSON 只保留在日志、指标和硬件协议边界 |
+| C++ Action 调度收敛 | 将受信动作的执行顺序、Action Client、优先取消和状态观测从 Python 收敛到 C++ | 新增可独立测试的 `ActionScheduler`，组合动作批量进入 C++ FIFO；显式 `priority` 区分急停与计划 STOP，并增加取消 watchdog、稳定错误码、`/diagnostics` 和 `cpp-action-scheduler` 验收 |
+| 命令生命周期中间件强类型化 | 删除队列/执行事件的 `String + JSON` ROS 契约并统一 QoS | 新增 `CommandContext`、`CommandQueueEvent`、`CommandExecutionEvent`；online/offline、monitor、live-check 和集成探针统一使用 typed msg；命令事件 reliable，当前状态 transient-local |
+| 语音控制面事件强类型化 | 将唤醒、识别反馈和 NLU 解析从通用字符串中拆出 | 新增 `WakeEvent`、`RecognitionFeedback`、`NluParseEvent` 及槽位/改写子消息；识别状态与 NLU 动作序列分 topic，online/offline 和验收探针使用同一转换边界 |
+| Agent 公共控制面收敛 | 删除 online/offline 中重复的会话入口、队列组件初始化和 typed publisher 实现 | 新增无 ROS 依赖的 `AgentControlPlane` 与独立 `RosAgentEventPublisher` Adapter；统一参数映射、归一化、补全、重试、急停/导航取消决策和 batch id |
+| 运行状态中间件强类型化 | 清理音频、VAD/KWS、仿真状态、ACK 和 BT 状态的 `String + JSON` 契约 | 新增 7 个运行状态 msg 与统一转换 Adapter；VAD/KWS provider、C++ 仿真/硬件节点、monitor 和验收探针共享同一 schema，JSON 仅保留为报告文件格式 |
+| 声纹记忆模块收敛 | 删除 online/offline 重复的记忆命令状态分支和声纹 JSON topic | 新增 `MemoryCommandService` 深模块及 3 个声纹 typed msg；身份门槛、偏好生命周期、录入请求和 interaction 记录使用同一实现 |
+| 仿真动作运行时收敛 | 缩小 Lifecycle 节点职责，消除定时动作、Nav2 result 与 BT 的平行状态机 | 新增 `ActiveActionRuntime`，统一进度、取消、超时、外部 result 和 BT 终态映射，并增加纯 C++ 单测 |
+| 仿真 ROS I/O 收敛 | 避免控制节点同时维护业务状态、publisher 生命周期和 DDS 细节 | 新增 `SimulationRosIo`，统一 7 个 managed publisher、命名 QoS、ACK/BT 映射与去重，节点缩减到 800 行以内 |
+| executor 后端隔离 | 避免简单 Gazebo/Mock 后端和 Nav2 Action client、线程、地图加载耦合在同一编译单元 | 按 Gazebo、Mock、Nav2 拆为三个 pluginlib 实现文件，保持稳定插件名称和公共 `RobotExecutor` 契约 |
+| 真实语音 profile 收敛 | 消除普通控制与 Nav2 入口各自维护 normal/quiet/low_gain/noisy_room 参数表造成的漂移 | 新增 `voice_control_profile.sh` 作为唯一解析器，场景只覆盖会话基线，显式环境变量仍拥有最高优先级 |
+| voice frontend launch 收敛 | 消除 online/offline 对音频、VAD、KWS、声纹参数和节点的整段复制 | 新增 `voice_frontend_launch_contract.py`，统一 31 个参数和 5 个节点；在线 launch 缩至约 100 行、离线约 156 行 |
+| Agent 安全部署拓扑收敛 | 避免 ActionGuard/Lifecycle manager/硬件 Adapter 顺序与参数在 online/offline 漂移 | 新增 `agent_deployment_launch_contract.py`；统一正序激活、逆序停机及 UART/SPI 类型，在线 launch 进一步缩至约 57 行、离线约 123 行 |
+| 仓库契约测试分区 | 避免结构、部署、语音和仿真守卫继续堆积在 1700 行单文件 | 按 architecture/delivery/voice_runtime 拆为三组，共享只读路径工具；54 项契约保持通过并增加文件规模守卫 |
+| bringup 包分层 | 修正共享 launch contract 放在领域 core 中造成的部署依赖反向污染 | 新增 `embodied_agent_bringup`，依赖方向统一为 bringup → core/voice/C++；core 移除 launch/launch_ros 依赖 |
+| 控制命令启动可靠性 | 修复 DDS discovery 完成前 Guard 发布的 volatile 动作静默丢失 | 新增有界 TTL `GuardedCommandOutbox`；scheduler 匹配后 FIFO 转发，超时/满载明确拒绝，不回放陈旧动作 |
+| C++ 中间件契约收敛 | 清理跨节点散落的 QoS depth 与不一致策略 | 新增独立 `embodied_agent_middleware` 包，统一 command/event/state/sensor/audio/diagnostics QoS，并迁移控制主链路 |
+| 系统就绪状态收敛 | 替代 launch/test 中分散的固定 sleep、topic graph 猜测和日志字符串判断 | 新增 `ComponentHealth`、`SystemReadiness`、心跳超时聚合器和 profile 化启动门禁；保留音频/仿真数据质量探针 |
+| Agent 参数与 launch 契约收敛 | 消除 online/offline 节点、YAML、Gazebo/Nav2 launch 中重复默认值和转发映射 | 新增共享参数 schema、ROS range/enum 描述、启动前校验、只读快照与组合 launch 转发契约；provider YAML 仅保留模型配置 |
+| Agent 并发运行时收敛 | 消除端点 timer、busy/worker 和多命令 NLU 入队的双份状态机 | 新增 `AsrEndpointRuntime`、`AgentExecutionRuntime` 和 `CommandEnqueueDecision`；统一异常隔离、busy 复位、batch metadata 与关闭时 timer/cancel 语义 |
+| LLM 流式协议收敛 | 消除 online/offline 的 token parser、TTS 分句与动作选择双份实现 | 新增 `StreamingTurnRuntime/Result`；统一格式错误回退、确定性动作优先级、语义安全阻断和记忆动作口径，provider 仅保留 TTS/latency adapter |
+| 用户上下文一致性收敛 | 消除身份、画像 prompt、偏好和低置信度写保护的双份节点逻辑，并修复异步声纹切换竞态 | 新增 `UserContextRuntime/Snapshot`；命令入队时冻结身份/偏好，prompt、动作与 interaction 共用同一快照；预解析动作恢复归入 `AgentControlPlane` |
+| Agent Lifecycle 资源治理 | 让 online/offline 的生命周期状态对应真实 provider、线程和 publisher，而非只保留进程级启停 | 两个 Agent 升级为 `LifecycleNode`；configure/activate/deactivate/cleanup/on_error 统一资源边界，managed publisher、协作取消、安全 STOP、STOPPED health、manager 依赖顺序和 cleanup 后重建均有自动验收 |
+| Agent ROS I/O 契约收敛 | 消除 online/offline 节点重复接线、topic 字符串和 QoS 漂移 | 新增 `AgentRosIo`、不可变 `AgentTopicContract` 与 `audio_qos`；节点只注入 callback，PCM best-effort、控制 reliable、状态 latched，并在 inactive 关闭健康心跳 |
+| Agent turn 指标强类型化 | 删除在线/离线双 topic 与 `String + JSON` 指标协议 | 新增 `AgentTurnMetrics` 和唯一 `metrics_transport.py`；统一 `/agent/metrics`，source 区分模式，NaN/三态 target 表达缺失值，监控与验收共享转换 Adapter |
+| Agent Lifecycle 编排收敛 | 消除 online/offline 对 active/stopping、endpoint、execution 和安全停机顺序的双重所有权 | 新增组合式 `AgentLifecycleRuntime`；统一 bind/activate/deactivate/release/shutdown、priority STOP 与 quiescence 报告，provider 仅注入输入启停 hook |
+| Agent 包依赖收敛 | 消除 offline 复用 online 内部业务模块和语音 sidecar 形成的反向依赖 | 新增 `embodied_agent_core` 与 `embodied_voice_frontend`；公共领域/编排/记忆/transport 和 VAD/KWS/声纹 Adapter 分别归位，online/offline 只保留各自 provider |
+| Python/C++ QoS 语义对齐 | 删除 VAD/KWS/声纹节点手写 QoS 和跨语言命名漂移 | Python/C++ 统一 command/event/state/sensor/audio/diagnostics 六类 profile；KWS score 与 PCM 使用 best-effort，身份/健康使用 transient-local，控制和事件保持 reliable + volatile |
 
 ## 2. 当前完成度结论
 
@@ -42,7 +81,7 @@
 
 已具备的展示点：
 
-- ROS 2 C++ 节点：音频前端、ActionGuard、typed action bridge、仿真执行层。
+- ROS 2 C++ 节点：音频前端、ActionGuard、typed action bridge、仿真执行层；动作控制面不再依赖 JSON 字符串解析。
 - Python Agent：在线/离线 provider、连续语音会话、命令队列、LLM/TTS 编排。
 - 工程化接口：自定义 msg/action、Lifecycle、BehaviorTree.CPP、pluginlib。
 - 演示能力：真实麦克风连续语音、多动作序列、急停抢占、Gazebo 运动验证。
@@ -56,7 +95,8 @@
 - 当前硬件控制是预留/mock，不是实体机器人完整验收。
 - 当前已提供完整 TurtleBot3/Nav2 重型验收入口，但地图构建、复杂目标点规划和更复杂场景仍是后续增强。
 - 离线 LoRA 训练、量化指标可以作为规划和接口说明，不应夸大为已复现完整训练结果。
-- openWakeWord、LiveKit WakeWord、Silero VAD 是可选 seam/preflight，不是默认强依赖链路。
+- openWakeWord、LiveKit WakeWord 仍是可选 seam/preflight；Silero VAD 已有轻量 ONNX 真实运行时，
+  但模型仍保持可选下载，CI 不强制携带大模型资产。
 
 ## 3. 当前最有价值的验收证据
 
@@ -122,6 +162,10 @@ bash scripts/acceptance_test.sh continuous-live-check offline
 ### P0：保持演示稳定
 
 - 优先保证 `continuous-offline` 在 3～5 分钟内稳定连续控制。
+- 新增固定 10 命令真实麦克风 benchmark，量化识别率、动作成功率、误触发率与延迟 P95；
+  自动测试不再冒充真人长时间证据。
+- 新增 `continuous-voice-evidence` 单终端入口，自动启停控制链路并显示倒计时；benchmark
+  即使未达门槛也保证生成现场与汇总两份报告，避免 `set -e` 提前中断留证。
 - 优先保证 `continuous-nav2-offline` 能支撑 3～5 分钟真实麦克风目标点导航/巡航演示。
 - 继续完善 monitor 输出，让失败原因能直接定位到 ASR、session、queue、Action、Gazebo。
 - 为常见麦克风和噪声环境补充 profile 建议。

@@ -4,50 +4,9 @@ set -euo pipefail
 WORKSPACE="${WORKSPACE:-/home/ubuntu/embodied_agent_ws}"
 MODE="${1:-offline}"
 VOICE_CONTROL_PROFILE="${VOICE_CONTROL_PROFILE:-normal}"
-
-PROFILE_SESSION_TIMEOUT=150
-PROFILE_COMMAND_QUEUE_SIZE=6
-PROFILE_COMMAND_MAX_AGE=180
-PROFILE_DUPLICATE_WINDOW_S=1.2
-PROFILE_COMMAND_NORMALIZATION_FUZZY_THRESHOLD=0.82
-PROFILE_SPEECH_START_THRESHOLD=0.018
-PROFILE_SPEECH_END_SILENCE_S=0.75
-PROFILE_MIN_UTTERANCE_MS=100
-PROFILE_MAX_UTTERANCE_S=12.0
-PROFILE_ASR_COMMIT_DELAY_MS=300
-
-case "$VOICE_CONTROL_PROFILE" in
-  normal) ;;
-  quiet)
-    PROFILE_SESSION_TIMEOUT=180
-    PROFILE_COMMAND_QUEUE_SIZE=8
-    PROFILE_SPEECH_START_THRESHOLD=0.014
-    PROFILE_SPEECH_END_SILENCE_S=0.65
-    PROFILE_MIN_UTTERANCE_MS=80
-    ;;
-  low_gain)
-    PROFILE_SESSION_TIMEOUT=180
-    PROFILE_COMMAND_QUEUE_SIZE=8
-    PROFILE_SPEECH_START_THRESHOLD=0.0012
-    PROFILE_SPEECH_END_SILENCE_S=0.85
-    PROFILE_MIN_UTTERANCE_MS=120
-    PROFILE_ASR_COMMIT_DELAY_MS=450
-    PROFILE_AEC_ENABLED=false
-    ;;
-  noisy_room)
-    PROFILE_SESSION_TIMEOUT=120
-    PROFILE_COMMAND_QUEUE_SIZE=5
-    PROFILE_COMMAND_NORMALIZATION_FUZZY_THRESHOLD=0.78
-    PROFILE_SPEECH_START_THRESHOLD=0.026
-    PROFILE_SPEECH_END_SILENCE_S=0.9
-    PROFILE_MIN_UTTERANCE_MS=180
-    PROFILE_MAX_UTTERANCE_S=10.0
-    ;;
-  *)
-    echo "unknown VOICE_CONTROL_PROFILE=$VOICE_CONTROL_PROFILE; expected normal, quiet, low_gain, or noisy_room" >&2
-    exit 2
-    ;;
-esac
+# shellcheck source=voice_control_profile.sh
+source "$WORKSPACE/scripts/voice_control_profile.sh"
+apply_voice_control_profile_defaults "navigation" "$VOICE_CONTROL_PROFILE"
 
 SESSION_TIMEOUT="${VOICE_SESSION_TIMEOUT:-$PROFILE_SESSION_TIMEOUT}"
 COMMAND_QUEUE_SIZE="${CONTINUOUS_COMMAND_QUEUE_SIZE:-$PROFILE_COMMAND_QUEUE_SIZE}"
@@ -61,11 +20,15 @@ COMMAND_COMPLETION_ENABLED="${COMMAND_COMPLETION_ENABLED:-true}"
 ASR_COMMIT_DELAY_MS="${ASR_COMMIT_DELAY_MS:-$PROFILE_ASR_COMMIT_DELAY_MS}"
 WAKE_WORD_ENABLED="${WAKE_WORD_ENABLED:-true}"
 SPEAKER_ENABLED="${SPEAKER_ENABLED:-false}"
-VAD_PROVIDER="${VAD_PROVIDER:-energy}"
+VAD_PROVIDER_REQUESTED="${VAD_PROVIDER:-auto}"
+VAD_PROVIDER="$VAD_PROVIDER_REQUESTED"
 SPEECH_START_THRESHOLD="${SPEECH_START_THRESHOLD:-$PROFILE_SPEECH_START_THRESHOLD}"
 SPEECH_END_SILENCE_S="${SPEECH_END_SILENCE_S:-$PROFILE_SPEECH_END_SILENCE_S}"
 MIN_UTTERANCE_MS="${MIN_UTTERANCE_MS:-$PROFILE_MIN_UTTERANCE_MS}"
 MAX_UTTERANCE_S="${MAX_UTTERANCE_S:-$PROFILE_MAX_UTTERANCE_S}"
+SILERO_VAD_MODEL_PATH="${SILERO_VAD_MODEL_PATH:-}"
+SILERO_VAD_USE_ONNX="${SILERO_VAD_USE_ONNX:-true}"
+SILERO_VAD_THRESHOLD="${SILERO_VAD_THRESHOLD:-0.5}"
 KWS_PROVIDER="${KWS_PROVIDER:-none}"
 AUDIO_ENHANCER="${AUDIO_ENHANCER:-nlms}"
 AEC_ENABLED="${AEC_ENABLED:-${PROFILE_AEC_ENABLED:-true}}"
@@ -83,6 +46,7 @@ PRINT_CONFIG="${CONTINUOUS_PRINT_CONFIG:-false}"
 PREFLIGHT_ENABLED="${CONTINUOUS_PREFLIGHT_ENABLED:-true}"
 READINESS_ENABLED="${CONTINUOUS_READINESS_ENABLED:-true}"
 READINESS_DURATION="${CONTINUOUS_READINESS_DURATION:-3.0}"
+SYSTEM_READINESS_TIMEOUT="${SYSTEM_READINESS_TIMEOUT:-60.0}"
 
 source "$WORKSPACE/scripts/activate.sh"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((220 + $$ % 60))}"
@@ -91,6 +55,42 @@ if [[ "$MODE" != "offline" && "$MODE" != "online" ]]; then
   echo "Usage: $0 {offline|online}" >&2
   exit 2
 fi
+
+resolve_vad_provider() {
+  if [[ "$VAD_PROVIDER_REQUESTED" != "auto" ]]; then
+    VAD_PROVIDER="$VAD_PROVIDER_REQUESTED"
+    return
+  fi
+
+  local report
+  if ! report=$(python3 "$WORKSPACE/scripts/voice_provider_preflight.py" \
+    --mode "$MODE" \
+    --vad-provider auto \
+    --kws-provider none \
+    --silero-model-path "$SILERO_VAD_MODEL_PATH" \
+    --silero-use-onnx "$SILERO_VAD_USE_ONNX" \
+    --json 2>/dev/null); then
+    echo "WARN: VAD_PROVIDER=auto 预检失败，降级为 energy VAD。" >&2
+    VAD_PROVIDER="energy"
+    return
+  fi
+
+  VAD_PROVIDER=$(printf '%s\n' "$report" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("vad_provider", "energy"))')
+  local vad_warnings
+  vad_warnings=$(printf '%s\n' "$report" | python3 -c 'import json,sys; print("; ".join(json.load(sys.stdin).get("warnings", [])))')
+  local vad_recommendations
+  vad_recommendations=$(printf '%s\n' "$report" | python3 -c 'import json,sys; print("; ".join(json.load(sys.stdin).get("recommendations", [])))')
+  if [[ -n "$vad_warnings" ]]; then
+    echo "INFO: VAD_PROVIDER=auto -> $VAD_PROVIDER ($vad_warnings)" >&2
+  else
+    echo "INFO: VAD_PROVIDER=auto -> $VAD_PROVIDER" >&2
+  fi
+  if [[ -n "$vad_recommendations" ]]; then
+    echo "INFO: mature VAD setup suggestion: $vad_recommendations" >&2
+  fi
+}
+
+resolve_vad_provider
 
 add_launch_arg() {
   LAUNCH_ARGS+=("$1:=$2")
@@ -125,6 +125,9 @@ build_launch_args() {
   add_launch_arg speech_end_silence_s "$SPEECH_END_SILENCE_S"
   add_launch_arg min_utterance_ms "$MIN_UTTERANCE_MS"
   add_launch_arg max_utterance_s "$MAX_UTTERANCE_S"
+  add_optional_launch_arg silero_model_path "$SILERO_VAD_MODEL_PATH"
+  add_launch_arg silero_use_onnx "$SILERO_VAD_USE_ONNX"
+  add_launch_arg silero_threshold "$SILERO_VAD_THRESHOLD"
   add_launch_arg kws_provider "$KWS_PROVIDER"
   add_launch_arg audio_enhancer "$AUDIO_ENHANCER"
   add_launch_arg aec_enabled "$AEC_ENABLED"
@@ -166,6 +169,10 @@ CONTINUOUS_COMMAND_QUEUE_SIZE=$COMMAND_QUEUE_SIZE
 CONTINUOUS_COMMAND_MAX_AGE=$COMMAND_MAX_AGE
 SPEECH_START_THRESHOLD=$SPEECH_START_THRESHOLD
 SPEECH_END_SILENCE_S=$SPEECH_END_SILENCE_S
+VAD_PROVIDER=$VAD_PROVIDER（requested=$VAD_PROVIDER_REQUESTED；auto 会优先 Silero，其次 WebRTC，最后降级 energy）
+SILERO_VAD_MODEL_PATH=$SILERO_VAD_MODEL_PATH
+SILERO_VAD_USE_ONNX=$SILERO_VAD_USE_ONNX
+SILERO_VAD_THRESHOLD=$SILERO_VAD_THRESHOLD
 ASR_COMMIT_DELAY_MS=$ASR_COMMIT_DELAY_MS
 AEC_ENABLED=$AEC_ENABLED
 NAV_ACTION_TIMEOUT_S=$NAV_ACTION_TIMEOUT_S
@@ -242,6 +249,11 @@ echo
 echo "等待 Nav2/AMCL 订阅 /initialpose，并发布初始位姿..."
 python3 "$WORKSPACE/scripts/publish_nav2_initial_pose.py" \
   --x "$INITIAL_X" --y "$INITIAL_Y" --yaw "$INITIAL_YAW"
+
+echo
+echo "正在等待语音/Nav2 组件就绪（typed system readiness）..."
+python3 "$WORKSPACE/scripts/system_readiness_check.py" \
+  --timeout "$SYSTEM_READINESS_TIMEOUT" --profile voice_nav2
 
 if [[ "$READINESS_ENABLED" == "true" ]]; then
   echo

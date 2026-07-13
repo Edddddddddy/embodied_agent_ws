@@ -22,6 +22,27 @@ wsl -d Ubuntu-24.04 -- bash -lc 'cd /home/ubuntu/embodied_agent_ws && git status
 - 能用单条简单命令就不要嵌套 here-doc。
 - 需要临时 Python 探针时，优先写成测试文件，少用 `python - <<EOF`。
 
+### Codex `exec` 中更稳定的形式
+
+Codex 工具的外层 shell 仍可能是 Windows PowerShell 5；它不支持裸 `&&`，而且会先解析
+`|`、正则里的 `[]` 和嵌套引号。对简单命令不要再套一层 `bash -lc`：
+
+```powershell
+wsl.exe -d Ubuntu-24.04 --cd /home/ubuntu/embodied_agent_ws git status --short --branch
+wsl.exe -d Ubuntu-24.04 --cd /home/ubuntu/embodied_agent_ws git grep -n DeclareLaunchArgument -- src
+```
+
+需要激活 ROS 环境和执行多步 Bash 时，把完整命令放在同一对单引号内，并使用分号：
+
+```powershell
+wsl.exe -d Ubuntu-24.04 --cd /home/ubuntu/embodied_agent_ws bash -lc 'source scripts/activate.sh; pytest -q tests/repository'
+```
+
+- 不把 `| head` 写在 `wsl.exe ...` 外面；PowerShell 会把它当成自己的管道。
+- 带复杂正则的搜索优先拆成多次固定字符串 `git grep`，不要让 PowerShell、WSL Bash、
+  grep 三层同时解释引号。
+- 多个互不依赖的简单检查由工具层分别调用；不要为省一行把 `&&` 拼到 PowerShell 命令中。
+
 ## 2. 搜索文件
 
 不要在仓库根目录无脑 grep，会扫到 `.venv`、`third_party/llama.cpp`、`__pycache__`，输出会爆炸。
@@ -52,7 +73,7 @@ grep -R "ContinuousCommandQueue" -n src tests scripts --exclude='*.pyc'
 
 ```bash
 source scripts/activate.sh
-pytest -q src/embodied_online_agent/test src/embodied_offline_agent/test
+pytest -q src/embodied_agent_core/test src/embodied_voice_frontend/test src/embodied_offline_agent/test
 ```
 
 如果涉及构建后的包或 ROS topic/action：
@@ -124,7 +145,7 @@ gh pr checks --watch
 ```bash
 pytest -q tests/repository
 bash tests/integration/test_acceptance_cli.sh
-pytest -q src/embodied_online_agent/test src/embodied_offline_agent/test
+pytest -q src/embodied_agent_core/test src/embodied_voice_frontend/test src/embodied_offline_agent/test
 ```
 
 连续语音：

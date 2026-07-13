@@ -17,7 +17,7 @@ from typing import Iterable, Sequence
 
 @dataclass(frozen=True)
 class AudioMetricSample:
-    """One JSON sample published by audio_frontend_node."""
+    """One typed status sample published by audio_frontend_node."""
 
     rms: float
     peak: float
@@ -53,6 +53,8 @@ class AudioHealthReport:
     auto_gain_active: bool = False
     recommended_voice_profile: str = "normal"
     profile_reason: str = "balanced_audio_frontend"
+    recommended_environment: tuple[str, ...] = ()
+    next_command: str = ""
     warnings: tuple[str, ...] = ()
 
     @property
@@ -60,16 +62,19 @@ class AudioHealthReport:
         return not self.warnings
 
 
-def parse_audio_metrics(serialized: str) -> AudioMetricSample | None:
-    """Parse /audio/frontend_metrics JSON.
+def parse_audio_metrics(serialized: str | dict) -> AudioMetricSample | None:
+    """Parse typed status dictionaries and saved legacy report samples.
 
     容错地解析指标：脚本用于现场排障，单条坏消息不应该让整个校准退出。
     """
 
-    try:
-        payload = json.loads(serialized)
-    except json.JSONDecodeError:
-        return None
+    if isinstance(serialized, dict):
+        payload = serialized
+    else:
+        try:
+            payload = json.loads(serialized)
+        except json.JSONDecodeError:
+            return None
     if not isinstance(payload, dict):
         return None
 
@@ -162,10 +167,26 @@ def _recommend_voice_profile(
     return "normal", "balanced_audio_frontend"
 
 
+def _recommended_environment(profile: str, threshold: float) -> tuple[str, ...]:
+    """Return shell-friendly environment overrides for the next live demo run."""
+
+    return (
+        f"VOICE_CONTROL_PROFILE={profile}",
+        f"SPEECH_START_THRESHOLD={threshold:.4f}",
+    )
+
+
+def _next_command(environment: Sequence[str], mode: str = "offline") -> str:
+    prefix = " ".join(environment)
+    return f"{prefix} bash scripts/acceptance_test.sh continuous-{mode}"
+
+
 def analyze_audio_health(samples: Sequence[AudioMetricSample]) -> AudioHealthReport:
     """Analyze collected metrics and return actionable warnings."""
 
     if not samples:
+        threshold = 0.018
+        env = _recommended_environment("normal", threshold)
         return AudioHealthReport(
             sample_count=0,
             max_rms=0.0,
@@ -173,7 +194,7 @@ def analyze_audio_health(samples: Sequence[AudioMetricSample]) -> AudioHealthRep
             speech_ratio=0.0,
             dropped_input_delta=0,
             dropped_playback_delta=0,
-            suggested_vad_threshold=0.018,
+            suggested_vad_threshold=threshold,
             vad_provider="",
             audio_enhancer_requested="",
             audio_enhancer_active="",
@@ -182,6 +203,8 @@ def analyze_audio_health(samples: Sequence[AudioMetricSample]) -> AudioHealthRep
             auto_gain_active=False,
             recommended_voice_profile="normal",
             profile_reason="no_audio_metrics_keep_default_until_frontend_is_running",
+            recommended_environment=env,
+            next_command=_next_command(env),
             warnings=("no_audio_metrics",),
         )
 
@@ -225,6 +248,8 @@ def analyze_audio_health(samples: Sequence[AudioMetricSample]) -> AudioHealthRep
         warnings=warnings,
     )
 
+    suggested_threshold = _suggest_vad_threshold(max_rms, mean_rms)
+    env = _recommended_environment(recommended_profile, suggested_threshold)
     return AudioHealthReport(
         sample_count=len(samples),
         max_rms=round(max_rms, 6),
@@ -232,7 +257,7 @@ def analyze_audio_health(samples: Sequence[AudioMetricSample]) -> AudioHealthRep
         speech_ratio=round(speech_ratio, 3),
         dropped_input_delta=dropped_input_delta,
         dropped_playback_delta=dropped_playback_delta,
-        suggested_vad_threshold=_suggest_vad_threshold(max_rms, mean_rms),
+        suggested_vad_threshold=suggested_threshold,
         vad_provider=latest.vad_provider,
         audio_enhancer_requested=latest.audio_enhancer_requested,
         audio_enhancer_active=latest.audio_enhancer_active,
@@ -241,6 +266,8 @@ def analyze_audio_health(samples: Sequence[AudioMetricSample]) -> AudioHealthRep
         auto_gain_active=latest.auto_gain_active,
         recommended_voice_profile=recommended_profile,
         profile_reason=profile_reason,
+        recommended_environment=env,
+        next_command=_next_command(env),
         warnings=tuple(warnings),
     )
 
@@ -271,7 +298,11 @@ def format_report(report: AudioHealthReport) -> str:
         ),
         f"  recommended VOICE_CONTROL_PROFILE: {report.recommended_voice_profile}",
         f"  profile reason: {report.profile_reason}",
-        f"  quick apply: export VOICE_CONTROL_PROFILE={report.recommended_voice_profile}",
+        "  recommended environment:",
+        *[f"    - {item}" for item in report.recommended_environment],
+        "  quick apply:",
+        *[f"    export {item}" for item in report.recommended_environment],
+        f"  next command: {report.next_command}",
     ]
     if report.warnings:
         lines.append("  warnings:")
@@ -296,21 +327,32 @@ class AudioCalibrationNode:
     """Small ROS2 subscriber wrapper kept separate from pure analysis logic."""
 
     def __init__(self, topic: str):
+        from embodied_agent_interfaces.msg import AudioFrontendStatus
+        from embodied_agent_core.runtime_status_transport import (
+            audio_frontend_status_to_dict,
+        )
+        from embodied_agent_core.ros_qos import state_qos
         import rclpy
         from rclpy.node import Node
-        from std_msgs.msg import String
 
         class _Node(Node):
             def __init__(self, owner: AudioCalibrationNode):
                 super().__init__("audio_frontend_calibration")
-                self.create_subscription(String, topic, owner._on_metrics, 10)
+                self.create_subscription(
+                    AudioFrontendStatus,
+                    topic,
+                    lambda message: owner._on_metrics(
+                        audio_frontend_status_to_dict(message)
+                    ),
+                    state_qos(),
+                )
 
         self.samples: list[AudioMetricSample] = []
         self._rclpy = rclpy
         self.node = _Node(self)
 
     def _on_metrics(self, message) -> None:
-        sample = parse_audio_metrics(message.data)
+        sample = parse_audio_metrics(message)
         if sample is not None:
             self.samples.append(sample)
 

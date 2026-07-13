@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """从公开 ROS topic 验证识别失败后 Agent 会反馈并继续监听。"""
 
-import json
 import time
 
 import rclpy
+from embodied_agent_interfaces.msg import RecognitionFeedback
+from embodied_agent_core.ros_event_transport import recognition_feedback_message_to_dict
+from embodied_agent_core.ros_qos import event_qos, state_qos
 from rclpy.node import Node
 from std_msgs.msg import String
 
@@ -16,12 +18,17 @@ class RetryProbe(Node):
         self.state = None
         self.input_pub = self.create_publisher(String, "/agent/text_input", 10)
         self.create_subscription(
-            String, "/agent/recognition_feedback", self._on_feedback, 10
+            RecognitionFeedback,
+            "/agent/recognition_feedback",
+            self._on_feedback,
+            event_qos(),
         )
-        self.create_subscription(String, "/agent/state", self._on_state, 10)
+        self.create_subscription(
+            String, "/agent/state", self._on_state, state_qos()
+        )
 
     def _on_feedback(self, message):
-        payload = json.loads(message.data)
+        payload = recognition_feedback_message_to_dict(message)
         if payload.get("reason") == "wake_word_not_detected":
             self.feedback = payload
 
@@ -42,12 +49,16 @@ def main():
     rclpy.init()
     node = RetryProbe()
     try:
-        # DDS 发现完成后再发消息，避免 ros2 topic echo --once 的偶发丢首帧问题。
+        # text_input subscription 在 Lifecycle configure 前就存在；只看订阅数量可能把
+        # 消息发给 inactive Agent。必须同时观察 latched listening 状态和反馈 publisher，
+        # 才能证明业务入口与返回路径都已就绪。
         wait_until(
             node,
-            lambda: node.input_pub.get_subscription_count() > 0,
+            lambda: node.input_pub.get_subscription_count() > 0
+            and node.count_publishers("/agent/recognition_feedback") > 0
+            and node.state == "listening",
             10.0,
-            "online Agent did not subscribe to text input",
+            "online Agent recognition path did not become ready",
         )
         message = String()
         message.data = "完全没听清"

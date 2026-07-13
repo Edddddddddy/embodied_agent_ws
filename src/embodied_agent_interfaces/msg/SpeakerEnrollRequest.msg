@@ -1,0 +1,4 @@
+builtin_interfaces/Time stamp
+string speaker_id
+string display_name
+uint32 samples_required

@@ -7,18 +7,19 @@
 #include <deque>
 #include <memory>
 #include <mutex>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
 
+#include "embodied_agent_interfaces/msg/audio_frontend_status.hpp"
+#include "embodied_agent_interfaces/msg/component_health.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/empty.hpp"
-#include "std_msgs/msg/string.hpp"
 #include "std_msgs/msg/u_int8_multi_array.hpp"
 
 #include "embodied_agent_cpp/audio_processing.hpp"
+#include "embodied_agent_middleware/qos_profiles.hpp"
 
 namespace embodied_agent_cpp
 {
@@ -51,17 +52,28 @@ public:
   {
     audio_enhancer_ = create_audio_enhancer();
     cleaned_audio_publisher_ = create_publisher<std_msgs::msg::UInt8MultiArray>(
-      "/audio/clean_pcm", rclcpp::SensorDataQoS());
-    silence_publisher_ = create_publisher<std_msgs::msg::Empty>("/audio/silence_timeout", 10);
+      "/audio/clean_pcm", embodied_agent_middleware::audio_qos());
+    silence_publisher_ = create_publisher<std_msgs::msg::Empty>(
+      "/audio/silence_timeout", embodied_agent_middleware::event_qos(10));
     speech_started_publisher_ = create_publisher<std_msgs::msg::Empty>(
-      "/audio/speech_started", 10);
+      "/audio/speech_started", embodied_agent_middleware::event_qos(10));
     speech_ended_publisher_ = create_publisher<std_msgs::msg::Empty>(
-      "/audio/speech_ended", 10);
-    frontend_metrics_publisher_ = create_publisher<std_msgs::msg::String>(
-      "/audio/frontend_metrics", 10);
+      "/audio/speech_ended", embodied_agent_middleware::event_qos(10));
+    frontend_metrics_publisher_ =
+      create_publisher<embodied_agent_interfaces::msg::AudioFrontendStatus>(
+      "/audio/frontend_metrics", embodied_agent_middleware::state_qos());
+    health_publisher_ =
+      create_publisher<embodied_agent_interfaces::msg::ComponentHealth>(
+      "system/component_health", embodied_agent_middleware::state_qos());
+    health_timer_ = create_wall_timer(
+      std::chrono::seconds(1), [this]() {
+        publish_health(
+          capture_enabled_ || speaker_enabled_ ?
+          "portaudio_streams_ready" : "io_disabled_by_profile");
+      });
     tts_reference_subscription_ = create_subscription<std_msgs::msg::UInt8MultiArray>(
       "/audio/tts_pcm",
-      rclcpp::SensorDataQoS(),
+      embodied_agent_middleware::audio_qos(),
       [this](const std_msgs::msg::UInt8MultiArray::SharedPtr message) {
         enqueue_playback(message->data);
       });
@@ -90,6 +102,7 @@ public:
     }
 
     if (!capture_enabled_ && !speaker_enabled_) {
+      publish_health("io_disabled_by_profile");
       RCLCPP_INFO(get_logger(), "audio frontend ready with capture and speaker disabled");
       return;
     }
@@ -141,6 +154,7 @@ public:
       capture_enabled_ ? "true" : "false",
       speaker_enabled_ ? "true" : "false",
       frame_ms_);
+    publish_health("portaudio_streams_ready");
   }
 
   ~AudioFrontendNode() override
@@ -149,6 +163,16 @@ public:
   }
 
 private:
+  void publish_health(const std::string & detail)
+  {
+    embodied_agent_interfaces::msg::ComponentHealth message;
+    message.stamp = now();
+    message.component = "audio_frontend";
+    message.state = embodied_agent_interfaces::msg::ComponentHealth::STATE_READY;
+    message.detail = detail;
+    health_publisher_->publish(message);
+  }
+
   void shutdown_audio()
   {
     if (input_stream_ != nullptr) {
@@ -316,24 +340,22 @@ private:
       return;
     }
     last_metrics_publish_ = now;
-    std::ostringstream json;
-    json << "{\"rms\":" << metrics.rms
-         << ",\"peak\":" << metrics.peak
-         << ",\"speech\":" << (metrics.speech ? "true" : "false")
-         << ",\"vad_provider\":\"" << vad_provider_ << "\""
-         << ",\"audio_enhancer_requested\":\"" << audio_enhancer_name_ << "\""
-         << ",\"audio_enhancer_active\":\"nlms\""
-         << ",\"aec_active\":" << (aec_enabled_ ? "true" : "false")
-         << ",\"noise_suppression_requested\":"
-         << (noise_suppression_enabled_ ? "true" : "false")
-         << ",\"noise_suppression_active\":false"
-         << ",\"auto_gain_requested\":" << (auto_gain_enabled_ ? "true" : "false")
-         << ",\"auto_gain_active\":false"
-         << ",\"dropped_input_frames\":" << dropped_input_frames_
-         << ",\"dropped_playback_chunks\":" << dropped_playback_chunks_
-         << "}";
-    std_msgs::msg::String message;
-    message.data = json.str();
+    embodied_agent_interfaces::msg::AudioFrontendStatus message;
+    message.stamp = now;
+    message.rms = static_cast<float>(metrics.rms);
+    message.peak = static_cast<uint32_t>(metrics.peak);
+    message.speech = metrics.speech;
+    message.vad_provider = vad_provider_;
+    message.endpoint_events_enabled = endpoint_events_enabled_;
+    message.audio_enhancer_requested = audio_enhancer_name_;
+    message.audio_enhancer_active = "nlms";
+    message.aec_active = aec_enabled_;
+    message.noise_suppression_requested = noise_suppression_enabled_;
+    message.noise_suppression_active = false;
+    message.auto_gain_requested = auto_gain_enabled_;
+    message.auto_gain_active = false;
+    message.dropped_input_frames = dropped_input_frames_;
+    message.dropped_playback_chunks = dropped_playback_chunks_;
     frontend_metrics_publisher_->publish(message);
   }
 
@@ -382,7 +404,11 @@ private:
   rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr silence_publisher_;
   rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr speech_started_publisher_;
   rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr speech_ended_publisher_;
-  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr frontend_metrics_publisher_;
+  rclcpp::Publisher<embodied_agent_interfaces::msg::AudioFrontendStatus>::SharedPtr
+    frontend_metrics_publisher_;
+  rclcpp::Publisher<embodied_agent_interfaces::msg::ComponentHealth>::SharedPtr
+    health_publisher_;
+  rclcpp::TimerBase::SharedPtr health_timer_;
   rclcpp::Subscription<std_msgs::msg::UInt8MultiArray>::SharedPtr tts_reference_subscription_;
   rclcpp::Time last_metrics_publish_{0, 0, RCL_ROS_TIME};
 };

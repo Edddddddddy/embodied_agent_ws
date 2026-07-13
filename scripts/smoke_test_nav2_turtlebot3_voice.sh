@@ -43,11 +43,25 @@ setsid ros2 launch embodied_simulation voice_nav2_turtlebot3.launch.py \
   >"$LAUNCH_LOG" 2>&1 &
 PIDS+=("$!")
 
+PROBE_ARGS=()
+if [[ -n "${SKIP_PATROL:-}" ]]; then
+  PROBE_ARGS+=(--skip-patrol)
+fi
+if [[ "${NAV2_RESILIENCE:-false}" == "true" ]]; then
+  PROBE_ARGS+=(--resilience)
+fi
+
 if ! timeout "${NAV2_TURTLEBOT3_TIMEOUT:-420}" \
   python3 "$WORKSPACE/tests/integration/test_nav2_turtlebot3_voice.py" \
-    ${SKIP_PATROL:+--skip-patrol}; then
+    "${PROBE_ARGS[@]}"; then
   cat "$LAUNCH_LOG" >&2
   exit 1
 fi
 
-echo "PASS: voice text command -> Nav2 TurtleBot3 target navigation and patrol"
+if [[ "${NAV2_RESILIENCE:-false}" == "true" ]]; then
+  echo "PASS: Nav2 dynamic obstacle replan + unreachable goal failure feedback"
+  echo "Evidence: $WORKSPACE/logs/nav2_resilience_report.json"
+else
+  echo "PASS: voice text command -> Nav2 TurtleBot3 target navigation (optional patrol)"
+  echo "Evidence: $WORKSPACE/logs/nav2_turtlebot3_voice_report.json"
+fi

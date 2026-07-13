@@ -24,6 +24,7 @@ def test_continuous_nav2_voice_control_prints_nav2_launch_config():
             "NAV2_INITIAL_YAW": "0.2",
             "SPEECH_END_SILENCE_S": "0.66",
             "ASR_COMMIT_DELAY_MS": "250",
+            "VAD_PROVIDER": "energy",
         }
     )
 
@@ -45,6 +46,7 @@ def test_continuous_nav2_voice_control_prints_nav2_launch_config():
     assert "NAV2_INITIAL_X=-1.8" in result.stdout
     assert "NAV2_INITIAL_Y=-0.4" in result.stdout
     assert "NAV2_INITIAL_YAW=0.2" in result.stdout
+    assert "VAD_PROVIDER=energy" in result.stdout
     assert "voice_nav2_turtlebot3.launch.py" in result.stdout
     assert "microphone_enabled:=true" in result.stdout
     assert "continuous_control_enabled:=true" in result.stdout
@@ -63,6 +65,7 @@ def test_continuous_nav2_voice_control_low_gain_profile_lowers_vad_and_disables_
             "WORKSPACE": str(ROOT),
             "CONTINUOUS_PRINT_CONFIG": "true",
             "VOICE_CONTROL_PROFILE": "low_gain",
+            "VAD_PROVIDER": "energy",
         }
     )
 

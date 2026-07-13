@@ -6,9 +6,15 @@ import threading
 import time
 
 import rclpy
+from embodied_agent_interfaces.msg import (
+    RobotCommand,
+    RobotCommandResult,
+    SystemReadiness,
+)
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from std_msgs.msg import String
+from typed_action_test_utils import candidate_dict, result_dict
 
 
 class DemoSequenceProbe(Node):
@@ -19,24 +25,31 @@ class DemoSequenceProbe(Node):
         self.candidates = []
         self.results = []
         self.velocities = []
+        self.readiness = None
         self.create_subscription(String, "/agent/asr_final", self._on_asr_final, 10)
         self.create_subscription(
-            String, "/agent/action_candidate", self._on_candidate, 10
+            RobotCommand, "/agent/action_candidate", self._on_candidate, 10
         )
-        self.create_subscription(String, "/robot/action_result", self._on_result, 10)
+        self.create_subscription(RobotCommandResult, "/robot/action_result", self._on_result, 10)
         self.create_subscription(Twist, "/cmd_vel", self._on_velocity, 10)
+        self.create_subscription(
+            SystemReadiness, "/system/readiness", self._on_readiness, 10
+        )
 
     def _on_asr_final(self, message):
         self.asr_final = message.data
 
     def _on_candidate(self, message):
-        self.candidates.append(json.loads(message.data))
+        self.candidates.append(candidate_dict(message))
 
     def _on_result(self, message):
-        self.results.append(json.loads(message.data))
+        self.results.append(result_dict(message))
 
     def _on_velocity(self, message):
         self.velocities.append((message.linear.x, message.angular.z))
+
+    def _on_readiness(self, message):
+        self.readiness = message
 
 
 def wait_until(predicate, timeout, description):
@@ -58,7 +71,14 @@ def main():
     try:
         wait_until(
             lambda: node.text_pub.get_subscription_count() > 0
-            and node.count_publishers("/robot/action_result") > 0,
+            and node.readiness is not None
+            and node.readiness.profile == "demo"
+            and node.readiness.ready
+            # SystemReadiness 证明业务组件互相就绪；测试探针仍需等待自己的
+            # volatile subscriptions 完成匹配，否则会漏掉 set_led/wave 的即时 result。
+            and node.count_publishers("/agent/action_candidate") > 0
+            and node.count_publishers("/robot/action_result") > 0
+            and node.count_publishers("/cmd_vel") > 0,
             15.0,
             "demo sequence pipeline was not discovered",
         )
@@ -78,11 +98,14 @@ def main():
         failed = [result for result in node.results if result.get("success") is not True]
         if failed:
             raise RuntimeError(f"demo action failed: {failed}")
+        if node.readiness is None or not node.readiness.ready:
+            raise RuntimeError("system readiness heartbeat became stale during demo")
         print(json.dumps({
             "asr_text": node.asr_final,
             "candidate_sequence": names,
             "result_count": len(node.results),
             "arc_velocity_observed": True,
+            "readiness_components": list(node.readiness.ready_components),
             "status": "PASS",
         }, ensure_ascii=False, indent=2))
     finally:

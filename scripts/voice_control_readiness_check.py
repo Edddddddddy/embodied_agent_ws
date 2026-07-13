@@ -94,11 +94,14 @@ def format_readiness_report(report: VoiceReadinessReport) -> str:
         f"  suggested_vad_threshold: {report.audio.suggested_vad_threshold:.4f}",
         f"  recommended_voice_profile: {report.audio.recommended_voice_profile}",
         f"  profile_reason: {report.audio.profile_reason}",
+        "  recommended_environment:",
+        *[f"    - {item}" for item in report.audio.recommended_environment],
         f"  quick_apply: export VOICE_CONTROL_PROFILE={report.audio.recommended_voice_profile}",
         (
             "  quick_apply_threshold: "
             f"export SPEECH_START_THRESHOLD={report.audio.suggested_vad_threshold:.4f}"
         ),
+        f"  next_command: {report.audio.next_command}",
         f"  vad_provider: {report.audio.vad_provider or 'unknown'}",
         (
             "  audio_enhancer: "
@@ -141,15 +144,32 @@ def readiness_exit_code(report: VoiceReadinessReport) -> int:
 
 class VoiceReadinessNode:
     def __init__(self, audio_topic: str, kws_topic: str):
+        from embodied_agent_interfaces.msg import AudioFrontendStatus, KwsScore
+        from embodied_agent_core.runtime_status_transport import (
+            audio_frontend_status_to_dict,
+            kws_score_to_dict,
+        )
+        from embodied_agent_core.ros_qos import sensor_qos, state_qos
         import rclpy
         from rclpy.node import Node
-        from std_msgs.msg import String
 
         class _Node(Node):
             def __init__(self, owner: VoiceReadinessNode):
                 super().__init__("voice_control_readiness_check")
-                self.create_subscription(String, audio_topic, owner._on_audio, 10)
-                self.create_subscription(String, kws_topic, owner._on_kws, 10)
+                self.create_subscription(
+                    AudioFrontendStatus,
+                    audio_topic,
+                    lambda message: owner._on_audio(
+                        audio_frontend_status_to_dict(message)
+                    ),
+                    state_qos(),
+                )
+                self.create_subscription(
+                    KwsScore,
+                    kws_topic,
+                    lambda message: owner._on_kws(kws_score_to_dict(message)),
+                    sensor_qos(depth=5),
+                )
 
         self.audio_samples = []
         self.kws_samples = []
@@ -157,12 +177,12 @@ class VoiceReadinessNode:
         self.node = _Node(self)
 
     def _on_audio(self, message) -> None:
-        sample = parse_audio_metrics(message.data)
+        sample = parse_audio_metrics(message)
         if sample is not None:
             self.audio_samples.append(sample)
 
     def _on_kws(self, message) -> None:
-        sample = parse_kws_score(message.data)
+        sample = parse_kws_score(message)
         if sample is not None:
             self.kws_samples.append(sample)
 

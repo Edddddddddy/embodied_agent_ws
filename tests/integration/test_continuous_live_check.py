@@ -8,6 +8,7 @@ import types
 from pathlib import Path
 
 import pytest
+from std_msgs.msg import Header as RosHeader
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -23,15 +24,46 @@ class _FakeNode:
         return None
 
 
+class _FakeQosProfile:
+    def __init__(self, **kwargs):
+        self.settings = kwargs
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+
+_FAKED_MODULES = (
+    "rclpy",
+    "rclpy.node",
+    "rclpy.qos",
+    "geometry_msgs.msg",
+    "std_msgs.msg",
+)
+_saved_modules = {name: sys.modules.get(name) for name in _FAKED_MODULES}
+
 sys.modules["rclpy"] = types.SimpleNamespace()
 sys.modules["rclpy.node"] = types.SimpleNamespace(Node=_FakeNode)
+sys.modules["rclpy.qos"] = types.SimpleNamespace(
+    DurabilityPolicy=types.SimpleNamespace(VOLATILE=0, TRANSIENT_LOCAL=1),
+    HistoryPolicy=types.SimpleNamespace(KEEP_LAST=0),
+    QoSProfile=_FakeQosProfile,
+    ReliabilityPolicy=types.SimpleNamespace(RELIABLE=0),
+)
 sys.modules["geometry_msgs.msg"] = types.SimpleNamespace(Twist=object)
-sys.modules["std_msgs.msg"] = types.SimpleNamespace(String=object)
+# RobotCommand 的生成代码会在实例化时延迟导入 Header；测试桩必须保留它，
+# 否则同一 pytest 进程中的消息转换测试会被这里的全局模块替换污染。
+sys.modules["std_msgs.msg"] = types.SimpleNamespace(String=object, Header=RosHeader)
 
 spec = importlib.util.spec_from_file_location("continuous_live_check", SCRIPT)
 live_check = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = live_check
 spec.loader.exec_module(live_check)
+
+# 仅在加载被测脚本期间注入 fake ROS；收集其他集成测试前恢复真实消息模块。
+for _name, _module in _saved_modules.items():
+    if _module is None:
+        sys.modules.pop(_name, None)
+    else:
+        sys.modules[_name] = _module
 
 
 def test_live_check_report_passes_when_required_evidence_is_present():
@@ -53,6 +85,38 @@ def test_live_check_report_passes_when_required_evidence_is_present():
     assert report.asr_count == 6
     assert report.action_success_count == 4
     assert report.action_candidate_names["move"] == 1
+
+
+def test_initial_latched_sleeping_does_not_fake_session_exit():
+    node = live_check.LiveCheckNode()
+    node.session_states.extend(["sleeping", "awake"])
+    node.asr.extend(["小智"] * 6)
+    node.candidates.extend([{"name": "move"}] * 4)
+    node.results.extend([{"success": True}] * 4)
+    node.velocities.append((0.0, 0.0))
+
+    report = node.build_report(live_check.LiveCheckThresholds())
+
+    assert report.saw_awake
+    assert not report.saw_sleeping
+    assert "session sleeping observed" in report.missing
+
+
+def test_live_check_report_counts_partial_final_recovery_feedback():
+    node = live_check.LiveCheckNode()
+    message = live_check.RecognitionFeedback()
+    message.status = message.STATUS_ASR_FINAL_RECOVERED
+    message.original = "把灯"
+    message.rewritten = "把灯设成蓝色"
+    node._on_recognition_feedback(message)
+
+    report = node.build_report(
+        live_check.LiveCheckThresholds(min_asr=0, min_candidates=0, min_success=0)
+    )
+
+    assert report.recognition_feedback_count == 1
+    assert report.asr_final_recovery_count == 1
+    assert report.recognition_feedback_samples[0]["recovered"] == "把灯设成蓝色"
 
 
 def test_live_check_report_requires_navigation_candidates():
@@ -85,6 +149,73 @@ def test_live_check_report_requires_navigation_candidates():
     assert report.ok is True
     assert report.action_candidate_names["navigate_to"] == 2
     assert report.action_candidate_names["follow_waypoints"] == 1
+
+
+def test_live_check_report_extracts_nav2_failure_reasons():
+    node = live_check.LiveCheckNode()
+    node.asr.extend(["小智", "去门口", "退出控制"])
+    node.session_states.extend(["awake", "sleeping"])
+    node.candidates.append({"name": "navigate_to", "arguments": {"target": "door"}})
+    node.results.extend(
+        [
+            {
+                "success": False,
+                "message": "nav2:navigate_to_pose:aborted target=door error_code=304 error_msg=planner_failed",
+            },
+            {
+                "success": False,
+                "message": "nav2:follow_waypoints:canceled waypoints=door,desk missed_waypoints=1",
+            },
+        ]
+    )
+    node.velocities.append((0.0, 0.0))
+
+    report = node.build_report(
+        live_check.LiveCheckThresholds(min_asr=1, min_candidates=1, min_success=0)
+    )
+
+    assert report.navigation_failure_reasons == [
+        {
+            "backend": "nav2",
+            "action": "navigate_to_pose",
+            "status": "aborted",
+            "target": "door",
+            "error_code": "304",
+            "error_msg": "planner_failed",
+            "failure_class": "planner_failed",
+            "retry_hint": "检查 map/goal 是否可达、全局代价地图和 planner server 日志。",
+        },
+        {
+            "backend": "nav2",
+            "action": "follow_waypoints",
+            "status": "canceled",
+            "waypoints": "door,desk",
+            "missed_waypoints": "1",
+            "failure_class": "canceled",
+            "retry_hint": "确认是否由语音 stop/cancel_navigation 或人工取消触发。",
+        },
+    ]
+    assert report.action_result_samples[0]["message"].startswith("nav2:navigate_to_pose")
+    assert live_check._parse_nav2_result_message(
+        "nav2:navigate_to_pose:aborted target=desk error_code=12 error_msg=planner failed near obstacle"
+    )["error_msg"] == "planner failed near obstacle"
+
+
+def test_nav2_failure_parser_classifies_common_failure_layers():
+    cases = {
+        "planner_failed": "nav2:navigate_to_pose:aborted target=door error_msg=planner_failed",
+        "controller_failed": "nav2:navigate_to_pose:aborted target=door error_msg=controller failed near obstacle",
+        "localization_lost": "nav2:navigate_to_pose:aborted target=door error_msg=tf transform unavailable",
+        "waypoint_missed": "nav2:follow_waypoints:aborted waypoints=door,desk missed_waypoints=1",
+        "timeout": "nav2:navigate_to_pose:timed_out target=door error_msg=timeout waiting for result",
+        "canceled": "nav2:navigate_to_pose:canceled target=door",
+    }
+
+    for expected, message in cases.items():
+        parsed = live_check._parse_nav2_result_message(message)
+        assert parsed is not None
+        assert parsed["failure_class"] == expected
+        assert parsed["retry_hint"]
 
 
 def test_live_check_report_requires_navigation_details_when_requested():

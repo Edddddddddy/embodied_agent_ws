@@ -6,16 +6,33 @@ import threading
 import time
 
 import rclpy
+from embodied_agent_interfaces.msg import (
+    CommandExecutionEvent,
+    CommandQueueEvent,
+    RecognitionFeedback,
+    RobotCommand,
+    RobotCommandFeedback,
+    RobotCommandResult,
+    WakeEvent,
+)
+from embodied_agent_core.ros_event_transport import (
+    execution_event_message_to_dict,
+    queue_event_message_to_dict,
+    recognition_feedback_message_to_dict,
+    wake_event_message_to_dict,
+)
+from embodied_agent_core.ros_qos import event_qos, state_qos
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from std_msgs.msg import String
+from typed_action_test_utils import candidate_dict, result_dict
 
 
 class ContinuousVoiceProbe(Node):
     def __init__(self):
         super().__init__("continuous_voice_probe")
         self.text_pub = self.create_publisher(String, "/agent/text_input", 10)
-        self.wake_input_pub = self.create_publisher(String, "/agent/wake_event_input", 10)
+        self.wake_input_pub = self.create_publisher(WakeEvent, "/agent/wake_event_input", 10)
         self.states = []
         self.session_states = []
         self.wake_events = []
@@ -26,21 +43,26 @@ class ContinuousVoiceProbe(Node):
         self.results = []
         self.feedback = []
         self.velocities = []
-        self.create_subscription(String, "/agent/state", self._on_state, 10)
-        self.create_subscription(String, "/agent/session_state", self._on_session_state, 10)
-        self.create_subscription(String, "/agent/wake_event", self._on_wake_event, 10)
-        self.create_subscription(String, "/agent/command_queue", self._on_queue_event, 10)
+        self.create_subscription(String, "/agent/state", self._on_state, state_qos())
+        self.create_subscription(String, "/agent/session_state", self._on_session_state, state_qos())
+        self.create_subscription(WakeEvent, "/agent/wake_event", self._on_wake_event, event_qos())
+        self.create_subscription(CommandQueueEvent, "/agent/command_queue", self._on_queue_event, event_qos())
         self.create_subscription(
-            String, "/agent/command_execution", self._on_execution_event, 10
+            CommandExecutionEvent, "/agent/command_execution", self._on_execution_event, event_qos()
         )
         self.create_subscription(
-            String, "/agent/recognition_feedback", self._on_feedback, 10
+            RecognitionFeedback,
+            "/agent/recognition_feedback",
+            self._on_feedback,
+            event_qos(),
         )
         self.create_subscription(
-            String, "/agent/action_candidate", self._on_candidate, 10
+            RobotCommand, "/agent/action_candidate", self._on_candidate, 10
         )
-        self.create_subscription(String, "/robot/action_result", self._on_result, 10)
-        self.create_subscription(String, "/robot/action_feedback", self._on_feedback_event, 10)
+        self.create_subscription(RobotCommandResult, "/robot/action_result", self._on_result, 10)
+        self.create_subscription(
+            RobotCommandFeedback, "/robot/action_feedback", self._on_feedback_event, 10
+        )
         self.create_subscription(Twist, "/cmd_vel", self._on_velocity, 10)
 
     def _on_state(self, message):
@@ -50,25 +72,32 @@ class ContinuousVoiceProbe(Node):
         self.session_states.append(message.data)
 
     def _on_wake_event(self, message):
-        self.wake_events.append(json.loads(message.data))
+        self.wake_events.append(wake_event_message_to_dict(message))
 
     def _on_queue_event(self, message):
-        self.queue_events.append(json.loads(message.data))
+        self.queue_events.append(queue_event_message_to_dict(message))
 
     def _on_execution_event(self, message):
-        self.execution_events.append(json.loads(message.data))
+        self.execution_events.append(execution_event_message_to_dict(message))
 
     def _on_feedback(self, message):
-        self.recognition_feedback.append(json.loads(message.data))
+        self.recognition_feedback.append(recognition_feedback_message_to_dict(message))
 
     def _on_candidate(self, message):
-        self.candidates.append(json.loads(message.data))
+        self.candidates.append(candidate_dict(message))
 
     def _on_result(self, message):
-        self.results.append(json.loads(message.data))
+        self.results.append(result_dict(message))
 
     def _on_feedback_event(self, message):
-        self.feedback.append(json.loads(message.data))
+        self.feedback.append(
+            {
+                "command_id": message.command_id,
+                "phase": message.phase,
+                "progress": message.progress,
+                "detail": message.detail,
+            }
+        )
 
     def _on_velocity(self, message):
         self.velocities.append((message.linear.x, message.angular.z))
@@ -139,9 +168,10 @@ def main():
         if len(node.candidates) != before:
             raise RuntimeError("command without wake word was accepted after sleep")
 
-        node.wake_input_pub.publish(
-            String(data=json.dumps({"kind": "wake", "provider": "test_kws"}))
-        )
+        wake = WakeEvent()
+        wake.kind = WakeEvent.KIND_WAKE
+        wake.provider = "test_kws"
+        node.wake_input_pub.publish(wake)
         time.sleep(0.1)
         stop_candidate_start = len(node.candidates)
         node.text_pub.publish(String(data="走正方形"))
@@ -176,16 +206,18 @@ def main():
         if "test_kws" not in [event.get("provider") for event in node.wake_events]:
             raise RuntimeError(f"external KWS wake event was not bridged: {node.wake_events}")
 
-        node.wake_input_pub.publish(
-            String(data=json.dumps({"kind": "wake", "provider": "test_kws_sleep"}))
-        )
+        wake = WakeEvent()
+        wake.kind = WakeEvent.KIND_WAKE
+        wake.provider = "test_kws_sleep"
+        node.wake_input_pub.publish(wake)
         time.sleep(0.1)
         external_sleep_start = len(node.candidates)
         node.text_pub.publish(String(data="走正方形"))
         time.sleep(0.15)
-        node.wake_input_pub.publish(
-            String(data=json.dumps({"kind": "sleep", "provider": "test_kws_sleep"}))
-        )
+        sleep = WakeEvent()
+        sleep.kind = WakeEvent.KIND_SLEEP
+        sleep.provider = "test_kws_sleep"
+        node.wake_input_pub.publish(sleep)
         wait_until(
             lambda: any(
                 event.get("kind") == "sleep"

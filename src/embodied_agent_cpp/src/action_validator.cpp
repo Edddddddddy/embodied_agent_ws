@@ -7,208 +7,211 @@
 
 namespace embodied_agent_cpp
 {
-
 namespace
 {
+using RobotCommand = embodied_agent_interfaces::msg::RobotCommand;
+
 const std::set<std::string> & supported_navigation_places()
 {
   static const std::set<std::string> places{
     "home", "door", "desk", "living_room", "kitchen", "charging_station",
-    "waypoint_a", "waypoint_b", "waypoint_c"};
+    "waypoint_a", "waypoint_b", "waypoint_c", "unreachable_zone"};
   return places;
 }
 
-bool is_supported_navigation_place(const nlohmann::json & value)
+bool supported_place(const std::string & value)
 {
-  return value.is_string() &&
-         supported_navigation_places().count(value.get<std::string>()) > 0;
+  return supported_navigation_places().count(value) > 0;
+}
+
+bool no_motion_payload(const RobotCommand & command)
+{
+  return command.linear_x == 0.0 && command.angular_z == 0.0 &&
+         command.duration_s == 0.0;
+}
+
+bool no_accessory_payload(const RobotCommand & command)
+{
+  return command.count == 0 && command.color.empty() && command.mode.empty();
+}
+
+bool no_navigation_payload(const RobotCommand & command)
+{
+  return command.target.empty() && command.waypoints.empty() &&
+         command.number_of_loops == 0;
+}
+
+bool no_non_motion_payload(const RobotCommand & command)
+{
+  return no_accessory_payload(command) && no_navigation_payload(command);
+}
+
+bool no_payload(const RobotCommand & command)
+{
+  return no_motion_payload(command) && no_accessory_payload(command) &&
+         no_navigation_payload(command);
+}
+
+std::string validate_navigation_places(const RobotCommand & command)
+{
+  if (command.waypoints.empty()) {
+    return "waypoints must not be empty";
+  }
+  if (command.waypoints.size() > 8U) {
+    return "too many waypoints";
+  }
+  for (const auto & waypoint : command.waypoints) {
+    if (!supported_place(waypoint)) {
+      return "unsupported navigation waypoint";
+    }
+  }
+  return {};
 }
 }  // namespace
 
-ValidationResult ActionValidator::validate(const std::string & serialized_command) const
+ValidationResult ActionValidator::validate(
+  const RobotCommand & candidate,
+  const std::string & fallback_command_id,
+  const std::string & fallback_source) const
 {
   ValidationResult result;
-  nlohmann::json command;
-  try {
-    command = nlohmann::json::parse(serialized_command);
-  } catch (const nlohmann::json::exception & error) {
-    result.error = std::string("invalid JSON: ") + error.what();
+  result.command = candidate;
+  result.command.command_id = candidate.command_id.empty() ?
+    fallback_command_id : candidate.command_id;
+  result.command.source = candidate.source.empty() ?
+    fallback_source : candidate.source;
+  if (result.command.command_id.empty()) {
+    result.error = "command_id must not be empty";
+    return result;
+  }
+  if (candidate.priority &&
+    candidate.action_type != RobotCommand::STOP &&
+    candidate.action_type != RobotCommand::CANCEL_NAVIGATION)
+  {
+    result.error = "priority is only valid for stop or cancel_navigation";
     return result;
   }
 
-  if (!command.is_object() || !command.contains("name") || !command["name"].is_string()) {
-    result.error = "action requires a string name";
-    return result;
-  }
-  if (!command.contains("arguments")) {
-    command["arguments"] = nlohmann::json::object();
-  }
-  if (!command["arguments"].is_object()) {
-    result.error = "action arguments must be an object";
-    return result;
-  }
-  if (command.contains("request_id") && !command["request_id"].is_string()) {
-    result.error = "request_id must be a string";
-    return result;
-  }
+  switch (candidate.action_type) {
+    case RobotCommand::STOP:
+    case RobotCommand::CANCEL_NAVIGATION:
+      if (!no_payload(candidate)) {
+        result.error = "control command contains unrelated payload";
+        return result;
+      }
+      break;
 
-  const std::string name = command["name"];
-  auto & arguments = command["arguments"];
-  if (name == "stop") {
-    if (!require_exact_keys(arguments, {}, result.error)) {
-      return result;
-    }
-  } else if (name == "move" || name == "arc") {
-    const bool curved_move = arguments.contains("angular_z") || name == "arc";
-    if (!require_exact_keys(
-        arguments,
-        curved_move ? std::initializer_list<const char *>{"linear_x", "angular_z", "duration_s"} :
-        std::initializer_list<const char *>{"linear_x", "duration_s"},
-        result.error) ||
-      !require_number(arguments, "linear_x", result.error) ||
-      (curved_move && !require_number(arguments, "angular_z", result.error)) ||
-      !require_number(arguments, "duration_s", result.error))
-    {
-      return result;
-    }
-    command["name"] = "move";
-    arguments["linear_x"] = clamp(arguments["linear_x"].get<double>(), -0.5, 0.5);
-    if (curved_move) {
-      arguments["angular_z"] = clamp(arguments["angular_z"].get<double>(), -1.5, 1.5);
-    }
-    arguments["duration_s"] = clamp(arguments["duration_s"].get<double>(), 0.0, 10.0);
-  } else if (name == "turn") {
-    if (!require_exact_keys(arguments, {"angular_z", "duration_s"}, result.error) ||
-      !require_number(arguments, "angular_z", result.error) ||
-      !require_number(arguments, "duration_s", result.error))
-    {
-      return result;
-    }
-    arguments["angular_z"] = clamp(arguments["angular_z"].get<double>(), -1.5, 1.5);
-    arguments["duration_s"] = clamp(arguments["duration_s"].get<double>(), 0.0, 10.0);
-  } else if (name == "wave") {
-    if (!require_exact_keys(arguments, {"count"}, result.error) ||
-      !require_number(arguments, "count", result.error))
-    {
-      return result;
-    }
-    arguments["count"] = static_cast<int>(
-      std::lround(clamp(arguments["count"].get<double>(), 1.0, 5.0)));
-  } else if (name == "set_led") {
-    if (!require_exact_keys(arguments, {"color"}, result.error) ||
-      !arguments["color"].is_string())
-    {
-      if (result.error.empty()) {
-        result.error = "color must be a string";
-      }
-      return result;
-    }
-    static const std::set<std::string> supported_colors{
-      "off", "red", "green", "blue", "yellow", "white"};
-    if (supported_colors.count(arguments["color"].get<std::string>()) == 0) {
-      result.error = "unsupported LED color";
-      return result;
-    }
-  } else if (name == "set_mode") {
-    if (!require_exact_keys(arguments, {"mode"}, result.error) ||
-      !arguments["mode"].is_string())
-    {
-      if (result.error.empty()) {
-        result.error = "mode must be a string";
-      }
-      return result;
-    }
-    static const std::set<std::string> supported_modes{
-      "manual", "obstacle_avoidance", "wall_following"};
-    if (supported_modes.count(arguments["mode"].get<std::string>()) == 0) {
-      result.error = "unsupported control mode";
-      return result;
-    }
-  } else if (name == "navigate_to") {
-    if (!require_exact_keys(arguments, {"target"}, result.error)) {
-      return result;
-    }
-    if (!is_supported_navigation_place(arguments["target"])) {
-      result.error = "unsupported navigation target";
-      return result;
-    }
-  } else if (name == "follow_waypoints" || name == "patrol") {
-    command["name"] = "follow_waypoints";
-    const bool has_loops = arguments.contains("number_of_loops");
-    if (!require_exact_keys(
-        arguments,
-        has_loops ?
-        std::initializer_list<const char *>{"waypoints", "number_of_loops"} :
-        std::initializer_list<const char *>{"waypoints"},
-        result.error))
-    {
-      return result;
-    }
-    if (!arguments["waypoints"].is_array() || arguments["waypoints"].empty()) {
-      result.error = "waypoints must be a non-empty array";
-      return result;
-    }
-    if (arguments["waypoints"].size() > 8) {
-      result.error = "too many waypoints";
-      return result;
-    }
-    for (const auto & waypoint : arguments["waypoints"]) {
-      if (!is_supported_navigation_place(waypoint)) {
-        result.error = "unsupported navigation waypoint";
+    case RobotCommand::MOVE:
+    case RobotCommand::ARC:
+      if (!no_non_motion_payload(candidate) ||
+        !std::isfinite(candidate.linear_x) ||
+        !std::isfinite(candidate.angular_z) ||
+        !std::isfinite(candidate.duration_s))
+      {
+        result.error = "invalid move payload";
         return result;
       }
-    }
-    if (has_loops) {
-      if (!arguments["number_of_loops"].is_number_integer()) {
-        result.error = "number_of_loops must be an integer";
+      result.command.linear_x = clamp(candidate.linear_x, -0.5, 0.5);
+      result.command.angular_z = clamp(candidate.angular_z, -1.5, 1.5);
+      result.command.duration_s = clamp(candidate.duration_s, 0.0, 10.0);
+      result.command.action_type = RobotCommand::MOVE;
+      break;
+
+    case RobotCommand::TURN:
+      if (candidate.linear_x != 0.0 || !no_non_motion_payload(candidate) ||
+        !std::isfinite(candidate.angular_z) ||
+        !std::isfinite(candidate.duration_s))
+      {
+        result.error = "invalid turn payload";
         return result;
       }
-      const int loops = arguments["number_of_loops"].get<int>();
-      arguments["number_of_loops"] = static_cast<int>(clamp(loops, 1, 3));
-    } else {
-      arguments["number_of_loops"] = 1;
-    }
-  } else if (name == "cancel_navigation") {
-    if (!require_exact_keys(arguments, {}, result.error)) {
+      result.command.angular_z = clamp(candidate.angular_z, -1.5, 1.5);
+      result.command.duration_s = clamp(candidate.duration_s, 0.0, 10.0);
+      break;
+
+    case RobotCommand::WAVE:
+      if (!no_motion_payload(candidate) || !candidate.color.empty() ||
+        !candidate.mode.empty() || !no_navigation_payload(candidate) ||
+        candidate.count == 0)
+      {
+        result.error = "invalid wave payload";
+        return result;
+      }
+      result.command.count = static_cast<std::int32_t>(
+        std::clamp(candidate.count, 1, 5));
+      break;
+
+    case RobotCommand::SET_LED: {
+        if (!no_motion_payload(candidate) || candidate.count != 0 ||
+          !candidate.mode.empty() || !no_navigation_payload(candidate))
+        {
+          result.error = "invalid LED payload";
+          return result;
+        }
+        static const std::set<std::string> colors{
+          "off", "red", "green", "blue", "yellow", "white"};
+        if (colors.count(candidate.color) == 0) {
+          result.error = "unsupported LED color";
+          return result;
+        }
+        break;
+      }
+
+    case RobotCommand::SET_MODE: {
+        if (!no_motion_payload(candidate) || candidate.count != 0 ||
+          !candidate.color.empty() || !no_navigation_payload(candidate))
+        {
+          result.error = "invalid mode payload";
+          return result;
+        }
+        static const std::set<std::string> modes{
+          "manual", "obstacle_avoidance", "wall_following"};
+        if (modes.count(candidate.mode) == 0) {
+          result.error = "unsupported control mode";
+          return result;
+        }
+        break;
+      }
+
+    case RobotCommand::NAVIGATE_TO:
+      if (!no_motion_payload(candidate) || !no_accessory_payload(candidate) ||
+        !candidate.waypoints.empty() || candidate.number_of_loops != 0 ||
+        !supported_place(candidate.target))
+      {
+        result.error = supported_place(candidate.target) ?
+          "invalid navigation payload" : "unsupported navigation target";
+        return result;
+      }
+      result.command.duration_s = 3.0;
+      break;
+
+    case RobotCommand::FOLLOW_WAYPOINTS: {
+        if (!no_motion_payload(candidate) || !no_accessory_payload(candidate) ||
+          !candidate.target.empty())
+        {
+          result.error = "invalid waypoint payload";
+          return result;
+        }
+        result.error = validate_navigation_places(candidate);
+        if (!result.error.empty()) {
+          return result;
+        }
+        result.command.number_of_loops = std::clamp(
+          candidate.number_of_loops == 0U ? 1U : candidate.number_of_loops,
+          1U, 3U);
+        const auto visits = static_cast<double>(
+          result.command.waypoints.size() * result.command.number_of_loops);
+        result.command.duration_s = std::clamp(visits * 2.0, 2.0, 10.0);
+        break;
+      }
+
+    default:
+      result.error = "unsupported action type";
       return result;
-    }
-  } else {
-    result.error = "unsupported action: " + name;
-    return result;
   }
 
   result.valid = true;
-  result.command = std::move(command);
   return result;
-}
-
-bool ActionValidator::require_exact_keys(
-  const nlohmann::json & arguments,
-  std::initializer_list<const char *> keys,
-  std::string & error)
-{
-  const std::set<std::string> expected(keys.begin(), keys.end());
-  std::set<std::string> actual;
-  for (const auto & item : arguments.items()) {
-    actual.insert(item.key());
-  }
-  if (actual != expected) {
-    error = "arguments do not match the action schema";
-    return false;
-  }
-  return true;
-}
-
-bool ActionValidator::require_number(
-  const nlohmann::json & arguments,
-  const char * key,
-  std::string & error)
-{
-  if (!arguments.contains(key) || !arguments[key].is_number()) {
-    error = std::string(key) + " must be numeric";
-    return false;
-  }
-  return true;
 }
 
 double ActionValidator::clamp(double value, double lower, double upper)

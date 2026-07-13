@@ -30,7 +30,7 @@ class WakeWordModel:
 PY
 
 PYTHONPATH="$FAKE_PACKAGE_DIR:${PYTHONPATH:-}" \
-setsid ros2 run embodied_online_agent keyword_wake --ros-args \
+setsid ros2 run embodied_voice_frontend keyword_wake --ros-args \
   -p mode:=livekit \
   -p provider_name:=livekit_test \
   -p livekit_wakeword_models:="[fake_xiaozhi.onnx]" \

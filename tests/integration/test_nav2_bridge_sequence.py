@@ -9,12 +9,15 @@ FollowWaypoints goal。这样 CI 不需要地图和 Gazebo，也能覆盖最关�
 import json
 import threading
 import time
+from pathlib import Path
 
 import rclpy
+from embodied_agent_interfaces.msg import RobotCommand, RobotCommandResult
 from nav2_msgs.action import FollowWaypoints, NavigateToPose
-from rclpy.action import ActionServer
+from rclpy.action import ActionServer, CancelResponse
 from rclpy.node import Node
 from std_msgs.msg import String
+from typed_action_test_utils import candidate_dict, result_dict
 
 
 class FakeNav2BridgeProbe(Node):
@@ -25,27 +28,58 @@ class FakeNav2BridgeProbe(Node):
         self.results = []
         self.navigate_goals = []
         self.follow_goals = []
-        self.create_subscription(String, "/agent/action_candidate", self._on_candidate, 10)
-        self.create_subscription(String, "/robot/action_result", self._on_result, 10)
+        self.navigate_cancel_requests = 0
+        self.home_goal_running = threading.Event()
+        self.home_goal_canceled = threading.Event()
+        self.create_subscription(RobotCommand, "/agent/action_candidate", self._on_candidate, 10)
+        self.create_subscription(RobotCommandResult, "/robot/action_result", self._on_result, 10)
         self.navigate_server = ActionServer(
-            self, NavigateToPose, "navigate_to_pose", self._execute_navigate
+            self,
+            NavigateToPose,
+            "navigate_to_pose",
+            self._execute_navigate,
+            cancel_callback=self._cancel_navigate,
         )
         self.follow_server = ActionServer(
             self, FollowWaypoints, "follow_waypoints", self._execute_follow
         )
 
     def _on_candidate(self, message):
-        self.candidates.append(json.loads(message.data))
+        self.candidates.append(candidate_dict(message))
 
     def _on_result(self, message):
-        self.results.append(json.loads(message.data))
+        self.results.append(result_dict(message))
 
     def _execute_navigate(self, goal_handle):
         self.navigate_goals.append(goal_handle.request.pose)
+        pose = goal_handle.request.pose.pose.position
+        if abs(pose.x - 4.0) < 1e-6 and abs(pose.y - 4.0) < 1e-6:
+            goal_handle.abort()
+            result = NavigateToPose.Result()
+            result.error_code = 42
+            result.error_msg = "planner_no_path"
+            return result
+        if abs(pose.x) < 1e-6 and abs(pose.y) < 1e-6:
+            # home 目标故意保持运行，用于证明上层“取消导航”会到达真正的
+            # NavigateToPose cancel 协议，而不只是让 Agent 本地队列停止等待。
+            self.home_goal_running.set()
+            deadline = time.monotonic() + 8.0
+            while time.monotonic() < deadline and not goal_handle.is_cancel_requested:
+                time.sleep(0.02)
+            if goal_handle.is_cancel_requested:
+                goal_handle.canceled()
+                self.home_goal_canceled.set()
+                return NavigateToPose.Result()
+            goal_handle.abort()
+            return NavigateToPose.Result()
         goal_handle.succeed()
         result = NavigateToPose.Result()
         result.error_code = NavigateToPose.Result.NONE
         return result
+
+    def _cancel_navigate(self, _goal_handle):
+        self.navigate_cancel_requests += 1
+        return CancelResponse.ACCEPT
 
     def _execute_follow(self, goal_handle):
         self.follow_goals.append(goal_handle.request)
@@ -151,9 +185,81 @@ def main():
             if abs(actual[0] - want[0]) > 1e-6 or abs(actual[1] - want[1]) > 1e-6:
                 raise RuntimeError(f"unexpected waypoint positions: {positions}")
 
-        print(
-            json.dumps(
-                {
+        node.text_pub.publish(String(data="回到起点"))
+        wait_until(
+            lambda: node.home_goal_running.is_set(),
+            10.0,
+            "home NavigateToPose goal did not enter running state",
+        )
+        home_candidate = next(
+            candidate
+            for candidate in reversed(node.candidates)
+            if candidate.get("name") == "navigate_to"
+            and candidate.get("arguments", {}).get("target") == "home"
+        )
+        node.text_pub.publish(String(data="取消导航"))
+        wait_until(
+            lambda: node.home_goal_canceled.is_set()
+            and any(candidate.get("name") == "cancel_navigation" for candidate in node.candidates),
+            12.0,
+            "voice cancel did not reach the active Nav2 goal",
+        )
+        cancel_candidate = next(
+            candidate
+            for candidate in reversed(node.candidates)
+            if candidate.get("name") == "cancel_navigation"
+        )
+        wait_until(
+            lambda: any(
+                result.get("command_id") == cancel_candidate["request_id"]
+                and result.get("success") is True
+                for result in node.results
+            ),
+            10.0,
+            "cancel_navigation command did not return success",
+        )
+        home_results = [
+            result
+            for result in node.results
+            if result.get("command_id") == home_candidate["request_id"]
+        ]
+        if not home_results or home_results[-1].get("success") is not False:
+            raise RuntimeError(f"active navigation was not reported canceled: {home_results}")
+        if node.navigate_cancel_requests < 1:
+            raise RuntimeError("fake Nav2 server did not observe a cancel request")
+
+        node.text_pub.publish(String(data="去封闭区"))
+        wait_until(
+            lambda: any(
+                candidate.get("arguments", {}).get("target") == "unreachable_zone"
+                for candidate in node.candidates
+            ),
+            10.0,
+            "unreachable semantic target was not published",
+        )
+        unreachable_candidate = next(
+            candidate for candidate in reversed(node.candidates)
+            if candidate.get("arguments", {}).get("target") == "unreachable_zone"
+        )
+        wait_until(
+            lambda: any(
+                result.get("command_id") == unreachable_candidate["request_id"]
+                for result in node.results
+            ),
+            10.0,
+            "aborted Nav2 goal did not propagate a result",
+        )
+        unreachable_result = next(
+            result for result in reversed(node.results)
+            if result.get("command_id") == unreachable_candidate["request_id"]
+        )
+        if unreachable_result.get("success") is not False:
+            raise RuntimeError(f"unreachable goal unexpectedly succeeded: {unreachable_result}")
+        detail = str(unreachable_result.get("message") or "")
+        if "aborted" not in detail or "error_code=42" not in detail or "planner_no_path" not in detail:
+            raise RuntimeError(f"Nav2 failure detail was lost: {unreachable_result}")
+
+        report = {
                     "navigate_pose": {
                         "frame_id": pose.header.frame_id,
                         "x": pose.pose.position.x,
@@ -165,12 +271,25 @@ def main():
                         "follow_waypoints": round(follow_elapsed, 3),
                     },
                     "result_count": len(node.results),
+                    "navigation_cancel": {
+                        "home_command_id": home_candidate["request_id"],
+                        "cancel_command_id": cancel_candidate["request_id"],
+                        "nav2_cancel_requests": node.navigate_cancel_requests,
+                        "home_goal_canceled": node.home_goal_canceled.is_set(),
+                    },
+                    "unreachable_goal": {
+                        "command_id": unreachable_candidate["request_id"],
+                        "result": unreachable_result,
+                    },
                     "status": "PASS",
-                },
-                ensure_ascii=False,
-                indent=2,
-            )
+                }
+        output_path = Path(__file__).resolve().parents[2] / "logs" / "nav2_bridge_report.json"
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        print(f"Evidence: {output_path}")
     finally:
         node.navigate_server.destroy()
         node.follow_server.destroy()

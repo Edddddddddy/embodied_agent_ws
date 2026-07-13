@@ -1,0 +1,11 @@
+builtin_interfaces/Time stamp
+string mode
+bool sensor_stale
+bool safety_stopped
+bool front_distance_valid
+float32 front_distance
+bool right_distance_valid
+float32 right_distance
+string reason
+float32 linear_x
+float32 angular_z

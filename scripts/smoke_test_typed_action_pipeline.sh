@@ -25,4 +25,4 @@ if ! timeout 30 python "$WORKSPACE/tests/integration/test_simulation_pipeline.py
   cat "$LOG_FILE" >&2
   exit 1
 fi
-echo "PASS: JSON candidate -> typed command -> ROS Action -> simulation controller"
+echo "PASS: typed candidate -> C++ ActionGuard -> ROS Action -> simulation controller"

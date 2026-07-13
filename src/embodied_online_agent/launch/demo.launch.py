@@ -6,12 +6,16 @@ def generate_launch_description():
     config = "/home/ubuntu/embodied_agent_ws/src/embodied_online_agent/config/online_agent.yaml"
     return LaunchDescription(
         [
-            Node(
+            LifecycleNode(
                 package="embodied_online_agent",
                 executable="online_agent",
                 name="online_agent",
+                namespace="",
                 output="screen",
-                parameters=[config, {"mode": "mock"}],
+                parameters=[
+                    config,
+                    {"mode": "mock", "agent_lifecycle_autostart": False},
+                ],
             ),
             Node(
                 package="embodied_agent_cpp",
@@ -30,11 +34,11 @@ def generate_launch_description():
             Node(
                 package="nav2_lifecycle_manager",
                 executable="lifecycle_manager",
-                name="action_guard_lifecycle_manager",
+                name="agent_control_lifecycle_manager",
                 output="screen",
                 parameters=[{
                     "autostart": True,
-                    "node_names": ["action_guard"],
+                    "node_names": ["action_guard", "online_agent"],
                     "bond_timeout": 0.0,
                 }],
             ),

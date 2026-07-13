@@ -21,10 +21,17 @@ import numpy as np
 import rclpy
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
-from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Empty, String, UInt8MultiArray
 
-from embodied_agent_interfaces.msg import RobotCommand
+from embodied_agent_interfaces.msg import AgentTurnMetrics, RobotCommand, RobotCommandResult
+from embodied_agent_core.metrics_transport import agent_turn_metrics_message_to_dict
+from embodied_agent_core.ros_qos import (
+    audio_qos,
+    command_qos,
+    diagnostics_qos,
+    event_qos,
+)
+from typed_action_test_utils import candidate_dict, result_dict
 from embodied_offline_agent.providers.sherpa_tts import SherpaVitsTts
 
 
@@ -49,42 +56,63 @@ def wait_until(predicate, timeout: float, description: str) -> None:
 class OfflineSherpaTypedProbe(Node):
     def __init__(self):
         super().__init__("offline_sherpa_typed_probe")
-        qos = QoSProfile(
-            history=HistoryPolicy.KEEP_LAST,
-            depth=20,
-            reliability=ReliabilityPolicy.BEST_EFFORT,
+        self.audio_pub = self.create_publisher(
+            UInt8MultiArray, "/audio/clean_pcm", audio_qos(depth=20)
         )
-        self.audio_pub = self.create_publisher(UInt8MultiArray, "/audio/clean_pcm", qos)
-        self.silence_pub = self.create_publisher(Empty, "/audio/silence_timeout", 10)
+        self.silence_pub = self.create_publisher(
+            Empty, "/audio/silence_timeout", event_qos(depth=10)
+        )
         self.asr_text: str | None = None
         self.candidates: list[dict] = []
         self.typed_commands: list[RobotCommand] = []
         self.action_results: list[dict] = []
         self.metrics: dict | None = None
         self.velocities: list[tuple[float, float]] = []
-        self.create_subscription(String, "/agent/asr_final", self._on_asr, 10)
-        self.create_subscription(String, "/agent/action_candidate", self._on_candidate, 10)
         self.create_subscription(
-            RobotCommand, "/robot/action_command_typed", self._on_typed_command, 10
+            String, "/agent/asr_final", self._on_asr, event_qos(depth=10)
         )
-        self.create_subscription(String, "/robot/action_result", self._on_result, 10)
-        self.create_subscription(String, "/offline_agent/metrics", self._on_metrics, 10)
-        self.create_subscription(Twist, "/cmd_vel", self._on_velocity, 10)
+        self.create_subscription(
+            RobotCommand,
+            "/agent/action_candidate",
+            self._on_candidate,
+            command_qos(depth=10),
+        )
+        self.create_subscription(
+            RobotCommand,
+            "/robot/action_command_typed",
+            self._on_typed_command,
+            command_qos(depth=10),
+        )
+        self.create_subscription(
+            RobotCommandResult,
+            "/robot/action_result",
+            self._on_result,
+            event_qos(depth=10),
+        )
+        self.create_subscription(
+            AgentTurnMetrics,
+            "/agent/metrics",
+            self._on_metrics,
+            diagnostics_qos(depth=10),
+        )
+        self.create_subscription(
+            Twist, "/cmd_vel", self._on_velocity, command_qos(depth=10)
+        )
 
     def _on_asr(self, message: String) -> None:
         self.asr_text = message.data
 
-    def _on_candidate(self, message: String) -> None:
-        self.candidates.append(json.loads(message.data))
+    def _on_candidate(self, message: RobotCommand) -> None:
+        self.candidates.append(candidate_dict(message))
 
     def _on_typed_command(self, message: RobotCommand) -> None:
         self.typed_commands.append(message)
 
-    def _on_result(self, message: String) -> None:
-        self.action_results.append(json.loads(message.data))
+    def _on_result(self, message: RobotCommandResult) -> None:
+        self.action_results.append(result_dict(message))
 
-    def _on_metrics(self, message: String) -> None:
-        self.metrics = json.loads(message.data)
+    def _on_metrics(self, message: AgentTurnMetrics) -> None:
+        self.metrics = agent_turn_metrics_message_to_dict(message)
 
     def _on_velocity(self, message: Twist) -> None:
         self.velocities.append((message.linear.x, message.angular.z))

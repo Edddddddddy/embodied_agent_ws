@@ -8,12 +8,16 @@ cd "$WORKSPACE"
 
 echo "[core] acceptance CLI contract"
 bash tests/integration/test_acceptance_cli.sh
+bash tests/integration/test_voice_benchmark_cli.sh
 
 echo "[core] repository structure guards"
 pytest -q tests/repository
 
 echo "[core] Python agent unit tests"
-pytest -q src/embodied_online_agent/test src/embodied_offline_agent/test
+pytest -q \
+  src/embodied_agent_core/test \
+  src/embodied_voice_frontend/test \
+  src/embodied_offline_agent/test
 
 echo "[core] C++/simulation unit tests"
 colcon build --symlink-install --allow-overriding \

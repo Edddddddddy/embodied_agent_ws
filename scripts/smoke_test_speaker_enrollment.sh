@@ -20,7 +20,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-setsid ros2 run embodied_online_agent speaker_identity --ros-args \
+setsid ros2 run embodied_voice_frontend speaker_identity --ros-args \
   -p mode:=mock \
   -p publish_on_start:=false \
   -p min_audio_rms:=0.0 \
