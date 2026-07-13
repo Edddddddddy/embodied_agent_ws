@@ -219,6 +219,7 @@ HTTPS Range 快速验证；动态遮挡只有提供人工复核时间区间才
 | 连续语音队列 | `bash scripts/acceptance_test.sh continuous-mock` | ROS 2 |
 | 多命令 NLU | `bash scripts/acceptance_test.sh continuous-multi-command` | ROS 2 |
 | C++ Action 生命周期 | `bash scripts/acceptance_test.sh cpp-action-client` | ROS 2 |
+| bridge Lifecycle/Component | `bash scripts/acceptance_test.sh cpp-action-bridge-lifecycle` | ROS 2 |
 | Nav2 轻量门禁 | `bash scripts/acceptance_test.sh nav2-stage` | ROS 2 |
 | SLAM 轨迹指标 | `bash scripts/acceptance_test.sh slam-evaluation-stage` | Python |
 | OpenLORIS 回放适配器 | `bash scripts/acceptance_test.sh openloris-replay-stage` | ROS 2 + rosbags |

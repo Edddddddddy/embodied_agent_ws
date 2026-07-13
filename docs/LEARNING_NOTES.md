@@ -23,6 +23,8 @@
 - `src/embodied_agent_interfaces/msg/RobotCommandResult.msg`
 - `src/embodied_agent_interfaces/action/ExecuteRobotCommand.action`
 - `src/embodied_agent_cpp/src/typed_action_bridge_node.cpp`
+- `src/embodied_agent_cpp/src/typed_action_bridge_main.cpp`
+- `src/embodied_agent_cpp/CMakeLists.txt`
 - `src/embodied_agent_cpp/src/typed_action_demo_client.cpp`
 - `src/embodied_agent_cpp/include/embodied_agent_cpp/typed_action_client_contract.hpp`
 - `scripts/audit_cpp_action_reports.py`
@@ -33,6 +35,10 @@
 - Agent 先把 LLM 或 fallback parser 的领域动作映射为强类型 `RobotCommand` candidate。
 - C++ ActionGuard 对 candidate 做白名单、字段约束和限幅，再发布受信任的 `RobotCommand`。
 - C++ `ActionScheduler` 将受信命令排成单执行槽 FIFO，再由 typed action bridge 发送为 `ExecuteRobotCommand` goal。
+- `embodied_agent_cpp` 不增加 ROS 包，而是在 CMake 内拆成 control/audio/hardware 三个库；节点只链接
+  自己需要的模块。typed bridge 同时提供 component 与原可执行入口，并由 Lifecycle manager 激活。
+- bridge 把命令、Action 回调和诊断分到互斥/reentrant callback group；deactivate 通过
+  `ActionScheduler.clear_all()` 取消活动 goal、清空 FIFO 并发布可关联的 canceled result。
 - `typed_action_demo_client` 是面试/调试用最小 C++ action client：从命令行构造
   `RobotCommand`，直接发送 action goal，打印 feedback/result 并用结果决定进程退出码；
   它还支持定时取消、结果等待超时和 `CPP_ACTION_REPORT` 结构化报告。
@@ -45,6 +51,8 @@
 - topic 适合广播状态和瞬时事件，例如 ASR final、动作候选、监控日志。
 - ROS 2 Action 适合“移动一秒”“转九十度”这种有持续时间、可取消、需要反馈的动作。
 - 自定义 msg/action 让动作接口可测试、可限幅、可扩展，比纯字符串事件载荷更工程化。
+- Lifecycle 让“进程存在”和“节点允许接单”成为两个状态：inactive 明确拒绝命令，cleanup
+  释放 client/publisher/timer，避免重启整个进程才能恢复。
 
 方案对比：
 
@@ -54,6 +62,8 @@
 - 保留一个独立 demo client：比 bridge 更适合讲解 rclcpp_action 的 goal/feedback/result
   生命周期，也能在没有 Agent 的情况下单独验证 action server。结构化审计比日志关键字
   `grep` 更可靠，可供 CI 或发布门禁消费。
+- 拆成三个新 ROS package 会让 launch、依赖和发布矩阵膨胀；本项目选择同包多 target，既隔离
+  编译/链接依赖，又保持现有 executable、topic、参数和 action 接口兼容。
 
 ### 1.1 运行状态中间件：为什么状态 topic 也要强类型
 

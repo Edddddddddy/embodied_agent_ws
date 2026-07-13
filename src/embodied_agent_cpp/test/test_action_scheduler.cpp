@@ -166,4 +166,26 @@ TEST(ActionSchedulerTest, MissingCommandIdIsRejectedWithoutOccupyingExecutor)
   EXPECT_EQ(scheduler.snapshot().state, "idle");
 }
 
+TEST(ActionSchedulerTest, LifecycleClearCancelsActiveAndClearsPendingCommands)
+{
+  ActionScheduler scheduler(4);
+  scheduler.enqueue(command("move-1", RobotCommand::MOVE));
+  scheduler.enqueue(command("turn-2", RobotCommand::TURN));
+  scheduler.enqueue(command("move-3", RobotCommand::MOVE));
+
+  const auto cleared = scheduler.clear_all("lifecycle_deactivated");
+  EXPECT_EQ(
+    ids(cleared, SchedulerEventKind::kCancelActive),
+    std::vector<std::string>({"move-1"}));
+  EXPECT_EQ(
+    ids(cleared, SchedulerEventKind::kResult),
+    std::vector<std::string>({"move-1", "turn-2", "move-3"}));
+  EXPECT_EQ(scheduler.snapshot().state, "idle");
+  EXPECT_EQ(scheduler.snapshot().pending_count, 0U);
+  EXPECT_EQ(scheduler.snapshot().completed_count, 1U);
+  EXPECT_EQ(scheduler.snapshot().cleared_count, 2U);
+  EXPECT_TRUE(scheduler.complete(
+      "move-1", false, RobotCommandResult::STATUS_CANCELED, "late").empty());
+}
+
 }  // namespace

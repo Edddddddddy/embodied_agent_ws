@@ -206,6 +206,43 @@ def test_robot_action_transport_is_fully_typed_without_legacy_json_adapter():
     acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(encoding="utf-8")
     assert "cpp-action-scheduler" in acceptance
 
+
+def test_cpp_runtime_modules_and_typed_bridge_lifecycle_contract():
+    cpp = ROOT / "src" / "embodied_agent_cpp"
+    cmake = (cpp / "CMakeLists.txt").read_text(encoding="utf-8")
+    bridge = (cpp / "src" / "typed_action_bridge_node.cpp").read_text(
+        encoding="utf-8"
+    )
+    bridge_main = (cpp / "src" / "typed_action_bridge_main.cpp").read_text(
+        encoding="utf-8"
+    )
+    simulation_launch = (
+        ROOT
+        / "src"
+        / "embodied_simulation"
+        / "launch"
+        / "simulation_control.launch.py"
+    ).read_text(encoding="utf-8")
+
+    for target in (
+        "embodied_agent_control_core",
+        "embodied_audio_core",
+        "embodied_hardware_core",
+    ):
+        assert f"add_library({target}" in cmake
+    assert "add_library(embodied_agent_core" not in cmake
+    assert "typed_action_bridge_component" in cmake
+    assert "rclcpp_components_register_nodes" in cmake
+    assert "public rclcpp_lifecycle::LifecycleNode" in bridge
+    for callback in ("on_configure", "on_activate", "on_deactivate", "on_cleanup"):
+        assert callback in bridge
+    for group_type in ("MutuallyExclusive", "Reentrant"):
+        assert group_type in bridge
+    assert "clear_all(\"lifecycle_deactivated\")" in bridge
+    assert "MultiThreadedExecutor" in bridge_main
+    assert 'LifecycleNode(\n            package="embodied_agent_cpp"' in simulation_launch
+    assert '"node_names": ["typed_action_bridge"]' in simulation_launch
+
 def test_agent_parameter_contract_has_one_authoritative_schema():
     """在线/离线节点不得重新复制默认参数表，组合 launch 也必须复用转发契约。"""
 
