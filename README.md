@@ -187,18 +187,27 @@ pip install -r requirements-slam-eval.txt
 bash scripts/acceptance_test.sh openloris-replay-stage
 ```
 
-下载并解压官方 bag 后运行真实 A/B：
+下载并解压官方 bag 后运行真实 A/B。首次验证推荐只取归档中的首条序列，约 1.25 GB；
+正式归档审计再使用 9.27 GB 完整下载：
 
 ```bash
-OPENLORIS_BAG=/data/openloris/office1-1.bag \
-  bash scripts/acceptance_test.sh openloris-bag-preflight
-OPENLORIS_BAG=/data/openloris/office1-1.bag \
-  bash scripts/acceptance_test.sh openloris-slam-ab
+# 快速实验：固定数据集 commit，并校验首段与 bag 的独立 SHA256。
+OPENLORIS_RANGE_ONLY=true bash scripts/acceptance_test.sh openloris-rosbag-setup
+
+# 最强来源验证：下载完整归档，校验固定大小和 SHA256（约 9.27 GB）。
+bash scripts/acceptance_test.sh openloris-rosbag-setup
+bash scripts/acceptance_test.sh openloris-bag-preflight
+bash scripts/acceptance_test.sh openloris-slam-ab
 ```
 
-输出包含 bag contract、两条 map-frame TUM 轨迹、ATE/RPE 报告、launch 日志和不预设胜者的
-后端对比。大型 bag 和实验结果不会伪装成 CI 证据；完整方法与限制见
+输出包含 bag 来源哈希、contract、两条 map-frame TUM 轨迹、ATE/RPE、直行/转弯退化分段、
+launch 日志、实验 manifest 和不预设胜者的后端对比。`source.json` 会区分完整 SHA256 验证与
+HTTPS Range 快速验证；动态遮挡只有提供人工复核时间区间才
+单独统计；大型 bag 和实验结果不会伪装成 CI 证据。完整方法与限制见
 [真实数据 SLAM 评估](docs/REAL_WORLD_SLAM_EVALUATION.md)。
+
+当前 `office1-1` 实测中，Ceres/GTSAM 的 ATE RMSE 为 2.879/2.890 cm，按预设 1% 容差为平局；
+该 27 秒序列没有真值回访事件，所以此结果不作为回环召回率证据。
 
 ## 测试与验收
 

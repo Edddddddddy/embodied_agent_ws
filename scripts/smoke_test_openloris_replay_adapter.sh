@@ -23,7 +23,7 @@ for backend in ceres gtsam; do
   estimate="$TMP_DIR/${backend}.tum"
   launch_log="$TMP_DIR/${backend}.log"
   params_file="$WORKSPACE/install/embodied_slam/share/embodied_slam/config/openloris_mapping_${backend}.yaml"
-  ROS_DOMAIN_ID="$((230 + $$ % 10))" timeout 40 \
+  ROS_DOMAIN_ID="$((150 + $$ % 80))" timeout 40 \
     ros2 launch embodied_slam openloris_mapping.launch.py \
       bag_path:="$BAG_PATH" params_file:="$params_file" \
       replay_rate:=8.0 startup_delay_s:=2.0 output_path:="$estimate" use_rviz:=false \

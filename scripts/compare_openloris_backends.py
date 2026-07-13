@@ -19,7 +19,12 @@ def _metric(report: dict, *path: str) -> float:
     return result
 
 
-def compare(ceres: dict, gtsam: dict) -> dict[str, object]:
+def compare(
+    ceres: dict,
+    gtsam: dict,
+    ceres_degradation: dict | None = None,
+    gtsam_degradation: dict | None = None,
+) -> dict[str, object]:
     """Return comparable evidence without assuming either solver must win."""
 
     c_matches = int(ceres["association"]["matched_poses"])
@@ -41,6 +46,27 @@ def compare(ceres: dict, gtsam: dict) -> dict[str, object]:
     winner = "tie"
     if not math.isclose(c_ate, g_ate, rel_tol=0.01, abs_tol=1e-4):
         winner = "ceres" if c_ate < g_ate else "gtsam"
+    motion_classes: dict[str, object] = {}
+    if (ceres_degradation is None) != (gtsam_degradation is None):
+        raise ValueError("both degradation reports are required for motion A/B")
+    if ceres_degradation is not None and gtsam_degradation is not None:
+        for label in ("straight", "turning", "stationary"):
+            c_item = ceres_degradation["motion_classes"][label]
+            g_item = gtsam_degradation["motion_classes"][label]
+            same_samples = int(c_item["samples"]) == int(g_item["samples"])
+            checks[f"same_{label}_samples"] = same_samples
+            c_value = c_item["ate_rmse_m"]
+            g_value = g_item["ate_rmse_m"]
+            motion_classes[label] = {
+                "samples": int(c_item["samples"]),
+                "ceres_ate_rmse_m": c_value,
+                "gtsam_ate_rmse_m": g_value,
+                "gtsam_minus_ceres_m": (
+                    round(float(g_value) - float(c_value), 6)
+                    if c_value is not None and g_value is not None
+                    else None
+                ),
+            }
     return {
         "passed": all(checks.values()),
         "checks": checks,
@@ -67,6 +93,7 @@ def compare(ceres: dict, gtsam: dict) -> dict[str, object]:
             "ate_gtsam_minus_ceres_m": round(g_ate - c_ate, 6),
             "rpe_gtsam_minus_ceres_m": round(g_rpe - c_rpe, 6),
         },
+        "motion_classes": motion_classes,
         "lower_ate_backend": winner,
     }
 
@@ -75,6 +102,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ceres", type=Path, required=True)
     parser.add_argument("--gtsam", type=Path, required=True)
+    parser.add_argument("--ceres-degradation", type=Path)
+    parser.add_argument("--gtsam-degradation", type=Path)
     parser.add_argument(
         "--output", type=Path, default=Path("logs/openloris_backend_comparison.json")
     )
@@ -82,6 +111,16 @@ def main() -> int:
     report = compare(
         json.loads(args.ceres.read_text(encoding="utf-8")),
         json.loads(args.gtsam.read_text(encoding="utf-8")),
+        (
+            json.loads(args.ceres_degradation.read_text(encoding="utf-8"))
+            if args.ceres_degradation
+            else None
+        ),
+        (
+            json.loads(args.gtsam_degradation.read_text(encoding="utf-8"))
+            if args.gtsam_degradation
+            else None
+        ),
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(

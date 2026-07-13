@@ -60,3 +60,12 @@ def test_ci_builds_the_slam_package_without_running_the_heavy_gazebo_benchmark()
     )
     assert "embodied_slam" in workflow
     assert "smoke_test_slam_mapping_baseline.sh" not in workflow
+
+
+def test_openloris_runner_uses_a_fastdds_safe_domain_id():
+    runner = (ROOT / "scripts" / "run_openloris_slam_replay.sh").read_text(
+        encoding="utf-8"
+    )
+    assert "120 + $$ % 80" in runner
+    assert "ROS_DOMAIN_ID > 232" in runner
+    assert 'ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-241}"' not in runner

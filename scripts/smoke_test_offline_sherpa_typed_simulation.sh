@@ -4,7 +4,7 @@ set -euo pipefail
 WORKSPACE="${WORKSPACE:-/home/ubuntu/embodied_agent_ws}"
 source "$WORKSPACE/scripts/activate.sh"
 source "$WORKSPACE/scripts/lifecycle_utils.sh"
-export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((210 + $$ % 30))}"
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((200 + $$ % 30))}"
 
 SERVER_LOG="$(mktemp)"
 CONTROL_LOG="$(mktemp)"

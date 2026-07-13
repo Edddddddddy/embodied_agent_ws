@@ -49,7 +49,7 @@ READINESS_DURATION="${CONTINUOUS_READINESS_DURATION:-3.0}"
 SYSTEM_READINESS_TIMEOUT="${SYSTEM_READINESS_TIMEOUT:-60.0}"
 
 source "$WORKSPACE/scripts/activate.sh"
-export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((220 + $$ % 60))}"
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((140 + $$ % 80))}"
 
 if [[ "$MODE" != "offline" && "$MODE" != "online" ]]; then
   echo "Usage: $0 {offline|online}" >&2
