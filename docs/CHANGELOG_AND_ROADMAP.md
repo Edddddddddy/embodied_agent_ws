@@ -83,6 +83,7 @@
 | Agent 包依赖收敛 | 消除 offline 复用 online 内部业务模块和语音 sidecar 形成的反向依赖 | 新增 `embodied_agent_core` 与 `embodied_voice_frontend`；公共领域/编排/记忆/transport 和 VAD/KWS/声纹 Adapter 分别归位，online/offline 只保留各自 provider |
 | Python/C++ QoS 语义对齐 | 删除 VAD/KWS/声纹节点手写 QoS 和跨语言命名漂移 | Python/C++ 统一 command/event/state/sensor/audio/diagnostics 六类 profile；KWS score 与 PCM 使用 best-effort，身份/健康使用 transient-local，控制和事件保持 reliable + volatile |
 | C++ 运行时模块与 bridge 生命周期收敛 | 避免 control/audio/hardware 因单一库产生无关链接，并让调度器具备可管理启停语义 | 同一 ROS 包内拆为 3 个 CMake target；typed bridge 注册 component 并升级 Lifecycle，显式 callback group、inactive 拒绝、deactivate 取消清队列及 cleanup 后重建均有验收 |
+| Agent 应用层与 turn 数据面收敛 | 删除 online/offline 重复的 transcript、记忆、队列、用户快照、动作批次和模型 turn 编排 | 新增组合式 `AgentApplicationRuntime` 与在线/离线 `*StreamingTurnRuntime`；主节点缩至 543/676 行，provider 差异通过 callback 注入且公开 ROS 契约不变 |
 
 ## 2. 当前完成度结论
 

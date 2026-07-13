@@ -180,6 +180,7 @@ Python 的 `embodied_agent_core/ros_qos.py` 与 C++ 的
 - `embodied_agent_core/agent_control_plane.py`
 - `embodied_agent_core/agent_execution_runtime.py`
 - `embodied_agent_core/agent_lifecycle_runtime.py`
+- `embodied_agent_core/agent_application_runtime.py`
 - `embodied_agent_core/asr_endpoint_runtime.py`
 - `embodied_agent_core/streaming_turn.py`
 - `embodied_agent_core/user_context_runtime.py`
@@ -193,6 +194,8 @@ Python 的 `embodied_agent_core/ros_qos.py` 与 C++ 的
 
 - `AgentControlPlane` 是在线/离线共用的领域控制面：统一参数映射、归一化、会话门控、
   补全、重试、优先控制、NLU 拆批、队列和 batch id；不依赖 `rclpy`。
+- `AgentApplicationRuntime` 是组合式应用层：把 transcript 决策、记忆命令、用户快照、
+  连续入队、预解析 turn 和动作批次连成唯一用例；provider 通过 callback 注入而非继承基类。
 - `AgentExecutionRuntime` 统一 busy 状态、连续队列 worker、started/finished 事件和异常
   隔离；单条失败不会终止长时间控制，任何执行路径都会复位 busy。
 - `AsrEndpointRuntime` 统一 endpoint 去重、commit delay 和 timer 关闭；在线直接 commit
@@ -252,11 +255,12 @@ Python 的 `embodied_agent_core/ros_qos.py` 与 C++ 的
 - 预留 Sherpa-onnx ZipFormer ASR、llama.cpp、Sherpa-TTS 的真实模型路径。
 - 复用 `embodied_agent_core` 的连续语音、命令归一化、补全、动作序列逻辑。
 - 通过 `AgentControlPlane` 复用完整 ASR-final 控制决策，仅保留离线 provider、
-  latency 和伪流式 TTS 差异。
+  latency 和伪流式 TTS 差异；后两者集中在 `OfflineStreamingTurnRuntime`。
 
 核心文件：
 
 - `embodied_offline_agent/offline_agent_node.py`
+- `embodied_offline_agent/offline_turn_runtime.py`
 - `embodied_offline_agent/providers/sherpa_asr.py`
 - `embodied_offline_agent/providers/llama_cpp.py`
 - `embodied_offline_agent/providers/sherpa_tts.py`

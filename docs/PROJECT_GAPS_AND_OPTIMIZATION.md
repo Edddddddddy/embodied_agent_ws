@@ -157,8 +157,8 @@
 
 现状：
 
-- online/offline Agent 主节点已从早期约 1100/1200 行降到当前 779/882 行；公共参数映射、
-  ASR-final 会话决策和 typed publisher 已抽出，但 memory 与 turn pipeline 仍在节点中。
+- online/offline Agent 主节点已从早期约 1100/1200 行降到当前 543/676 行；公共参数、
+  ASR-final 用例、记忆、动作发布和 turn pipeline 都已按组合式模块拆分。
 - `AgentControlPlane` 已成为无 ROS 依赖的领域核心，`RosAgentEventPublisher` 单独承担
   typed topic、时间戳和 QoS；online/offline 只在 provider、latency 和 TTS pipeline 上分化。
 - `embodied_agent_cpp` 同时承载 audio、control、hardware、TTS 等多个变化方向。
@@ -167,8 +167,8 @@
 
 优化：
 
-- 下一步用组合式 `AgentApplicationRuntime` 统一 session 决策、记忆快照、预解析动作和清理流程；
-  provider、ASR 输入、TTS 与延迟适配仍留在 online/offline 节点。
+- `AgentApplicationRuntime` 已统一 session 决策、记忆快照、预解析动作、连续入队和动作批次；
+  在线/离线 `*TurnRuntime` 分别封装流式 TTS 与离线双缓冲/延迟差异。
 - 不增加 ROS package；先把 `embodied_agent_cpp` 的 control/audio/hardware 拆成独立 CMake target，
   让节点只链接所需模块，避免增加部署复杂度。
 - 将验收入口按 `voice/`、`offline/`、`control/`、`navigation/` 分类，根脚本只做稳定命令路由；
@@ -176,7 +176,6 @@
 
 ## 11. 下一阶段优先级
 
-1. 提取组合式 `AgentApplicationRuntime`，继续缩小 online/offline 节点职责。
-2. 完成在线/离线 5 分钟连续运行报告，分开记录原始 LLM 与 fallback 准确率。
-3. 优化离线全回合 3.631s 的当前实测，目标稳定进入 3.5s；未达标时保留真实数字。
-4. 扩展更长 OpenLORIS 回访序列和动态障碍预测消融，补充真实退化与回环证据。
+1. 完成在线/离线 5 分钟连续运行报告，分开记录原始 LLM 与 fallback 准确率。
+2. 优化离线全回合 3.631s 的当前实测，目标稳定进入 3.5s；未达标时保留真实数字。
+3. 扩展更长 OpenLORIS 回访序列和动态障碍预测消融，补充真实退化与回环证据。

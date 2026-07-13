@@ -8,7 +8,7 @@
 
 ### 1. 控制面与 provider 数据面分离
 
-`AgentControlPlane`、`AgentExecutionRuntime`、`AgentLifecycleRuntime` 被 online/offline 复用；ASR/LLM/TTS 只是 Adapter。收益是相同输入在在线/离线模式下拥有一致的唤醒、队列、NLU、取消和事件语义。
+`AgentControlPlane`、`AgentApplicationRuntime`、`AgentExecutionRuntime`、`AgentLifecycleRuntime` 被 online/offline 复用；ASR/LLM/TTS 只是 Adapter。收益是相同输入在在线/离线模式下拥有一致的唤醒、记忆、队列、NLU、取消和事件语义。
 
 ### 2. 连续语音状态机
 
