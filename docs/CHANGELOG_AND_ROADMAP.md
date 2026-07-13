@@ -85,6 +85,7 @@
 | C++ 运行时模块与 bridge 生命周期收敛 | 避免 control/audio/hardware 因单一库产生无关链接，并让调度器具备可管理启停语义 | 同一 ROS 包内拆为 3 个 CMake target；typed bridge 注册 component 并升级 Lifecycle，显式 callback group、inactive 拒绝、deactivate 取消清队列及 cleanup 后重建均有验收 |
 | Agent 应用层与 turn 数据面收敛 | 删除 online/offline 重复的 transcript、记忆、队列、用户快照、动作批次和模型 turn 编排 | 新增组合式 `AgentApplicationRuntime` 与在线/离线 `*StreamingTurnRuntime`；主节点缩至 543/676 行，provider 差异通过 callback 注入且公开 ROS 契约不变 |
 | 运行时证据口径收口 | 避免短时、fixture、fallback 后结果被误写成真实长稳或模型原始能力 | 在线/离线分别生成 5 分钟报告，增加 Agent 模式、queue reject、P50/P95 和统一事实汇总；缺失或失败证据明确标记，不阻塞无麦克风 CI |
+| 离线 E2E Lifecycle 就绪探针 | 修复 Agent 已激活但 smoke 仍等待旧 `ready` 日志直至超时 | 复用 Lifecycle `GetState` 服务，以只读 wait policy 等待 active；Lifecycle manager 保持唯一转换者，当前真实模型 fixture 整轮 1428.6 ms |
 
 ## 2. 当前完成度结论
 

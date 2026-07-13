@@ -12,8 +12,8 @@
 | 在线真实麦克风长稳 | 尚无独立 5 分钟报告 | **缺失** |
 | 离线模型原始指令遵循 | 代表样例 3/8，37.5% | **已测但未达 70% 目标** |
 | fallback + safety 系统有效率 | 同一批样例 8/8，100% | **已测**，只能描述系统兜底效果，不能替代模型原始分数 |
-| 离线 fixture E2E | endpoint 到首音频 861.166 ms，turn complete 1574.823 ms | **已测且 <3.5 s**，但它是测试音频/fixture，不是 5 分钟真人长稳证据 |
-| 离线组件性能 | warm LLM P95 588.97 ms、解码中位数 25.37 tokens/s、Sherpa-TTS 203.51 ms | **已测**，属于组件 benchmark |
+| 离线 fixture E2E | endpoint 到首音频 707.533 ms，turn complete 1428.566 ms，LLM 首 token 120.607 ms | **已测且 <3.5 s**，但它是测试音频/fixture，不是 5 分钟真人长稳证据 |
+| 离线组件性能 | warm LLM P95 544.79 ms、解码中位数 30.52 tokens/s、Sherpa-TTS 178.94 ms | **已测**，属于组件 benchmark |
 | OpenLORIS SLAM | office1-1：322 对齐位姿、99.65% 覆盖，Ceres/GTSAM ATE 2.879/2.890 cm | **已测**，片段约 27 s 且无真值回访事件，不能宣称回环 precision/recall |
 
 > 旧离线真人报告是一次失败样本，保留它是为了暴露问题，而不是选择性删除不理想结果。

@@ -22,15 +22,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for _ in $(seq 1 100); do
-  grep -q "online agent ready" "$LOG_FILE" && break
-  if ! kill -0 "$LAUNCH_PID" 2>/dev/null; then
-    echo "FAIL: online Agent launch exited before ready" >&2
-    cat "$LOG_FILE" >&2
-    exit 1
-  fi
-  sleep 0.1
-done
+if ! python3 "$WORKSPACE/scripts/activate_lifecycle_node.py" online_agent \
+    --target-state active --wait-only --timeout 15; then
+  echo "FAIL: online Agent did not reach the active lifecycle state" >&2
+  cat "$LOG_FILE" >&2
+  exit 1
+fi
 # 直接使用有界 rclpy 参数 client，不让 ros2cli daemon 的 discovery 时序污染测试结论。
 if ! VALUE="$(python3 "$WORKSPACE/scripts/ros_parameter_check.py" \
     /online_agent wake_word_enabled --expected false --timeout 15)"; then

@@ -219,6 +219,10 @@ def test_offline_voice_e2e_reuses_an_existing_llama_server():
     assert 'memory_path:="$MEMORY_DIR/conversation.json"' in script
     assert 'user_memory_dir:="$MEMORY_DIR/users"' in script
     assert "/agent/clear_memory" not in script
+    # Lifecycle 重构后 readiness 必须读取强类型状态服务，不能等待易漂移的日志字符串。
+    assert "activate_lifecycle_node.py" in script
+    assert "--wait-only --timeout 60" in script
+    assert "offline agent ready" not in script
 
 def test_instruction_following_lora_review_workflow_remains_available():
     """失败样例只能先进入候选集；人工审核后才允许导出 approved LoRA 数据集。"""

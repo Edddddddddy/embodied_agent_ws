@@ -39,18 +39,13 @@ ros2 launch embodied_offline_agent offline_agent.launch.py \
   user_memory_dir:="$MEMORY_DIR/users" \
   >"$LAUNCH_LOG" 2>&1 &
 LAUNCH_PID=$!
-for _ in $(seq 1 120); do
-  if grep -q "offline agent ready" "$LAUNCH_LOG"; then
-    break
-  fi
-  sleep 0.5
-done
-grep -q "offline agent ready" "$LAUNCH_LOG" || {
+if ! python3 "$WORKSPACE/scripts/activate_lifecycle_node.py" offline_agent \
+    --target-state active --wait-only --timeout 60; then
   echo "FAIL: offline Agent did not finish runtime warmup within 60s" >&2
   cat "$LAUNCH_LOG" >&2
   cat "$SERVER_LOG" >&2
   exit 1
-}
+fi
 python "$WORKSPACE/tests/integration/test_offline_voice_e2e.py" --output "$REPORT" || {
   cat "$LAUNCH_LOG"; cat "$SERVER_LOG"; exit 1;
 }

@@ -178,7 +178,8 @@
 
 1. 新的 5 分钟证据工具已完成，但仍需操作者分别采集 online/offline 真人麦克风报告；
    `runtime-evidence-summary` 会把缺失或 180 秒旧证据明确标为 missing/failed。
-2. 离线真实模型 fixture 最近一次 `turn_complete_ms=1574.8`，已低于 3.5s；但旧的 180 秒
+2. 离线真实模型 fixture 最近一次 `turn_complete_ms=1428.6`、endpoint 到首音频约
+   `707.5ms`，已低于 3.5s；但旧的 180 秒
    真人报告中 turn P50/P95 约为 3.824/6.972s，识别率 60%、动作成功率 70%，不能据此宣称
    长稳链路已达标，仍需新 5 分钟重测和优化。
 3. 扩展更长 OpenLORIS 回访序列和动态障碍预测消融，补充真实退化与回环证据。
