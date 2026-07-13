@@ -46,6 +46,11 @@ Automated modes:
   slam-navigation     Heavy run: saved map -> AMCL -> Nav2 plan -> goal execution
   slam-evaluation-stage Synthetic ATE/RPE/loop-correction gate without Gazebo or downloads
   openloris-groundtruth Download and verify one public OpenLORIS ground-truth trajectory
+  openloris-replay-stage Generate a tiny bag and replay it through Ceres/GTSAM SLAM
+  openloris-bag-preflight Validate OPENLORIS_BAG topics, frames, and optional runtime
+  openloris-slam-ceres Replay a real OpenLORIS bag through the Ceres backend
+  openloris-slam-gtsam Replay a real OpenLORIS bag through the GTSAM backend
+  openloris-slam-ab    Run both backends on one bag and compare their reports
   openloris-evaluate  Evaluate SLAM_ESTIMATE_FILE against an OpenLORIS sequence
   dynamic-obstacle-stage Build/test tracker, motion predictor, and Nav2 costmap plugin seam
   dynamic-obstacle-navigation Heavy run: predicted crossing obstacle -> Nav2 replan -> goal
@@ -134,11 +139,13 @@ run_base() {
   colcon build --symlink-install --allow-overriding \
     embodied_agent_interfaces embodied_agent_core embodied_voice_frontend \
     embodied_agent_cpp embodied_online_agent \
-    embodied_offline_agent embodied_simulation embodied_slam embodied_navigation
+    embodied_offline_agent embodied_simulation embodied_slam embodied_navigation \
+    embodied_slam_tools
   colcon test --packages-select \
     embodied_agent_interfaces embodied_agent_core embodied_voice_frontend \
     embodied_agent_cpp embodied_online_agent \
     embodied_offline_agent embodied_simulation embodied_slam embodied_navigation \
+    embodied_slam_tools \
     --event-handlers console_direct+
   colcon test-result --verbose
   bash scripts/smoke_test.sh
@@ -389,6 +396,42 @@ case "$LEVEL" in
     python3 scripts/setup_openloris_groundtruth.py \
       --sequence "${OPENLORIS_SEQUENCE:-office1-1}" \
       --output-root "${OPENLORIS_ROOT:-datasets/openloris}"
+    ;;
+  openloris-replay-stage)
+    python3 -c 'import rosbags' || {
+      echo "Missing optional replay runtime; run: pip install -r requirements-slam-eval.txt" >&2
+      exit 2
+    }
+    colcon build --packages-up-to embodied_slam embodied_slam_tools --symlink-install
+    colcon test --packages-select embodied_slam embodied_slam_tools --event-handlers console_direct+
+    colcon test-result --test-result-base build/embodied_slam --verbose
+    colcon test-result --test-result-base build/embodied_slam_tools --verbose
+    pytest -q tests/repository/test_openloris_backend_comparison.py
+    bash scripts/smoke_test_openloris_replay_adapter.sh
+    ;;
+  openloris-bag-preflight)
+    if [[ -z "${OPENLORIS_BAG:-}" || ! -e "$OPENLORIS_BAG" ]]; then
+      echo "Usage: OPENLORIS_BAG=/path/to/sequence.bag $0 openloris-bag-preflight" >&2
+      exit 2
+    fi
+    python3 -c 'import rosbags' || {
+      echo "Missing rosbags; run: pip install -r requirements-slam-eval.txt" >&2
+      exit 2
+    }
+    ros2 run embodied_slam_tools openloris_rosbag_inspect "$OPENLORIS_BAG" \
+      --output "${OPENLORIS_CONTRACT_REPORT:-logs/openloris_bag_contract.json}"
+    ;;
+  openloris-slam-ceres) bash scripts/run_openloris_slam_replay.sh ceres ;;
+  openloris-slam-gtsam) bash scripts/run_openloris_slam_replay.sh gtsam ;;
+  openloris-slam-ab)
+    bash scripts/run_openloris_slam_replay.sh ceres
+    bash scripts/run_openloris_slam_replay.sh gtsam
+    OPENLORIS_SEQUENCE="${OPENLORIS_SEQUENCE:-office1-1}"
+    OPENLORIS_OUTPUT_DIR="${OPENLORIS_OUTPUT_DIR:-$WORKSPACE/logs/openloris/$OPENLORIS_SEQUENCE}"
+    python3 scripts/compare_openloris_backends.py \
+      --ceres "$OPENLORIS_OUTPUT_DIR/ceres_report.json" \
+      --gtsam "$OPENLORIS_OUTPUT_DIR/gtsam_report.json" \
+      --output "$OPENLORIS_OUTPUT_DIR/backend_comparison.json"
     ;;
   openloris-evaluate)
     if [[ -z "${SLAM_ESTIMATE_FILE:-}" ]]; then

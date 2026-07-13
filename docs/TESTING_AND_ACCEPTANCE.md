@@ -130,14 +130,18 @@ bash scripts/acceptance_test.sh slam-navigation
 ```bash
 bash scripts/acceptance_test.sh slam-evaluation-stage
 bash scripts/acceptance_test.sh openloris-groundtruth
+bash scripts/acceptance_test.sh openloris-replay-stage
 
-SLAM_ESTIMATE_FILE=logs/estimate.tum \
-  bash scripts/acceptance_test.sh openloris-evaluate
+OPENLORIS_BAG=/data/openloris/office1-1.bag \
+  bash scripts/acceptance_test.sh openloris-bag-preflight
+OPENLORIS_BAG=/data/openloris/office1-1.bag \
+  bash scripts/acceptance_test.sh openloris-slam-ab
 ```
 
-`slam-evaluation-stage` 是确定性算法门禁，不代表真实数据精度。公开序列需要自己的 SLAM 估计
-轨迹，不能拿 ground truth 自身作为成果。报告应检查：匹配率、ATE RMSE/P95、1 秒 RPE、路径
-长度比、最差窗口、终点漂移和回访恢复率。方法见
+`slam-evaluation-stage` 只验证指标数学；`openloris-replay-stage` 只用小 fixture 验证 ROS 1/2
+读取、单调 `/clock`、TF、重复 odom 过滤、双后端启动与干净退出，两者都不代表真实精度。
+真实 A/B 必须使用同一 bag 和前端参数，并检查匹配率、ATE RMSE/P95、1 秒 RPE、路径长度比、
+最差窗口、终点漂移和回访恢复率。方法见
 [REAL_WORLD_SLAM_EVALUATION.md](REAL_WORLD_SLAM_EVALUATION.md)。
 
 ### 动态障碍

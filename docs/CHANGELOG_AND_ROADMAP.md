@@ -68,6 +68,7 @@
 | 控制命令启动可靠性 | 修复 DDS discovery 完成前 Guard 发布的 volatile 动作静默丢失 | 新增有界 TTL `GuardedCommandOutbox`；scheduler 匹配后 FIFO 转发，超时/满载明确拒绝，不回放陈旧动作 |
 | C++ 中间件契约收敛 | 清理跨节点散落的 QoS depth 与不一致策略 | 新增独立 `embodied_agent_middleware` 包，统一 command/event/state/sensor/audio/diagnostics QoS，并迁移控制主链路 |
 | 公开数据 SLAM 评估层 | 把仿真闭环指标升级为可复用的真实轨迹评价工具 | 新增 ROS 1/2 bag Adapter、OpenLORIS 真值校验、固定尺度 SE(2) 对齐、ATE/RPE/回访/退化段报告和无下载 CI 门禁 |
+| OpenLORIS 双后端回放 | 让公开 bag 直接驱动项目 SLAM，而不只导出 odom | 新增单调时钟、隔离 TF、重复帧过滤、map-frame recorder、Ceres/GTSAM 真实 A/B 入口和小 bag 双后端门禁 |
 | 系统就绪状态收敛 | 替代 launch/test 中分散的固定 sleep、topic graph 猜测和日志字符串判断 | 新增 `ComponentHealth`、`SystemReadiness`、心跳超时聚合器和 profile 化启动门禁；保留音频/仿真数据质量探针 |
 | Agent 参数与 launch 契约收敛 | 消除 online/offline 节点、YAML、Gazebo/Nav2 launch 中重复默认值和转发映射 | 新增共享参数 schema、ROS range/enum 描述、启动前校验、只读快照与组合 launch 转发契约；provider YAML 仅保留模型配置 |
 | Agent 并发运行时收敛 | 消除端点 timer、busy/worker 和多命令 NLU 入队的双份状态机 | 新增 `AsrEndpointRuntime`、`AgentExecutionRuntime` 和 `CommandEnqueueDecision`；统一异常隔离、busy 复位、batch metadata 与关闭时 timer/cancel 语义 |
@@ -191,7 +192,8 @@ bash scripts/acceptance_test.sh continuous-live-check offline
 
 ### P3：真实数据与导航消融
 
-- 固定 OpenLORIS office 序列，实际回放 Ceres/GTSAM 并保存 ATE/RPE/退化时间窗报告。
+- 已补齐 OpenLORIS ROS 1 bag 的 ROS 2 `/clock`/TF/LaserScan 流式 Adapter、轨迹 recorder、
+  Ceres/GTSAM 公平 A/B 和 fixture 门禁；下一步固定 office 序列保存真实 ATE/RPE 报告。
 - 对动态障碍 current-only、常速度、Kalman/IMM 预测做相同场景消融。
 - 继续细分 Nav2 planner/controller/behavior tree 失败原因和恢复行为指标。
 

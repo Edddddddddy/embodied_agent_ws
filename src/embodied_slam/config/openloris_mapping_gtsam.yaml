@@ -1,0 +1,65 @@
+slam_toolbox:
+  ros__parameters:
+    # 与 Ceres 文件保持相同前端参数，只替换位姿图 ScanSolver，保证 A/B 变量单一。
+    solver_plugin: embodied_slam::GtsamScanSolver
+    gtsam_max_iterations: 50
+    gtsam_relative_error_tolerance: 0.00001
+    gtsam_huber_k: 1.345
+    gtsam_minimum_covariance_eigenvalue: 0.00000001
+
+    odom_frame: dataset_odom
+    map_frame: map
+    base_frame: dataset_base_link
+    scan_topic: /openloris/scan
+    use_map_saver: true
+    mode: mapping
+    use_sim_time: true
+
+    debug_logging: false
+    throttle_scans: 1
+    transform_publish_period: 0.02
+    map_update_interval: 2.0
+    resolution: 0.05
+    restamp_tf: false
+    min_laser_range: 0.12
+    max_laser_range: 30.0
+    minimum_time_interval: 0.10
+    transform_timeout: 0.3
+    tf_buffer_duration: 60.0
+    scan_queue_size: 5
+    stack_size_to_use: 40000000
+    enable_interactive_mode: false
+
+    use_scan_matching: true
+    use_scan_barycenter: true
+    minimum_travel_distance: 0.10
+    minimum_travel_heading: 0.10
+    check_min_dist_and_heading_precisely: true
+    scan_buffer_size: 30
+    scan_buffer_maximum_scan_distance: 12.0
+    link_match_minimum_response_fine: 0.10
+    link_scan_maximum_distance: 1.5
+    loop_search_maximum_distance: 4.0
+    do_loop_closing: true
+    loop_match_minimum_chain_size: 8
+    loop_match_maximum_variance_coarse: 3.0
+    loop_match_minimum_response_coarse: 0.30
+    loop_match_minimum_response_fine: 0.40
+
+    correlation_search_space_dimension: 0.5
+    correlation_search_space_resolution: 0.01
+    correlation_search_space_smear_deviation: 0.1
+    loop_search_space_dimension: 8.0
+    loop_search_space_resolution: 0.05
+    loop_search_space_smear_deviation: 0.03
+
+    distance_variance_penalty: 0.5
+    angle_variance_penalty: 1.0
+    fine_search_angle_offset: 0.00349
+    coarse_search_angle_offset: 0.349
+    coarse_angle_resolution: 0.0349
+    minimum_angle_penalty: 0.9
+    minimum_distance_penalty: 0.5
+    use_response_expansion: true
+    min_pass_through: 2
+    occupancy_threshold: 0.1

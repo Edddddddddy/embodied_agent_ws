@@ -36,6 +36,9 @@ Gazebo LaserScan + 参考里程计
 | 协方差防护 | `make_positive_definite` | 对称化协方差并钳制特征值，防止走廊等退化几何给出奇异矩阵导致求解器崩溃 |
 | 地图/轨迹报告 | `tests/integration/test_slam_mapping_baseline.py`：`build_report` | 同时统计原始 ATE、闭环误差、`map->odom` 校正轨迹和已知地图面积 |
 | 后端 A/B | `scripts/compare_slam_backends.py`：`compare` | 检查两次路线与漂移尺度一致，再比较校正 ATE、闭环误差、覆盖面积和时间 |
+| 公开 bag 回放 | `bag_source.py`：`inspect_bag/iter_events`；`replay_node.py`：`replay` | 懒加载 ROS 1/2 消息，发布单调 `/clock`、隔离 TF 与 scan；不把 9 GB bag 读入内存 |
+| 轨迹记录 | `trajectory_recorder.py`：`_on_tf/_record` | 显式组合 `map→odom→base`，逐样本 flush，避免只记录后端校正量或退出丢证据 |
+| 真实后端 A/B | `compare_openloris_backends.py`：`compare` | 先验证样本窗/覆盖率可比，再描述 ATE/RPE 差异，不预设某个求解器必胜 |
 | 地图复用 | `localization_navigation.launch.py` | 关闭 SLAM，加载保存的 YAML/PGM，启动官方 Nav2/AMCL 生命周期栈 |
 | 定位规划验收 | `test_slam_localization_navigation.py` | 明确等待 `map->odom` 和 BT Navigator ACTIVE，再检查 plan、Action result、odom 与零速 |
 | 动态目标跟踪 | `dynamic_obstacle_tracker.cpp`：`DynamicObstacleTracker::update` | 对标准 `PoseArray` 检测做最近邻关联、常速度估计、指数平滑、置信度累积和超时淘汰 |
@@ -142,13 +145,15 @@ bash scripts/acceptance_test.sh dynamic-obstacle-navigation
 
 当前已经补齐独立于 Gazebo 的轨迹评估 seam：`evaluate_slam_trajectory.py` 读取
 TUM/OpenLORIS 格式，按估计时间戳插值真值，做不估计尺度的 SE(2) 对齐，再报告 ATE、
-1 秒 RPE、路径长度比、最差时间窗、终点漂移和真值回访恢复率。ROS 1/2 bag 由可选
-`extract_rosbag_trajectory.py` Adapter 导出，不让 rosbag 依赖进入指标内核。
+1 秒 RPE、路径长度比、最差时间窗、终点漂移和真值回访恢复率。可选 `embodied_slam_tools`
+用 `rosbags` 把 ROS 1/2 bag 流式重放为 `/clock`、隔离 TF、LaserScan 和 Odometry，直接驱动
+slam_toolbox；指标内核仍保持无 ROS 依赖。
 
 ```bash
 bash scripts/acceptance_test.sh slam-evaluation-stage
 bash scripts/acceptance_test.sh openloris-groundtruth
-SLAM_ESTIMATE_FILE=logs/estimate.tum bash scripts/acceptance_test.sh openloris-evaluate
+bash scripts/acceptance_test.sh openloris-replay-stage
+OPENLORIS_BAG=/data/openloris/office1-1.bag bash scripts/acceptance_test.sh openloris-slam-ab
 ```
 
 完整方法和 OpenLORIS 数据边界见
@@ -158,8 +163,9 @@ SLAM_ESTIMATE_FILE=logs/estimate.tum bash scripts/acceptance_test.sh openloris-e
 
 - 已完成：仿真受控漂移、闭环建图、Ceres/GTSAM 后端、地图保存、AMCL、目标规划和预测动态避障。
 - 未完成：真实传感器标定误差、轮滑/玻璃/长走廊等真实退化数据的系统评测。
-- 已完成工具：真实/公开 rosbag 的 Odometry/Pose/TF 导出 Adapter、ATE/RPE/回访统计和阈值门禁。
+- 已完成工具：OpenLORIS topic contract、ROS 1→ROS 2 SLAM 回放、map-frame 轨迹记录、
+  Ceres/GTSAM A/B、ATE/RPE/回访统计和阈值门禁。
 - 尚未完成实验：还没有提交 OpenLORIS 完整 bag 的 Ceres/GTSAM 实际回放报告；下载真值或
   对真值做 self-evaluation 不能代替这项证据。
-- 下一步：固定 OpenLORIS office 序列实际回放；比较 current-only 与 constant-velocity
-  prediction，并引入 Kalman/IMM 或时空局部控制器做消融。
+- 下一步：固定 OpenLORIS office 序列实际跑完并保存 bag SHA256/commit/report；再比较动态障碍
+  current-only 与 constant-velocity prediction，并引入 Kalman/IMM 做消融。

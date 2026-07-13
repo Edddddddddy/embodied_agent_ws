@@ -17,7 +17,8 @@ echo "[core] Python agent unit tests"
 pytest -q \
   src/embodied_agent_core/test \
   src/embodied_voice_frontend/test \
-  src/embodied_offline_agent/test
+  src/embodied_offline_agent/test \
+  src/embodied_slam_tools/test
 
 echo "[core] C++/simulation unit tests"
 colcon build --symlink-install --allow-overriding \

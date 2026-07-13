@@ -7,24 +7,22 @@ Gazebo 固定闭环能证明模块、TF 和后端求解器正确接线，但不�
 两条 TUM 格式轨迹，模块内部负责时间关联、插值、刚体对齐、ATE/RPE、尺度和回环统计。
 
 ```text
-ROS 1/2 bag ── extract_rosbag_trajectory.py ──┐
-                                               ├─ estimate.tum
-SLAM / TF / Odometry topic ────────────────────┘
-OpenLORIS OptiTrack GT ────────────────────────── reference.tum
-                                                    │
-                              evaluate_slam_trajectory.py
-                                                    │
-                     JSON + Markdown + threshold PASS/FAIL
+OpenLORIS ROS 1 bag (/odom + /scan + /tf_static)
+  → rosbags 流式读取 → ROS 2 /clock + 隔离 TF + LaserScan
+  → slam_toolbox（同前端，Ceres 或 GTSAM）→ map-frame estimate.tum
+  → OptiTrack reference.tum → ATE/RPE/回访评估 → A/B JSON + Markdown
 ```
 
 关键文件：
 
 | 文件 | 职责 |
 | --- | --- |
-| `scripts/extract_rosbag_trajectory.py` | ROS 1/2 Odometry、Pose、TF → TUM Adapter |
+| `src/embodied_slam_tools/.../replay_node.py` | ROS 1/2 bag → ROS 2 clock/TF/LaserScan/Odometry |
+| `src/embodied_slam_tools/.../trajectory_recorder.py` | 组合 `map→odom→base` 并输出 TUM |
+| `src/embodied_slam/launch/openloris_mapping.launch.py` | recorder、slam_toolbox、replay 生命周期编排 |
 | `scripts/setup_openloris_groundtruth.py` | 下载、SHA256 校验、按序列安全解压真值 |
 | `scripts/evaluate_slam_trajectory.py` | 时间同步、SE(2) 对齐、指标与报告 |
-| `scripts/compare_slam_evaluations.py` | 比较纯里程计和回环校正报告 |
+| `scripts/compare_openloris_backends.py` | 检查 A/B 输入可比性并描述指标差异 |
 | `tests/repository/test_slam_trajectory_evaluation.py` | 数学与异常时间轴回归测试 |
 | `tests/integration/test_rosbag_trajectory_adapter_runtime.py` | 可选 rosbags 真实读写测试 |
 
@@ -55,34 +53,28 @@ SHA256 07564d7ed3d6739585002afa12bcf481cc0e9e358fc64efd5e658e2c994bdc3b
 
 归档更新时不能静默跳过校验；需要人工核对官方来源后再更新常量和文档。
 
-## 3. rosbag Adapter
+## 3. rosbag 回放 Adapter
 
 OpenLORIS 使用 ROS 1 bag，而主项目运行 ROS 2 Jazzy。可选
-[rosbags](https://gitlab.com/ternaris/rosbags) 能同时读取 ROS 1/2，避免为数据导出安装完整 ROS 1：
+[rosbags](https://gitlab.com/ternaris/rosbags) 能同时读取 ROS 1/2，避免为回放安装完整 ROS 1：
 
 ```bash
 source scripts/activate.sh
 pip install -r requirements-slam-eval.txt
 
-python3 scripts/extract_rosbag_trajectory.py \
-  --bag /data/openloris/office1-1.bag \
-  --topic /odom \
-  --output logs/office1-1_odom.tum
+bash scripts/acceptance_test.sh openloris-replay-stage
 ```
 
-若估计位姿发布在 TF：
+Adapter 的关键处理：
 
-```bash
-python3 scripts/extract_rosbag_trajectory.py \
-  --bag /data/result_bag \
-  --topic /tf \
-  --parent-frame map \
-  --child-frame base_link \
-  --output logs/office1-1_slam.tum
-```
+- `FrameMapper` 把数据集 frame 放进 `dataset_*` 独立树，避免与宿主机器人 TF 冲突。
+- `ReplayTimeline` 保证 `/clock` 单调并按倍率节流，不让乱序写入破坏 TF buffer。
+- `TimestampDeduplicator` 过滤旧 office bag 已知的重复 `/odom` 时间戳。
+- 回放节点显式广播 `dataset_odom→dataset_base_link`；发布 Odometry 本身不会生成 TF。
+- recorder 只在收到 `map→dataset_odom` 时组合完整 SE(2) 链，逐样本 flush，异常退出也保留证据。
 
-Adapter 只负责消息格式转换，不负责猜测 TF 链或把 odom 当作 map 真值。导出后必须检查 topic、frame、
-时间戳数量和轨迹持续时间。
+小 fixture 只验证接口、时钟、TF、重复帧和双后端能启动，不代表真实场景精度。真实 bag 必须先过
+`openloris-bag-preflight`，缺 `/scan`、`/odom` 或静态外参时直接失败，而不是猜测 TF。
 
 ## 4. 指标定义和工程取舍
 
@@ -122,23 +114,30 @@ bash scripts/acceptance_test.sh slam-evaluation-stage
 它生成同一条闭环的纯里程计漂移和回环校正轨迹，要求校正后的 ATE、RPE 和终点漂移同时下降。
 该结果只证明评估器和比较门禁，不代表真实模型精度。
 
-公开序列：
+公开序列先验收 contract，再选择单后端或 A/B：
 
 ```bash
-SLAM_ESTIMATE_FILE=logs/office1-1_slam.tum \
-SLAM_MAX_ATE_RMSE_M=0.30 \
-SLAM_MAX_RPE_RMSE_M=0.10 \
-  bash scripts/acceptance_test.sh openloris-evaluate
+OPENLORIS_BAG=/data/openloris/office1-1.bag \
+  bash scripts/acceptance_test.sh openloris-bag-preflight
+
+OPENLORIS_BAG=/data/openloris/office1-1.bag \
+OPENLORIS_SEQUENCE=office1-1 \
+OPENLORIS_REPLAY_RATE=1.0 \
+  bash scripts/acceptance_test.sh openloris-slam-ab
 ```
 
 输出：
 
 ```text
-logs/openloris_office1-1_report.json
-logs/openloris_office1-1_report.md
+logs/openloris/office1-1/bag_contract.json
+logs/openloris/office1-1/{ceres,gtsam}_estimate.tum
+logs/openloris/office1-1/{ceres,gtsam}_report.{json,md}
+logs/openloris/office1-1/{ceres,gtsam}_replay.log
+logs/openloris/office1-1/backend_comparison.json
 ```
 
-阈值必须在实验前确定，并对 Ceres/GTSAM 或不同参数使用同一序列、topic、时间裁剪和关联容差。
+`compare_openloris_backends.py` 只在样本窗和时间覆盖可比时通过，不写死 GTSAM 或 Ceres 必须获胜。
+精度阈值必须在实验前确定，并对两者使用同一 bag、前端参数、回放倍率和关联容差。
 
 ## 6. 面试讲法和事实边界
 
@@ -146,7 +145,7 @@ logs/openloris_office1-1_report.md
 
 - 仿真中注入可复现漂移，自己实现 GTSAM `karto::ScanSolver` Adapter，并与 Ceres 同前端 A/B。
 - 真实数据评估层采用独立真值、时间同步、固定尺度 SE(2) 对齐、ATE/RPE 和退化时间窗。
-- ROS 1 数据通过可选 Adapter 进入 ROS 2 工程，核心评价模块不依赖 ROS，便于 CI 单测。
+- ROS 1 数据通过流式 Adapter 直接驱动 ROS 2 SLAM；核心评价数学仍不依赖 ROS，便于 CI 单测。
 
 不能讲：
 
@@ -155,5 +154,6 @@ logs/openloris_office1-1_report.md
 - 把回访恢复率说成回环前端 precision/recall。
 - 在没有相同数据和阈值时，笼统宣称 GTSAM 优于 Ceres。
 
-下一阶段应实际回放 office rosbag，分别输出纯里程计、Ceres、GTSAM 三条估计轨迹，再按走廊、
-急转、动态遮挡分段对比，并保存配置、commit、数据序列和报告 SHA256。
+当前仓库已经具备真实 office bag 的双后端回放与报告入口，但不随 Git 提交约 9 GB 的原始 bag。
+在发布精度结论前，仍需由开发者固定具体序列实际跑完，并保存配置、commit、bag SHA256 和报告；
+随后再围绕 `worst_segment` 对长走廊、急转和动态遮挡做参数消融。
