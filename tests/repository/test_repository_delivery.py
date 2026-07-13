@@ -1,6 +1,23 @@
 """部署入口、模型运行时与展示交付物约束。"""
 
+import re
+
 from repository_test_support import CORE_ROOT, ROOT, VOICE_FRONTEND_ROOT
+
+
+def test_generated_ros_domain_ids_stay_within_fastdds_port_limit():
+    """Fast DDS 默认端口映射要求 domain <= 232，所有 PID 取模公式都必须守住上界。"""
+
+    pattern = re.compile(r"\$\(\((\d+) \+ \$\$ % (\d+)\)\)")
+    violations = []
+    for script in sorted((ROOT / "scripts").glob("*.sh")):
+        for base_text, modulus_text in pattern.findall(
+            script.read_text(encoding="utf-8")
+        ):
+            maximum = int(base_text) + int(modulus_text) - 1
+            if maximum > 232:
+                violations.append(f"{script.name}: maximum={maximum}")
+    assert violations == [], violations
 
 
 def test_integration_probes_are_not_mixed_with_user_scripts():

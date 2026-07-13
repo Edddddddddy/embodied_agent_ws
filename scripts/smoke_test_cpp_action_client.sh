@@ -3,7 +3,7 @@ set -euo pipefail
 
 WORKSPACE="${WORKSPACE:-/home/ubuntu/embodied_agent_ws}"
 source "$WORKSPACE/scripts/activate.sh"
-export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((170 + $$ % 80))}"
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((150 + $$ % 80))}"
 
 LOG_FILE="$(mktemp)"
 CLIENT_LOG="$(mktemp)"

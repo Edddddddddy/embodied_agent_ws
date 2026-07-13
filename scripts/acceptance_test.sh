@@ -46,6 +46,7 @@ Automated modes:
   slam-navigation     Heavy run: saved map -> AMCL -> Nav2 plan -> goal execution
   slam-evaluation-stage Synthetic ATE/RPE/loop-correction gate without Gazebo or downloads
   openloris-groundtruth Download and verify one public OpenLORIS ground-truth trajectory
+  openloris-rosbag-setup Resume, verify, and extract one office rosbag (full or range-only)
   openloris-replay-stage Generate a tiny bag and replay it through Ceres/GTSAM SLAM
   openloris-bag-preflight Validate OPENLORIS_BAG topics, frames, and optional runtime
   openloris-slam-ceres Replay a real OpenLORIS bag through the Ceres backend
@@ -209,6 +210,9 @@ run_slam_evaluation_stage() {
     tests/repository/test_slam_trajectory_evaluation.py \
     tests/repository/test_slam_evaluation_comparison.py \
     tests/repository/test_openloris_groundtruth_setup.py \
+    tests/repository/test_openloris_rosbag_setup.py \
+    tests/repository/test_openloris_experiment_manifest.py \
+    tests/repository/test_slam_degradation_analysis.py \
     tests/repository/test_rosbag_trajectory_adapter.py
   python3 scripts/generate_slam_evaluation_fixture.py --output-dir "$fixture_dir"
   python3 scripts/evaluate_slam_trajectory.py \
@@ -397,6 +401,22 @@ case "$LEVEL" in
       --sequence "${OPENLORIS_SEQUENCE:-office1-1}" \
       --output-root "${OPENLORIS_ROOT:-datasets/openloris}"
     ;;
+  openloris-rosbag-setup)
+    ROSBAG_ARGS=(
+      --sequence "${OPENLORIS_SEQUENCE:-office1-1}"
+      --output-root "${OPENLORIS_ROOT:-datasets/openloris}"
+    )
+    if [[ -n "${OPENLORIS_ARCHIVE:-}" ]]; then
+      ROSBAG_ARGS+=(--archive "$OPENLORIS_ARCHIVE")
+    fi
+    if [[ "${OPENLORIS_NO_DOWNLOAD:-false}" == "true" ]]; then
+      ROSBAG_ARGS+=(--no-download)
+    fi
+    if [[ "${OPENLORIS_RANGE_ONLY:-false}" == "true" ]]; then
+      ROSBAG_ARGS+=(--range-only)
+    fi
+    python3 scripts/setup_openloris_rosbag.py "${ROSBAG_ARGS[@]}"
+    ;;
   openloris-replay-stage)
     python3 -c 'import rosbags' || {
       echo "Missing optional replay runtime; run: pip install -r requirements-slam-eval.txt" >&2
@@ -406,12 +426,19 @@ case "$LEVEL" in
     colcon test --packages-select embodied_slam embodied_slam_tools --event-handlers console_direct+
     colcon test-result --test-result-base build/embodied_slam --verbose
     colcon test-result --test-result-base build/embodied_slam_tools --verbose
-    pytest -q tests/repository/test_openloris_backend_comparison.py
+    pytest -q \
+      tests/repository/test_openloris_backend_comparison.py \
+      tests/repository/test_openloris_rosbag_setup.py \
+      tests/repository/test_openloris_experiment_manifest.py \
+      tests/repository/test_slam_degradation_analysis.py
     bash scripts/smoke_test_openloris_replay_adapter.sh
     ;;
   openloris-bag-preflight)
-    if [[ -z "${OPENLORIS_BAG:-}" || ! -e "$OPENLORIS_BAG" ]]; then
-      echo "Usage: OPENLORIS_BAG=/path/to/sequence.bag $0 openloris-bag-preflight" >&2
+    OPENLORIS_SEQUENCE="${OPENLORIS_SEQUENCE:-office1-1}"
+    OPENLORIS_ROOT="${OPENLORIS_ROOT:-$WORKSPACE/datasets/openloris}"
+    OPENLORIS_BAG="${OPENLORIS_BAG:-$OPENLORIS_ROOT/rosbag/$OPENLORIS_SEQUENCE/$OPENLORIS_SEQUENCE.bag}"
+    if [[ ! -f "$OPENLORIS_BAG" ]]; then
+      echo "Missing $OPENLORIS_BAG; run openloris-rosbag-setup first" >&2
       exit 2
     fi
     python3 -c 'import rosbags' || {
@@ -431,6 +458,8 @@ case "$LEVEL" in
     python3 scripts/compare_openloris_backends.py \
       --ceres "$OPENLORIS_OUTPUT_DIR/ceres_report.json" \
       --gtsam "$OPENLORIS_OUTPUT_DIR/gtsam_report.json" \
+      --ceres-degradation "$OPENLORIS_OUTPUT_DIR/ceres_degradation.json" \
+      --gtsam-degradation "$OPENLORIS_OUTPUT_DIR/gtsam_degradation.json" \
       --output "$OPENLORIS_OUTPUT_DIR/backend_comparison.json"
     ;;
   openloris-evaluate)

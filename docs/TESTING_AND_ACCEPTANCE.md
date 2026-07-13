@@ -132,16 +132,21 @@ bash scripts/acceptance_test.sh slam-evaluation-stage
 bash scripts/acceptance_test.sh openloris-groundtruth
 bash scripts/acceptance_test.sh openloris-replay-stage
 
-OPENLORIS_BAG=/data/openloris/office1-1.bag \
-  bash scripts/acceptance_test.sh openloris-bag-preflight
-OPENLORIS_BAG=/data/openloris/office1-1.bag \
-  bash scripts/acceptance_test.sh openloris-slam-ab
+# 推荐先用约 1.25 GB 的首序列快速模式完成真实数据闭环。
+OPENLORIS_RANGE_ONLY=true bash scripts/acceptance_test.sh openloris-rosbag-setup
+
+# 发布级来源审计再下载完整约 9.27 GB 归档。
+bash scripts/acceptance_test.sh openloris-rosbag-setup
+
+bash scripts/acceptance_test.sh openloris-bag-preflight
+bash scripts/acceptance_test.sh openloris-slam-ab
 ```
 
 `slam-evaluation-stage` 只验证指标数学；`openloris-replay-stage` 只用小 fixture 验证 ROS 1/2
 读取、单调 `/clock`、TF、重复 odom 过滤、双后端启动与干净退出，两者都不代表真实精度。
 真实 A/B 必须使用同一 bag 和前端参数，并检查匹配率、ATE RMSE/P95、1 秒 RPE、路径长度比、
-最差窗口、终点漂移和回访恢复率。方法见
+最差窗口、终点漂移、回访恢复率、运动类别误差和两个 manifest 的哈希来源。验收报告必须保留
+`archive_verification`，不能把 Range 快速模式表述为完整归档 SHA256 已验证。方法见
 [REAL_WORLD_SLAM_EVALUATION.md](REAL_WORLD_SLAM_EVALUATION.md)。
 
 ### 动态障碍
@@ -257,6 +262,9 @@ Action feedback/result → `/cmd_vel`。被拒绝时看 ActionGuard reason；旧
 CLEANUP_CONFIRM=true bash scripts/cleanup_simulation_processes.sh
 ```
 
+若日志为 `Calculated port number is too high`，问题不是 SHM，而是 `ROS_DOMAIN_ID > 232`。
+项目脚本的 PID 取模公式由仓库测试统一检查；手工覆盖时也应使用 `0..232`。
+
 ### Gazebo 没有小车
 
 不要只启动 Agent launch。使用 `continuous-offline/online` 或 `nav2-turtlebot3` 一键入口，并检查
@@ -267,5 +275,5 @@ CLEANUP_CONFIRM=true bash scripts/cleanup_simulation_processes.sh
 - 自动 mock、真实模型、Gazebo、真实麦克风和公开 rosbag 是五类不同证据，不能相互替代。
 - 当前真实硬件是 Adapter/mock；Gazebo PASS 不等于 UART/SPI 实机 PASS。
 - LoRA 流水线 dry-run 不等于已训练并达到准确率。
-- OpenLORIS 真值下载和 Adapter PASS 不等于 Ceres/GTSAM 真实 bag 指标已经完成。
+- OpenLORIS 小 fixture 只验证接口；当前真实指标只覆盖 `office1-1`，不能外推到其他场景或回环能力。
 - 完整功能完成后再 push/开 PR 触发 GitHub CI，避免为文档碎片频繁运行 CI。

@@ -168,6 +168,24 @@ def _align_se2(reference: Sequence[Pose2], estimate: Sequence[Pose2]) -> tuple[l
     }
 
 
+def associate_and_align(
+    reference: Sequence[Pose2], estimate: Sequence[Pose2], max_time_diff_s: float
+) -> tuple[list[Pose2], list[Pose2], dict[str, object]]:
+    """Associate by time and apply one fixed-scale SE(2) alignment.
+
+    公开这个窄接口，让全局评价和退化分段评价共享同一时间轴/对齐语义；调用方不能各自
+    重新实现一套“更好看”的对齐方式，否则 A/B 指标将失去可比性。
+    """
+
+    matched_reference, matched_estimate = associate(
+        reference, estimate, max_time_diff_s
+    )
+    if len(matched_reference) < 3:
+        raise ValueError("fewer than 3 timestamp-associated poses")
+    aligned_estimate, alignment = _align_se2(matched_reference, matched_estimate)
+    return matched_reference, aligned_estimate, alignment
+
+
 def _percentile(values: Sequence[float], fraction: float) -> float:
     ordered = sorted(values)
     position = fraction * (len(ordered) - 1)
@@ -334,10 +352,9 @@ def _round_floats(value):
 def evaluate(
     reference: Sequence[Pose2], estimate: Sequence[Pose2], config: EvaluationConfig
 ) -> dict[str, object]:
-    matched_ref, matched_est = associate(reference, estimate, config.max_time_diff_s)
-    if len(matched_ref) < 3:
-        raise ValueError("fewer than 3 timestamp-associated poses")
-    aligned_est, alignment = _align_se2(matched_ref, matched_est)
+    matched_ref, aligned_est, alignment = associate_and_align(
+        reference, estimate, config.max_time_diff_s
+    )
     position_errors = [
         math.hypot(est.x - ref.x, est.y - ref.y)
         for ref, est in zip(matched_ref, aligned_est)

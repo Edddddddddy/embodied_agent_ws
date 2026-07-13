@@ -16,7 +16,7 @@ fi
 
 source "$WORKSPACE/scripts/activate.sh"
 cd "$WORKSPACE"
-export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((220 + $$ % 20))}"
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((180 + $$ % 40))}"
 LIVE_REPORT="$(realpath -m "$LIVE_REPORT")"
 SUMMARY_REPORT="$(realpath -m "$SUMMARY_REPORT")"
 mkdir -p "$(dirname "$LIVE_REPORT")" "$(dirname "$SUMMARY_REPORT")"

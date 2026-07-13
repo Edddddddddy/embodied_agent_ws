@@ -39,6 +39,8 @@ Gazebo LaserScan + 参考里程计
 | 公开 bag 回放 | `bag_source.py`：`inspect_bag/iter_events`；`replay_node.py`：`replay` | 懒加载 ROS 1/2 消息，发布单调 `/clock`、隔离 TF 与 scan；不把 9 GB bag 读入内存 |
 | 轨迹记录 | `trajectory_recorder.py`：`_on_tf/_record` | 显式组合 `map→odom→base`，逐样本 flush，避免只记录后端校正量或退出丢证据 |
 | 真实后端 A/B | `compare_openloris_backends.py`：`compare` | 先验证样本窗/覆盖率可比，再描述 ATE/RPE 差异，不预设某个求解器必胜 |
+| 退化分段 | `analyze_slam_degradation.py`：`analyze` | 与全局报告共享时间关联/SE(2) 对齐；运动学类别自动统计，动态遮挡必须人工标注 |
+| 证据固化 | `build_openloris_experiment_manifest.py`：`build_manifest` | 将数据/配置/commit/日志/指标哈希绑定，防止脱离上下文引用数字 |
 | 地图复用 | `localization_navigation.launch.py` | 关闭 SLAM，加载保存的 YAML/PGM，启动官方 Nav2/AMCL 生命周期栈 |
 | 定位规划验收 | `test_slam_localization_navigation.py` | 明确等待 `map->odom` 和 BT Navigator ACTIVE，再检查 plan、Action result、odom 与零速 |
 | 动态目标跟踪 | `dynamic_obstacle_tracker.cpp`：`DynamicObstacleTracker::update` | 对标准 `PoseArray` 检测做最近邻关联、常速度估计、指数平滑、置信度累积和超时淘汰 |
@@ -153,7 +155,8 @@ slam_toolbox；指标内核仍保持无 ROS 依赖。
 bash scripts/acceptance_test.sh slam-evaluation-stage
 bash scripts/acceptance_test.sh openloris-groundtruth
 bash scripts/acceptance_test.sh openloris-replay-stage
-OPENLORIS_BAG=/data/openloris/office1-1.bag bash scripts/acceptance_test.sh openloris-slam-ab
+OPENLORIS_RANGE_ONLY=true bash scripts/acceptance_test.sh openloris-rosbag-setup
+bash scripts/acceptance_test.sh openloris-slam-ab
 ```
 
 完整方法和 OpenLORIS 数据边界见
@@ -165,7 +168,7 @@ OPENLORIS_BAG=/data/openloris/office1-1.bag bash scripts/acceptance_test.sh open
 - 未完成：真实传感器标定误差、轮滑/玻璃/长走廊等真实退化数据的系统评测。
 - 已完成工具：OpenLORIS topic contract、ROS 1→ROS 2 SLAM 回放、map-frame 轨迹记录、
   Ceres/GTSAM A/B、ATE/RPE/回访统计和阈值门禁。
-- 尚未完成实验：还没有提交 OpenLORIS 完整 bag 的 Ceres/GTSAM 实际回放报告；下载真值或
-  对真值做 self-evaluation 不能代替这项证据。
-- 下一步：固定 OpenLORIS office 序列实际跑完并保存 bag SHA256/commit/report；再比较动态障碍
+- 已完成实验：`office1-1` 真实 bag 已保存 SHA256/commit/config/日志/轨迹 manifest，Ceres 与
+  GTSAM 的 ATE 均约 2.9 cm；该序列没有真值回访事件，不能作为回环召回率证据。
+- 下一步：选择含回访、长走廊或人工动态遮挡标注的更多序列做跨场景实验；再比较动态障碍
   current-only 与 constant-velocity prediction，并引入 Kalman/IMM 做消融。
