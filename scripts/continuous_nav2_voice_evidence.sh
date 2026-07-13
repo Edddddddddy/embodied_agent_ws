@@ -21,6 +21,7 @@ mkdir -p "$(dirname "$REPORT_PATH")"
 
 LIVE_CHECK_ARGS=(
   --scenario nav2
+  --agent-mode "$MODE"
   --duration "$CHECK_DURATION"
   --output "$REPORT_PATH"
   --min-asr "${CONTINUOUS_NAV2_LIVE_MIN_ASR:-4}"

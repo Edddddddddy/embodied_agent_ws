@@ -84,6 +84,7 @@
 | Python/C++ QoS 语义对齐 | 删除 VAD/KWS/声纹节点手写 QoS 和跨语言命名漂移 | Python/C++ 统一 command/event/state/sensor/audio/diagnostics 六类 profile；KWS score 与 PCM 使用 best-effort，身份/健康使用 transient-local，控制和事件保持 reliable + volatile |
 | C++ 运行时模块与 bridge 生命周期收敛 | 避免 control/audio/hardware 因单一库产生无关链接，并让调度器具备可管理启停语义 | 同一 ROS 包内拆为 3 个 CMake target；typed bridge 注册 component 并升级 Lifecycle，显式 callback group、inactive 拒绝、deactivate 取消清队列及 cleanup 后重建均有验收 |
 | Agent 应用层与 turn 数据面收敛 | 删除 online/offline 重复的 transcript、记忆、队列、用户快照、动作批次和模型 turn 编排 | 新增组合式 `AgentApplicationRuntime` 与在线/离线 `*StreamingTurnRuntime`；主节点缩至 543/676 行，provider 差异通过 callback 注入且公开 ROS 契约不变 |
+| 运行时证据口径收口 | 避免短时、fixture、fallback 后结果被误写成真实长稳或模型原始能力 | 在线/离线分别生成 5 分钟报告，增加 Agent 模式、queue reject、P50/P95 和统一事实汇总；缺失或失败证据明确标记，不阻塞无麦克风 CI |
 
 ## 2. 当前完成度结论
 
@@ -173,10 +174,13 @@ bash scripts/acceptance_test.sh continuous-live-check offline
 ### P0：保持演示稳定
 
 - 优先保证 `continuous-offline` 在 3～5 分钟内稳定连续控制。
-- 新增固定 10 命令真实麦克风 benchmark，量化识别率、动作成功率、误触发率与延迟 P95；
+- 固定 10 命令、5 分钟真实麦克风 benchmark，量化识别率、动作成功率、误触发、queue reject
+  与延迟 P50/P95；online/offline 报告使用独立文件名。
   自动测试不再冒充真人长时间证据。
 - 新增 `continuous-voice-evidence` 单终端入口，自动启停控制链路并显示倒计时；benchmark
   即使未达门槛也保证生成现场与汇总两份报告，避免 `set -e` 提前中断留证。
+- 新增 `runtime-evidence-summary`，用 `proven/failed/missing` 汇总两种长稳证据；离线 LLM
+  原始动作准确率与 fallback+安全后的系统有效率永久分栏。
 - 优先保证 `continuous-nav2-offline` 能支撑 3～5 分钟真实麦克风目标点导航/巡航演示。
 - 继续完善 monitor 输出，让失败原因能直接定位到 ASR、session、queue、Action、Gazebo。
 - 为常见麦克风和噪声环境补充 profile 建议。

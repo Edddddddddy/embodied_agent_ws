@@ -159,9 +159,18 @@ def evaluate(
     action_accuracy = matched_actions / count
     action_success_rate = min(success_count, len(commands)) / count
     false_trigger_rate = unexpected_candidates / max(1, len(observed_candidates))
+    queue_rejected_count = int(report.get("queue_rejected_count", 0))
+    # enqueue_count 只统计已接收项；拒绝项属于额外尝试，分母必须相加，不能用 max 低估拒绝率。
+    queue_attempts = (
+        int(report.get("command_enqueue_count", 0)) + queue_rejected_count
+    )
+    queue_reject_rate = queue_rejected_count / max(1, queue_attempts)
+    required_duration_s = float(scenario.get("recommended_duration_s") or 300.0)
     checks = {
         "expected_command_count": len(commands) >= 10,
-        "duration_at_least_180s": float(report.get("duration_s", 0.0)) >= 180.0,
+        f"duration_at_least_{int(required_duration_s)}s": (
+            float(report.get("duration_s", 0.0)) >= required_duration_s
+        ),
         "recognition_rate_at_least_80pct": recognition_rate >= 0.8,
         "action_accuracy_at_least_80pct": action_accuracy >= 0.8,
         "action_success_rate_at_least_80pct": action_success_rate >= 0.8,
@@ -171,7 +180,7 @@ def evaluate(
         "final_cmd_vel_zero": bool(report.get("final_cmd_vel_zero")),
     }
     capture_source = str(report.get("capture_source", "unspecified"))
-    long_enough = float(report.get("duration_s", 0.0)) >= 180.0
+    long_enough = float(report.get("duration_s", 0.0)) >= required_duration_s
     evidence_scope = (
         "operator_declared_real_microphone"
         if long_enough and capture_source == "real_microphone"
@@ -181,6 +190,8 @@ def evaluate(
         "schema_version": 1,
         "scenario": scenario.get("name", ""),
         "source_report_duration_s": report.get("duration_s", 0.0),
+        "required_duration_s": required_duration_s,
+        "agent_mode": str(report.get("agent_mode", "unspecified")),
         "expected_commands": len(commands),
         "matched_asr_commands": matched_text,
         "recognition_rate": round(recognition_rate, 4),
@@ -191,6 +202,10 @@ def evaluate(
         "action_success_rate": round(action_success_rate, 4),
         "unexpected_candidates": unexpected_candidates,
         "false_trigger_rate": round(false_trigger_rate, 4),
+        "queue_rejected_count": queue_rejected_count,
+        "queue_reject_rate": round(queue_reject_rate, 4),
+        "ignored_transcript_count": int(report.get("ignored_transcript_count", 0)),
+        "recognition_retry_count": int(report.get("recognition_retry_count", 0)),
         # 单独展示 partial 恢复次数：它是鲁棒性证据，不计作额外 ASR 或动作。
         "asr_final_recovery_count": int(report.get("asr_final_recovery_count", 0)),
         "latency": latency_values,
@@ -211,16 +226,21 @@ def main() -> int:
         type=Path,
         default=WORKSPACE / "training" / "voice_command_benchmark_zh.json",
     )
-    parser.add_argument(
-        "--output", type=Path, default=WORKSPACE / "logs" / "voice_benchmark_report.json"
-    )
+    parser.add_argument("--output", type=Path)
     parser.add_argument("--text-threshold", type=float, default=0.65)
     args = parser.parse_args()
     report = json.loads(args.report.read_text(encoding="utf-8"))
     scenario = json.loads(args.scenario.read_text(encoding="utf-8"))
     result = evaluate(report, scenario, text_threshold=args.text_threshold)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    output = args.output
+    if output is None:
+        mode = str(result.get("agent_mode") or "unspecified")
+        output = WORKSPACE / "logs" / f"voice_benchmark_{mode}_report.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        json.dumps(result, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result["passed"] else 1
 

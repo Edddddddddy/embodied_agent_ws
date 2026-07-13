@@ -38,93 +38,58 @@
 | 12:30 - 13:30 | C++ 调度与执行：FIFO、急停、Action、BehaviorTree、pluginlib | `src/embodied_agent_cpp/src/action_scheduler.cpp`、`src/embodied_simulation/src/simulation_control_node.cpp` |
 | 13:30 - 15:00 | 现场演示与事实边界 | `dynamic-obstacle-navigation` 或 `continuous-offline` |
 
-## 3. 推荐现场演示路径
+## 3. 现场只保留一条主路径和一条备用路径
 
-### 3.1 无麦克风快速证明主链路
-
-```bash
-bash scripts/acceptance_test.sh mock
-bash scripts/acceptance_test.sh continuous-multi-command
-bash scripts/acceptance_test.sh navigation-demo
-```
-
-这三条命令适合在面试前快速确认工程没有坏：
-
-- `mock`：证明 Agent → ActionGuard → ROS 2 Action → executor 的基础链路。
-- `continuous-multi-command`：证明一句话多个命令可以按顺序入队。
-- `navigation-demo`：证明语音目标点导航语义能进入仿真执行链路。
-
-### 3.2 真实麦克风演示
+### 3.1 主演示：真实麦克风 → 离线 Agent → Gazebo
 
 ```bash
 bash scripts/acceptance_test.sh continuous-offline
 ```
 
-推荐话术：
+按顺序说：
 
 ```text
 小智
-向前走一秒
-左转九十度
-向右转，向前走一秒
+向右转，然后向前走一秒
 走正方形
 停下
 退出控制
 ```
 
-通过标准：
+讲解时只跟踪一条数据流：ASR final → `AgentApplicationRuntime` → NLU/队列 → typed
+`RobotCommand` → C++ ActionGuard/Scheduler → ROS 2 Action → BT/pluginlib → Gazebo。
+通过标准是终端持续出现 session/queue/action/result，组合命令按 ID 顺序完成，`停下`
+抢占，退出后 sleeping，最终 `/cmd_vel=0`。
 
-- 终端能看到 `[session] / [asr] / [queue] / [exec] / [action] / [result]`。
-- 多个命令能进入队列，按 ROS 2 Action result 顺序执行。
-- `停下/急停` 能清队列并抢占当前动作。
-- 最终 `/cmd_vel` 归零。
-
-### 3.3 Nav2 目标点导航演示
-
-轻量 gate：
+演示前单独完成 5 分钟留证，不在 15 分钟汇报现场等待：
 
 ```bash
-bash scripts/acceptance_test.sh nav2-stage
+bash scripts/acceptance_test.sh continuous-voice-evidence offline
+bash scripts/acceptance_test.sh runtime-evidence-summary
 ```
 
-重型 TurtleBot3/Nav2 演示：
+### 3.2 备用演示：无麦克风、无云密钥的确定性闭环
+
+麦克风、网络或 Gazebo GUI 现场异常时，立即切换：
 
 ```bash
-bash scripts/acceptance_test.sh nav2-turtlebot3
+bash scripts/acceptance_test.sh continuous-multi-command
+bash scripts/acceptance_test.sh navigation-demo
 ```
 
-真实麦克风 Nav2 留证：
-
-```bash
-CONTINUOUS_LIVE_CHECK_REPORT=logs/nav2-live-check.json \
-  CONTINUOUS_LIVE_CHECK_DURATION=240 \
-  bash scripts/acceptance_test.sh continuous-nav2-evidence offline
-```
-
-### 3.4 建图、定位和动态避障演示
-
-```bash
-# 固定闭环、受控漂移、Ceres/GTSAM 同前端 A/B
-bash scripts/acceptance_test.sh slam-ab-benchmark
-
-# 加载保存地图，AMCL -> Nav2 planner -> controller
-bash scripts/acceptance_test.sh slam-navigation
-
-# 横穿障碍 -> 速度估计 -> 未来占用 -> 重规划 -> 到达目标
-bash scripts/acceptance_test.sh dynamic-obstacle-navigation
-```
-
-现场时间有限时，提前生成地图，只跑最后一条并打开
-`logs/dynamic_obstacle_navigation_report.json`：重点展示未来 cell cost、路径净空变化、
-Action result 和零速收尾，不只展示 RViz 截图。
+第一条证明一句话拆成多命令、FIFO 与 Action result 关联；第二条证明语义地点和巡航能进入
+Nav2 executor seam。SLAM/动态避障不再现场启动重型流程，只展示预先生成的
+`slam_backend_comparison.json`、`openloris/.../backend_comparison.json` 与
+`dynamic_obstacle_navigation_report.json`，并对着 C++ 后端代码讲原理。
 
 ## 4. 从语音输入到仿真执行的代码走读地图
 
 | 链路层 | 关键文件 | 关键函数/类 | 技术点 |
 | --- | --- | --- | --- |
 | 音频输入与 VAD | `src/embodied_agent_cpp/src/audio_frontend_node.cpp` | `AudioFrontendNode`、endpoint publisher | C++ 音频前端、VAD、`/audio/speech_started`、`/audio/speech_ended` |
-| 在线 Agent | `src/embodied_online_agent/embodied_online_agent/online_agent_node.py` | `_on_asr_final()`、`_run_turn()`、`_publish_action_candidate()` | ASR final、LLM/TTS provider、动作候选发布 |
-| 离线 Agent | `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py` | `_commit_asr_endpoint()`、`_run_turn()`、metrics publisher | Sherpa/llama.cpp/TTS 组合、延迟统计 |
+| Agent 应用编排 | `src/embodied_agent_core/embodied_agent_core/agent_application_runtime.py` | `AgentApplicationRuntime.handle_transcript()`、`run_preparsed_turn()`、`publish_actions()` | online/offline 共享用例层；统一记忆命令、用户快照、连续队列和动作发布 |
+| 在线 turn 数据面 | `src/embodied_online_agent/embodied_online_agent/online_agent_node.py`、`online_turn_runtime.py` | `_on_asr_final()`、`OnlineStreamingTurnRuntime.run()` | 节点负责 ROS/Lifecycle 接线，runtime 负责在线 LLM token、分句 TTS 和指标回调 |
+| 离线 turn 数据面 | `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py`、`offline_turn_runtime.py` | `_commit_asr_endpoint()`、`OfflineStreamingTurnRuntime.run()` | Sherpa endpoint、llama.cpp 流式 token、双缓冲 TTS 和离线延迟统计 |
 | 连续会话 | `src/embodied_agent_core/embodied_agent_core/continuous_voice.py` | `ContinuousVoiceSession.accept()`、`ContinuousCommandQueue.put()`、`get()` | 唤醒、去重、filler、TTL、急停抢占 |
 | typed 命令事件 | `embodied_agent_interfaces/msg/Command*Event.msg`、`ros_event_transport.py`、`ros_qos.py` | `queue_event_to_message()`、`execution_event_to_message()` | batch context、event reliable+volatile、state transient-local、编译期字段契约 |
 | 多命令 NLU | `src/embodied_agent_core/embodied_agent_core/command_nlu.py` | `CommandNLU.parse()` | 字符级轻量模型、多命令识别、低置信度 fallback |
@@ -197,6 +162,10 @@ bash scripts/acceptance_test.sh nav2-stage
 bash scripts/acceptance_test.sh continuous-nav2-evidence offline
 bash scripts/acceptance_test.sh dynamic-obstacle-navigation
 ```
+
+运行时证据不能只看脚本是否存在。正式汇报前还要执行在线、离线各 5 分钟的真实麦克风
+benchmark，并用 `runtime-evidence-summary` 核对 `proven/failed/missing`。当前实测边界与重新
+留证命令见 [运行时证据状态](RUNTIME_EVIDENCE_STATUS.md)。
 
 ## 7. 当前边界与后续路线
 

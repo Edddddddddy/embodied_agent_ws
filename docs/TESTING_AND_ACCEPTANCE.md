@@ -221,14 +221,27 @@ CONTINUOUS_SAMPLE_LOG=logs/asr_nlu_samples.jsonl \
 bash scripts/acceptance_test.sh continuous-online
 ```
 
-三分钟留证：
+五分钟留证：
 
 ```bash
 bash scripts/acceptance_test.sh continuous-voice-evidence offline
 # 或分终端运行 continuous-offline + continuous-voice-benchmark offline
+# 在线模式同理，把 offline 替换为 online
 ```
 
-报告未达门槛也必须生成现场事件和汇总文件，便于区分 ASR、NLU、队列或执行问题。
+每种模式分别生成 `continuous_voice_<mode>_live_report.json` 与
+`voice_benchmark_<mode>_report.json`，不会互相覆盖。报告记录识别率、动作准确率/成功率、
+误触发、queue reject、ignored/retry、P50/P95 延迟和最终零速；未达门槛也必须落盘。
+
+两种模式完成后生成事实汇总：
+
+```bash
+bash scripts/acceptance_test.sh runtime-evidence-summary
+# logs/runtime_evidence_summary.json
+```
+
+汇总中的 `proven/failed/missing` 不能互相替代；180 秒旧报告不会被升级成 5 分钟证据，
+mock/fixture 也不会被标记为真人麦克风证据。
 
 ### 5.3 VAD/KWS 可选运行时
 
