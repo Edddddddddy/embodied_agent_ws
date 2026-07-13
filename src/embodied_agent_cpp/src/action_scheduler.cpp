@@ -106,6 +106,24 @@ std::vector<SchedulerEvent> ActionScheduler::complete(
   return events;
 }
 
+std::vector<SchedulerEvent> ActionScheduler::clear_all(const std::string & reason)
+{
+  std::vector<SchedulerEvent> events;
+  if (active_) {
+    SchedulerEvent cancel;
+    cancel.kind = SchedulerEventKind::kCancelActive;
+    cancel.command_id = active_->command_id;
+    events.push_back(std::move(cancel));
+    events.push_back(result(
+      active_->command_id, false, RobotCommandResult::STATUS_CANCELED, reason));
+    active_.reset();
+    cancel_requested_ = false;
+    ++completed_count_;
+  }
+  clear_pending(events, reason);
+  return events;
+}
+
 ActionSchedulerSnapshot ActionScheduler::snapshot() const
 {
   ActionSchedulerSnapshot output;

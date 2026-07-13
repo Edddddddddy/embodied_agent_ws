@@ -65,6 +65,9 @@ public:
     std::uint8_t status,
     const std::string & message);
 
+  /// 终止活动命令并清空等待队列，用于 Lifecycle deactivate/cleanup。
+  std::vector<SchedulerEvent> clear_all(const std::string & reason);
+
   ActionSchedulerSnapshot snapshot() const;
 
 private:

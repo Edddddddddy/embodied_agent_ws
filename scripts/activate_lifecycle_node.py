@@ -41,20 +41,41 @@ class LifecycleActivator(Node):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("node_name")
+    parser.add_argument(
+        "--target-state",
+        choices=("active", "inactive", "unconfigured"),
+        default="active",
+    )
     args = parser.parse_args()
     rclpy.init()
     node = LifecycleActivator(args.node_name)
     try:
         node.wait()
         state = node.state()
-        if state == State.PRIMARY_STATE_UNCONFIGURED:
+        if args.target_state == "unconfigured" and state == State.PRIMARY_STATE_ACTIVE:
+            node.transition(Transition.TRANSITION_DEACTIVATE)
+            state = node.state()
+        if args.target_state == "unconfigured" and state == State.PRIMARY_STATE_INACTIVE:
+            node.transition(Transition.TRANSITION_CLEANUP)
+            state = node.state()
+        if args.target_state in ("inactive", "active") and state == State.PRIMARY_STATE_UNCONFIGURED:
             node.transition(Transition.TRANSITION_CONFIGURE)
             state = node.state()
-        if state == State.PRIMARY_STATE_INACTIVE:
+        if args.target_state == "inactive" and state == State.PRIMARY_STATE_ACTIVE:
+            node.transition(Transition.TRANSITION_DEACTIVATE)
+            state = node.state()
+        if args.target_state == "active" and state == State.PRIMARY_STATE_INACTIVE:
             node.transition(Transition.TRANSITION_ACTIVATE)
             state = node.state()
-        if state != State.PRIMARY_STATE_ACTIVE:
-            raise RuntimeError(f"node did not become active; state={state}")
+        expected = {
+            "active": State.PRIMARY_STATE_ACTIVE,
+            "inactive": State.PRIMARY_STATE_INACTIVE,
+            "unconfigured": State.PRIMARY_STATE_UNCONFIGURED,
+        }[args.target_state]
+        if state != expected:
+            raise RuntimeError(
+                f"node did not reach {args.target_state}; state={state}"
+            )
     finally:
         node.destroy_node()
         rclpy.shutdown()

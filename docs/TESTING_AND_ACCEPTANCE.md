@@ -41,6 +41,7 @@ ROS 2/C++ 控制修改追加：
 ```bash
 bash scripts/acceptance_test.sh cpp-action-client
 bash scripts/acceptance_test.sh cpp-action-scheduler
+bash scripts/acceptance_test.sh cpp-action-bridge-lifecycle
 colcon test --packages-select embodied_agent_cpp embodied_simulation --event-handlers console_direct+
 colcon test-result --verbose
 ```

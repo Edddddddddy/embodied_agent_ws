@@ -96,12 +96,25 @@ def generate_launch_description():
                 "bond_timeout": 0.0,
             }],
         ),
-        Node(
+        LifecycleNode(
             package="embodied_agent_cpp",
             executable="typed_action_bridge",
             name="typed_action_bridge",
             namespace=namespace,
             output="screen",
+            condition=IfCondition(use_typed_actions),
+        ),
+        Node(
+            package="nav2_lifecycle_manager",
+            executable="lifecycle_manager",
+            name="typed_action_bridge_lifecycle_manager",
+            namespace=namespace,
+            output="screen",
+            parameters=[{
+                "autostart": ParameterValue(autostart, value_type=bool),
+                "node_names": ["typed_action_bridge"],
+                "bond_timeout": 0.0,
+            }],
             condition=IfCondition(use_typed_actions),
         ),
         Node(

@@ -117,7 +117,9 @@
 
 优化：
 
-- 将 `typed_action_bridge` 升级为 Lifecycle/Component node，并统一参数校验和 callback group。
+- `typed_action_bridge` 已升级为 Lifecycle/Component node；命令入口使用互斥 callback group，
+  Action 回调使用 reentrant group，deactivate 会取消活动 goal、清队列并发布终态/诊断，
+  cleanup 后可以重新 configure/activate。
 - 在现有 command/status/sensor QoS 分类基础上补 deadline/liveliness 和失联诊断测试。
 - 保留 Python 在模型编排层的灵活性，不为“全 C++”牺牲迭代速度。
 
@@ -174,8 +176,7 @@
 
 ## 11. 下一阶段优先级
 
-1. 拆分 C++ control/audio/hardware 内部 target，并将 typed action bridge 组件化/Lifecycle 化。
-2. 提取组合式 `AgentApplicationRuntime`，继续缩小 online/offline 节点职责。
-3. 完成在线/离线 5 分钟连续运行报告，分开记录原始 LLM 与 fallback 准确率。
-4. 优化离线全回合 3.631s 的当前实测，目标稳定进入 3.5s；未达标时保留真实数字。
-5. 扩展更长 OpenLORIS 回访序列和动态障碍预测消融，补充真实退化与回环证据。
+1. 提取组合式 `AgentApplicationRuntime`，继续缩小 online/offline 节点职责。
+2. 完成在线/离线 5 分钟连续运行报告，分开记录原始 LLM 与 fallback 准确率。
+3. 优化离线全回合 3.631s 的当前实测，目标稳定进入 3.5s；未达标时保留真实数字。
+4. 扩展更长 OpenLORIS 回访序列和动态障碍预测消融，补充真实退化与回环证据。
