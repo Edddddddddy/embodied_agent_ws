@@ -18,6 +18,10 @@ def test_slam_mapping_baseline_has_reproducible_inputs_and_evidence_entrypoints(
         package / "launch" / "localization_navigation.launch.py",
         ROOT / "scripts" / "smoke_test_slam_localization_navigation.sh",
         ROOT / "tests" / "integration" / "test_slam_localization_navigation.py",
+        ROOT / "scripts" / "evaluate_slam_trajectory.py",
+        ROOT / "scripts" / "extract_rosbag_trajectory.py",
+        ROOT / "scripts" / "setup_openloris_groundtruth.py",
+        ROOT / "tests" / "repository" / "test_slam_trajectory_evaluation.py",
     )
     assert all(path.is_file() for path in required)
 
@@ -25,6 +29,8 @@ def test_slam_mapping_baseline_has_reproducible_inputs_and_evidence_entrypoints(
     assert "mapping-stage" in acceptance
     assert "slam-benchmark" in acceptance
     assert "slam-navigation" in acceptance
+    assert "slam-evaluation-stage" in acceptance
+    assert "openloris-evaluate" in acceptance
 
 
 def test_slam_baseline_exposes_drift_and_loop_closure_as_measurable_variables():

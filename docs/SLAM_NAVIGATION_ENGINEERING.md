@@ -138,9 +138,28 @@ bash scripts/acceptance_test.sh dynamic-obstacle-navigation
 其中 `mapping-stage` 适合日常提交前执行；其余会启动 Gazebo。`slam-navigation` 依赖
 `slam-benchmark` 生成的 `logs/slam_ceres_map.yaml/.pgm`。
 
-## 7. 事实边界和下一步
+## 7. 公开数据评估层
+
+当前已经补齐独立于 Gazebo 的轨迹评估 seam：`evaluate_slam_trajectory.py` 读取
+TUM/OpenLORIS 格式，按估计时间戳插值真值，做不估计尺度的 SE(2) 对齐，再报告 ATE、
+1 秒 RPE、路径长度比、最差时间窗、终点漂移和真值回访恢复率。ROS 1/2 bag 由可选
+`extract_rosbag_trajectory.py` Adapter 导出，不让 rosbag 依赖进入指标内核。
+
+```bash
+bash scripts/acceptance_test.sh slam-evaluation-stage
+bash scripts/acceptance_test.sh openloris-groundtruth
+SLAM_ESTIMATE_FILE=logs/estimate.tum bash scripts/acceptance_test.sh openloris-evaluate
+```
+
+完整方法和 OpenLORIS 数据边界见
+[REAL_WORLD_SLAM_EVALUATION.md](REAL_WORLD_SLAM_EVALUATION.md)。
+
+## 8. 事实边界和下一步
 
 - 已完成：仿真受控漂移、闭环建图、Ceres/GTSAM 后端、地图保存、AMCL、目标规划和预测动态避障。
 - 未完成：真实传感器标定误差、轮滑/玻璃/长走廊等真实退化数据的系统评测。
-- 下一步：接入带真值的 TurtleBot3 rosbag；增加 ATE/RPE/回环 precision/recall；比较
-  current-only 与 constant-velocity prediction，并引入 Kalman/IMM 或时空局部控制器做消融。
+- 已完成工具：真实/公开 rosbag 的 Odometry/Pose/TF 导出 Adapter、ATE/RPE/回访统计和阈值门禁。
+- 尚未完成实验：还没有提交 OpenLORIS 完整 bag 的 Ceres/GTSAM 实际回放报告；下载真值或
+  对真值做 self-evaluation 不能代替这项证据。
+- 下一步：固定 OpenLORIS office 序列实际回放；比较 current-only 与 constant-velocity
+  prediction，并引入 Kalman/IMM 或时空局部控制器做消融。

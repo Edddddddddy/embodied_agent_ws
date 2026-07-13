@@ -15,7 +15,7 @@
 | 丰富演示动作 | 增加前进、后退、转向、绕圈、正方形、演示序列 | 完成动作秀和安全演示 |
 | 连续语音控制 | 一次唤醒后连续说多条命令，支持队列和急停 | 完成 continuous offline/online 验收入口 |
 | 真实语音稳定性 | 修复尾部漏识别、重复识别、filler、queue_full 可观测性 | 完成 VAD profile、commit delay、短命令补全、monitor |
-| 阶段性文档收尾 | 整理 README、验收文档、学习笔记、关键中文注释 | 当前阶段 |
+| 阶段性文档收尾 | 整理 README、验收文档、学习笔记、关键中文注释 | 已完成主入口与分层文档收敛 |
 | 轻量 NLU 多命令 | 识别一句 ASR final 内的多个动作，并保证队列顺序 | 新增 CommandNLU、batch 可观测性、request_id/result 关联 |
 | 语音导航与巡航 | 支持语音目标点导航、多目标点巡航，并接入 typed Action 与 Nav2 bridge | 新增 navigate_to/follow_waypoints/cancel_navigation 协议、NLU、ActionGuard 校验、navigation-demo 和 nav2-bridge |
 | Nav2 bringup 入口 | 复用官方 Nav2 TurtleBot3 仿真 launch，接入本项目语音控制链路 | 新增 voice_nav2_turtlebot3.launch.py、nav2-preflight 和 nav2-turtlebot3 重型验收 |
@@ -67,6 +67,7 @@
 | bringup 包分层 | 修正共享 launch contract 放在领域 core 中造成的部署依赖反向污染 | 新增 `embodied_agent_bringup`，依赖方向统一为 bringup → core/voice/C++；core 移除 launch/launch_ros 依赖 |
 | 控制命令启动可靠性 | 修复 DDS discovery 完成前 Guard 发布的 volatile 动作静默丢失 | 新增有界 TTL `GuardedCommandOutbox`；scheduler 匹配后 FIFO 转发，超时/满载明确拒绝，不回放陈旧动作 |
 | C++ 中间件契约收敛 | 清理跨节点散落的 QoS depth 与不一致策略 | 新增独立 `embodied_agent_middleware` 包，统一 command/event/state/sensor/audio/diagnostics QoS，并迁移控制主链路 |
+| 公开数据 SLAM 评估层 | 把仿真闭环指标升级为可复用的真实轨迹评价工具 | 新增 ROS 1/2 bag Adapter、OpenLORIS 真值校验、固定尺度 SE(2) 对齐、ATE/RPE/回访/退化段报告和无下载 CI 门禁 |
 | 系统就绪状态收敛 | 替代 launch/test 中分散的固定 sleep、topic graph 猜测和日志字符串判断 | 新增 `ComponentHealth`、`SystemReadiness`、心跳超时聚合器和 profile 化启动门禁；保留音频/仿真数据质量探针 |
 | Agent 参数与 launch 契约收敛 | 消除 online/offline 节点、YAML、Gazebo/Nav2 launch 中重复默认值和转发映射 | 新增共享参数 schema、ROS range/enum 描述、启动前校验、只读快照与组合 launch 转发契约；provider YAML 仅保留模型配置 |
 | Agent 并发运行时收敛 | 消除端点 timer、busy/worker 和多命令 NLU 入队的双份状态机 | 新增 `AsrEndpointRuntime`、`AgentExecutionRuntime` 和 `CommandEnqueueDecision`；统一异常隔离、busy 复位、batch metadata 与关闭时 timer/cancel 语义 |
@@ -98,7 +99,7 @@
 需要谨慎表述的边界：
 
 - 当前硬件控制是预留/mock，不是实体机器人完整验收。
-- 当前已提供完整 TurtleBot3/Nav2 重型验收入口，但地图构建、复杂目标点规划和更复杂场景仍是后续增强。
+- 当前已提供 TurtleBot3/Nav2、地图构建/复用和预测动态避障重型验收；真实 rosbag 回放报告和实体机器人仍是后续证据。
 - 离线 LoRA 训练、量化指标可以作为规划和接口说明，不应夸大为已复现完整训练结果。
 - openWakeWord、LiveKit WakeWord 仍是可选 seam/preflight；Silero VAD 已有轻量 ONNX 真实运行时，
   但模型仍保持可选下载，CI 不强制携带大模型资产。
@@ -188,11 +189,11 @@ bash scripts/acceptance_test.sh continuous-live-check offline
 - 增加离线 benchmark 报告模板。
 - 继续评估 SummerTTS 量化、缓存或更快声码器；当前 `summer_ros` 证明服务化封装，不作为低延迟默认路径。
 
-### P3：增强真实 Nav2 导航栈
+### P3：真实数据与导航消融
 
-- 在已有 `voice_nav2_turtlebot3.launch.py` 基础上增加保存地图、AMCL/SLAM、目标点巡航场景资产。
-- 增加更稳定的真实 Nav2 odom/goal-result 统计报告，区分 planner/controller/behavior tree 失败原因。
-- 明确 LoRA 训练数据集格式和复现实验入口。
+- 固定 OpenLORIS office 序列，实际回放 Ceres/GTSAM 并保存 ATE/RPE/退化时间窗报告。
+- 对动态障碍 current-only、常速度、Kalman/IMM 预测做相同场景消融。
+- 继续细分 Nav2 planner/controller/behavior tree 失败原因和恢复行为指标。
 
 ### P3：可选增强
 
@@ -203,7 +204,7 @@ bash scripts/acceptance_test.sh continuous-live-check offline
 
 ## 5. 不建议近期优先做的事情
 
-- 过早引入完整导航栈、地图和路径规划：会稀释当前“语音到动作控制闭环”的主线。
+- 在公开 rosbag 和现有 Nav2 证据未收口前继续堆复杂导航行为：会增加演示面，但不能回答真实漂移和退化问题。
 - 大规模重写仓库结构：当前更需要稳定验收和文档清晰。
 - 依赖复杂声学模型作为默认链路：会提高部署门槛，影响演示可复现性。
 
