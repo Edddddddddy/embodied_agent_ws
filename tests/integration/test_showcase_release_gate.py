@@ -126,3 +126,43 @@ def test_showcase_release_gate_demo_profile_targets_pre_demo_evidence(tmp_path):
     by_name = {item["name"]: item for item in report["commands"]}
     assert by_name["voice_provider_readiness"]["evidence_kind"] == "local_preflight"
     assert by_name["continuous_voice_demo"]["evidence_kind"] == "mock_ros"
+
+
+def test_showcase_release_gate_robotics_profile_covers_delivery_stack(tmp_path):
+    output = tmp_path / "robotics_acceptance_report.json"
+    completed = subprocess.run(
+        [
+            "python3",
+            str(ROOT / "scripts" / "showcase_release_gate.py"),
+            "--workspace",
+            str(ROOT),
+            "--dry-run",
+            "--profile",
+            "robotics",
+            "--output",
+            str(output),
+        ],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stdout
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["profile"] == "robotics"
+    assert report["command_count"] == 6
+    commands = "\n".join(item["command"] for item in report["commands"])
+    for required in (
+        "embodied_agent_bringup",
+        "continuous-multi-command",
+        "nav2-stage",
+        "slam-evaluation-stage",
+        "openloris-replay-stage",
+        "dynamic-obstacle-stage",
+    ):
+        assert required in commands
+    assert report["evidence_summary"]["public_bag"] == 1
+    assert report["evidence_policy"]["automatic_report"] == (
+        "logs/robotics_acceptance_report.json"
+    )
+    assert "dynamic-obstacle-navigation" in report["evidence_policy"]["manual_followups"]

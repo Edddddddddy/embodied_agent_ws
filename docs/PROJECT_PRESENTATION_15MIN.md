@@ -181,6 +181,13 @@ bash scripts/acceptance_test.sh dynamic-obstacle-stage
 bash scripts/acceptance_test.sh openloris-replay-stage
 ```
 
+统一机器人能力门禁：
+
+```bash
+bash scripts/acceptance_test.sh robotics-gate
+# logs/robotics_acceptance_report.json
+```
+
 演示前人工门禁：
 
 ```bash
@@ -197,7 +204,7 @@ bash scripts/acceptance_test.sh dynamic-obstacle-navigation
 
 - 实体 UART/SPI 硬件控制是 mock/预留，不是本阶段实体验收。
 - LoRA 训练、Q8 量化可以作为规划和接口说明，不宣称完整复现实验指标。
-- 已完成 Gazebo 受控漂移 SLAM、预测动态避障和 OpenLORIS 双后端回放工具，但仓库没有随附
-  大型公开 bag 的最终精度报告，也没有带人工标签的回环 precision/recall；不能把 fixture
-  冒烟或真值自评包装成真实场景精度。
+- 已完成 OpenLORIS `office1-1` 真实 bag 双后端报告：322 个对齐位姿、99.65% 覆盖率，
+  Ceres/GTSAM ATE RMSE 分别为 2.879/2.890 cm。该片段只有约 27 秒且没有真值回访事件，
+  因此不能把这组 ATE 包装成回环 precision/recall 或跨场景泛化证据。
 - SummerTTS 已服务化，但当前 CPU 推理瓶颈仍明显，后续可做量化、缓存或更快声码器优化。

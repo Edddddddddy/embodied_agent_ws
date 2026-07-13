@@ -7,6 +7,28 @@ usage() {
   cat <<'EOF'
 Usage: acceptance_test.sh MODE
 
+Recommended public modes:
+  core                       Fast repository, Python and C++ developer gate
+  robotics-gate              Unified ROS/Nav2/SLAM/dynamic-obstacle evidence gate
+  continuous-multi-command   One utterance -> ordered command queue regression
+  continuous-offline         Live microphone -> offline Agent -> simulation
+  continuous-online          Live microphone -> online Agent -> simulation
+  gazebo                     Typed ROS 2 Action -> Gazebo physical-motion check
+  nav2-stage                 Lightweight voice navigation/patrol stage gate
+  nav2-turtlebot3            Full TurtleBot3 Gazebo + Nav2 demonstration
+  slam-evaluation-stage      Deterministic ATE/RPE/loop-correction evaluation
+  openloris-replay-stage     Public-bag Ceres/GTSAM replay evidence
+  dynamic-obstacle-stage     Tracker/predictor/costmap-plugin stage gate
+  dynamic-obstacle-navigation Full predicted-obstacle Nav2 replan demonstration
+
+Run `bash scripts/acceptance_test.sh --help-all` for advanced/internal modes.
+EOF
+}
+
+usage_all() {
+  cat <<'EOF'
+Usage: acceptance_test.sh MODE
+
 Automated modes:
   core                Typical developer gate: repository, Python unit, C++ unit tests
   agent-lifecycle     Online/offline configure -> activate -> deactivate -> reactivate
@@ -91,6 +113,7 @@ Automated modes:
   asr-nlu-samples-to-eval Convert live ASR/NLU sample JSONL into reviewable eval candidates
   asr-nlu-candidate-eval Evaluate parser accuracy on reviewable ASR/NLU eval candidates
   release-gate        Job-showcase core 5-command gate with logs/acceptance_report.json
+  robotics-gate       Unified ROS/Nav2/SLAM/dynamic-obstacle evidence gate
   demo-gate           Pre-demo automatic evidence gate with logs/demo_acceptance_report.json
   demo-evidence-checklist Summarize automatic/live/visual demo evidence into JSON/Markdown
   wsl-microphone-preflight PulseAudio/WSLg microphone capture check before live demos
@@ -121,6 +144,11 @@ EOF
 
 if [[ "$LEVEL" == "help" || "$LEVEL" == "--help" || "$LEVEL" == "-h" ]]; then
   usage
+  exit 0
+fi
+
+if [[ "$LEVEL" == "--help-all" || "$LEVEL" == "help-all" ]]; then
+  usage_all
   exit 0
 fi
 
@@ -645,6 +673,7 @@ case "$LEVEL" in
       --minimum "${ASR_NLU_CANDIDATE_MINIMUM:-1.0}"
     ;;
   release-gate) python3 scripts/showcase_release_gate.py ;;
+  robotics-gate) python3 scripts/showcase_release_gate.py --profile robotics ;;
   demo-gate) python3 scripts/showcase_release_gate.py --profile demo ;;
   demo-evidence-checklist)
     CHECKLIST_ARGS=(

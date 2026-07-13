@@ -195,7 +195,10 @@ bash scripts/acceptance_test.sh continuous-live-check offline
 ### P3：真实数据与导航消融
 
 - 已补齐 OpenLORIS ROS 1 bag 的 ROS 2 `/clock`/TF/LaserScan 流式 Adapter、轨迹 recorder、
-  Ceres/GTSAM 公平 A/B 和 fixture 门禁；下一步固定 office 序列保存真实 ATE/RPE 报告。
+  Ceres/GTSAM 公平 A/B、fixture 门禁和 `office1-1` 实验报告；当前 322 个对齐位姿、
+  99.65% 覆盖率，Ceres/GTSAM ATE RMSE 为 2.879/2.890 cm。
+- 下一步选择含真实回访事件的更长序列，补回环 precision/recall 与退化片段人工标签；
+  当前 27 秒片段没有回访事件，不能用于证明回环能力。
 - 对动态障碍 current-only、常速度、Kalman/IMM 预测做相同场景消融。
 - 继续细分 Nav2 planner/controller/behavior tree 失败原因和恢复行为指标。
 

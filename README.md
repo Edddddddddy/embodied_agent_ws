@@ -222,17 +222,21 @@ HTTPS Range 快速验证；动态遮挡只有提供人工复核时间区间才
 | Nav2 轻量门禁 | `bash scripts/acceptance_test.sh nav2-stage` | ROS 2 |
 | SLAM 轨迹指标 | `bash scripts/acceptance_test.sh slam-evaluation-stage` | Python |
 | OpenLORIS 回放适配器 | `bash scripts/acceptance_test.sh openloris-replay-stage` | ROS 2 + rosbags |
+| 机器人能力统一门禁 | `bash scripts/acceptance_test.sh robotics-gate` | ROS 2 + 本地构建 |
 | 发布聚合报告 | `bash scripts/acceptance_test.sh release-gate` | 本地运行时 |
 | 演示聚合报告 | `bash scripts/acceptance_test.sh demo-gate` | 本地运行时 |
 
-`release-gate` 输出 `logs/acceptance_report.json`，`demo-gate` 输出
+`release-gate` 输出 `logs/acceptance_report.json`，`robotics-gate` 输出
+`logs/robotics_acceptance_report.json`，`demo-gate` 输出
 `logs/demo_acceptance_report.json`。自动 gate 会标注 `ci_compatible/mock_ros/local_runtime` 等
-证据类型，不把 mock 结果包装成真实麦克风或 Gazebo/Nav2 实测。
+证据类型，并区分公开 bag、真实模型和 Gazebo 证据，不把 mock 结果包装成现场实测。
 
 全部可用模式：
 
 ```bash
 bash scripts/acceptance_test.sh --help
+# 高级、诊断和兼容模式：
+bash scripts/acceptance_test.sh --help-all
 ```
 
 完整分层验收、预期 topic 和 PASS 判定见 [测试与验收手册](docs/TESTING_AND_ACCEPTANCE.md)。

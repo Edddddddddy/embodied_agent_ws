@@ -158,7 +158,8 @@ bash scripts/acceptance_test.sh speaker-runtime
 bash scripts/acceptance_test.sh offline-voice-e2e-report
 ```
 
-以当前 `acceptance_test.sh --help` 和 [TESTING_AND_ACCEPTANCE.md](../TESTING_AND_ACCEPTANCE.md) 为准，脚本模式可能随项目演进。
+公共入口以当前 `acceptance_test.sh --help` 为准，完整诊断入口使用 `--help-all`；详细分层见
+[TESTING_AND_ACCEPTANCE.md](../TESTING_AND_ACCEPTANCE.md)，脚本模式可能随项目演进。
 
 ### 重型/人工验收
 
