@@ -22,6 +22,31 @@ def test_pipeline_audit_distinguishes_ready_from_reproduced(tmp_path) -> None:
     assert report["reproduced_training"] is False
 
 
+def test_static_pipeline_does_not_require_local_third_party_builds(tmp_path, monkeypatch) -> None:
+    """干净检出应能验证仓库能力，外部工具是否安装必须单独报告。"""
+
+    workspace = tmp_path / "workspace"
+    tracked_inputs = (
+        "training/qwen3_0_6b_lora.yaml",
+        "training/qwen3_0_6b_lora_merge.yaml",
+        "training/dataset_info.json",
+        "training/robot_dialogue_seed.jsonl",
+        "scripts/build_qwen_lora_q8.sh",
+        "scripts/quantize_qwen_q8.sh",
+    )
+    for relative_path in tracked_inputs:
+        path = workspace / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("\n", encoding="utf-8")
+
+    monkeypatch.setattr(MODULE, "WORKSPACE", workspace)
+    report = MODULE.build_report(tmp_path / "missing-f16.gguf", tmp_path / "missing-q8.gguf")
+
+    assert report["static_pipeline_ready"] is True
+    assert report["external_tools_ready"] is False
+    assert report["missing_runtime_dependencies"] == ["llama_converter", "llama_quantize"]
+
+
 def test_pipeline_audit_uses_actual_artifact_sizes(tmp_path) -> None:
     f16 = tmp_path / "model-f16.gguf"
     q8 = tmp_path / "model-q8.gguf"

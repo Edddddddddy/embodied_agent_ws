@@ -20,21 +20,28 @@ def _gguf_file(path: Path) -> dict[str, Any]:
 
 
 def build_report(f16_path: Path, q8_path: Path) -> dict[str, Any]:
-    required = {
+    # 仓库自带的流水线资产与本机安装的第三方工具是两类证据。
+    # 分开统计可避免开发机因已安装 llama.cpp 而掩盖干净 CI 的可复现性问题。
+    static_required = {
         "train_config": WORKSPACE / "training" / "qwen3_0_6b_lora.yaml",
         "merge_config": WORKSPACE / "training" / "qwen3_0_6b_lora_merge.yaml",
         "dataset_info": WORKSPACE / "training" / "dataset_info.json",
         "seed_dataset": WORKSPACE / "training" / "robot_dialogue_seed.jsonl",
         "pipeline": WORKSPACE / "scripts" / "build_qwen_lora_q8.sh",
         "quantizer_wrapper": WORKSPACE / "scripts" / "quantize_qwen_q8.sh",
+    }
+    runtime_required = {
         "llama_converter": WORKSPACE / "third_party" / "llama.cpp" / "convert_hf_to_gguf.py",
         "llama_quantize": WORKSPACE / "third_party" / "llama.cpp" / "build" / "bin" / "llama-quantize",
     }
-    missing = [name for name, path in required.items() if not path.exists()]
+    missing_static = [name for name, path in static_required.items() if not path.exists()]
+    missing_runtime = [name for name, path in runtime_required.items() if not path.exists()]
     seed_count = 0
-    if required["seed_dataset"].is_file():
+    if static_required["seed_dataset"].is_file():
         seed_count = sum(
-            1 for line in required["seed_dataset"].read_text(encoding="utf-8").splitlines() if line.strip()
+            1
+            for line in static_required["seed_dataset"].read_text(encoding="utf-8").splitlines()
+            if line.strip()
         )
     f16 = _gguf_file(f16_path)
     q8 = _gguf_file(q8_path)
@@ -57,8 +64,10 @@ def build_report(f16_path: Path, q8_path: Path) -> dict[str, Any]:
     return {
         "schema_version": 1,
         "status": status,
-        "static_pipeline_ready": not missing,
-        "missing_static_dependencies": missing,
+        "static_pipeline_ready": not missing_static,
+        "missing_static_dependencies": missing_static,
+        "external_tools_ready": not missing_runtime,
+        "missing_runtime_dependencies": missing_runtime,
         "dataset": {
             "seed_samples": seed_count,
             "approved_dataset_exists": (WORKSPACE / "training" / "robot_dialogue_lora_approved.jsonl").is_file(),
@@ -75,7 +84,11 @@ def build_report(f16_path: Path, q8_path: Path) -> dict[str, Any]:
         "claim_guidance": (
             "可以说：LoRA 合并、GGUF 转换和 Q8 量化产物已验证。"
             if reproduced_training
-            else "只能说：流水线与配置已就绪；当前没有已验证的 LoRA/Q8 训练产物。"
+            else (
+                "只能说：仓库内流水线与配置已就绪；本机仍需部署 llama.cpp 工具，且当前没有已验证的 LoRA/Q8 训练产物。"
+                if missing_runtime
+                else "只能说：流水线、配置与外部工具已就绪；当前没有已验证的 LoRA/Q8 训练产物。"
+            )
         ),
     }
 
