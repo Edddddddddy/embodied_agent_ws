@@ -44,6 +44,8 @@ Automated modes:
   slam-gtsam-benchmark Heavy Gazebo run with the project GTSAM ScanSolver plugin
   slam-ab-benchmark   Run Ceres/GTSAM on the same scenario and compare evidence
   slam-navigation     Heavy run: saved map -> AMCL -> Nav2 plan -> goal execution
+  dynamic-obstacle-stage Build/test tracker, motion predictor, and Nav2 costmap plugin seam
+  dynamic-obstacle-navigation Heavy run: predicted crossing obstacle -> Nav2 replan -> goal
   continuous-mock     One wake word, several queued commands, and sleep gate
   continuous-soak     Long wake session keeps accepting many queued commands
   continuous-endpoint Endpoint speech_ended commits feed continuous ASR commands
@@ -129,11 +131,11 @@ run_base() {
   colcon build --symlink-install --allow-overriding \
     embodied_agent_interfaces embodied_agent_core embodied_voice_frontend \
     embodied_agent_cpp embodied_online_agent \
-    embodied_offline_agent embodied_simulation embodied_slam
+    embodied_offline_agent embodied_simulation embodied_slam embodied_navigation
   colcon test --packages-select \
     embodied_agent_interfaces embodied_agent_core embodied_voice_frontend \
     embodied_agent_cpp embodied_online_agent \
-    embodied_offline_agent embodied_simulation embodied_slam \
+    embodied_offline_agent embodied_simulation embodied_slam embodied_navigation \
     --event-handlers console_direct+
   colcon test-result --verbose
   bash scripts/smoke_test.sh
@@ -355,6 +357,15 @@ case "$LEVEL" in
     python3 scripts/compare_slam_backends.py
     ;;
   slam-navigation) bash scripts/smoke_test_slam_localization_navigation.sh ;;
+  dynamic-obstacle-stage)
+    python3 scripts/build_slam_nav2_params.py --output logs/slam_nav2_params.yaml
+    colcon build --packages-up-to embodied_navigation --symlink-install --allow-overriding \
+      embodied_agent_interfaces embodied_navigation
+    colcon test --packages-select embodied_navigation --event-handlers console_direct+
+    colcon test-result --test-result-base build/embodied_navigation --verbose
+    bash scripts/smoke_test_dynamic_obstacle_tracker.sh
+    ;;
+  dynamic-obstacle-navigation) bash scripts/smoke_test_predicted_dynamic_obstacle_navigation.sh ;;
   continuous-mock) bash scripts/smoke_test_continuous_voice.sh online; bash scripts/smoke_test_continuous_voice.sh offline ;;
   continuous-soak) bash scripts/smoke_test_continuous_voice_soak.sh online; bash scripts/smoke_test_continuous_voice_soak.sh offline ;;
   continuous-endpoint) bash scripts/smoke_test_continuous_endpoint_asr.sh online; bash scripts/smoke_test_continuous_endpoint_asr.sh offline ;;

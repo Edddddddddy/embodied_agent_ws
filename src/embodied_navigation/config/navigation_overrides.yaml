@@ -1,0 +1,22 @@
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      update_frequency: 5.0
+      publish_frequency: 2.0
+      predicted_obstacle_layer:
+        plugin: embodied_navigation::PredictedObstacleLayer
+        enabled: true
+        topic: /perception/dynamic_obstacles
+        prediction_horizon_s: 2.0
+        prediction_step_s: 0.25
+        observation_timeout_s: 0.8
+        minimum_confidence: 0.45
+        radius_padding_m: 0.18
+        future_radius_growth_mps: 0.08
+
+dynamic_obstacle_tracker:
+  ros__parameters:
+    association_distance_m: 0.8
+    velocity_smoothing: 0.65
+    track_timeout_s: 1.0
+    default_radius_m: 0.25

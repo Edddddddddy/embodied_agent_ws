@@ -21,6 +21,7 @@
 - 启动契约：独立 `embodied_agent_bringup` 提供三层 contract：`agent_launch_contract.py` 管理 Agent 控制面，`voice_frontend_launch_contract.py` 统一音频/VAD/KWS/声纹，`agent_deployment_launch_contract.py` 固定 ActionGuard、Lifecycle 激活顺序与硬件 Adapter；领域 core 不依赖 launch，provider launch 只保留自身模型和 TTS 编排。
 - 仿真动作：前进、后退、左转、右转、停止、原地转圈、绕圈、走正方形、演示动作序列。
 - 语音导航：支持“去门口/前往书桌/回到起点”等语义目标点导航，以及“依次去门口、书桌、起点/开始巡航”等多目标点巡航命令；执行中说“取消导航”会绕过 FIFO，抢占当前 Nav2 goal。
+- 建图与动态避障：提供受控漂移建图、Ceres/GTSAM 后端 A/B、地图保存与 AMCL 定位；自研 C++ 动态障碍跟踪器和 Nav2 预测 costmap layer 会估计横穿速度、标记未来占用并触发重规划。
 - 用户记忆：声纹身份、录入请求和录入状态使用 typed msg；在线/离线 Agent 共用 `UserContextRuntime + MemoryCommandService`，命令入队时冻结用户身份/偏好快照，再用于 prompt、动作和记忆写入；支持按用户保存行为习惯、语音查询/修改/删除偏好和明细 TTL；声纹 sidecar 已实跑 Sherpa-ONNX 3D-Speaker embedding、真实相似度与 top-1 margin 歧义保护。
 - 验收脚本：提供 mock、在线、离线、Gazebo、真实麦克风连续控制等多层验收入口。
 
@@ -641,6 +642,12 @@ bash scripts/acceptance_test.sh slam-ab-benchmark
 
 # 使用上一步保存地图完成 AMCL -> Nav2 plan -> controller
 bash scripts/acceptance_test.sh slam-navigation
+
+# 轻量动态障碍门禁：跟踪、常速度预测、pluginlib costmap layer
+bash scripts/acceptance_test.sh dynamic-obstacle-stage
+
+# 重型闭环：横穿障碍 -> 未来占用 -> 重规划 -> 到达目标并停车
+bash scripts/acceptance_test.sh dynamic-obstacle-navigation
 ```
 
 ```bash
@@ -1008,4 +1015,5 @@ bash scripts/acceptance_test.sh online
 - 连续语音默认 `VAD_PROVIDER=auto`：Silero VAD 可用时优先使用成熟声学 VAD，
   不可用时尝试轻量 WebRTC VAD，最后才降级 energy VAD；
   openWakeWord、LiveKit WakeWord、Sherpa KWS 仍是可选 seam/preflight/smoke，不是默认强依赖。
-- 复杂导航、地图构建、目标点规划不是本阶段目标；当前重点是语音到动作到仿真控制的端到端链路。
+- 已完成仿真中的建图、地图复用定位、目标规划和预测动态避障；真实传感器标定、轮滑、
+  玻璃/长走廊退化与真实 rosbag 评测仍未完成，因此不把仿真指标表述为真实环境 SLAM 性能。

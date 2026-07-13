@@ -4,25 +4,22 @@ set -euo pipefail
 WORKSPACE="${WORKSPACE:-/home/ubuntu/embodied_agent_ws}"
 source "$WORKSPACE/scripts/activate.sh"
 cd "$WORKSPACE"
-# Fast DDS 的标准端口公式只允许 domain id <= 232；预留 190-209 给该重型测试。
-export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((190 + $$ % 20))}"
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((210 + $$ % 20))}"
 export GZ_SIM_RESOURCE_PATH="${GZ_SIM_RESOURCE_PATH:-/opt/ros/jazzy/share}"
 
 MAP_FILE="${SLAM_LOCALIZATION_MAP:-$WORKSPACE/logs/slam_ceres_map.yaml}"
-REPORT_FILE="${SLAM_NAVIGATION_REPORT:-$WORKSPACE/logs/slam_navigation_report.json}"
-NAV2_PARAMS_FILE="${SLAM_NAV2_PARAMS:-$WORKSPACE/logs/slam_nav2_params.yaml}"
+PARAMS_FILE="${SLAM_NAV2_PARAMS:-$WORKSPACE/logs/slam_nav2_params.yaml}"
+REPORT_FILE="${DYNAMIC_NAVIGATION_REPORT:-$WORKSPACE/logs/dynamic_obstacle_navigation_report.json}"
 if [[ ! -s "$MAP_FILE" ]]; then
   echo "Missing generated map: $MAP_FILE" >&2
   echo "Run: bash scripts/acceptance_test.sh slam-benchmark" >&2
   exit 2
 fi
-
-# 保留 Nav2 官方完整参数，只叠加本项目的预测动态障碍层，避免复制一份很快过时的配置。
-python3 scripts/build_slam_nav2_params.py --output "$NAV2_PARAMS_FILE"
+python3 scripts/build_slam_nav2_params.py --output "$PARAMS_FILE"
 
 LAUNCH_LOG="$(mktemp)"
 setsid ros2 launch embodied_slam localization_navigation.launch.py \
-  map:="$MAP_FILE" params_file:="$NAV2_PARAMS_FILE" \
+  map:="$MAP_FILE" params_file:="$PARAMS_FILE" \
   headless:=True use_rviz:=False >"$LAUNCH_LOG" 2>&1 &
 LAUNCH_PID=$!
 cleanup() {
@@ -37,10 +34,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if ! python3 tests/integration/test_slam_localization_navigation.py \
-    --timeout "${SLAM_NAVIGATION_TIMEOUT:-140}" --output "$REPORT_FILE"; then
-  echo "---- localization/navigation launch log (last 200 lines) ----" >&2
-  tail -n 200 "$LAUNCH_LOG" >&2
+if ! python3 tests/integration/test_predicted_dynamic_obstacle_navigation.py \
+    --timeout "${DYNAMIC_NAVIGATION_TIMEOUT:-160}" --output "$REPORT_FILE"; then
+  echo "---- predicted dynamic obstacle launch log (last 240 lines) ----" >&2
+  tail -n 240 "$LAUNCH_LOG" >&2
   exit 1
 fi
-echo "Localization/navigation evidence: $REPORT_FILE"
+echo "Dynamic obstacle evidence: $REPORT_FILE"

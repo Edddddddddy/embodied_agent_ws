@@ -40,3 +40,4 @@ jobs:
             embodied_offline_agent
             embodied_simulation
             embodied_slam
+            embodied_navigation

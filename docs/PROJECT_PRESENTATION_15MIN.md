@@ -33,10 +33,10 @@
 | 2:00 - 4:00 | ROS 2 接口设计：为什么用 typed msg/action，而不是直接发 `/cmd_vel` | `docs/VOICE_TO_SIMULATION_CODE_WALKTHROUGH.md`、`src/embodied_agent_interfaces/msg/RobotCommand.msg`、`src/embodied_agent_interfaces/action/ExecuteRobotCommand.action` |
 | 4:00 - 6:00 | C++ 安全边界：ActionGuard 如何校验、限幅、拒绝非法动作 | `src/embodied_agent_cpp/src/action_guard_node.cpp`、`src/embodied_agent_cpp/src/action_validator.cpp` |
 | 6:00 - 8:00 | 连续语音：唤醒、去重、filler 过滤、队列、急停抢占 | `src/embodied_agent_core/embodied_agent_core/continuous_voice.py` |
-| 8:00 - 10:00 | 多命令 NLU：一句“右转然后前进一秒”如何拆成顺序队列 | `src/embodied_agent_core/embodied_agent_core/command_nlu.py` |
-| 10:00 - 12:00 | C++ 调度与仿真执行：FIFO、急停抢占、ROS 2 Action、BehaviorTree、pluginlib | `src/embodied_agent_cpp/src/action_scheduler.cpp`、`src/embodied_agent_cpp/src/typed_action_bridge_node.cpp`、`src/embodied_simulation/src/simulation_control_node.cpp` |
-| 12:00 - 13:30 | 离线端侧链路：llama.cpp、Sherpa-TTS、SummerTTS 服务化和延迟统计 | `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py`、`src/embodied_agent_cpp/src/summer_tts_service_node.cpp` |
-| 13:30 - 15:00 | 演示与边界：跑验收命令，说明已完成和后续可做 | `bash scripts/acceptance_test.sh continuous-offline` 或 `navigation-demo` |
+| 8:00 - 10:30 | SLAM：受控漂移、回环约束、Ceres/GTSAM 后端 A/B 和地图指标 | `src/embodied_slam/src/gtsam_pose_graph.cpp`、`gtsam_scan_solver.cpp`、`logs/slam_backend_comparison.json` |
+| 10:30 - 12:30 | 动态避障：位置关联、常速度预测、Nav2 costmap plugin 与重规划净空 | `src/embodied_navigation/src/*.cpp`、`logs/dynamic_obstacle_navigation_report.json` |
+| 12:30 - 13:30 | C++ 调度与执行：FIFO、急停、Action、BehaviorTree、pluginlib | `src/embodied_agent_cpp/src/action_scheduler.cpp`、`src/embodied_simulation/src/simulation_control_node.cpp` |
+| 13:30 - 15:00 | 现场演示与事实边界 | `dynamic-obstacle-navigation` 或 `continuous-offline` |
 
 ## 3. 推荐现场演示路径
 
@@ -101,6 +101,23 @@ CONTINUOUS_LIVE_CHECK_REPORT=logs/nav2-live-check.json \
   bash scripts/acceptance_test.sh continuous-nav2-evidence offline
 ```
 
+### 3.4 建图、定位和动态避障演示
+
+```bash
+# 固定闭环、受控漂移、Ceres/GTSAM 同前端 A/B
+bash scripts/acceptance_test.sh slam-ab-benchmark
+
+# 加载保存地图，AMCL -> Nav2 planner -> controller
+bash scripts/acceptance_test.sh slam-navigation
+
+# 横穿障碍 -> 速度估计 -> 未来占用 -> 重规划 -> 到达目标
+bash scripts/acceptance_test.sh dynamic-obstacle-navigation
+```
+
+现场时间有限时，提前生成地图，只跑最后一条并打开
+`logs/dynamic_obstacle_navigation_report.json`：重点展示未来 cell cost、路径净空变化、
+Action result 和零速收尾，不只展示 RViz 截图。
+
 ## 4. 从语音输入到仿真执行的代码走读地图
 
 | 链路层 | 关键文件 | 关键函数/类 | 技术点 |
@@ -121,6 +138,12 @@ CONTINUOUS_LIVE_CHECK_REPORT=logs/nav2-live-check.json \
 | 仿真控制 | `src/embodied_simulation/src/simulation_control_node.cpp` | `handle_goal()`、`control_tick()`、`finish_active_action()` | ROS 2 Action server、Lifecycle、诊断、超时停止 |
 | 执行后端 | `src/embodied_simulation/src/{gazebo,mock,nav2}_robot_executor.cpp` | `GazeboRobotExecutor`、`MockRobotExecutor`、`Nav2RobotExecutor` | pluginlib、Gazebo `/cmd_vel`、Nav2 action bridge |
 | 行为树 | `src/embodied_simulation/src/command_behavior_tree.cpp` | `CommandBehaviorTree` | BehaviorTree.CPP 编排校验、执行、取消 |
+| 漂移与闭环基准 | `src/embodied_slam/src/drift_model.cpp`、`closed_loop_driver_node.cpp` | `DriftModel::update()`、`ClosedLoopController::update()` | 固定 seed 可重复漂移、雷达安全暂停、同路线后端 A/B |
+| GTSAM 后端 | `src/embodied_slam/src/gtsam_pose_graph.cpp`、`gtsam_scan_solver.cpp` | `GtsamPoseGraphOptimizer::optimize()`、`Compute()` | Prior/Between factors、Huber、协方差正定化、karto ScanSolver Adapter |
+| SLAM 指标 | `tests/integration/test_slam_mapping_baseline.py` | `build_report()` | 优化前后 ATE、闭环误差、地图面积和保存产物 |
+| 动态跟踪 | `src/embodied_navigation/src/dynamic_obstacle_tracker.cpp` | `DynamicObstacleTracker::update()` | 最近邻关联、速度平滑、置信度和 track TTL |
+| 未来预测 | `src/embodied_navigation/src/constant_velocity_predictor.cpp` | `predict_constant_velocity()` | 无 ROS 纯函数、未来轨迹、不确定性半径增长 |
+| 预测代价层 | `src/embodied_navigation/src/predicted_obstacle_layer.cpp` | `updateBounds()`、`updateCosts()` | Nav2 pluginlib Layer、未来 lethal cost、过期清除和重规划 |
 
 ## 5. 面试时可以重点强调的设计取舍
 
@@ -130,6 +153,10 @@ CONTINUOUS_LIVE_CHECK_REPORT=logs/nav2-live-check.json \
 - 不把连续语音写成 Agent 私有逻辑：会话、队列、执行追踪抽到共享模块，online/offline Agent 复用同一套状态机。
 - 不强依赖重型声学模型：默认用 energy VAD + 当前 ASR + 文本唤醒，先保证 WSL/Gazebo 演示可复现；openWakeWord/Silero 等作为后续 seam。
 - 不把 SummerTTS 宣称为当前低延迟默认路径：它已完成 C++ ROS 服务化接入，适合展示端侧 TTS runtime 封装；当前 `<300ms` 低延迟 gate 仍以 Sherpa-TTS 路径为主。
+- 不把“启动 slam_toolbox”说成自己做了 SLAM：项目自己实现受控漂移、GTSAM ScanSolver、
+  协方差防护和指标报告；前端候选检测仍复用 slam_toolbox/karto，并明确说明边界。
+- 不只在障碍出现后刹车：动态目标先由 C++ tracker 估计速度，预测层把未来 2 秒占用注入
+  Nav2 全局 costmap；验收比较规划前后净空，而不是只看机器人最终没撞到。
 
 ## 6. 阶段版本发布前门禁
 
@@ -150,6 +177,7 @@ C++/ROS 2 门禁：
 ```bash
 colcon test --packages-select embodied_agent_cpp embodied_simulation --event-handlers console_direct+
 colcon test-result --verbose
+bash scripts/acceptance_test.sh dynamic-obstacle-stage
 ```
 
 演示前人工门禁：
@@ -159,6 +187,7 @@ bash scripts/acceptance_test.sh continuous-offline
 bash scripts/acceptance_test.sh gazebo
 bash scripts/acceptance_test.sh nav2-stage
 bash scripts/acceptance_test.sh continuous-nav2-evidence offline
+bash scripts/acceptance_test.sh dynamic-obstacle-navigation
 ```
 
 ## 7. 当前边界与后续路线
@@ -167,5 +196,6 @@ bash scripts/acceptance_test.sh continuous-nav2-evidence offline
 
 - 实体 UART/SPI 硬件控制是 mock/预留，不是本阶段实体验收。
 - LoRA 训练、Q8 量化可以作为规划和接口说明，不宣称完整复现实验指标。
-- Nav2 已有 bridge、bringup 和目标点导航验收入口，但复杂 SLAM、地图构建和大规模目标点规划不是当前主线。
+- 已完成 Gazebo 受控漂移 SLAM 和预测动态避障，但尚未在真实轮滑、玻璃、长走廊数据上
+  评测，也没有回环 precision/recall；面试中应把这些列为下一阶段真实 rosbag 工作。
 - SummerTTS 已服务化，但当前 CPU 推理瓶颈仍明显，后续可做量化、缓存或更快声码器优化。
