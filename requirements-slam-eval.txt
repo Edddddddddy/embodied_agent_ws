@@ -1,0 +1,2 @@
+# Optional: only needed to export ROS 1/2 bag topics into TUM trajectory files.
+rosbags==0.11.3

@@ -44,6 +44,9 @@ Automated modes:
   slam-gtsam-benchmark Heavy Gazebo run with the project GTSAM ScanSolver plugin
   slam-ab-benchmark   Run Ceres/GTSAM on the same scenario and compare evidence
   slam-navigation     Heavy run: saved map -> AMCL -> Nav2 plan -> goal execution
+  slam-evaluation-stage Synthetic ATE/RPE/loop-correction gate without Gazebo or downloads
+  openloris-groundtruth Download and verify one public OpenLORIS ground-truth trajectory
+  openloris-evaluate  Evaluate SLAM_ESTIMATE_FILE against an OpenLORIS sequence
   dynamic-obstacle-stage Build/test tracker, motion predictor, and Nav2 costmap plugin seam
   dynamic-obstacle-navigation Heavy run: predicted crossing obstacle -> Nav2 replan -> goal
   continuous-mock     One wake word, several queued commands, and sleep gate
@@ -191,6 +194,30 @@ run_offline() {
 run_gazebo() {
   bash scripts/smoke_test_gazebo.sh
   bash scripts/smoke_test_gazebo_typed_action.sh
+}
+
+run_slam_evaluation_stage() {
+  local fixture_dir="logs/slam_evaluation_fixture"
+  pytest -q \
+    tests/repository/test_slam_trajectory_evaluation.py \
+    tests/repository/test_slam_evaluation_comparison.py \
+    tests/repository/test_openloris_groundtruth_setup.py \
+    tests/repository/test_rosbag_trajectory_adapter.py
+  python3 scripts/generate_slam_evaluation_fixture.py --output-dir "$fixture_dir"
+  python3 scripts/evaluate_slam_trajectory.py \
+    --reference "$fixture_dir/reference.tum" \
+    --estimate "$fixture_dir/dead_reckoning.tum" \
+    --output "$fixture_dir/dead_reckoning_report.json"
+  python3 scripts/evaluate_slam_trajectory.py \
+    --reference "$fixture_dir/reference.tum" \
+    --estimate "$fixture_dir/loop_corrected.tum" \
+    --output "$fixture_dir/loop_corrected_report.json" \
+    --max-ate-rmse 0.05 \
+    --max-rpe-translation-rmse 0.05
+  python3 scripts/compare_slam_evaluations.py \
+    --baseline "$fixture_dir/dead_reckoning_report.json" \
+    --corrected "$fixture_dir/loop_corrected_report.json" \
+    --output "$fixture_dir/comparison.json"
 }
 
 check_offline_runtime() {
@@ -357,6 +384,34 @@ case "$LEVEL" in
     python3 scripts/compare_slam_backends.py
     ;;
   slam-navigation) bash scripts/smoke_test_slam_localization_navigation.sh ;;
+  slam-evaluation-stage) run_slam_evaluation_stage ;;
+  openloris-groundtruth)
+    python3 scripts/setup_openloris_groundtruth.py \
+      --sequence "${OPENLORIS_SEQUENCE:-office1-1}" \
+      --output-root "${OPENLORIS_ROOT:-datasets/openloris}"
+    ;;
+  openloris-evaluate)
+    if [[ -z "${SLAM_ESTIMATE_FILE:-}" ]]; then
+      echo "Usage: SLAM_ESTIMATE_FILE=/path/to/estimate.tum $0 openloris-evaluate" >&2
+      exit 2
+    fi
+    OPENLORIS_SEQUENCE="${OPENLORIS_SEQUENCE:-office1-1}"
+    OPENLORIS_ROOT="${OPENLORIS_ROOT:-datasets/openloris}"
+    OPENLORIS_REFERENCE="$OPENLORIS_ROOT/groundtruth/$OPENLORIS_SEQUENCE/groundtruth.txt"
+    if [[ ! -s "$OPENLORIS_REFERENCE" ]]; then
+      python3 scripts/setup_openloris_groundtruth.py \
+        --sequence "$OPENLORIS_SEQUENCE" --output-root "$OPENLORIS_ROOT"
+    fi
+    python3 scripts/evaluate_slam_trajectory.py \
+      --reference "$OPENLORIS_REFERENCE" \
+      --estimate "$SLAM_ESTIMATE_FILE" \
+      --output "${SLAM_EVALUATION_REPORT:-logs/openloris_${OPENLORIS_SEQUENCE}_report.json}" \
+      --max-time-diff "${SLAM_MAX_TIME_DIFF_S:-0.05}" \
+      --rpe-delta "${SLAM_RPE_DELTA_S:-1.0}" \
+      --min-match-ratio "${SLAM_MIN_MATCH_RATIO:-0.80}" \
+      ${SLAM_MAX_ATE_RMSE_M:+--max-ate-rmse "$SLAM_MAX_ATE_RMSE_M"} \
+      ${SLAM_MAX_RPE_RMSE_M:+--max-rpe-translation-rmse "$SLAM_MAX_RPE_RMSE_M"}
+    ;;
   dynamic-obstacle-stage)
     python3 scripts/build_slam_nav2_params.py --output logs/slam_nav2_params.yaml
     colcon build --packages-up-to embodied_navigation --symlink-install --allow-overriding \
