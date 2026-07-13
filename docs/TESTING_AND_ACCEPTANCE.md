@@ -57,6 +57,13 @@ bash scripts/acceptance_test.sh --help
 | `nav2-stage` | 自动/Nav2 | 语音导航阶段门禁：解析、连续队列、Nav2 bridge、preflight |
 | `nav2-turtlebot3` | 重型/Nav2/Gazebo | 启动官方 Nav2 TurtleBot3 仿真，注入语音文本，验证目标点导航/巡航 result 与 odom |
 | `nav2-resilience` | 重型/Nav2/Gazebo | 动态插入前方障碍验证全局重规划，并验证地图外目标失败与停车 |
+| `mapping-stage` | 自动/SLAM | 审计建图资产，编译 GTSAM pluginlib 插件并执行 C++ 单测 |
+| `slam-benchmark` | 重型/SLAM/Gazebo | Ceres 后端、固定闭环、受控漂移、5 cm 地图与 YAML/PGM 保存 |
+| `slam-gtsam-benchmark` | 重型/SLAM/Gazebo | 使用本项目 `GtsamScanSolver` 重跑同一建图基准 |
+| `slam-ab-benchmark` | 重型/SLAM/Gazebo | 顺序运行 Ceres/GTSAM 并输出可比 A/B 报告 |
+| `slam-navigation` | 重型/Nav2/Gazebo | 重新加载建图产物，验证 AMCL、全局路径、目标执行和零速收尾 |
+| `dynamic-obstacle-stage` | 自动/Nav2/C++ | 编译并单测动态跟踪、常速度预测和预测 costmap plugin seam |
+| `dynamic-obstacle-navigation` | 重型/Nav2/Gazebo | 横穿障碍速度估计、未来致命代价、路径净空提升、到达目标和零速收尾 |
 | `gazebo` | 自动/仿真 | typed Action 到 Gazebo 运动验证 |
 | `gazebo-voice` | 自动/仿真 | 离线合成语音到 Gazebo 动作 |
 | `gazebo-voice-online` | 自动/联网/仿真 | 在线 provider 到 Gazebo 动作 |
@@ -1101,10 +1108,12 @@ bash scripts/acceptance_test.sh all
 - 在线/离线 Agent 双链路入口。
 - 连续语音 session、命令队列、急停抢占、会话休眠。
 - Gazebo/TurtleBot3 仿真动作验收。
+- 受控漂移闭环建图、Ceres/GTSAM 后端 A/B、地图保存、AMCL 与 Nav2 规划控制。
+- 动态障碍 typed tracking、未来占用预测 costmap layer 与重规划验收。
 - 单元测试、集成 smoke、真实麦克风辅助验收。
 
 边界：
 
 - 实体硬件 UART/SPI 只保留 mock/协议预留，不作为当前验收结论。
 - 离线模型训练流程不是当前交付重点。
-- 复杂导航、地图、目标点规划不属于当前阶段。
+- 真实环境 rosbag、传感器外参误差、轮滑和退化场景还未纳入门禁；当前 SLAM/动态避障结论仅覆盖可复现 Gazebo 场景。

@@ -21,9 +21,9 @@ pytest -q \
 
 echo "[core] C++/simulation unit tests"
 colcon build --symlink-install --allow-overriding \
-  embodied_agent_interfaces embodied_agent_cpp embodied_simulation
+  embodied_agent_interfaces embodied_agent_cpp embodied_simulation embodied_navigation
 colcon test --packages-select \
-  embodied_agent_cpp embodied_simulation \
+  embodied_agent_cpp embodied_simulation embodied_navigation \
   --event-handlers console_direct+
 colcon test-result --verbose
 

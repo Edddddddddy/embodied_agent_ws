@@ -1,0 +1,8 @@
+<library path="embodied_slam_gtsam_solver">
+  <class
+    name="embodied_slam::GtsamScanSolver"
+    type="embodied_slam::GtsamScanSolver"
+    base_class_type="karto::ScanSolver">
+    <description>GTSAM Pose2 backend for slam_toolbox/karto pose graphs.</description>
+  </class>
+</library>

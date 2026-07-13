@@ -60,6 +60,10 @@
 | voice frontend launch 收敛 | 消除 online/offline 对音频、VAD、KWS、声纹参数和节点的整段复制 | 新增 `voice_frontend_launch_contract.py`，统一 31 个参数和 5 个节点；在线 launch 缩至约 100 行、离线约 156 行 |
 | Agent 安全部署拓扑收敛 | 避免 ActionGuard/Lifecycle manager/硬件 Adapter 顺序与参数在 online/offline 漂移 | 新增 `agent_deployment_launch_contract.py`；统一正序激活、逆序停机及 UART/SPI 类型，在线 launch 进一步缩至约 57 行、离线约 123 行 |
 | 仓库契约测试分区 | 避免结构、部署、语音和仿真守卫继续堆积在 1700 行单文件 | 按 architecture/delivery/voice_runtime 拆为三组，共享只读路径工具；54 项契约保持通过并增加文件规模守卫 |
+| 可度量 SLAM 闭环 | 不把启动现成建图包当作完成，量化漂移与回环修正 | 新增固定 seed 漂移注入、闭环路线、ATE/闭环误差/地图覆盖报告和 Ceres/GTSAM 同前端 A/B |
+| GTSAM 后端插件 | 自己实现可替换的位姿图后端并接入真实建图流程 | 新增纯 Pose2 optimizer、协方差正定防护及 `karto::ScanSolver` pluginlib Adapter |
+| 地图复用定位导航 | 证明建图产物能在新进程中用于任务执行 | 保存 5 cm 地图，完成 AMCL `map->odom`、Nav2 plan、NavigateToPose 和零速收尾 |
+| 预测动态避障 | 从“检测当前障碍”升级为“估计速度并占用未来轨迹” | 新增 typed track、常速度预测深模块、Nav2 costmap layer；实测路径净空由约 0.011 m 提升到约 0.976 m |
 | bringup 包分层 | 修正共享 launch contract 放在领域 core 中造成的部署依赖反向污染 | 新增 `embodied_agent_bringup`，依赖方向统一为 bringup → core/voice/C++；core 移除 launch/launch_ros 依赖 |
 | 控制命令启动可靠性 | 修复 DDS discovery 完成前 Guard 发布的 volatile 动作静默丢失 | 新增有界 TTL `GuardedCommandOutbox`；scheduler 匹配后 FIFO 转发，超时/满载明确拒绝，不回放陈旧动作 |
 | C++ 中间件契约收敛 | 清理跨节点散落的 QoS depth 与不一致策略 | 新增独立 `embodied_agent_middleware` 包，统一 command/event/state/sensor/audio/diagnostics QoS，并迁移控制主链路 |
@@ -87,6 +91,7 @@
 - 演示能力：真实麦克风连续语音、多动作序列、急停抢占、Gazebo 运动验证。
 - 多命令能力：一条 ASR final 可被轻量 NLU 解析为多个队列项，并按 ROS 2 Action result 顺序执行。
 - 导航演示能力：支持“去门口”“前往书桌”“依次去门口、书桌、起点”等语音目标点/多点巡航命令，并通过 typed Action 驱动仿真 executor、Nav2 action bridge 或完整 TurtleBot3/Nav2 bringup。
+- SLAM/避障能力：受控漂移建图、回环优化、Ceres/GTSAM A/B、地图复用定位规划，以及基于速度预测的动态障碍 costmap 插件。
 - 测试体系：单元测试、集成 smoke、Gazebo 验收、真实麦克风辅助统计。
 - 汇报材料：已补充 15 分钟项目汇报与代码走读稿，便于按链路讲解关键文件和技术取舍。
 
