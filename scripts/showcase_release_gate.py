@@ -98,11 +98,43 @@ DEMO_COMMANDS: tuple[tuple[str, str], ...] = (
     ),
 )
 
+ROBOTICS_COMMANDS: tuple[tuple[str, str], ...] = (
+    (
+        "robotics_repository_and_agent_units",
+        "pytest -q tests/repository src/embodied_online_agent/test "
+        "src/embodied_offline_agent/test",
+    ),
+    (
+        "robotics_cpp_packages",
+        "colcon test --packages-select embodied_agent_bringup embodied_agent_cpp "
+        "embodied_simulation embodied_navigation embodied_slam "
+        "--event-handlers console_direct+ && colcon test-result --verbose",
+    ),
+    (
+        "robotics_continuous_multi_command",
+        "bash scripts/acceptance_test.sh continuous-multi-command",
+    ),
+    (
+        "robotics_nav2_stage",
+        "bash scripts/acceptance_test.sh nav2-stage",
+    ),
+    (
+        "robotics_slam_public_bag",
+        "bash scripts/acceptance_test.sh slam-evaluation-stage && "
+        "bash scripts/acceptance_test.sh openloris-replay-stage",
+    ),
+    (
+        "robotics_dynamic_obstacle",
+        "bash scripts/acceptance_test.sh dynamic-obstacle-stage",
+    ),
+)
+
 
 PROFILE_COMMANDS = {
     "core": CORE_COMMANDS,
     "demo": DEMO_COMMANDS,
     "full": FULL_COMMANDS,
+    "robotics": ROBOTICS_COMMANDS,
 }
 
 EVIDENCE_KIND_BY_COMMAND = {
@@ -125,6 +157,12 @@ EVIDENCE_KIND_BY_COMMAND = {
     "speaker_memory_preferences": "mock_ros",
     "continuous_voice_demo": "mock_ros",
     "navigation_and_offline_evidence": "mixed_evidence",
+    "robotics_repository_and_agent_units": "ci_compatible",
+    "robotics_cpp_packages": "cpp_ros",
+    "robotics_continuous_multi_command": "mock_ros",
+    "robotics_nav2_stage": "mock_ros",
+    "robotics_slam_public_bag": "public_bag",
+    "robotics_dynamic_obstacle": "mock_ros",
 }
 
 MANUAL_FOLLOWUPS_BY_PROFILE = {
@@ -146,6 +184,13 @@ MANUAL_FOLLOWUPS_BY_PROFILE = {
         "gazebo",
         "nav2-turtlebot3",
         "continuous-nav2-evidence offline",
+    ),
+    "robotics": (
+        "continuous-offline",
+        "continuous-online",
+        "nav2-turtlebot3",
+        "slam-benchmark",
+        "dynamic-obstacle-navigation",
     ),
 }
 
@@ -182,9 +227,10 @@ def _evidence_policy(profile: str) -> dict:
 
     return {
         "profile": profile,
-        "automatic_report": "logs/demo_acceptance_report.json"
-        if profile == "demo"
-        else "logs/acceptance_report.json",
+        "automatic_report": {
+            "demo": "logs/demo_acceptance_report.json",
+            "robotics": "logs/robotics_acceptance_report.json",
+        }.get(profile, "logs/acceptance_report.json"),
         "evidence_kinds": {
             "ci_compatible": "纯仓库/解析/单元测试，适合 CI 或快速本地门禁。",
             "mock_ros": "不依赖真实麦克风或 Gazebo 图形的 ROS/mock 链路证据。",
@@ -192,6 +238,9 @@ def _evidence_policy(profile: str) -> dict:
             "local_runtime": "依赖本机模型/ROS2 runtime 的本地证据，不默认放入 CI。",
             "cpp_ros": "C++/ROS2 单测或组件测试证据。",
             "mixed_evidence": "组合报告，可能混合 mock、preflight 和本地 runtime 证据。",
+            "public_bag": "公开 rosbag/fixture 的可复现实验，不等同于真实机器人现场数据。",
+            "real_model": "依赖本机真实 ASR/LLM/TTS 模型的运行证据。",
+            "gazebo": "依赖 Gazebo 物理仿真的运动、里程计或导航证据。",
         },
         "requires_human_demo": True,
         "manual_followups": list(MANUAL_FOLLOWUPS_BY_PROFILE[profile]),
@@ -226,6 +275,8 @@ def _run_command(command: GateCommand, *, root: Path, timeout_s: float, tail_lin
 def _default_report_path(root: Path, profile: str) -> Path:
     if profile == "demo":
         return root / "logs" / "demo_acceptance_report.json"
+    if profile == "robotics":
+        return root / "logs" / "robotics_acceptance_report.json"
     return root / "logs" / "acceptance_report.json"
 
 
@@ -239,7 +290,10 @@ def parse_args() -> argparse.Namespace:
         "--profile",
         choices=sorted(PROFILE_COMMANDS),
         default="core",
-        help="core 固定 5 条求职展示门禁；full 保留更完整但更慢的本地验收。",
+        help=(
+            "core 是快速求职展示门禁；robotics 覆盖连续命令、Nav2、SLAM、"
+            "公开 bag 与动态障碍；full 保留更慢的通用本地验收。"
+        ),
     )
     parser.add_argument(
         "--dry-run",

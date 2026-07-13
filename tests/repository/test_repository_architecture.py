@@ -106,6 +106,20 @@ def test_bringup_owns_deployment_topology_without_polluting_domain_core():
         assert "<exec_depend>embodied_agent_bringup</exec_depend>" in manifest
 
 
+def test_ci_covers_all_ros_packages_without_duplicate_feature_push_runs():
+    workflow = (ROOT / ".github" / "workflows" / "ros2-ci.yml").read_text(
+        encoding="utf-8"
+    )
+    package_names = {
+        path.parent.name
+        for path in (ROOT / "src").glob("*/package.xml")
+    }
+    for package_name in package_names:
+        assert package_name in workflow
+    assert "branches: [main, dev]" in workflow
+    assert workflow.count("branches: [main, dev]") == 2
+
+
 def test_online_and_offline_launch_share_voice_frontend_contract():
     """provider launch 只编排 Agent 特有能力，不复制前端节点和参数映射。"""
     contract = BRINGUP_ROOT / "voice_frontend_launch_contract.py"

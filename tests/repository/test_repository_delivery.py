@@ -494,6 +494,7 @@ def test_showcase_hardening_artifacts_remain_discoverable():
         assert path.is_file()
 
     assert "release-gate" in acceptance
+    assert "robotics-gate" in acceptance
     assert "demo-gate" in acceptance
     assert "demo-evidence-checklist" in acceptance
     assert "offline-showcase-report" in acceptance
@@ -525,8 +526,10 @@ def test_showcase_hardening_artifacts_remain_discoverable():
     assert "CORE_COMMANDS" in release_gate_text
     assert "DEMO_COMMANDS" in release_gate_text
     assert "FULL_COMMANDS" in release_gate_text
+    assert "ROBOTICS_COMMANDS" in release_gate_text
     assert "\"core\": CORE_COMMANDS" in release_gate_text
     assert "\"demo\": DEMO_COMMANDS" in release_gate_text
+    assert "\"robotics\": ROBOTICS_COMMANDS" in release_gate_text
     assert "command_count" in release_gate_text
     assert "job_showcase_demo_evidence_checklist" in checklist_text
     assert "voice_stability_preflight" in checklist_text

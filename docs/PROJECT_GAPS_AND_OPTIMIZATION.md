@@ -110,14 +110,15 @@
 - `/agent/wake_event`、`/agent/recognition_feedback`、`/agent/nlu_parse`、
   `/agent/command_queue`、`/agent/command_execution` 已升级为职责单一的自定义 msg，
   并统一 reliable QoS；Agent/session 当前状态使用 transient-local。
-- 音频前端指标、KWS sidecar 诊断和仿真状态等仍有结构化 JSON topic，尚未完全 typed。
+- 动作候选、队列/执行事件、音频/VAD/KWS 指标、仿真状态、ACK、BT 状态和 Agent turn
+  指标均已使用自定义 ROS 2 msg/action；JSON 只保留在离线报告、数据集和硬件协议边界。
+- ASR 文本、TTS 文本和原始 PCM 等天然非结构化载荷仍使用 `std_msgs/String` 或字节消息，
+  这不是控制面 JSON 协议回退。
 
 优化：
 
-- 下一步按控制风险排序，把音频指标、KWS sidecar 和 simulation state 等跨节点结构化事件
-  升级为 typed msg 或标准 `/diagnostics`；普通 ASR/回复文本仍可保留 `std_msgs/String`。
 - 将 `typed_action_bridge` 升级为 Lifecycle/Component node，并统一参数校验和 callback group。
-- 为命令、状态、传感器流分别定义可靠性、durability、deadline/liveliness 策略，而不是统一 depth=10。
+- 在现有 command/status/sensor QoS 分类基础上补 deadline/liveliness 和失联诊断测试。
 - 保留 Python 在模型编排层的灵活性，不为“全 C++”牺牲迭代速度。
 
 ## 8. 用户记忆和声纹仍需继续产品化
@@ -154,25 +155,27 @@
 
 现状：
 
-- online/offline Agent 主节点已从约 1100/1200 行降到约 980/1050 行；公共参数映射、
+- online/offline Agent 主节点已从早期约 1100/1200 行降到当前 779/882 行；公共参数映射、
   ASR-final 会话决策和 typed publisher 已抽出，但 memory 与 turn pipeline 仍在节点中。
 - `AgentControlPlane` 已成为无 ROS 依赖的领域核心，`RosAgentEventPublisher` 单独承担
   typed topic、时间戳和 QoS；online/offline 只在 provider、latency 和 TTS pipeline 上分化。
 - `embodied_agent_cpp` 同时承载 audio、control、hardware、TTS 等多个变化方向。
-- `scripts/` 超过 120 个文件，`acceptance_test.sh` 同时承担目录、路由、环境配置和执行逻辑。
+- `scripts/` 当前有 144 个文件，`acceptance_test.sh` 支持 100 余种内部模式；默认 `--help`
+  已收敛为 12 个公共验收入口，完整兼容列表放在 `--help-all`。
 
 优化：
 
-- 下一步抽取共享的用户记忆命令协调器，并把 turn pipeline 分成“模型响应流”和“TTS 输出流”
-  两个可替换组件；避免重新把业务逻辑塞回主节点。
-- 等 control/audio/hardware 各自接口稳定后，再拆 ROS package；不在接口仍变化时只为目录好看而拆包。
+- 下一步用组合式 `AgentApplicationRuntime` 统一 session 决策、记忆快照、预解析动作和清理流程；
+  provider、ASR 输入、TTS 与延迟适配仍留在 online/offline 节点。
+- 不增加 ROS package；先把 `embodied_agent_cpp` 的 control/audio/hardware 拆成独立 CMake target，
+  让节点只链接所需模块，避免增加部署复杂度。
 - 将验收入口按 `voice/`、`offline/`、`control/`、`navigation/` 分类，根脚本只做稳定命令路由；
   用 manifest 驱动帮助文本和门禁，逐步删除只包一层命令的重复 smoke 脚本。
 
 ## 11. 下一阶段优先级
 
-1. 完成音频、KWS 与仿真状态的 typed/diagnostics 迁移并统一 QoS。
-2. 抽取 online/offline 共用用户记忆协调器，继续缩小两个主节点职责。
-3. 整理验收脚本 manifest 与分组目录，保留兼容的单一用户入口。
-4. 将 C++ bridge 组件化/Lifecycle 化，补 deadline、liveliness 和故障诊断。
-5. 完成以上架构阶段后，再继续 Nav2 演示和用户记忆产品化。
+1. 拆分 C++ control/audio/hardware 内部 target，并将 typed action bridge 组件化/Lifecycle 化。
+2. 提取组合式 `AgentApplicationRuntime`，继续缩小 online/offline 节点职责。
+3. 完成在线/离线 5 分钟连续运行报告，分开记录原始 LLM 与 fallback 准确率。
+4. 优化离线全回合 3.631s 的当前实测，目标稳定进入 3.5s；未达标时保留真实数字。
+5. 扩展更长 OpenLORIS 回访序列和动态障碍预测消融，补充真实退化与回环证据。

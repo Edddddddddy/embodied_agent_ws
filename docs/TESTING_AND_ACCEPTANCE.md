@@ -1,7 +1,8 @@
 # 测试与验收手册
 
 本文只回答三个问题：改完代码该跑什么、现场演示怎样判定通过、失败先看哪一层。全部入口以
-`bash scripts/acceptance_test.sh --help` 为准；README 只保留最常用命令。
+公共入口以 `bash scripts/acceptance_test.sh --help` 为准；全部高级和兼容模式以
+`bash scripts/acceptance_test.sh --help-all` 为准。README 只保留最常用命令。
 
 ## 1. 证据分层
 
@@ -52,10 +53,20 @@ bash scripts/acceptance_test.sh release-gate
 
 bash scripts/acceptance_test.sh demo-gate
 # logs/demo_acceptance_report.json
+
+bash scripts/acceptance_test.sh robotics-gate
+# logs/robotics_acceptance_report.json
 ```
 
-聚合报告中的 `evidence_kind` 会区分 CI、mock、local runtime 和 C++ ROS 证据。自动 gate
-通过后仍要按修改范围运行下面的重型/人工验收。
+聚合报告中的 `evidence_kind` 会区分 CI、mock、C++ ROS、本机真实模型、Gazebo 和公开 bag
+证据。`robotics-gate` 固定覆盖连续多命令、Nav2 stage、SLAM 指标、OpenLORIS fixture 和动态
+障碍 stage；自动 gate 通过后仍要按修改范围运行下面的重型/人工验收。
+
+默认帮助只列出 12 个推荐公共入口；高级、诊断和兼容模式使用：
+
+```bash
+bash scripts/acceptance_test.sh --help-all
+```
 
 ## 3. 在线与离线 Agent
 

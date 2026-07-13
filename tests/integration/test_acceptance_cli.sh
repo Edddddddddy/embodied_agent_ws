@@ -11,8 +11,20 @@ if [[ "$STATUS" -ne 0 ]]; then
   echo "FAIL: help must exit successfully" >&2
   exit 1
 fi
-grep -q "all" <<<"$OUTPUT"
 grep -q "core" <<<"$OUTPUT"
+grep -q "robotics-gate" <<<"$OUTPUT"
+grep -q "continuous-offline" <<<"$OUTPUT"
+grep -q "nav2-turtlebot3" <<<"$OUTPUT"
+grep -q "openloris-replay-stage" <<<"$OUTPUT"
+grep -q -- "--help-all" <<<"$OUTPUT"
+if grep -q "offline-showcase-report" <<<"$OUTPUT"; then
+  echo "FAIL: default help must stay focused on public acceptance modes" >&2
+  exit 1
+fi
+
+# 完整模式仍然可发现，但不会淹没首次使用者的主验收入口。
+OUTPUT="$(bash "$WORKSPACE/scripts/acceptance_test.sh" --help-all 2>&1)"
+grep -q "all" <<<"$OUTPUT"
 grep -q "offline-showcase-report" <<<"$OUTPUT"
 grep -q "offline-voice-e2e-report" <<<"$OUTPUT"
 grep -q "microphone-offline" <<<"$OUTPUT"
@@ -64,6 +76,7 @@ grep -q "instruction-following-lora-review" <<<"$OUTPUT"
 grep -q "asr-nlu-samples-to-eval" <<<"$OUTPUT"
 grep -q "asr-nlu-candidate-eval" <<<"$OUTPUT"
 grep -q "release-gate" <<<"$OUTPUT"
+grep -q "robotics-gate" <<<"$OUTPUT"
 grep -q "demo-gate" <<<"$OUTPUT"
 grep -q "demo-evidence-checklist" <<<"$OUTPUT"
 grep -q "wsl-microphone-preflight" <<<"$OUTPUT"
