@@ -39,6 +39,11 @@ Automated modes:
   nav2-stage          Stage gate for voice navigation/patrol; excludes heavy Gazebo/Nav2
   nav2-turtlebot3     Heavy Gazebo/Nav2 run: voice text drives target navigation/patrol
   nav2-resilience     Heavy Gazebo/Nav2 run: dynamic replan + unreachable failure
+  mapping-stage       Build/test/audit the controlled-drift SLAM mapping baseline
+  slam-benchmark      Heavy Gazebo run: fixed loop, 5 cm map, and drift metrics report
+  slam-gtsam-benchmark Heavy Gazebo run with the project GTSAM ScanSolver plugin
+  slam-ab-benchmark   Run Ceres/GTSAM on the same scenario and compare evidence
+  slam-navigation     Heavy run: saved map -> AMCL -> Nav2 plan -> goal execution
   continuous-mock     One wake word, several queued commands, and sleep gate
   continuous-soak     Long wake session keeps accepting many queued commands
   continuous-endpoint Endpoint speech_ended commits feed continuous ASR commands
@@ -124,11 +129,11 @@ run_base() {
   colcon build --symlink-install --allow-overriding \
     embodied_agent_interfaces embodied_agent_core embodied_voice_frontend \
     embodied_agent_cpp embodied_online_agent \
-    embodied_offline_agent embodied_simulation
+    embodied_offline_agent embodied_simulation embodied_slam
   colcon test --packages-select \
     embodied_agent_interfaces embodied_agent_core embodied_voice_frontend \
     embodied_agent_cpp embodied_online_agent \
-    embodied_offline_agent embodied_simulation \
+    embodied_offline_agent embodied_simulation embodied_slam \
     --event-handlers console_direct+
   colcon test-result --verbose
   bash scripts/smoke_test.sh
@@ -336,6 +341,20 @@ case "$LEVEL" in
     NAV2_RESILIENCE=true SKIP_PATROL=1 \
       bash scripts/smoke_test_nav2_turtlebot3_voice.sh
     ;;
+  mapping-stage)
+    python3 scripts/audit_slam_mapping_assets.py
+    colcon build --packages-select embodied_slam --symlink-install
+    colcon test --packages-select embodied_slam --event-handlers console_direct+
+    colcon test-result --test-result-base build/embodied_slam --verbose
+    ;;
+  slam-benchmark) bash scripts/smoke_test_slam_mapping_baseline.sh ;;
+  slam-gtsam-benchmark) SLAM_SOLVER=gtsam bash scripts/smoke_test_slam_mapping_baseline.sh ;;
+  slam-ab-benchmark)
+    SLAM_SOLVER=ceres bash scripts/smoke_test_slam_mapping_baseline.sh
+    SLAM_SOLVER=gtsam bash scripts/smoke_test_slam_mapping_baseline.sh
+    python3 scripts/compare_slam_backends.py
+    ;;
+  slam-navigation) bash scripts/smoke_test_slam_localization_navigation.sh ;;
   continuous-mock) bash scripts/smoke_test_continuous_voice.sh online; bash scripts/smoke_test_continuous_voice.sh offline ;;
   continuous-soak) bash scripts/smoke_test_continuous_voice_soak.sh online; bash scripts/smoke_test_continuous_voice_soak.sh offline ;;
   continuous-endpoint) bash scripts/smoke_test_continuous_endpoint_asr.sh online; bash scripts/smoke_test_continuous_endpoint_asr.sh offline ;;

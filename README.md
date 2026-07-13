@@ -29,6 +29,12 @@
 `NavigateToPose / FollowWaypoints` goal；`nav2-turtlebot3` 启动官方 Nav2 TurtleBot3
 仿真做重型端到端验收。日常开发优先跑前两层，演示前再跑完整 Nav2。
 
+新增 SLAM/导航工程链路不再把“启动现成建图包”当作完成：项目提供可复现的
+里程计漂移注入、固定闭环路线、5 cm 地图量化、自己的 GTSAM `karto::ScanSolver`
+插件，以及同一前端下的 Ceres/GTSAM A/B。保存的地图会在新进程中重新加载，
+通过 AMCL、Nav2 全局规划和控制器完成目标点执行。原理、关键代码和指标见
+[SLAM 与导航工程笔记](docs/SLAM_NAVIGATION_ENGINEERING.md)。
+
 ## 系统链路
 
 ```mermaid
@@ -618,6 +624,25 @@ ASR_COMMIT_DELAY_MS=500 bash scripts/acceptance_test.sh continuous-offline
 
 ## 常用验收命令
 
+SLAM 建图、后端 A/B、地图复用定位与规划：
+
+```bash
+# 轻量门禁：资产、插件编译、C++ 单测
+bash scripts/acceptance_test.sh mapping-stage
+
+# 重型建图；输出 logs/slam_ceres_report.json 和保存地图 YAML/PGM
+bash scripts/acceptance_test.sh slam-benchmark
+
+# 项目 GTSAM ScanSolver 完整闭环
+bash scripts/acceptance_test.sh slam-gtsam-benchmark
+
+# 两个后端同场景 A/B（约 2～3 分钟）
+bash scripts/acceptance_test.sh slam-ab-benchmark
+
+# 使用上一步保存地图完成 AMCL -> Nav2 plan -> controller
+bash scripts/acceptance_test.sh slam-navigation
+```
+
 ```bash
 # 仓库结构与 CLI 入口
 pytest -q tests/repository
@@ -970,6 +995,7 @@ bash scripts/acceptance_test.sh online
 - [面试问答：ROS 2 / C++ 项目追问](docs/INTERVIEW_QA.md)
 - [项目不足与优化路线](docs/PROJECT_GAPS_AND_OPTIMIZATION.md)
 - [Nav2 语音导航/巡航验收审计](docs/NAV2_VOICE_ACCEPTANCE_AUDIT.md)
+- [SLAM 建图、GTSAM 后端与定位导航工程笔记](docs/SLAM_NAVIGATION_ENGINEERING.md)
 - [学习笔记：关键技术点与设计取舍](docs/LEARNING_NOTES.md)
 - [离线模型 Benchmark 与展示报告](docs/OFFLINE_BENCHMARK_REPORT.md)
 - [版本记录与路线图](docs/CHANGELOG_AND_ROADMAP.md)

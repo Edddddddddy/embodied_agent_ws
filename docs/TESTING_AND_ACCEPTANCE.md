@@ -57,6 +57,11 @@ bash scripts/acceptance_test.sh --help
 | `nav2-stage` | 自动/Nav2 | 语音导航阶段门禁：解析、连续队列、Nav2 bridge、preflight |
 | `nav2-turtlebot3` | 重型/Nav2/Gazebo | 启动官方 Nav2 TurtleBot3 仿真，注入语音文本，验证目标点导航/巡航 result 与 odom |
 | `nav2-resilience` | 重型/Nav2/Gazebo | 动态插入前方障碍验证全局重规划，并验证地图外目标失败与停车 |
+| `mapping-stage` | 自动/SLAM | 审计建图资产，编译 GTSAM pluginlib 插件并执行 C++ 单测 |
+| `slam-benchmark` | 重型/SLAM/Gazebo | Ceres 后端、固定闭环、受控漂移、5 cm 地图与 YAML/PGM 保存 |
+| `slam-gtsam-benchmark` | 重型/SLAM/Gazebo | 使用本项目 `GtsamScanSolver` 重跑同一建图基准 |
+| `slam-ab-benchmark` | 重型/SLAM/Gazebo | 顺序运行 Ceres/GTSAM 并输出可比 A/B 报告 |
+| `slam-navigation` | 重型/Nav2/Gazebo | 重新加载建图产物，验证 AMCL、全局路径、目标执行和零速收尾 |
 | `gazebo` | 自动/仿真 | typed Action 到 Gazebo 运动验证 |
 | `gazebo-voice` | 自动/仿真 | 离线合成语音到 Gazebo 动作 |
 | `gazebo-voice-online` | 自动/联网/仿真 | 在线 provider 到 Gazebo 动作 |

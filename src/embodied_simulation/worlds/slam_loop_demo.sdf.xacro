@@ -1,0 +1,60 @@
+<?xml version="1.0"?>
+<sdf version="1.7" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:arg name="headless" default="true"/>
+
+  <world name="slam_loop_demo">
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <xacro:unless value="$(arg headless)">
+      <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    </xacro:unless>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+
+    <light name="sun" type="directional">
+      <pose>0 0 10 0 0 0</pose>
+      <cast_shadows>false</cast_shadows>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision"><geometry><plane><normal>0 0 1</normal><size>12 10</size></plane></geometry></collision>
+        <visual name="visual"><geometry><plane><normal>0 0 1</normal><size>12 10</size></plane></geometry></visual>
+      </link>
+    </model>
+
+    <!-- 非对称外墙与内部岛台为激光匹配提供稳定、非重复的几何特征。 -->
+    <model name="mapping_walls">
+      <static>true</static>
+      <link name="walls">
+        <xacro:macro name="box" params="name x y sx sy color">
+          <collision name="${name}_collision">
+            <pose>${x} ${y} 0.5 0 0 0</pose>
+            <geometry><box><size>${sx} ${sy} 1.0</size></box></geometry>
+          </collision>
+          <visual name="${name}_visual">
+            <pose>${x} ${y} 0.5 0 0 0</pose>
+            <geometry><box><size>${sx} ${sy} 1.0</size></box></geometry>
+            <material><ambient>${color}</ambient><diffuse>${color}</diffuse></material>
+          </visual>
+        </xacro:macro>
+        <xacro:box name="north" x="0" y="2.35" sx="5.4" sy="0.12" color="0.55 0.55 0.58 1"/>
+        <xacro:box name="south" x="0" y="-2.35" sx="5.4" sy="0.12" color="0.55 0.55 0.58 1"/>
+        <xacro:box name="west" x="-2.65" y="0" sx="0.12" sy="4.8" color="0.55 0.55 0.58 1"/>
+        <xacro:box name="east" x="2.65" y="0" sx="0.12" sy="4.8" color="0.55 0.55 0.58 1"/>
+        <xacro:box name="island" x="0.15" y="0.15" sx="0.70" sy="0.95" color="0.20 0.45 0.75 1"/>
+        <xacro:box name="north_landmark" x="1.65" y="1.55" sx="0.45" sy="0.30" color="0.85 0.30 0.20 1"/>
+        <xacro:box name="west_landmark" x="-2.05" y="0.80" sx="0.35" sy="0.70" color="0.30 0.75 0.35 1"/>
+      </link>
+    </model>
+
+    <physics name="3ms" type="ode">
+      <max_step_size>0.003</max_step_size>
+      <real_time_factor>1</real_time_factor>
+    </physics>
+  </world>
+</sdf>
