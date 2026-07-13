@@ -38,6 +38,7 @@
 audio_frontend_node.cpp
   -> AgentRosIo subscriptions
   -> AgentControlPlane.accept_transcript()
+  -> AgentApplicationRuntime.accept_transcript()/run_queued_turn()
   -> AgentControlPlane.enqueue_command()
   -> StreamingTurnRuntime / preparsed_actions
   -> SequentialActionPublisher.publish()

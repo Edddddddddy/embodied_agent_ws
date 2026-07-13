@@ -314,13 +314,15 @@ ActionGuard 方案对比：
 - `src/embodied_agent_core/embodied_agent_core/continuous_voice.py`
 - `src/embodied_online_agent/embodied_online_agent/online_agent_node.py`
 - `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py`
+- `src/embodied_agent_core/embodied_agent_core/agent_application_runtime.py`
 
 设计方式：
 
 - 普通命令进入 `ContinuousCommandQueue`，按 FIFO 顺序执行。
 - `AgentControlPlane.enqueue_command()` 统一 NLU 拆批、batch metadata、retry 和 queue_full；
   离线链路只通过私有 context 附加 latency，不得覆盖公共 batch 字段。
-- `AgentExecutionRuntime` 的 worker 逐条调用 provider 的 `_run_queued_turn()`。
+- `AgentApplicationRuntime.run_queued_turn()` 恢复入队时冻结的用户/延迟上下文；
+  `AgentExecutionRuntime` 的 worker 只负责线程所有权、busy 和异常隔离。
 - 命令执行前发布 started，执行后发布 finished。
 - worker 用 `finally` 统一复位 busy；单条命令异常发布 `success=false` 后继续消费下一条，
   避免 3～5 分钟演示被一次 TTS/LLM 异常永久终止。
@@ -348,10 +350,13 @@ ActionGuard 方案对比：
 - `src/embodied_agent_core/embodied_agent_core/streaming_turn.py`
 - `src/embodied_agent_core/embodied_agent_core/protocol.py`
 - `src/embodied_agent_core/embodied_agent_core/command_fallback.py`
+- `src/embodied_online_agent/embodied_online_agent/online_turn_runtime.py`
+- `src/embodied_offline_agent/embodied_offline_agent/offline_turn_runtime.py`
 
 `StreamingTurnRuntime` 隐藏 `TaggedStreamParser`、`SentenceChunker`、确定性命令优先级和
-语义安全拦截。在线节点把 `on_speakable` 接到网络 TTS 队列，离线节点把同一回调接到
-伪流式双缓冲，因此复用的是“稳定协议”，不是强行复用不同 provider 的音频实现。
+语义安全拦截。`OnlineStreamingTurnRuntime` 把 `on_speakable` 接到网络 TTS 队列，
+`OfflineStreamingTurnRuntime` 接到伪流式双缓冲，因此复用的是“稳定协议”，不是强行
+复用不同 provider 的音频实现；两个 ROS 节点只负责装配这些 Adapter。
 
 动作选择顺序固定为：明确中文命令的 deterministic parser → 语义安全阻断 → 模型动作。
 完成后返回不可变 `StreamingTurnResult`，记忆、动作发布和日志都使用同一份已选择结果，

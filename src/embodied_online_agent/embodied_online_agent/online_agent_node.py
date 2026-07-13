@@ -1,7 +1,4 @@
-import json
 import os
-import queue
-import threading
 from pathlib import Path
 
 import rclpy
@@ -17,6 +14,10 @@ from std_msgs.msg import Empty, String, UInt8MultiArray
 from embodied_agent_core.memory import ConversationMemory
 from embodied_agent_core.user_memory import UserMemoryStore
 from embodied_agent_core.action_sequence import SequentialActionPublisher
+from embodied_agent_core.agent_application_runtime import (
+    AgentApplicationCallbacks,
+    AgentApplicationRuntime,
+)
 from embodied_agent_core.agent_control_plane import (
     AgentControlPlane,
     AgentControlPlaneConfig,
@@ -29,29 +30,24 @@ from embodied_agent_core.agent_lifecycle_runtime import AgentLifecycleRuntime
 from embodied_agent_core.agent_parameters import declare_agent_parameters
 from embodied_agent_core.agent_ros_io import AgentRosCallbacks, AgentRosIo
 from embodied_agent_core.asr_endpoint_runtime import AsrEndpointRuntime
-from embodied_agent_core.continuous_voice import QueueSnapshot
 from embodied_agent_core.metrics import LatencyTracker
 from embodied_agent_core.metrics_transport import agent_turn_metrics_to_message
-from embodied_agent_core.ros_action_transport import (
-    action_command_to_message,
-    command_message_to_dict,
-)
+from embodied_agent_core.ros_action_transport import action_command_to_message
 from embodied_agent_core.ros_event_transport import wake_event_message_to_domain
 from embodied_agent_core.speaker_transport import (
     enroll_request_to_message,
     identity_message_to_domain,
 )
-from embodied_agent_core.streaming_turn import StreamingTurnRuntime
 from embodied_agent_core.types import ActionCommand
 from embodied_agent_core.user_context_runtime import (
     UserContextRuntime,
     UserContextSnapshot,
 )
-from embodied_agent_core.user_preferences import apply_user_preferences
 from .providers.mock import MockAsr, MockLlm, MockTts
 from .providers.openai_compatible_llm import OpenAiCompatibleLlm
 from .providers.qwen_asr import QwenRealtimeAsr
 from .providers.qwen_tts import QwenRealtimeTts
+from .online_turn_runtime import OnlineStreamingTurnRuntime
 
 
 class OnlineAgentNode(LifecycleNode):
@@ -112,9 +108,31 @@ class OnlineAgentNode(LifecycleNode):
             publish_priority_stop=self._publish_priority_stop,
             deactivate_timeout_s=self._param("agent_deactivate_timeout_s"),
         )
+        self._application = AgentApplicationRuntime(
+            source="online",
+            control=self._control,
+            lifecycle_runtime=self._runtime,
+            action_sequencer=self.action_sequencer,
+            conversation_memory=self.memory,
+            user_context=self._user_context,
+            events=self._events,
+            callbacks=AgentApplicationCallbacks(
+                run_model_turn=lambda text, _context, user: self._run_turn(text, user),
+                speak_memory_response=self._speak_memory_response,
+                publish_action_candidate=self._publish_action_candidate,
+                publish_enroll_request=self._publish_enroll_request,
+                publish_response_delta=self._ros_io.publish_response_delta,
+                publish_response=self._ros_io.publish_response,
+                prepare_turn_context=self._prepare_turn_context,
+            ),
+            logger=self.get_logger(),
+            wake_word_required=bool(self._param("wake_word_enabled")),
+            continuous_enabled=self._continuous_enabled,
+        )
         self.asr = None
         self.llm = None
         self.tts = None
+        self._turn_runner = None
 
     def on_configure(self, _state: State) -> TransitionCallbackReturn:
         """创建 provider 和并发运行时；失败时节点保持 unconfigured。"""
@@ -131,13 +149,12 @@ class OnlineAgentNode(LifecycleNode):
                     self.llm.warmup()
             execution = AgentExecutionRuntime(
                 self._control,
-                execute_item=self._run_queued_turn,
+                execute_item=self._application.run_queued_turn,
                 publish_execution=self._events.publish_execution,
                 publish_queue=self._events.publish_queue,
                 on_error=lambda error: self.get_logger().error(
                     f"continuous command failed: {error}"
                 ),
-                before_execute=lambda _item: self._prepare_queued_turn(),
             )
             endpoint = AsrEndpointRuntime(
                 delay_ms=self._param("asr_commit_delay_ms"),
@@ -154,6 +171,21 @@ class OnlineAgentNode(LifecycleNode):
                 ),
             )
             self._runtime.bind(execution=execution, endpoint=endpoint)
+            self._turn_runner = OnlineStreamingTurnRuntime(
+                llm=self.llm,
+                tts=self.tts,
+                memory=self.memory,
+                user_context=self._user_context,
+                system_prompt=self.system_prompt,
+                metrics=self.metrics,
+                ros_io=self._ros_io,
+                events=self._events,
+                lifecycle_runtime=self._runtime,
+                publish_actions=self._application.publish_actions,
+                publish_metrics=self._publish_metrics,
+                param=self._param,
+                logger=self.get_logger(),
+            )
             self.get_logger().info("online agent configured")
             return TransitionCallbackReturn.SUCCESS
         except Exception as exc:
@@ -239,6 +271,7 @@ class OnlineAgentNode(LifecycleNode):
             )
             return False
         self.asr = None
+        self._turn_runner = None
         if self.tts is not None:
             self.tts.close()
             self.tts = None
@@ -255,7 +288,9 @@ class OnlineAgentNode(LifecycleNode):
         return True
 
     def _publish_priority_stop(self) -> None:
-        self._publish_actions([ActionCommand("stop", {}, priority=True)])
+        self._application.publish_actions(
+            [ActionCommand("stop", {}, priority=True)]
+        )
 
     def _param(self, name):
         return self._agent_parameters.get(name)
@@ -401,37 +436,13 @@ class OnlineAgentNode(LifecycleNode):
         except ValueError as error:
             self.get_logger().warning(str(error))
             return
-        if event.kind == "wake":
-            session_event = self._control.voice_session.external_wake(
-                event.provider, event.transcript
-            )
-            self._publish_session_event(session_event)
-            self._publish_state("session_awake")
-            self.get_logger().info(
-                f"external wake event accepted from provider={event.provider}"
-            )
-            return
-
-        dropped = self._control.command_queue.clear()
-        self._publish_queue_event(
-            "clear", "", QueueSnapshot(True, self._control.command_queue.size(), dropped)
-        )
-        self.action_sequencer.cancel("external_sleep")
-        self._publish_actions([ActionCommand("stop", {}, priority=True)])
-        session_event = self._control.voice_session.external_sleep(event.provider)
-        self._publish_session_event(session_event)
-        self._publish_state("sleeping")
-        self.get_logger().info(
-            f"external sleep event accepted from provider={event.provider}"
-        )
+        self._application.handle_wake_event(event)
 
     def _on_clear_memory(self, _message: Empty):
-        self.memory.clear()
-        self._user_context.clear_current()
-        self.get_logger().info("conversation memory cleared")
+        self._application.clear_memory()
 
     def _on_action_result(self, message: RobotCommandResult):
-        self.action_sequencer.notify_result(
+        self._application.notify_action_result(
             message.command_id,
             message.success,
             message.message,
@@ -443,72 +454,15 @@ class OnlineAgentNode(LifecycleNode):
             message,
             min_confidence=float(self._param("speaker_identity_min_confidence")),
         )
-        self._user_context.update_identity(identity)
-        if identity.usable:
-            self.get_logger().info(
-                f"speaker identity accepted: speaker_id={identity.speaker_id}, confidence={identity.confidence:.3f}"
-            )
-        else:
-            self.get_logger().debug("speaker identity ignored or unknown")
+        self._application.update_speaker_identity(identity)
 
     def _accept_transcript(self, transcript: str):
-        decision = self._control.accept_transcript(
-            transcript,
-            wake_word_required=bool(self._param("wake_word_enabled")),
+        self._application.accept_transcript(transcript)
+
+    def _publish_enroll_request(self, request) -> None:
+        self._ros_io.publish_speaker_enroll_request(
+            enroll_request_to_message(request, stamp=self.get_clock().now())
         )
-        self._events.publish_control_decision(decision)
-        if decision.directive in {"sleep", "priority"}:
-            self.action_sequencer.cancel(decision.cancel_reason)
-            self.get_logger().info(
-                f"{decision.cancel_reason} received; cancelling current sequence"
-            )
-            if decision.dropped:
-                self.get_logger().info(
-                    f"cleared {decision.dropped} queued command(s)"
-                )
-            self._publish_actions(
-                [ActionCommand(decision.priority_action, {}, priority=True)]
-            )
-            return
-        if decision.directive != "command":
-            return
-
-        command = decision.command
-        if self._handle_memory_command(command):
-            self._publish_state("listening")
-            return
-        if self._continuous_enabled:
-            self._enqueue_continuous_command(command)
-            return
-        if self._runtime.execution is None:
-            return
-        user_context = self._user_context.snapshot()
-        if not self._runtime.execution.start_background_turn(
-            self._run_direct_turn, command, user_context
-        ):
-            self.get_logger().warning("agent is busy; dropping overlapping utterance")
-            return
-
-    def _handle_memory_command(self, command: str) -> bool:
-        result = self._user_context.handle_command(command)
-        if result is None:
-            return False
-        if result.enroll_request is not None:
-            self._ros_io.publish_speaker_enroll_request(
-                enroll_request_to_message(
-                    result.enroll_request, stamp=self.get_clock().now()
-                )
-            )
-        self._ros_io.publish_response_delta(result.response)
-        self._ros_io.publish_response(result.response)
-        if (
-            self._runtime.execution is not None
-            and not self._runtime.execution.start_background_turn(
-                self._speak_memory_response, result.response
-            )
-        ):
-            self.get_logger().debug("memory response TTS skipped while Agent is busy")
-        return True
 
     def _speak_memory_response(self, response: str) -> None:
         try:
@@ -520,198 +474,24 @@ class OnlineAgentNode(LifecycleNode):
         except Exception as exc:
             self.get_logger().warning(f"memory response TTS failed: {exc}")
 
-    def _prepare_queued_turn(self):
+    def _prepare_turn_context(self, _context):
         self.metrics.reset()
         self.metrics.mark_asr_final()
 
-    def _run_direct_turn(
-        self, user_text: str, user_context: UserContextSnapshot
-    ) -> None:
-        self._prepare_queued_turn()
-        self._run_turn(user_text, user_context)
-
     def _run_turn(self, user_text: str, user_context: UserContextSnapshot):
-        self._publish_state("thinking")
-        text_queue = queue.Queue()
-        tts_errors = []
-        first_tts_text = False
+        if self._turn_runner is None:
+            raise RuntimeError("online turn runtime is not configured")
+        self._turn_runner.run(user_text, user_context)
 
-        def text_chunks():
-            while True:
-                item = text_queue.get()
-                if item is None:
-                    return
-                yield item
+    def _publish_action_candidate(self, action: ActionCommand) -> None:
+        """应用层只发布领域动作；这里是 online → ROS typed msg 的唯一 seam。"""
 
-        def run_tts():
-            try:
-                self.tts.synthesize(text_chunks(), self._on_tts_audio)
-            except Exception as exc:
-                tts_errors.append(exc)
-                self.get_logger().error(f"TTS failed: {exc}")
-
-        tts_thread = threading.Thread(target=run_tts, daemon=True)
-        tts_thread.start()
-
-        def enqueue_tts_text(text: str) -> None:
-            nonlocal first_tts_text
-            if not first_tts_text:
-                self.metrics.mark_tts_requested()
-                first_tts_text = True
-                self._publish_state("speaking")
-            text_queue.put(text)
-
-        turn = StreamingTurnRuntime(
-            max_chunk_chars=self._param("tts_chunk_max_chars"),
-            on_first_token=self.metrics.mark_llm_first_token,
-            on_speech_delta=self._ros_io.publish_response_delta,
-            on_speakable=enqueue_tts_text,
-            on_protocol_error=self.get_logger().warning,
+        message = action_command_to_message(action, source="online_agent")
+        self._ros_io.publish_action_candidate(message)
+        self.get_logger().info(
+            f"action candidate: type={message.action_type}, "
+            f"command_id={message.command_id}, priority={message.priority}"
         )
-
-        try:
-            messages = self.memory.prompt_messages(
-                user_context.system_prompt(self.system_prompt), user_text
-            )
-            self.metrics.mark_llm_requested()
-            for token in self.llm.stream(messages):
-                self._runtime.execution.raise_if_stopping()
-                turn.feed(token)
-
-            self._runtime.execution.raise_if_stopping()
-            result = turn.finish(user_text)
-            if result.action_source == "blocked" and result.model_actions:
-                self.get_logger().warning("model actions blocked by semantic safety policy")
-            action_report = self._publish_actions(result.actions, user_context)
-            text_queue.put(None)
-            tts_thread.join(timeout=35.0)
-            if tts_thread.is_alive():
-                raise TimeoutError("TTS worker did not stop")
-            if tts_errors:
-                raise tts_errors[0]
-
-            assistant_text = result.assistant_text
-            self._ros_io.publish_response(assistant_text)
-            self.memory.append_turn(
-                user_text,
-                assistant_text,
-                model_output=result.model_output,
-            )
-            self._user_context.record_interaction(
-                user_context,
-                user_text=user_text,
-                assistant_text=assistant_text,
-                # 只记录真正通过确定性/语义安全选择的动作，不能把被拦截动作写成习惯。
-                actions=[action.as_dict() for action in result.actions],
-                success=not action_report.failed,
-            )
-            self._publish_metrics()
-        except AgentExecutionCancelled:
-            text_queue.put(None)
-            tts_thread.join(timeout=2.0)
-            self.get_logger().info("agent turn cancelled by lifecycle transition")
-            raise
-        except Exception as exc:
-            text_queue.put(None)
-            tts_thread.join(timeout=2.0)
-            self.get_logger().error(f"agent turn failed: {exc}")
-            self._publish_state("error")
-            # worker 与非连续 turn 都由 AgentExecutionRuntime 拥有，异常统一交回运行时收口。
-            raise
-        finally:
-            if not self._runtime.stopping and self._runtime.active:
-                self._publish_state("listening")
-
-    def _run_queued_turn(self, item):
-        context = item.context if isinstance(item.context, dict) else {}
-        user_context = context.get("user_context")
-        if not isinstance(user_context, UserContextSnapshot):
-            user_context = self._user_context.snapshot()
-        actions = self._control.preparsed_actions(context)
-        if actions:
-            self._run_preparsed_turn(item.text, actions, user_context)
-            return
-        self._run_turn(item.text, user_context)
-
-    def _run_preparsed_turn(
-        self,
-        user_text: str,
-        actions,
-        user_context: UserContextSnapshot,
-    ):
-        self._publish_state("thinking")
-        summary = "，".join(action.name for action in actions)
-        response = f"好的，按顺序执行：{summary}。"
-        self._ros_io.publish_response_delta(response)
-        self._ros_io.publish_response(response)
-        report = self._publish_actions(actions, user_context)
-        self._user_context.record_interaction(
-            user_context,
-            user_text=user_text,
-            assistant_text=response,
-            actions=[action.as_dict() for action in actions],
-            success=not report.failed,
-        )
-
-    def _enqueue_continuous_command(self, command: str):
-        user_context = self._user_context.snapshot()
-        private_context = {"user_context": user_context}
-        decision = self._control.enqueue_command(
-            command,
-            context_extras=private_context,
-            fallback_context=private_context,
-        )
-        self._events.publish_enqueue_decision(decision)
-        if decision.status == "queued":
-            self.get_logger().info(
-                f"continuous command queued: size={decision.queue_size}, text={command}"
-            )
-        elif decision.status == "retry":
-            self.get_logger().warning(
-                f"incomplete voice command: reason={decision.reason}, text={command}"
-            )
-        elif decision.status == "rejected":
-            self.get_logger().warning(
-                f"continuous command queue rejected input: {decision.reason}"
-            )
-
-    def _publish_actions(
-        self,
-        actions,
-        user_context: UserContextSnapshot | None = None,
-    ):
-        context = user_context or self._user_context.snapshot()
-        action_list = apply_user_preferences(actions, context.preferences)
-
-        def publish_payload(action: ActionCommand):
-            message = action_command_to_message(action, source="online_agent")
-            self._ros_io.publish_action_candidate(message)
-            self.get_logger().info(
-                "action candidate: "
-                + json.dumps(command_message_to_dict(message), ensure_ascii=False)
-            )
-
-        report = self.action_sequencer.publish(
-            action_list,
-            publish_payload,
-            wait_for_results=self._should_wait_for_action_results(action_list),
-        )
-        if report.failed:
-            self.get_logger().warning(
-                f"action sequence stopped after {report.completed} completed step(s): {report.reason}"
-            )
-        return report
-
-    def _should_wait_for_action_results(self, action_list):
-        if self._runtime.execution is None:
-            return len(action_list) > 1
-        return self._runtime.execution.should_wait_for_action_results(
-            len(action_list)
-        )
-
-    def _on_tts_audio(self, pcm16: bytes):
-        self.metrics.mark_tts_first_audio()
-        self._ros_io.publish_tts_audio(pcm16)
 
     def _publish_metrics(self):
         snapshot = self.metrics.snapshot().as_dict()
@@ -732,22 +512,6 @@ class OnlineAgentNode(LifecycleNode):
 
     def _publish_state(self, state: str):
         self._events.publish_state(state)
-
-    def _publish_session_event(self, event):
-        self._events.publish_session_event(event)
-
-    def _publish_queue_event(
-        self,
-        event: str,
-        text: str,
-        snapshot: QueueSnapshot,
-        *,
-        priority_stop: bool = False,
-    ):
-        payload = self._control.queue_event(
-            event, text, snapshot, priority_stop=priority_stop
-        )
-        self._events.publish_queue(payload)
 
     def _publish_recognition_payload(self, payload: dict):
         self._events.publish_recognition(payload)

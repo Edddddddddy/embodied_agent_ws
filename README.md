@@ -54,12 +54,12 @@ flowchart LR
 | --- | --- |
 | `embodied_agent_interfaces` | 跨节点 typed msg/srv/action 的唯一来源 |
 | `embodied_agent_middleware` | C++ QoS 和中间件语义 |
-| `embodied_agent_core` | 在线/离线共享会话、队列、NLU、记忆和 ROS I/O |
+| `embodied_agent_core` | 共享控制面、应用用例、队列、NLU、记忆、Lifecycle 与 ROS I/O |
 | `embodied_agent_bringup` | launch 参数契约、Lifecycle 激活和部署拓扑 |
 | `embodied_voice_frontend` | VAD/KWS/声纹 Provider Adapter |
 | `embodied_agent_cpp` | 音频前端、ActionGuard、Action Client/Scheduler、硬件 mock |
-| `embodied_online_agent` | 在线 ASR/LLM/TTS Provider Adapter |
-| `embodied_offline_agent` | Sherpa、llama.cpp、Sherpa-TTS、SummerTTS Adapter |
+| `embodied_online_agent` | 在线 ASR/LLM/TTS Provider 与全流式 turn Adapter |
+| `embodied_offline_agent` | Sherpa、llama.cpp、双缓冲 TTS 与离线指标 Adapter |
 | `embodied_simulation` | Gazebo、BT、pluginlib Executor、Nav2 bridge |
 | `embodied_slam` | 漂移模型、闭环控制、GTSAM ScanSolver plugin |
 | `embodied_navigation` | 动态目标跟踪、运动预测、Nav2 costmap plugin |

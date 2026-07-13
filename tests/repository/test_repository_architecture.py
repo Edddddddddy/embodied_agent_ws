@@ -702,8 +702,17 @@ def test_online_and_offline_agents_have_real_lifecycle_resource_ownership():
     offline_node = (
         offline_root / "embodied_offline_agent" / "offline_agent_node.py"
     ).read_text(encoding="utf-8")
+    online_turn = (
+        online_root / "embodied_online_agent" / "online_turn_runtime.py"
+    ).read_text(encoding="utf-8")
+    offline_turn = (
+        offline_root / "embodied_offline_agent" / "offline_turn_runtime.py"
+    ).read_text(encoding="utf-8")
     ros_io = (CORE_ROOT / "agent_ros_io.py").read_text(encoding="utf-8")
     lifecycle_runtime = (CORE_ROOT / "agent_lifecycle_runtime.py").read_text(
+        encoding="utf-8"
+    )
+    application_runtime = (CORE_ROOT / "agent_application_runtime.py").read_text(
         encoding="utf-8"
     )
 
@@ -729,8 +738,19 @@ def test_online_and_offline_agents_have_real_lifecycle_resource_ownership():
         assert "self._lifecycle_active =" not in node
         assert "self._execution =" not in node
         assert "self._asr_endpoint =" not in node
-        assert "start_background_turn(" in node
+        assert "AgentApplicationRuntime" in node
+        assert "execute_item=self._application.run_queued_turn" in node
+        assert "self._application.accept_transcript(" in node
         assert "threading.Thread(\n            target=self._run_turn" not in node
+
+    # 主节点只承担 Lifecycle/ROS/provider 装配，模型 turn 数据面必须保持组合式隔离。
+    assert len(online_node.splitlines()) <= 550
+    assert len(offline_node.splitlines()) <= 700
+    assert "OnlineStreamingTurnRuntime" in online_node
+    assert "OfflineStreamingTurnRuntime" in offline_node
+    assert "StreamingTurnRuntime" in online_turn
+    assert "StreamingTurnRuntime" in offline_turn
+    assert "PseudoStreamingTtsPipeline" in offline_turn
 
     assert "create_lifecycle_publisher" in ros_io
     assert "create_subscription" in ros_io
@@ -745,6 +765,22 @@ def test_online_and_offline_agents_have_real_lifecycle_resource_ownership():
         assert ordered_step in lifecycle_runtime
     assert (
         ROOT / "src" / "embodied_agent_core" / "test" / "test_agent_lifecycle_runtime.py"
+    ).is_file()
+    for shared_use_case in (
+        "def accept_transcript(",
+        "def run_direct_turn(",
+        "def run_queued_turn(",
+        "def enqueue_continuous_command(",
+        "def publish_actions(",
+    ):
+        assert shared_use_case in application_runtime
+    assert "start_background_turn(" in application_runtime
+    assert (
+        ROOT
+        / "src"
+        / "embodied_agent_core"
+        / "test"
+        / "test_agent_application_runtime.py"
     ).is_file()
 
     online_launch = (online_root / "launch" / "online_agent.launch.py").read_text(

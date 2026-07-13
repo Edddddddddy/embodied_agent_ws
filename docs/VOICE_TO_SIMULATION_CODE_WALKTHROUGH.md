@@ -68,8 +68,8 @@ flowchart LR
 
 | 内容 | 在线链路 | 离线链路 |
 | --- | --- | --- |
-| 关键文件 | `online_agent_node.py`、共享的 `agent_lifecycle_runtime.py`、`asr_endpoint_runtime.py` | `offline_agent_node.py`、共享的 `agent_lifecycle_runtime.py`、`asr_endpoint_runtime.py` |
-| 关键函数 | `_on_asr_final()`、`AsrEndpointRuntime.request()`、`_run_turn()` | `_on_asr_final()`、`AsrEndpointRuntime.request()`、`_run_turn()` |
+| 关键文件 | `online_agent_node.py`、`online_turn_runtime.py`、共享的 `agent_application_runtime.py`、`agent_lifecycle_runtime.py` | `offline_agent_node.py`、`offline_turn_runtime.py`、共享的 `agent_application_runtime.py`、`agent_lifecycle_runtime.py` |
+| 关键函数 | `_on_asr_final()`、`AgentApplicationRuntime.accept_transcript()`、`OnlineStreamingTurnRuntime.run()` | `_on_asr_final()`、`AgentApplicationRuntime.accept_transcript()`、`OfflineStreamingTurnRuntime.run()` |
 | 主要接口 | `/agent/asr_final`、`/agent/action_candidate`、`/agent/metrics (source=online)` | `/agent/asr_final`、`/agent/action_candidate`、`/agent/metrics (source=offline)` |
 | 技术点 | 在线 Qwen/DashScope provider、流式响应、TTS/feedback | Sherpa ASR、llama.cpp provider、Sherpa-TTS/SummerTTS seam |
 
@@ -77,6 +77,8 @@ flowchart LR
 
 - 在线/离线 Agent 通过 `AgentControlPlane.accept_transcript()` 复用同一套归一化、
   会话、补全、重试和优先控制决策；差异集中在 provider、延迟统计和 TTS pipeline。
+- `AgentApplicationRuntime` 继续统一记忆命令、用户快照、入队、预解析动作和动作批次，
+  online/offline 不通过继承共享 Node，只注入各自的 turn callback。
 - 两个 Agent 都是 `LifecycleNode`：只有 ACTIVE 才接受语音/文本；deactivate 会先发布
   priority STOP，再取消流式 turn 和 worker，避免“节点显示 inactive 但机器人仍在执行”。
 - `AgentLifecycleRuntime` 组合式拥有 execution/endpoint，在线节点注入直接 ASR hook，离线节点
@@ -90,8 +92,8 @@ flowchart LR
 
 | 内容 | 位置 |
 | --- | --- |
-| 关键文件 | `agent_control_plane.py`、`agent_execution_runtime.py`、`continuous_voice.py`、`agent_ros_io.py`、`ros_topics.py`、`ros_agent_events.py`、`ros_event_transport.py`、`ros_qos.py`、`embodied_agent_interfaces/msg/{WakeEvent,RecognitionFeedback,NluParseEvent,Command*Event}.msg` |
-| 关键类/函数 | `AgentControlPlane.accept_transcript()`、`enqueue_command()`、`AgentExecutionRuntime`、`StreamingTurnRuntime`、`ContinuousVoiceSession`、`ContinuousCommandQueue`、`AgentRosIo.publish_*()`、`RosAgentEventPublisher.publish_*_decision()` |
+| 关键文件 | `agent_control_plane.py`、`agent_application_runtime.py`、`agent_execution_runtime.py`、`continuous_voice.py`、`agent_ros_io.py`、`ros_topics.py`、`ros_agent_events.py`、`ros_event_transport.py`、`ros_qos.py`、`embodied_agent_interfaces/msg/{WakeEvent,RecognitionFeedback,NluParseEvent,Command*Event}.msg` |
+| 关键类/函数 | `AgentControlPlane.accept_transcript()`、`AgentApplicationRuntime.run_queued_turn()`、`AgentExecutionRuntime`、`StreamingTurnRuntime`、`ContinuousVoiceSession`、`ContinuousCommandQueue`、`AgentRosIo.publish_*()`、`RosAgentEventPublisher.publish_*_decision()` |
 | 主要接口 | `/agent/session_state`、`/agent/wake_event`、`/agent/recognition_feedback`、`/agent/nlu_parse`、`/agent/command_queue`、`/agent/command_execution` |
 | 技术点 | 文本唤醒、重复过滤、FIFO、TTL、急停抢占、强类型事件、reliable/transient-local QoS |
 
@@ -101,7 +103,8 @@ flowchart LR
 - 普通命令按 FIFO 入队；执行中收到的新命令等待前一个 Action result。
 - `AgentControlPlane.enqueue_command()` 是 NLU 拆批与 batch metadata 的唯一入口；
   `AgentExecutionRuntime` 是 busy/worker/started-finished 生命周期的唯一拥有者。
-- NLU 预解析动作通过 `AgentControlPlane.preparsed_actions()` 恢复，节点不再理解队列内部表示；
+- `AgentApplicationRuntime.run_queued_turn()` 恢复 NLU 预解析动作和冻结的 turn/user context，
+  节点不再理解队列内部表示；
   同一队列 context 还携带 turn 级用户快照，但 ROS 事件只发布稳定的公共 batch metadata。
 - 在线/离线 provider 的 token 都进入 `StreamingTurnRuntime.feed()/finish()`；该模块统一
   tagged protocol、分句和安全动作选择，节点分别把 speakable callback 接到各自 TTS。
