@@ -158,7 +158,7 @@ bash scripts/acceptance_test.sh dynamic-obstacle-navigation
 预测 cost、路径净空和最终 `/cmd_vel=0`。原理与实测表见
 [SLAM 与导航工程笔记](docs/SLAM_NAVIGATION_ENGINEERING.md)。
 
-### 公开数据轨迹评估
+### OpenLORIS 公开数据回放
 
 先跑不下载数据的确定性门禁：
 
@@ -178,19 +178,26 @@ bash scripts/acceptance_test.sh slam-evaluation-stage
 bash scripts/acceptance_test.sh openloris-groundtruth
 ```
 
-OpenLORIS 原始包是 ROS 1 bag。可选 `rosbags` Adapter 能在 ROS 2 工作区直接导出
-Odometry/Pose/TF，无需安装整套 ROS 1：
+OpenLORIS 原始包是 ROS 1 bag。项目用可选 `rosbags` 流式读取 `/odom`、`/scan` 和
+`/tf_static`，转换为隔离的 ROS 2 TF 树并发布 `/clock`；同一输入可分别驱动 Ceres/GTSAM，
+无需安装整套 ROS 1。先跑小数据门禁：
 
 ```bash
 pip install -r requirements-slam-eval.txt
-python3 scripts/extract_rosbag_trajectory.py \
-  --bag /path/to/bag --topic /odom --output logs/openloris_estimate.tum
-
-SLAM_ESTIMATE_FILE=logs/openloris_estimate.tum \
-  bash scripts/acceptance_test.sh openloris-evaluate
+bash scripts/acceptance_test.sh openloris-replay-stage
 ```
 
-真实数据的完整方法、限制和报告解释见
+下载并解压官方 bag 后运行真实 A/B：
+
+```bash
+OPENLORIS_BAG=/data/openloris/office1-1.bag \
+  bash scripts/acceptance_test.sh openloris-bag-preflight
+OPENLORIS_BAG=/data/openloris/office1-1.bag \
+  bash scripts/acceptance_test.sh openloris-slam-ab
+```
+
+输出包含 bag contract、两条 map-frame TUM 轨迹、ATE/RPE 报告、launch 日志和不预设胜者的
+后端对比。大型 bag 和实验结果不会伪装成 CI 证据；完整方法与限制见
 [真实数据 SLAM 评估](docs/REAL_WORLD_SLAM_EVALUATION.md)。
 
 ## 测试与验收
@@ -205,6 +212,7 @@ SLAM_ESTIMATE_FILE=logs/openloris_estimate.tum \
 | C++ Action 生命周期 | `bash scripts/acceptance_test.sh cpp-action-client` | ROS 2 |
 | Nav2 轻量门禁 | `bash scripts/acceptance_test.sh nav2-stage` | ROS 2 |
 | SLAM 轨迹指标 | `bash scripts/acceptance_test.sh slam-evaluation-stage` | Python |
+| OpenLORIS 回放适配器 | `bash scripts/acceptance_test.sh openloris-replay-stage` | ROS 2 + rosbags |
 | 发布聚合报告 | `bash scripts/acceptance_test.sh release-gate` | 本地运行时 |
 | 演示聚合报告 | `bash scripts/acceptance_test.sh demo-gate` | 本地运行时 |
 
@@ -260,6 +268,7 @@ CONTINUOUS_SAMPLE_LOG=logs/asr_nlu_samples.jsonl \
 - 已完成的是 Gazebo/TurtleBot3 的语音控制、建图、地图复用定位、规划和预测动态避障；实体
   机器人标定、网络抖动和 UART/SPI 硬件可靠性没有实测。
 - Ceres/GTSAM 仿真 A/B 有可复查报告；真实场景的结论必须使用公开/自采 rosbag 和独立真值。
-- OpenLORIS 接入提供下载校验、bag Adapter 和指标工具；仓库不会提交大型数据集。
+- OpenLORIS 接入提供 bag contract、ROS 1→ROS 2 实时回放、Ceres/GTSAM A/B 和指标工具；
+  仓库不提交大型数据集，也不宣称尚未实跑的序列精度。
 - LoRA 训练、真实多人声纹 FAR/FRR、复杂动态人群预测仍属于后续工作。
 - JSON 仅用于离线报告和 JSONL 数据文件；运行时跨节点控制使用 typed ROS 2 接口。

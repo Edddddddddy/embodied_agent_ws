@@ -25,6 +25,7 @@
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>embodied_simulation</exec_depend>
   <exec_depend>embodied_navigation</exec_depend>
+  <exec_depend>embodied_slam_tools</exec_depend>
   <exec_depend>nav2_minimal_tb3_sim</exec_depend>
   <exec_depend>nav2_bringup</exec_depend>
   <exec_depend>nav2_map_server</exec_depend>

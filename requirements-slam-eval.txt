@@ -1,2 +1,2 @@
-# Optional: only needed to export ROS 1/2 bag topics into TUM trajectory files.
+# Optional: read ROS 1/2 bags for TUM export and OpenLORIS-to-ROS 2 SLAM replay.
 rosbags==0.11.3

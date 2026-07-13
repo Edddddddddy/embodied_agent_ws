@@ -48,7 +48,7 @@
 2. 搭建 C++ Audio Frontend，基于 PortAudio、有界缓冲和 NLMS AEC 处理实时音频，并结合 VAD 与语音端点检测驱动识别提交；设计连续会话状态机处理重复识别、短命令补全、多指令拆分和队列过期，急停指令可绕过普通队列直接抢占。
 3. 将语言模型限制在候选动作生成阶段，使用 C++ 对动作类型、参数组合、速度和导航目标进行二次校验；基于 ROS2 Action 实现单任务执行与 FIFO 调度，通过 command ID、优先级抢占、取消 watchdog 和迟到结果过滤解决超时取消及异步串单问题。
 4. 使用 BehaviorTree.CPP 编排校验、安全检查、执行和结果确认，通过 pluginlib 切换 Gazebo 与 Nav2 后端；控制层以 20 Hz 更新速度，结合 LaserScan 实现速度平滑、传感器超时 fail-safe 和近障停车，并以 Nav2 原生结果判断语义目标点导航是否完成。
-5. 构建可复现的 SLAM/导航实验：注入固定 seed 里程计漂移，实现 GTSAM `karto::ScanSolver` plugin 并与 Ceres 同前端 A/B；量化 ATE、RPE、闭环误差和地图覆盖，完成保存地图、AMCL 定位、Nav2 规划控制及动态障碍预测重规划。
+5. 构建可复现的 SLAM/导航实验：注入固定 seed 里程计漂移，实现 GTSAM `karto::ScanSolver` plugin 并与 Ceres 同前端 A/B；实现 OpenLORIS ROS 1 bag 到 ROS 2 时钟、TF、激光数据的流式回放，量化 ATE、RPE、闭环误差和地图覆盖，并完成保存地图、AMCL 定位、Nav2 规划控制及动态障碍预测重规划。
 6. 建立覆盖纯算法、节点通信和端到端场景的分层验收，重点验证 Lifecycle 停机、Action 取消、队列抢占、导航竞态、雷达安全控制和最终速度回零；测试产出结构化 JSON/Markdown 证据，区分 mock、仿真和真实模型结论。
 
 ### 其他项目排列建议
