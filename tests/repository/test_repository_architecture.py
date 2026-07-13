@@ -306,6 +306,9 @@ def test_parameter_smoke_uses_bounded_rclpy_client_instead_of_ros2cli_daemon():
     assert "spin_until_future_complete" in probe_text
     assert "--timeout 15" in smoke_text
     assert "ros2 param get" not in smoke_text
+    assert "activate_lifecycle_node.py" in smoke_text
+    assert "--wait-only" in smoke_text
+    assert "online agent ready" not in smoke_text
 
 def test_nav2_executor_failure_details_are_preserved():
     """Nav2 失败原因必须从 executor 透传到本项目 typed action。

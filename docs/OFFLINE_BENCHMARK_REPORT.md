@@ -70,15 +70,15 @@ bash scripts/acceptance_test.sh instruction-following-eval
 | 模型资产大小 | 记录即可 | 见 `logs/offline_showcase_report.md` | `offline-showcase-report` |
 | 运行时版本 | 固定版本匹配 | 见 `logs/offline_showcase_report.md` | `offline-showcase-report` |
 | 指标证据矩阵 | 区分可宣称/不可宣称 | 见 `claim_evidence` | `offline-showcase-report` + `offline-evidence-audit` |
-| LLM 短请求首 token | ≤ 1000ms | 229.46ms | `offline-latency` / `--run-latency` |
-| Sherpa 短句整句合成 | ≤ 600ms | 234.16ms | `offline-latency` / `--run-latency` |
+| LLM warm turn 首 token | ≤ 1000ms | P50 496.90ms，P95 544.79ms | `offline-latency` / `--run-latency` |
+| Sherpa 短句整句合成 | ≤ 600ms | 178.94ms | `offline-latency` / `--run-latency` |
 | llama.cpp CPU decode | ≥ 8.6 tokens/s | 16.4276 tokens/s（8 threads） | `llama-decode-benchmark` |
 | ASR realtime factor | < 1.0 | 0.0620 | `benchmark_offline.sh` / `--run-asr-tts` |
 | TTS realtime factor | < 1.0 | 0.9004 | `benchmark_offline.sh` / `--run-asr-tts` |
-| 真实 Agent 端点→首 PCM | < 3500ms | 最近一次 2113.83ms；本轮多次运行约 1.32–2.11s | `offline-voice-e2e-report` / `--run-voice-e2e` |
-| 真实 Agent LLM 首 token | ≤ 1000ms | 最近一次 864.12ms；预热后多次运行约 0.29–0.86s | `offline-voice-e2e-report` |
-| 伪流式首文本→首 PCM | 记录即可 | 585.36ms | `offline-voice-e2e-report` |
-| 整轮完成 | 记录即可 | 3631.22ms | `offline-voice-e2e-report` |
+| 真实 Agent 端点→首 PCM | < 3500ms | 707.53ms | `offline-voice-e2e-report` / `--run-voice-e2e` |
+| 真实 Agent LLM 首 token | ≤ 1000ms | 120.61ms | `offline-voice-e2e-report` |
+| 伪流式首文本→首 PCM | 记录即可 | 315.08ms | `offline-voice-e2e-report` |
+| 整轮完成 | ≤ 3500ms | 1428.57ms | `offline-voice-e2e-report` |
 | deterministic parser 动作准确率 | ≥ 95% | 当前代表集 43/43（100%） | `instruction-parser-eval` |
 | 离线 LLM 原始指令动作准确率 | ≥ 70% 起步 | 3/8，37.5%，未达标 | `instruction-following-eval` / `--run-instruction-following` |
 | fallback/安全层后动作准确率 | ≥ 85% | 8/8，100% | 同上；不能冒充模型分数 |
