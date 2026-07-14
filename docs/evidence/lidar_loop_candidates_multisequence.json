@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "passed": true,
+  "checks": {
+    "minimum_two_sequences": true,
+    "source_reports_passed": true,
+    "source_quality_checks_passed": true,
+    "distinct_scan_corpora": true,
+    "distinct_fixed_graphs": true,
+    "same_groundtruth_thresholds": true,
+    "ring_key_beats_similarity_rerank_every_sequence": true
+  },
+  "sequence_count": 2,
+  "sequences": [
+    {
+      "sequence": "corridor1-1",
+      "scan_rows": 542,
+      "eligible_queries": 191,
+      "ring_key_recall_at_10": 0.335079,
+      "ring_key_precision_at_10": 0.027903,
+      "similarity_rerank_recall_at_10": 0.240838,
+      "ring_key_mrr": 0.125075,
+      "event_recall_at_10": 1.0
+    },
+    {
+      "sequence": "corridor1-2",
+      "scan_rows": 232,
+      "eligible_queries": 51,
+      "ring_key_recall_at_10": 0.627451,
+      "ring_key_precision_at_10": 0.057674,
+      "similarity_rerank_recall_at_10": 0.45098,
+      "ring_key_mrr": 0.193075,
+      "event_recall_at_10": 1.0
+    }
+  ],
+  "aggregate": {
+    "mean_ring_key_recall_at_10": 0.481265,
+    "mean_ring_key_precision_at_10": 0.0427885,
+    "mean_ring_key_mrr": 0.159075,
+    "all_events_recovered_at_10": true
+  },
+  "release_decision": {
+    "shadow_scan_match_integration_ready": true,
+    "direct_graph_edge_insertion_enabled": false,
+    "status": "ready_for_shadow_scan_match_integration",
+    "reason": "Candidate recall is sufficient for shadow-mode scan-matcher evaluation, but candidate precision is not an accepted-edge precision measurement."
+  },
+  "claim_boundary": "The C++ retriever uses LaserScan and timestamps only. Official ground truth labels offline candidates; no candidate is inserted into the pose graph in this stage."
+}

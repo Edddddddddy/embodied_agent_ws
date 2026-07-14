@@ -105,6 +105,7 @@ Nav2 executor seam。SLAM/动态避障不再现场启动重型流程，只展示
 | 行为树 | `src/embodied_simulation/src/command_behavior_tree.cpp` | `CommandBehaviorTree` | BehaviorTree.CPP 编排校验、执行、取消 |
 | 漂移与闭环基准 | `src/embodied_slam/src/drift_model.cpp`、`closed_loop_driver_node.cpp` | `DriftModel::update()`、`ClosedLoopController::update()` | 固定 seed 可重复漂移、雷达安全暂停、同路线后端 A/B |
 | GTSAM 后端 | `src/embodied_slam/src/gtsam_pose_graph.cpp`、`gtsam_scan_solver.cpp` | `GtsamPoseGraphOptimizer::optimize()`、`Compute()` | Prior/Between factors、Huber、协方差正定化、karto ScanSolver Adapter |
+| LiDAR 回环候选 | `src/embodied_slam/src/lidar_loop_descriptor.cpp`、`lidar_loop_candidates.cpp` | `makePolarScanDescriptor()`、`LidarLoopCandidateIndex::query()` | 60 秒历史隔离、旋转不变环键 Top-K、循环偏航对齐、候选级 Recall/Precision |
 | SLAM 指标 | `tests/integration/test_slam_mapping_baseline.py` | `build_report()` | 优化前后 ATE、闭环误差、地图面积和保存产物 |
 | 动态跟踪 | `src/embodied_navigation/src/dynamic_obstacle_tracker.cpp` | `DynamicObstacleTracker::update()` | 最近邻关联、速度平滑、置信度和 track TTL |
 | 未来预测 | `src/embodied_navigation/src/constant_velocity_predictor.cpp` | `predict_constant_velocity()` | 无 ROS 纯函数、未来轨迹、不确定性半径增长 |
@@ -119,7 +120,8 @@ Nav2 executor seam。SLAM/动态避障不再现场启动重型流程，只展示
 - 不强依赖重型声学模型：默认用 energy VAD + 当前 ASR + 文本唤醒，先保证 WSL/Gazebo 演示可复现；openWakeWord/Silero 等作为后续 seam。
 - 不把 SummerTTS 宣称为当前低延迟默认路径：它已完成 C++ ROS 服务化接入，适合展示端侧 TTS runtime 封装；当前 `<300ms` 低延迟 gate 仍以 Sherpa-TTS 路径为主。
 - 不把“启动 slam_toolbox”说成自己做了 SLAM：项目自己实现受控漂移、GTSAM ScanSolver、
-  协方差防护和指标报告；前端候选检测仍复用 slam_toolbox/karto，并明确说明边界。
+  协方差防护、2D LiDAR 候选检索和指标报告；生产 accepted edge 仍由 Karto scan matcher 确认，
+  独立候选检索当前只到 shadow-ready，明确说明边界。
 - 不只在障碍出现后刹车：动态目标先由 C++ tracker 估计速度，预测层把未来 2 秒占用注入
   Nav2 全局 costmap；验收比较规划前后净空，而不是只看机器人最终没撞到。
 
@@ -181,4 +183,6 @@ benchmark，并用 `runtime-evidence-summary` 核对 `proven/failed/missing`。�
   成功”或跨场景泛化证据，也不能把问题错误归因给 GTSAM 后端。
 - 扫描重叠双证据已在 `corridor1-1/1-2` 两份独立固定图上聚合：前者 ATE 改善 5.84%，后者
   指标不变。项目因此保留门控默认关闭，展示的是可复现实验和发布判断，而不是挑选正向均值。
+- 独立 LiDAR 环键候选检索在两序列 Recall@10 为 33.51%/62.75%、事件召回 4/4；Precision@10
+  仅 2.79%/5.77%，所以只能讲“候选召回已具备 shadow 集成条件”，不能讲成“回环约束已可靠接受”。
 - SummerTTS 已服务化，但当前 CPU 推理瓶颈仍明显，后续可做量化、缓存或更快声码器优化。

@@ -75,6 +75,7 @@ Automated modes:
   openloris-loop-consistency-ablation Reject geometrically inconsistent non-local graph edges
   openloris-scan-overlap-ablation Validate accepted constraints with no-GT scan overlap evidence
   openloris-scan-overlap-multisequence Aggregate independent fixed-graph overlap ablations
+  openloris-lidar-loop-candidates Evaluate C++ LiDAR loop retrieval on two real sequences
   openloris-replay-stage Generate a tiny bag and replay it through Ceres/GTSAM SLAM
   openloris-bag-preflight Validate OPENLORIS_BAG topics, frames, and optional runtime
   openloris-slam-ceres Replay a real OpenLORIS bag through the Ceres backend
@@ -494,6 +495,9 @@ case "$LEVEL" in
     ;;
   openloris-scan-overlap-multisequence)
     bash scripts/run_gtsam_scan_overlap_multisequence.sh
+    ;;
+  openloris-lidar-loop-candidates)
+    bash scripts/run_openloris_lidar_loop_candidates.sh
     ;;
   openloris-replay-stage)
     python3 -c 'import rosbags' || {

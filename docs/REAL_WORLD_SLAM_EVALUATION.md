@@ -444,7 +444,21 @@ bash scripts/acceptance_test.sh openloris-scan-overlap-multisequence
 报告见
 [`docs/evidence/gtsam_scan_overlap_multisequence.md`](evidence/gtsam_scan_overlap_multisequence.md)。
 
-## 6. 面试讲法和事实边界
+## 6. 候选级 LiDAR 回环检索
+
+后端鲁棒核、一致性门控和扫描重叠都只能处理 Karto 已接受的约束。项目新增 C++ 极坐标
+LaserScan 描述子，在不读取位姿/真值的条件下对 60 秒以前的扫描做环键 Top-K，并用完整矩阵循环
+移位估计偏航。真值只在离线报告中定义 1 米位置回访正样本。
+
+```bash
+bash scripts/acceptance_test.sh openloris-lidar-loop-candidates
+```
+
+`corridor1-1/1-2` 的 Recall@10 分别为 33.51%/62.75%，4/4 真值事件被覆盖；Precision@10
+分别为 2.79%/5.77%。因此发布状态是 `ready_for_shadow_scan_match_integration`，直接图边插入保持
+关闭。完整相似度重排在两个序列都弱于环键，报告保留该负向消融。
+
+## 7. 面试讲法和事实边界
 
 可以讲：
 
@@ -462,6 +476,7 @@ bash scripts/acceptance_test.sh openloris-scan-overlap-multisequence
 当前仓库已经具备真实 office bag 的双后端回放、长走廊回访序列、来源 manifest、人工退化区间、
 SLAM-only 派生包、accepted-edge 参数消融和 Karto 候选级 instrumentation，但不随 Git 提交大型
 bag/实验结果。鲁棒核、创新门控和扫描重叠双证据消融已经完成；两条独立固定图的首轮多序列门禁
-也已完成，结果支持继续关闭门控，而不是发布 0.65 为通用阈值。下一步应增加有更多非局部边的场景，
-再研究描述子/候选检索，而不是继续在 `corridor1-1` 调阈值。之后可扩展到跨序列 lifelong/relocalization。动态障碍预测的 current-only、CV、Kalman、
-IMM 同场景消融已另行完成。
+也已完成，结果支持继续关闭门控，而不是发布 0.65 为通用阈值。独立描述子候选检索已达到
+shadow scan-matcher 集成门槛，下一步应测候选通过几何验证后的 precision/latency，而不是继续在
+`corridor1-1` 调后端阈值。之后可扩展到跨序列 lifelong/relocalization。动态障碍预测的
+current-only、CV、Kalman、IMM 同场景消融已另行完成。

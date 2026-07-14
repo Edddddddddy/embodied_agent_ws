@@ -977,6 +977,12 @@ sidecar 输出实际相似度。多人准确率仍需另建注册/查询数据�
 - `scripts/augment_pose_graph_scan_overlap.py`
 - `scripts/run_gtsam_scan_overlap_ablation.py`
 - `scripts/run_gtsam_scan_overlap_ablation.sh`
+- `src/embodied_slam/include/embodied_slam/lidar_loop_descriptor.hpp`
+- `src/embodied_slam/src/lidar_loop_descriptor.cpp`
+- `src/embodied_slam/src/lidar_loop_candidates.cpp`
+- `scripts/extract_openloris_scan_corpus.py`
+- `scripts/evaluate_lidar_loop_candidates.py`
+- `scripts/compare_lidar_loop_candidate_sequences.py`
 - `src/embodied_slam/config/openloris_loop_sweep.json`
 - `src/embodied_slam/config/openloris_office1_7_annotations.json`
 
@@ -1064,6 +1070,24 @@ ATE，但 0.50 阈值反而使 ATE 恶化 1.73%，说明单帧重叠会受走廊
 少删边。`corridor1-2` 的第二固定图只有一条高重叠非局部边，因此四组指标完全相同。即使两序列
 平均 ATE 仍改善 2.92%，也不能启用门控——宏平均会隐藏“一个有效、一个无效”的事实。这个设计
 与常见“只报告平均分”的 benchmark 不同，更接近生产参数发布时的回归保护。
+
+候选级检索进一步把“前端召回”和“后端拒错”分开。`makePolarScanDescriptor()` 将局部激光点投影为
+径向环 × 方位扇区占用矩阵；环方向求和得到与机器人朝向无关的 `ring_key`，用于低成本历史粗筛。
+`alignPolarDescriptors()` 对完整矩阵穷举循环移位，返回余弦相似度和偏航初值。`LidarLoopCandidateIndex`
+先剔除 60 秒内的近邻帧，再按环键距离取 Top-K；整个 C++ 路径只读 LaserScan 和时间戳，不读取
+里程计、优化位姿或真值。
+
+离线评估没有直接复用异步 Karto 图节点时间轴，因为 `corridor1-2` 的固定图只覆盖原 bag 前约
+49 秒，会错误消除 60 秒长回访机会。`extract_openloris_scan_corpus.py` 改为对完整原始扫描流按
+0.5 秒确定性采样，同时绑定 bag/graph/corpus 三类 SHA256；官方轨迹只在
+`evaluate_lidar_loop_candidates.py` 中给候选打标签。这样后端是否丢帧不会反向定义前端召回率。
+
+消融还给出了一个有价值的反例：完整占用矩阵相似度重排在两个走廊序列都弱于环键排序，说明
+平移视角变化对稀疏 2D occupancy cosine 的影响超过了它提供的区分力。因此工程实现让环键负责排序，
+完整描述子只提供偏航和二次复核。两序列平均 Recall@10 为 48.13%，事件召回 4/4，但平均
+Precision@10 仅 4.28%；它足以进入 shadow scan matcher，却远不足以跳过几何匹配直接加图边。
+对比 Scan Context 的 3D 高度描述子，本实现面向 2D LaserScan，采用占用计数而非高度统计；对比
+Karto 几何近邻 chain，它不依赖当前漂移位姿，但更容易受到重复走廊的感知混淆。
 
 ## 15. 动态障碍运动模型与同场景消融
 
