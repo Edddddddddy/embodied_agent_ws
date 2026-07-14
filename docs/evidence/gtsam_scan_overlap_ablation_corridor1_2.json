@@ -1,0 +1,137 @@
+{
+  "schema_version": 1,
+  "passed": true,
+  "checks": {
+    "same_graph_sha256": true,
+    "same_node_count": true,
+    "same_constraint_count": true,
+    "same_matched_pose_count": true,
+    "all_trajectory_evaluations_passed": true,
+    "all_nonlocal_edges_have_overlap_evidence": true
+  },
+  "graph_sha256": "6f9d819a0384bf5a3356980c003c9d2bc3af23fb918ea6293b0a090e5aaf342f",
+  "graph_nodes": 488,
+  "graph_constraints": 491,
+  "matched_poses_per_variant": 488,
+  "best_ate_variant": "cauchy_baseline",
+  "variants": [
+    {
+      "name": "cauchy_baseline",
+      "consistency_gate": false,
+      "scan_overlap_gate": false,
+      "minimum_scan_overlap_ratio": 0.65,
+      "minimum_translation_residual_m": 1,
+      "constraints_used": 491,
+      "consistency_rejected_constraints": 0,
+      "scan_overlap_evaluated_constraints": 0,
+      "scan_overlap_rejected_constraints": 0,
+      "ate_rmse_m": 0.153845,
+      "ate_p95_m": 0.276874,
+      "rpe_translation_rmse_m": 0.064138,
+      "final_pose_error_m": 0.431556,
+      "ate_change_vs_baseline_pct": 0.0
+    },
+    {
+      "name": "naive_overlap",
+      "consistency_gate": false,
+      "scan_overlap_gate": true,
+      "minimum_scan_overlap_ratio": 0.65,
+      "minimum_translation_residual_m": 0,
+      "constraints_used": 491,
+      "consistency_rejected_constraints": 0,
+      "scan_overlap_evaluated_constraints": 1,
+      "scan_overlap_rejected_constraints": 0,
+      "ate_rmse_m": 0.153845,
+      "ate_p95_m": 0.276874,
+      "rpe_translation_rmse_m": 0.064138,
+      "final_pose_error_m": 0.431556,
+      "ate_change_vs_baseline_pct": 0.0
+    },
+    {
+      "name": "innovation_gate",
+      "consistency_gate": true,
+      "scan_overlap_gate": false,
+      "minimum_scan_overlap_ratio": 0.65,
+      "minimum_translation_residual_m": 1,
+      "constraints_used": 491,
+      "consistency_rejected_constraints": 0,
+      "scan_overlap_evaluated_constraints": 0,
+      "scan_overlap_rejected_constraints": 0,
+      "ate_rmse_m": 0.153845,
+      "ate_p95_m": 0.276874,
+      "rpe_translation_rmse_m": 0.064138,
+      "final_pose_error_m": 0.431556,
+      "ate_change_vs_baseline_pct": 0.0
+    },
+    {
+      "name": "dual_evidence",
+      "consistency_gate": true,
+      "scan_overlap_gate": true,
+      "minimum_scan_overlap_ratio": 0.65,
+      "minimum_translation_residual_m": 1,
+      "constraints_used": 491,
+      "consistency_rejected_constraints": 0,
+      "scan_overlap_evaluated_constraints": 1,
+      "scan_overlap_rejected_constraints": 0,
+      "ate_rmse_m": 0.153845,
+      "ate_p95_m": 0.276874,
+      "rpe_translation_rmse_m": 0.064138,
+      "final_pose_error_m": 0.431556,
+      "ate_change_vs_baseline_pct": 0.0
+    }
+  ],
+  "interpretation_boundary": "Overlap is computed from timestamp-associated raw LaserScan and static TF, without ground truth. This validates Karto-accepted constraints at the frontend/backend boundary; it neither generates candidates nor proves frontend precision.",
+  "sequence": "corridor1-2",
+  "fixed_graph_contract": {
+    "sha256": "6f9d819a0384bf5a3356980c003c9d2bc3af23fb918ea6293b0a090e5aaf342f",
+    "nodes": 488,
+    "constraints": 491,
+    "source_is_immutable_across_variants": true
+  },
+  "gate_contract": {
+    "uses_ground_truth_at_runtime": false,
+    "default_enabled": false,
+    "minimum_overlap_ratio": 0.65,
+    "minimum_translation_innovation_m": 1.0,
+    "threshold_policy": "Use the independently published multi-sequence report for the release decision; a favorable result on one sequence is not sufficient to enable the gate."
+  },
+  "scan_evidence": {
+    "schema_version": 1,
+    "passed": true,
+    "source_graph_sha256": "6f9d819a0384bf5a3356980c003c9d2bc3af23fb918ea6293b0a090e5aaf342f",
+    "source_bag_sha256": "11c854856da3c0c3f8ab93e454328be3e7c6b92501a44f7b3df18dd0ef5cc84c",
+    "output_graph_sha256": "6f9d819a0384bf5a3356980c003c9d2bc3af23fb918ea6293b0a090e5aaf342f",
+    "nodes": 488,
+    "constraints": 491,
+    "scan_messages": 4632,
+    "scored_nonlocal_constraints": 1,
+    "unavailable_nonlocal_constraints": 0,
+    "association_delta_s": {
+      "maximum": 2.38e-07,
+      "p95": 2.38e-07
+    },
+    "configuration": {
+      "scan_topic": "/scan",
+      "scan_frame": "laser",
+      "base_frame": "base_link",
+      "scan_to_base": {
+        "x_m": 0.143509111,
+        "y_m": -0.096424885,
+        "yaw_rad": 0.00195345
+      },
+      "loop_id_separation": 20,
+      "minimum_range_m": 0.12,
+      "maximum_range_m": 30.0,
+      "point_stride": 2,
+      "minimum_points": 30,
+      "match_distance_m": 0.2
+    },
+    "overlap_ratio": {
+      "minimum": 0.856124,
+      "median": 0.856124,
+      "p95": 0.856124,
+      "maximum": 0.856124
+    },
+    "methodology_boundary": "Raw LaserScan is associated by timestamp and scored without ground truth. Single-frame overlap is supporting evidence, not a replacement for Karto chain matching."
+  }
+}

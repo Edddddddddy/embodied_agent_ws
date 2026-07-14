@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "passed": true,
+  "checks": {
+    "at_least_two_sequences": true,
+    "unique_sequence_names": true,
+    "distinct_fixed_graphs": true,
+    "same_gate_thresholds": true,
+    "all_source_reports_passed": true,
+    "all_overlap_evidence_available": true
+  },
+  "sequence_count": 2,
+  "sequences": [
+    {
+      "sequence": "corridor1-1",
+      "graph_sha256": "17999f541b5b3fca11ae2d40428373a6a8c291b5c2cc86c349d9d838cc56677b",
+      "graph_nodes": 1834,
+      "graph_constraints": 2751,
+      "minimum_scan_overlap_ratio": 0.65,
+      "minimum_translation_innovation_m": 1.0,
+      "baseline_ate_rmse_m": 1.223586,
+      "innovation_gate_ate_rmse_m": 1.171272,
+      "dual_evidence_ate_rmse_m": 1.152082,
+      "baseline_ate_p95_m": 2.396779,
+      "dual_evidence_ate_p95_m": 2.198511,
+      "dual_ate_change_vs_baseline_pct": -5.843807,
+      "dual_ate_change_vs_innovation_pct": -1.63839,
+      "dual_p95_change_vs_baseline_pct": -8.272269,
+      "naive_overlap_rejected_constraints": 269,
+      "dual_evidence_rejected_constraints": 11,
+      "overlap_evidence_unavailable": 0,
+      "source_report_passed": true
+    },
+    {
+      "sequence": "corridor1-2",
+      "graph_sha256": "6f9d819a0384bf5a3356980c003c9d2bc3af23fb918ea6293b0a090e5aaf342f",
+      "graph_nodes": 488,
+      "graph_constraints": 491,
+      "minimum_scan_overlap_ratio": 0.65,
+      "minimum_translation_innovation_m": 1.0,
+      "baseline_ate_rmse_m": 0.153845,
+      "innovation_gate_ate_rmse_m": 0.153845,
+      "dual_evidence_ate_rmse_m": 0.153845,
+      "baseline_ate_p95_m": 0.276874,
+      "dual_evidence_ate_p95_m": 0.276874,
+      "dual_ate_change_vs_baseline_pct": 0.0,
+      "dual_ate_change_vs_innovation_pct": 0.0,
+      "dual_p95_change_vs_baseline_pct": 0.0,
+      "naive_overlap_rejected_constraints": 0,
+      "dual_evidence_rejected_constraints": 0,
+      "overlap_evidence_unavailable": 0,
+      "source_report_passed": true
+    }
+  ],
+  "aggregate": {
+    "mean_dual_ate_change_vs_baseline_pct": -2.921903,
+    "mean_dual_ate_change_vs_innovation_pct": -0.819195,
+    "dual_improves_all_sequence_ate": false,
+    "dual_p95_no_material_regression": true,
+    "dual_rejects_fewer_edges_than_naive_all_sequences": false
+  },
+  "release_decision": {
+    "recommended_default_enabled": false,
+    "status": "keep_disabled_collect_more_sequences",
+    "policy": "Enable only when every independent fixed graph improves ATE, no sequence regresses ATE P95 by more than 2%, and dual evidence rejects fewer edges than the naive overlap-only gate."
+  },
+  "claim_boundary": "This report evaluates already accepted Karto constraints on independent fixed graphs. It uses ground truth only for offline trajectory scoring; runtime overlap and innovation gates remain ground-truth-free. It does not measure candidate-level loop-closure precision or recall."
+}
