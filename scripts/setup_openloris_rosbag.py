@@ -74,6 +74,21 @@ SEQUENCE_RANGE_CONTRACTS = {
         archive_size=16_237_660_160,
         archive_sha256="10fce93b8b9dc9efea52c918b7c1b62fce67686e6d0d0bfdc772a2d073a92e66",
     ),
+    # corridor1-2 是同一固定 tar 的第二个成员，可复用相同传感器模型做独立序列验证。
+    # range 从该成员 header 开始，到下一个 tar header 前结束；两层摘要均来自完整下载实测。
+    "corridor1-2": SequenceRangeContract(
+        range_start=11_227_076_608,
+        range_end=16_237_654_527,
+        member_size=5_010_577_265,
+        range_sha256="5e273cc884dcb73543045fb8b95f3ba758063150624acd3df723a88c92d24bb3",
+        bag_sha256="e8a25490762e8b07537a4297cf6b228b8eee42345587cb3892776264995eb3b6",
+        archive_url=(
+            "https://huggingface.co/datasets/shixuesong/openloris-scene/resolve/"
+            f"{DATASET_COMMIT}/rosbag/corridor1-1_2-rosbag.tar?download=true"
+        ),
+        archive_size=16_237_660_160,
+        archive_sha256="10fce93b8b9dc9efea52c918b7c1b62fce67686e6d0d0bfdc772a2d073a92e66",
+    ),
 }
 
 

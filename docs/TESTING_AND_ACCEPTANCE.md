@@ -189,8 +189,9 @@ bash scripts/acceptance_test.sh openloris-slam-ab
 解析、closure begin/end 平衡。`failure_boundary` 用于区分 candidate generation、coarse、fine、
 constraint insertion 和 accepted loop；没有 matcher callback 时不能猜成“响应阈值太高”。
 
-`openloris-long-loop-evidence` 的通过含义是证据链完整，不是保证算法性能达标：轨迹排名与
-slam_toolbox 传感器契约必须共同推荐 `corridor1-1`；range/bag 大小与 SHA256 通过；派生 bag
+`openloris-long-loop-evidence` 的通过含义是证据链完整，不是保证算法性能达标：默认推荐
+`corridor1-1`，显式选择 `corridor1-2` 时则要求同一传感器契约、至少 100 m/90 s 和真实回访；
+range/bag 大小与 SHA256 通过；派生 bag
 绑定原包哈希；轨迹覆盖达标；按 360° LiDAR 位置口径存在 2 次至少相隔 60 秒的真值回访；
 frontend trace 与 accepted-edge 报告均可解析。event recall 允许为 0，因为“真实回环存在但前端
 未恢复”本身就是不能篡改的有效负结果。
@@ -205,6 +206,11 @@ frontend trace 与 accepted-edge 报告均可解析。event recall 允许为 0�
 字段。四组必须共享增强图 SHA256、1834/2751 图规模和 1828 个真值匹配位姿；任何门控组出现
 `scan_overlap_unavailable_constraints > 0` 都判失败。当前 0.65/1 m 双证据组额外拒绝 11 条边，
 但参数默认关闭，PASS 表示证据和公平性完整，不表示该阈值已跨场景泛化。
+
+`openloris-scan-overlap-multisequence` 聚合 `corridor1-1/1-2` 两份 comparison。PASS 只表示输入
+来自不同固定图、阈值一致、报告完整且扫描证据无缺失；是否启用由 `release_decision` 单独给出。
+当前第二序列四组 ATE/P95 完全相同，因此即使平均 ATE 改善，决策仍必须是
+`keep_disabled_collect_more_sequences`。
 
 ### 动态障碍
 

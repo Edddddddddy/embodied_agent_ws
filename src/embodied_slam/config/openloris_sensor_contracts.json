@@ -23,6 +23,10 @@
     "corridor1-1": {
       "status": "verified_compatible",
       "evidence": "full 11227075960-byte bag contract contains /odom, /scan and /tf_static; bag SHA256 a373fb24539561ee6a8900c91603baeedf8b739881a7b04860ed5e363dc93a22; tar range SHA256 14aed071ea7198d47bd14ea992ce5e46dd17b128766ef77b953cc4a50d3744da"
+    },
+    "corridor1-2": {
+      "status": "verified_compatible",
+      "evidence": "full 5010577265-byte bag contract contains /odom, /scan and /tf_static; bag SHA256 e8a25490762e8b07537a4297cf6b228b8eee42345587cb3892776264995eb3b6; tar range SHA256 5e273cc884dcb73543045fb8b95f3ba758063150624acd3df723a88c92d24bb3"
     }
   },
   "claim_boundary": "Only verified_compatible sequences may be selected for formal slam_toolbox evidence; index probes are discovery hints only."

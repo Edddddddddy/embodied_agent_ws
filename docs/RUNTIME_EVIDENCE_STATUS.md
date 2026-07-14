@@ -16,6 +16,7 @@
 | 离线 fixture E2E | endpoint 到首音频 707.533 ms，turn complete 1428.566 ms，LLM 首 token 120.607 ms | **已测且 <3.5 s**，但它是测试音频/fixture，不是 5 分钟真人长稳证据 |
 | 离线组件性能 | warm LLM P95 544.79 ms、解码中位数 30.52 tokens/s、Sherpa-TTS 178.94 ms | **已测**，属于组件 benchmark |
 | OpenLORIS SLAM | office1-7：449 对齐位姿、99.753% 覆盖，Ceres/GTSAM ATE 约 10 cm；6 组前端阈值均为 46 条相邻边、accepted 非局部边 0；baseline 47 个图节点中 39 次被 near-linked 排除、8 次历史不足、0 次 coarse check | **已测**，已补来源绑定的 5 MB SLAM-only bag、阈值消融和 Karto 前端诊断；当前不能宣称回环检测成功 |
+| 扫描重叠跨序列 | corridor1-1 双证据 ATE 改善 5.84%；corridor1-2 四组 ATE 均 0.1484 m、收益为 0；两图 SHA256 独立且证据完整 | **已测但不启用**，平均改善 2.92% 不能掩盖第二序列无收益，发布决策为 `keep_disabled_collect_more_sequences` |
 
 > 5 分钟报告通过不代表截断问题消失；现场观察到的尾部丢失和 P95 长尾继续作为已知问题保留。
 
