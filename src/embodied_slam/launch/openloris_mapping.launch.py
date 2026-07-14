@@ -42,7 +42,7 @@ def generate_launch_description():
     )
     slam_toolbox = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(slam_toolbox_share, "launch", "online_async_launch.py")
+            os.path.join(slam_share, "launch", "instrumented_online_async.launch.py")
         ),
         launch_arguments={
             "use_sim_time": "true",

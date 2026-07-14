@@ -27,11 +27,13 @@ LAUNCH_LOG="$OUTPUT_DIR/${BACKEND}_replay.log"
 MANIFEST="$OUTPUT_DIR/${BACKEND}_manifest.json"
 CONSTRAINT_LOG="$OUTPUT_DIR/${BACKEND}_constraints.jsonl"
 LOOP_REPORT="$OUTPUT_DIR/${BACKEND}_loop_constraints.json"
+FRONTEND_LOG="$OUTPUT_DIR/${BACKEND}_frontend.jsonl"
+FRONTEND_REPORT="$OUTPUT_DIR/${BACKEND}_frontend_report.json"
 CONTRACT="$OUTPUT_DIR/bag_contract.json"
 BAG_SOURCE="${OPENLORIS_BAG_SOURCE:-$(dirname "$OPENLORIS_BAG")/source.json}"
 REFERENCE="$ROOT/groundtruth/$SEQUENCE/groundtruth.txt"
 mkdir -p "$OUTPUT_DIR"
-rm -f "$CONSTRAINT_LOG" "$LOOP_REPORT"
+rm -f "$CONSTRAINT_LOG" "$LOOP_REPORT" "$FRONTEND_LOG" "$FRONTEND_REPORT"
 
 python3 -c "import rosbags" || {
   echo "Missing rosbags; run: pip install -r requirements-slam-eval.txt" >&2
@@ -61,6 +63,7 @@ echo "[OpenLORIS] ROS_DOMAIN_ID=$ROS_DOMAIN_ID"
 SECONDS=0
 ROS_DOMAIN_ID="$ROS_DOMAIN_ID" \
 EMBODIED_SLAM_CONSTRAINT_LOG="$CONSTRAINT_LOG" \
+EMBODIED_SLAM_FRONTEND_LOG="$FRONTEND_LOG" \
 ros2 launch embodied_slam openloris_mapping.launch.py \
   bag_path:="$OPENLORIS_BAG" params_file:="$PARAMS_FILE" \
   replay_rate:="${OPENLORIS_REPLAY_RATE:-1.0}" \
@@ -103,6 +106,14 @@ if [[ -n "${OPENLORIS_ANNOTATIONS:-}" ]]; then
   DEGRADATION_ARGS+=(--annotations "$OPENLORIS_ANNOTATIONS")
 fi
 python3 scripts/analyze_slam_degradation.py "${DEGRADATION_ARGS[@]}"
+if [[ "${OPENLORIS_EVALUATE_FRONTEND:-false}" == "true" ]]; then
+  if [[ ! -s "$FRONTEND_LOG" ]]; then
+    echo "FAIL: missing loop-frontend trace: $FRONTEND_LOG" >&2
+    exit 1
+  fi
+  python3 scripts/analyze_loop_frontend_trace.py \
+    --trace "$FRONTEND_LOG" --output "$FRONTEND_REPORT"
+fi
 if [[ "$BACKEND" == "gtsam" && "${OPENLORIS_EVALUATE_LOOP_CONSTRAINTS:-false}" == "true" ]]; then
   if [[ ! -s "$CONSTRAINT_LOG" ]]; then
     echo "FAIL: missing accepted-constraint evidence: $CONSTRAINT_LOG" >&2
@@ -131,6 +142,10 @@ ANNOTATION_MANIFEST_ARGS=()
 if [[ -n "${OPENLORIS_ANNOTATIONS:-}" ]]; then
   ANNOTATION_MANIFEST_ARGS+=(--annotations "$OPENLORIS_ANNOTATIONS")
 fi
+FRONTEND_MANIFEST_ARGS=()
+if [[ -s "$FRONTEND_REPORT" ]]; then
+  FRONTEND_MANIFEST_ARGS+=(--frontend-log "$FRONTEND_LOG" --frontend-report "$FRONTEND_REPORT")
+fi
 python3 scripts/build_openloris_experiment_manifest.py \
   --workspace "$WORKSPACE" --sequence "$SEQUENCE" --backend "$BACKEND" \
   --bag "$OPENLORIS_BAG" --bag-source "$BAG_SOURCE" --contract "$CONTRACT" \
@@ -139,6 +154,7 @@ python3 scripts/build_openloris_experiment_manifest.py \
   --launch-log "$LAUNCH_LOG" --replay-rate "${OPENLORIS_REPLAY_RATE:-1.0}" \
   --wall-clock-s "$REPLAY_WALL_CLOCK_S" \
   "${LOOP_MANIFEST_ARGS[@]}" \
+  "${FRONTEND_MANIFEST_ARGS[@]}" \
   "${ANNOTATION_MANIFEST_ARGS[@]}" \
   --output "$MANIFEST"
 
@@ -146,4 +162,7 @@ echo "PASS: OpenLORIS $BACKEND replay/evaluation"
 echo "Evidence: $ESTIMATE $REPORT $DEGRADATION $LAUNCH_LOG $MANIFEST"
 if [[ -s "$LOOP_REPORT" ]]; then
   echo "Loop evidence: $CONSTRAINT_LOG $LOOP_REPORT"
+fi
+if [[ -s "$FRONTEND_REPORT" ]]; then
+  echo "Frontend evidence: $FRONTEND_LOG $FRONTEND_REPORT"
 fi

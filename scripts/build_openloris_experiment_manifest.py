@@ -52,6 +52,8 @@ def build_manifest(
     wall_clock_s: float | None = None,
     constraint_log_path: Path | None = None,
     loop_report_path: Path | None = None,
+    frontend_log_path: Path | None = None,
+    frontend_report_path: Path | None = None,
     annotations_path: Path | None = None,
 ) -> dict[str, object]:
     """Validate evidence relationships and freeze configuration plus provenance."""
@@ -76,6 +78,12 @@ def build_manifest(
         for path in (constraint_log_path, loop_report_path):
             if not path.is_file() or path.stat().st_size == 0:
                 raise FileNotFoundError(path)
+    if (frontend_log_path is None) != (frontend_report_path is None):
+        raise ValueError("frontend log and frontend report must be provided together")
+    if frontend_log_path is not None and frontend_report_path is not None:
+        for path in (frontend_log_path, frontend_report_path):
+            if not path.is_file() or path.stat().st_size == 0:
+                raise FileNotFoundError(path)
     if annotations_path is not None and (
         not annotations_path.is_file() or annotations_path.stat().st_size == 0
     ):
@@ -88,6 +96,11 @@ def build_manifest(
     loop_report = (
         json.loads(loop_report_path.read_text(encoding="utf-8"))
         if loop_report_path is not None
+        else None
+    )
+    frontend_report = (
+        json.loads(frontend_report_path.read_text(encoding="utf-8"))
+        if frontend_report_path is not None
         else None
     )
     launch_log = launch_log_path.read_text(encoding="utf-8", errors="replace")
@@ -130,6 +143,8 @@ def build_manifest(
     }
     if loop_report is not None:
         checks["loop_constraint_report_passed"] = bool(loop_report.get("passed"))
+    if frontend_report is not None:
+        checks["loop_frontend_report_passed"] = bool(frontend_report.get("passed"))
     if derived is not None:
         if not isinstance(derived, dict):
             raise ValueError("derived provenance must be an object")
@@ -146,7 +161,7 @@ def build_manifest(
             and len(str(derived.get("tool_sha256", ""))) == 64
         )
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "passed": all(checks.values()),
         "checks": checks,
         "evidence_scope": {
@@ -181,6 +196,7 @@ def build_manifest(
             "params": _artifact(params_path),
             "evaluation": report["methodology"],
             "accepted_loop_constraint_evaluation": loop_report is not None,
+            "loop_frontend_instrumentation": frontend_report is not None,
             "semantic_annotations": (
                 _artifact(annotations_path) if annotations_path is not None else None
             ),
@@ -203,6 +219,11 @@ def build_manifest(
                 if loop_report is not None
                 else {}
             ),
+            **(
+                {"loop_frontend": frontend_report}
+                if frontend_report is not None
+                else {}
+            ),
         },
         "artifacts": {
             "bag_contract": _artifact(contract_path),
@@ -216,6 +237,14 @@ def build_manifest(
                     "loop_constraint_report": _artifact(loop_report_path),
                 }
                 if constraint_log_path is not None and loop_report_path is not None
+                else {}
+            ),
+            **(
+                {
+                    "loop_frontend_log": _artifact(frontend_log_path),
+                    "loop_frontend_report": _artifact(frontend_report_path),
+                }
+                if frontend_log_path is not None and frontend_report_path is not None
                 else {}
             ),
         },
@@ -241,6 +270,8 @@ def main() -> int:
     parser.add_argument("--wall-clock-s", type=float)
     parser.add_argument("--constraint-log", type=Path)
     parser.add_argument("--loop-report", type=Path)
+    parser.add_argument("--frontend-log", type=Path)
+    parser.add_argument("--frontend-report", type=Path)
     parser.add_argument("--annotations", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
@@ -260,6 +291,8 @@ def main() -> int:
         wall_clock_s=args.wall_clock_s,
         constraint_log_path=args.constraint_log,
         loop_report_path=args.loop_report,
+        frontend_log_path=args.frontend_log,
+        frontend_report_path=args.frontend_report,
         annotations_path=args.annotations,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)

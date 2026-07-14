@@ -175,5 +175,7 @@ benchmark，并用 `runtime-evidence-summary` 核对 `proven/failed/missing`。�
 - LoRA 训练、Q8 量化可以作为规划和接口说明，不宣称完整复现实验指标。
 - 已完成 OpenLORIS `office1-1` 接线基线和 `office1-7` 回访序列双后端报告；后者 449 个对齐
   位姿、99.753% 覆盖率，Ceres/GTSAM ATE RMSE 为 9.996/9.989 cm。最终轨迹恢复 2/2 个回访
-  事件，但 accepted 非局部图边为 0，因此不能包装成“前端回环成功”或跨场景泛化证据。
+  事件，但 accepted 非局部图边为 0。C++ 前端诊断进一步显示 baseline 的 47 个图节点中 39 次
+  被 near-linked 集合排除、8 次历史不足、0 次进入 coarse matcher；因此不能包装成“前端回环
+  成功”或跨场景泛化证据，也不能把问题错误归因给 GTSAM 后端。
 - SummerTTS 已服务化，但当前 CPU 推理瓶颈仍明显，后续可做量化、缓存或更快声码器优化。
