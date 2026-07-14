@@ -337,7 +337,8 @@ CLEANUP_CONFIRM=true bash scripts/cleanup_simulation_processes.sh
 
 - 自动 mock、真实模型、Gazebo、真实麦克风和公开 rosbag 是五类不同证据，不能相互替代。
 - 当前真实硬件是 Adapter/mock；Gazebo PASS 不等于 UART/SPI 实机 PASS。
-- LoRA 流水线 dry-run 不等于已训练并达到准确率。
+- LoRA dry-run 只验证入口；`lora-q8-comparison` 会独占两个端口重跑 43 条对照并进行哈希审计。
+  合成 holdout 分数不等于真实麦克风准确率，动作、协议、严格总分与 fallback 必须分栏。
 - OpenLORIS 小 fixture 只验证接口；office 短序列使用 OptiTrack，market 长序列使用官方离线
   LiDAR-SLAM 真值，证据独立性不同。任何序列 accepted 非局部回环为 0 时都不能宣称前端成功。
 - 完整功能完成后再 push/开 PR 触发 GitHub CI，避免为文档碎片频繁运行 CI。

@@ -3,6 +3,7 @@ install/
 log/
 logs/
 .venv/
+.venv-lora/
 __pycache__/
 .pytest_cache/
 *.egg-info/

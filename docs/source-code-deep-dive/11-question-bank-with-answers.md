@@ -172,4 +172,5 @@
 
 ### 40. 项目当前最需要如实说明的边界？
 
-答：C++ 通用 NS/AGC 未实现；LoRA 未训练；Gazebo 替代导航不等于 Nav2；硬件 transport 不等于实机闭环；少量本机性能样本不是生产 SLA；fallback 出口分数不是模型准确率。
+答：C++ 通用 NS/AGC 未实现；LoRA 已训练但严格标签协议仍弱；Gazebo 替代导航不等于 Nav2；
+硬件 transport 不等于实机闭环；少量本机性能样本不是生产 SLA；fallback 出口分数不是模型准确率。

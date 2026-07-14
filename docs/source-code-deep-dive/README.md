@@ -65,7 +65,7 @@ audio_frontend_node.cpp
 - Energy、WebRTC、Silero 都用于 VAD/端点检测。VAD 可以减少非语音误触发，但不能被描述成完整降噪算法。
 - Gazebo executor 对语义导航提供可观测替代运动；只有 Nav2 executor 才真正发送 `NavigateToPose` 或 `FollowWaypoints` goal。
 - UART/SPI transport、帧协议和伪终端测试已实现；当前 README 明确不宣称真实机器人硬件闭环。
-- LoRA 流水线已准备但未完成项目训练，fallback 或工程出口分数不能写成模型准确率。
+- LoRA/Q8 已完成训练与独立合成 holdout 对照；fallback 或工程出口分数仍不能写成模型准确率。
 
 ## 源码版本
 

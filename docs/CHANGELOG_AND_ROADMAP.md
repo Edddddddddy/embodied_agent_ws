@@ -78,6 +78,7 @@
 | Agent 参数与 launch 契约收敛 | 消除 online/offline 节点、YAML、Gazebo/Nav2 launch 中重复默认值和转发映射 | 新增共享参数 schema、ROS range/enum 描述、启动前校验、只读快照与组合 launch 转发契约；provider YAML 仅保留模型配置 |
 | Agent 并发运行时收敛 | 消除端点 timer、busy/worker 和多命令 NLU 入队的双份状态机 | 新增 `AsrEndpointRuntime`、`AgentExecutionRuntime` 和 `CommandEnqueueDecision`；统一异常隔离、busy 复位、batch metadata 与关闭时 timer/cancel 语义 |
 | LLM 流式协议收敛 | 消除 online/offline 的 token parser、TTS 分句与动作选择双份实现 | 新增 `StreamingTurnRuntime/Result`；统一格式错误回退、确定性动作优先级、语义安全阻断和记忆动作口径，provider 仅保留 TTS/latency adapter |
+| LoRA/Q8 证据收口 | 真实完成训练、量化和同口径基线对照，不再只提供 dry-run | 96 条确定性训练集与 43 条独立 holdout 无文本重叠；动作语义 30.23%→53.49%，严格总分仍为 25.58%；训练、提示词、GGUF 和报告由 SHA256 审计绑定 |
 | 用户上下文一致性收敛 | 消除身份、画像 prompt、偏好和低置信度写保护的双份节点逻辑，并修复异步声纹切换竞态 | 新增 `UserContextRuntime/Snapshot`；命令入队时冻结身份/偏好，prompt、动作与 interaction 共用同一快照；预解析动作恢复归入 `AgentControlPlane` |
 | Agent Lifecycle 资源治理 | 让 online/offline 的生命周期状态对应真实 provider、线程和 publisher，而非只保留进程级启停 | 两个 Agent 升级为 `LifecycleNode`；configure/activate/deactivate/cleanup/on_error 统一资源边界，managed publisher、协作取消、安全 STOP、STOPPED health、manager 依赖顺序和 cleanup 后重建均有自动验收 |
 | Agent ROS I/O 契约收敛 | 消除 online/offline 节点重复接线、topic 字符串和 QoS 漂移 | 新增 `AgentRosIo`、不可变 `AgentTopicContract` 与 `audio_qos`；节点只注入 callback，PCM best-effort、控制 reliable、状态 latched，并在 inactive 关闭健康心跳 |
@@ -110,7 +111,8 @@
 
 - 当前硬件控制是预留/mock，不是实体机器人完整验收。
 - 当前已提供 TurtleBot3/Nav2、地图构建/复用和预测动态避障重型验收；真实 rosbag 回放报告和实体机器人仍是后续证据。
-- 离线 LoRA 训练、量化指标可以作为规划和接口说明，不应夸大为已复现完整训练结果。
+- 离线 LoRA 训练、合并、Q8 与 43 条合成 holdout 对照已复现；只能引用动作语义
+  30.23%→53.49% 和严格总分 25.58% 等实测值，不外推为真实语音准确率。
 - openWakeWord、LiveKit WakeWord 仍是可选 seam/preflight；Silero VAD 已有轻量 ONNX 真实运行时，
   但模型仍保持可选下载，CI 不强制携带大模型资产。
 

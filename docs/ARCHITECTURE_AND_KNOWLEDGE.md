@@ -371,6 +371,6 @@ Python 的 `embodied_agent_core/ros_qos.py` 与 C++ 的
 未作为当前完成项：
 
 - 真实实体机器人硬件验收。
-- 完整离线模型训练与 LoRA 指标复现。
+- LoRA/Q8 已完成合成 holdout 对照；待补真实语音分布评估与标签协议稳定性优化。
 - 复杂导航、建图、路径规划。
 - 真实声学 KWS/AEC 默认接入。

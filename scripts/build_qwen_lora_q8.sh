@@ -11,10 +11,12 @@ MODE="${1:---dry-run}"
 cd "$WORKSPACE"
 
 commands=(
+  "$LORA_VENV/bin/python $WORKSPACE/scripts/build_robot_lora_dataset.py"
   "$LORA_VENV/bin/llamafactory-cli train $WORKSPACE/training/qwen3_0_6b_lora.yaml"
   "$LORA_VENV/bin/llamafactory-cli export $WORKSPACE/training/qwen3_0_6b_lora_merge.yaml"
   "$LORA_VENV/bin/python $LLAMA_CPP/convert_hf_to_gguf.py $MERGED_DIR --outfile $F16_GGUF --outtype f16"
   "$WORKSPACE/scripts/quantize_qwen_q8.sh $F16_GGUF $Q8_GGUF"
+  "bash $WORKSPACE/scripts/evaluate_lora_q8_comparison.sh"
   "$LORA_VENV/bin/python $WORKSPACE/scripts/audit_lora_q8_pipeline.py --f16 $F16_GGUF --q8 $Q8_GGUF --strict-reproduced"
 )
 
