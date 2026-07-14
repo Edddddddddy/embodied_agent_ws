@@ -1023,6 +1023,8 @@ near-linked 图遍历半径，而不是继续盲目降低 scan matcher 阈值。
 - `src/embodied_navigation/src/dynamic_obstacle_tracker.cpp`
 - `src/embodied_navigation/src/dynamic_obstacle_model_benchmark.cpp`
 - `src/embodied_navigation/src/predicted_obstacle_layer.cpp`
+- `src/embodied_navigation/config/dynamic_obstacle_crossing_scenario.json`
+- `scripts/compare_dynamic_navigation_models.py`
 - `scripts/verify_dynamic_obstacle_ablation.py`
 - `tests/integration/test_predicted_dynamic_obstacle_navigation.py`
 
@@ -1035,6 +1037,12 @@ near-linked 图遍历半径，而不是继续盲目降低 scan matcher 阈值。
 差异会混入 QoS、时间戳和调度噪声；统一 seam 让四种 Adapter 接收相同观测，并让同一个
 `PredictedObstacleLayer` 消费结果。tracker-level 报告负责比较 RMSE，Gazebo/Nav2 报告负责证明
 lethal cost、重规划、到达和最终零速，两层证据互不替代。
+
+重型 A/B 的“同场景”不能只靠 for 循环保证。场景 JSON 固定目标点、观测位置、时间间隔、预测
+时域和阈值；每份报告绑定场景、地图 YAML+PGM 和 Nav2 参数哈希，比较器先验证 provenance 再
+汇总指标。这种设计比在测试函数里硬编码四组坐标更容易审阅，也能阻止断点重跑时混入旧地图。
+局限同样写进报告：目前只把确定性 `PoseArray` 注入跟踪器，尚未模拟物理行人的碰撞体、传感器
+遮挡和检测器误差，所以它证明的是预测层到规划控制的闭环，而不是感知算法的真实准确率。
 
 方案区别：current-only 没有运动先验；平滑 CV 低成本但无法表达模式切换；单一 Kalman 假设固定
 过程模型；IMM 通过 Markov 转移概率、状态/协方差交互和观测似然在低运动与机动模型之间切换。

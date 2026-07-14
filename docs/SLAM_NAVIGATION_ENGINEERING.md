@@ -151,6 +151,13 @@ PoseArray detections
 随后停止检测让 track 按 TTL 清除，机器人重规划并成功到达 2.1 m 目标，最终速度归零。
 证据写入 `logs/dynamic_obstacle_navigation_report.json`。
 
+四模型重型消融把横穿检测日程移到
+`src/embodied_navigation/config/dynamic_obstacle_crossing_scenario.json`。汇总报告只有在场景、地图
+栅格和 Nav2 参数 SHA256 全部一致时才通过，避免“只切模型”的 A/B 实验实际混入地图或参数变化。
+最近一轮四种模型均完成 lethal cost、净空提升、到达和最终零速；动态路径净空分别约为
+0.942/0.976/0.978/0.980 m。该证据的感知输入是确定性 `PoseArray`，不是 Gazebo 物理行人或
+真实检测器输出；报告位于 `logs/dynamic_obstacle_navigation_ablation.json/.md`。
+
 ## 6. 验收命令
 
 ```bash
