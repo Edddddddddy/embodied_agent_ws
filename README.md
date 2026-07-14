@@ -241,6 +241,9 @@ bash scripts/acceptance_test.sh openloris-robust-kernel-ablation
 # 在同一固定图上增加无真值运行时依赖的非局部边几何一致性门控。
 bash scripts/acceptance_test.sh openloris-loop-consistency-ablation
 
+# 用原始 LaserScan + 静态 TF 为已接受约束补充重叠证据，并做双证据消融。
+bash scripts/acceptance_test.sh openloris-scan-overlap-ablation
+
 # 同一 office1-7 前端输入下比较 Ceres/GTSAM。
 OPENLORIS_SEQUENCE=office1-7 bash scripts/acceptance_test.sh openloris-slam-ab
 
@@ -260,6 +263,12 @@ Karto 前端 precision 提升。
 `Cauchy + gate` 的 ATE 为 1.1713 m，相比 Gaussian 下降 35.77%，相比单独 Cauchy 下降 4.28%。
 门控只比较候选约束与优化前图估计，不读取真值，但严重累计漂移可能使真回环也不一致，因此
 默认关闭，当前只作为可复现消融能力，不宣称前端回环 precision 已改善。
+
+进一步的扫描重叠实验将 11381 帧原始 `/scan` 按时间戳关联到固定图节点，并通过 `/tf_static`
+统一到 `base_link`。858 条非局部边均得到无真值重叠证据。0.65 阈值下，仅按重叠率会删除
+269 条边；“创新量 >1 m 且重叠率 <0.65”的双证据策略只额外拒绝 11 条，ATE 为 1.1521 m，
+较单独一致性门控再下降 1.64%。但重叠阈值对单一走廊序列敏感，且不能识别“几何相似但地点
+错误”的感知混淆，所以功能默认关闭，必须经过多序列验证后才能作为通用策略。
 
 输出包含 bag 来源哈希、contract、两条 map-frame TUM 轨迹、ATE/RPE、直行/转弯退化分段、
 launch 日志、实验 manifest 和不预设胜者的后端对比。`source.json` 会区分完整 SHA256 验证与

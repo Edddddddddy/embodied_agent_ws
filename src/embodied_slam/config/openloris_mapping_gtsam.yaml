@@ -19,6 +19,14 @@ slam_toolbox:
     gtsam_enable_nonlocal_consistency_gate: false
     gtsam_max_nonlocal_translation_residual_m: 2.0
     gtsam_max_nonlocal_yaw_residual_rad: 0.7853981633974483
+    # 双证据门控默认关闭；固定图实验证明跨序列前，只记录 overlap 供离线审计。
+    gtsam_enable_scan_overlap_gate: false
+    gtsam_compute_scan_overlap_evidence: true
+    gtsam_minimum_scan_overlap_ratio: 0.65
+    gtsam_scan_overlap_gate_min_translation_residual_m: 1.0
+    gtsam_scan_overlap_match_distance_m: 0.20
+    gtsam_scan_overlap_point_stride: 2
+    gtsam_scan_overlap_minimum_points: 30
 
     odom_frame: dataset_odom
     map_frame: map

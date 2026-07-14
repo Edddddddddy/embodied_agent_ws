@@ -389,6 +389,37 @@ bash scripts/acceptance_test.sh openloris-loop-consistency-ablation
 泛化或回环前端 precision 改善。小型证据见
 [`docs/evidence/gtsam_loop_consistency_ablation.md`](evidence/gtsam_loop_consistency_ablation.md)。
 
+### 5.7 原始扫描重叠与双证据门控
+
+位姿创新只能说明候选边与当前图冲突，累计漂移很大时可能误拒真回环。项目因此增加第二种不读取
+真值的证据：`GtsamScanSolver::AddConstraint()` 在 Karto 已接受约束的边界，从原始量程、激光
+角度和传感器外参重建 `base_link` 局部点；`evaluateScanOverlap()` 用空间哈希计算双向最近邻
+重叠率。不能直接使用 Karto 缓存的 point readings，因为它们已经随 corrected pose 进入世界系，
+再次应用相对位姿会产生坐标系错误。
+
+离线消融使用同一语义：`augment_pose_graph_scan_overlap.py` 从派生 bag 读取 11381 帧 `/scan` 和
+`/tf_static`，以最多 0.238 微秒的时间差关联 1834 个节点，为 858 条非局部约束全部附加重叠率。
+随后四组共享同一 SHA256 固定图：
+
+```bash
+bash scripts/acceptance_test.sh openloris-scan-overlap-ablation
+```
+
+| variant | 拒绝策略 | used edges | ATE RMSE | ATE P95 | 1 s RPE RMSE | 终点误差 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Cauchy baseline | 不门控 | 2751 | 1.2236 m | 2.3968 m | 0.1595 m | 2.4741 m |
+| naive overlap | overlap <0.65 | 2482 | 1.0600 m | 2.2293 m | 0.1233 m | 1.5141 m |
+| innovation gate | 2 m / π/4 | 2728 | 1.1713 m | 2.1770 m | 0.1427 m | 1.8071 m |
+| dual evidence | innovation gate；或 innovation >1 m 且 overlap <0.65 | 2717 | 1.1521 m | 2.1985 m | 0.1427 m | 1.7589 m |
+
+naive 组在这个阈值和序列上 ATE 最低，但一次删除 269 条 Karto chain/submap 约束；阈值 0.50 时
+同一策略反而令 ATE 比 baseline 恶化 1.73%，说明它依赖场景和阈值，不能因单次最优就发布为默认。
+双证据只额外删除 11 条边，固定图 ATE 较 baseline 改善 5.84%、较 innovation gate 改善 1.64%，
+但 P95 略高于单独 innovation gate。当前实现默认关闭，并在无扫描、点数不足或 TF 证据不可用时
+fail-open。它是“已接受约束的后端独立复核”，不是 Karto 候选生成器，也不证明前端 precision 提升。
+可提交证据见
+[`docs/evidence/gtsam_scan_overlap_ablation.md`](evidence/gtsam_scan_overlap_ablation.md)。
+
 ## 6. 面试讲法和事实边界
 
 可以讲：
@@ -406,6 +437,7 @@ bash scripts/acceptance_test.sh openloris-loop-consistency-ablation
 
 当前仓库已经具备真实 office bag 的双后端回放、长走廊回访序列、来源 manifest、人工退化区间、
 SLAM-only 派生包、accepted-edge 参数消融和 Karto 候选级 instrumentation，但不随 Git 提交大型
-bag/实验结果。鲁棒核固定图消融已经完成；下一步应针对 `corridor1-1` 的错误 closure 做前端感知
-混淆抑制，再扩展到跨序列 lifelong/relocalization。动态障碍预测的 current-only、CV、Kalman、
+bag/实验结果。鲁棒核、创新门控和扫描重叠双证据消融已经完成；重叠实验同时证明，仅靠几何相似
+无法消除长走廊感知混淆。下一步应在多序列上验证门控，再研究描述子/候选检索，而不是继续在单一
+序列调阈值。之后可扩展到跨序列 lifelong/relocalization。动态障碍预测的 current-only、CV、Kalman、
 IMM 同场景消融已另行完成。

@@ -75,6 +75,7 @@
 | OpenLORIS 长环路序列筛选 | 避免只看真值排名或先下载十几 GB bag 才发现传感器不兼容 | 真值包支持断点续传/缓存；批量比较 22 条轨迹；`market1-3` 因完整 bag 缺少 `/scan` 被拒绝，传感器 profile 正式选择约 272.5 s / 220.1 m、含 2 次位置长回访的 `corridor1-1`；range 与 bag 固定 commit/大小/SHA256 |
 | GTSAM 鲁棒核固定图消融 | 排除异步回放前端差异，量化错误非局部边对后端的影响 | 导出 1834 节点/2751 约束去重图；同 SHA256 比较 none/Huber/Cauchy；Cauchy non-local ATE 1.2236 m，较 Gaussian 下降 32.90%，同时保留“不改善前端 precision”的边界 |
 | 非局部边几何一致性门控 | 在鲁棒核前拒绝与当前图预测明显冲突的候选边，并保持运行时不依赖真值 | 固定图上拒绝 23 条约束；Cauchy + gate ATE 1.1713 m，较 Gaussian 下降 35.77%；因累计漂移可能误拒真回环，默认关闭 |
+| LaserScan 双证据约束复核 | 用传感器几何补充位姿创新，避免只凭当前图硬门控 | 原始 `/scan` + 静态 TF 为 858 条非局部边全部生成重叠率；双证据额外拒绝 11 条，ATE 1.1521 m；同时记录 naive 阈值敏感反例，默认关闭等待多序列验证 |
 | DDS domain 上界护栏 | 避免 PID 取模生成 Fast DDS 无法映射端口的 domain | 修正连续语音/Nav2/OpenLORIS 等 6 个入口，并用仓库测试保证所有公式最大值不超过 232 |
 | 系统就绪状态收敛 | 替代 launch/test 中分散的固定 sleep、topic graph 猜测和日志字符串判断 | 新增 `ComponentHealth`、`SystemReadiness`、心跳超时聚合器和 profile 化启动门禁；保留音频/仿真数据质量探针 |
 | Agent 参数与 launch 契约收敛 | 消除 online/offline 节点、YAML、Gazebo/Nav2 launch 中重复默认值和转发映射 | 新增共享参数 schema、ROS range/enum 描述、启动前校验、只读快照与组合 launch 转发契约；provider YAML 仅保留模型配置 |

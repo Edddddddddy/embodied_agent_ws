@@ -101,9 +101,14 @@ Pose2d relative_pose(const Pose2d & source, const Pose2d & target)
     std::atan2(std::sin(target.yaw - source.yaw), std::cos(target.yaw - source.yaw))};
 }
 
-bool violates_consistency_gate(
-  const PoseGraphConstraint & constraint, const std::unordered_map<int, Pose2d> & initial_poses,
-  const PoseGraphOptimizerConfig & config)
+struct ConstraintResidual
+{
+  double translation_m{0.0};
+  double yaw_rad{0.0};
+};
+
+ConstraintResidual constraint_residual(
+  const PoseGraphConstraint & constraint, const std::unordered_map<int, Pose2d> & initial_poses)
 {
   const Pose2d predicted = relative_pose(
     initial_poses.at(constraint.source_id), initial_poses.at(constraint.target_id));
@@ -111,8 +116,7 @@ bool violates_consistency_gate(
     constraint.relative_pose.x - predicted.x, constraint.relative_pose.y - predicted.y);
   const double yaw_delta = constraint.relative_pose.yaw - predicted.yaw;
   const double yaw_residual = std::abs(std::atan2(std::sin(yaw_delta), std::cos(yaw_delta)));
-  return translation_residual > config.max_nonlocal_translation_residual_m ||
-         yaw_residual > config.max_nonlocal_yaw_residual_rad;
+  return {translation_residual, yaw_residual};
 }
 }  // namespace
 
@@ -126,6 +130,15 @@ GtsamPoseGraphOptimizer::GtsamPoseGraphOptimizer(PoseGraphOptimizerConfig config
     !std::isfinite(config_.max_nonlocal_yaw_residual_rad)))
   {
     throw std::invalid_argument("consistency-gate residual limits must be finite and positive");
+  }
+  if (config_.enable_scan_overlap_gate &&
+    ((!std::isfinite(config_.minimum_scan_overlap_ratio)) ||
+    config_.minimum_scan_overlap_ratio < 0.0 || config_.minimum_scan_overlap_ratio > 1.0 ||
+    (!std::isfinite(config_.scan_overlap_gate_min_translation_residual_m)) ||
+    config_.scan_overlap_gate_min_translation_residual_m < 0.0))
+  {
+    throw std::invalid_argument(
+            "scan-overlap gate thresholds must be finite, with overlap in [0, 1]");
   }
 }
 
@@ -163,13 +176,35 @@ PoseGraphResult GtsamPoseGraphOptimizer::optimize(
     const auto id_separation = static_cast<std::size_t>(
       std::abs(constraint.source_id - constraint.target_id));
     const bool is_loop = id_separation >= config_.loop_constraint_min_id_separation;
-    if (config_.enable_nonlocal_consistency_gate && is_loop &&
-      violates_consistency_gate(constraint, initial_poses, config_))
+    if (is_loop &&
+      (config_.enable_nonlocal_consistency_gate || config_.enable_scan_overlap_gate))
     {
-      // 不使用真值，只比较候选边与入图前位姿估计形成的闭环残差。硬门控只处理明显离群边，
-      // 正常残差仍交给鲁棒核连续降权，避免把少量累计漂移误当作错误回环。
-      ++output.consistency_rejected_constraints;
-      continue;
+      const auto residual = constraint_residual(constraint, initial_poses);
+      if (config_.enable_nonlocal_consistency_gate &&
+        (residual.translation_m > config_.max_nonlocal_translation_residual_m ||
+        residual.yaw_rad > config_.max_nonlocal_yaw_residual_rad))
+      {
+        // 不使用真值，只比较候选边与入图前位姿估计形成的闭环残差。硬门控只处理明显离群边，
+        // 正常残差仍交给鲁棒核连续降权，避免把少量累计漂移误当作错误回环。
+        ++output.consistency_rejected_constraints;
+        continue;
+      }
+      if (config_.enable_scan_overlap_gate) {
+        if (!constraint.scan_overlap_ratio.has_value()) {
+          // 扫描缺失或有效点不足时 fail-open，不能把“无证据”伪装成“不重合”。
+          ++output.scan_overlap_unavailable_constraints;
+        } else {
+          ++output.scan_overlap_evaluated_constraints;
+          if (residual.translation_m >
+            config_.scan_overlap_gate_min_translation_residual_m &&
+            *constraint.scan_overlap_ratio < config_.minimum_scan_overlap_ratio)
+          {
+            // 单帧低重合不足以否定 Karto 的链式子图匹配；只有图创新也可疑时才使用第二证据拒绝。
+            ++output.scan_overlap_rejected_constraints;
+            continue;
+          }
+        }
+      }
     }
     const bool should_robustify =
       config_.robust_kernel != RobustKernel::kNone && config_.robust_kernel_k > 0.0 &&

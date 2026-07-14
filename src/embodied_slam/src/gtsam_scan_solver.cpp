@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdint>
 #include <cstdlib>
@@ -6,6 +7,7 @@
 #include <iomanip>
 #include <memory>
 #include <mutex>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -17,6 +19,7 @@
 #include <rclcpp_lifecycle/lifecycle_node.hpp>
 
 #include "embodied_slam/gtsam_pose_graph.hpp"
+#include "embodied_slam/scan_overlap_validator.hpp"
 
 namespace embodied_slam
 {
@@ -51,6 +54,25 @@ public:
       declare_or_get(*node, "gtsam_max_nonlocal_translation_residual_m", 2.0);
     config.max_nonlocal_yaw_residual_rad =
       declare_or_get(*node, "gtsam_max_nonlocal_yaw_residual_rad", 0.7853981633974483);
+    config.enable_scan_overlap_gate =
+      declare_or_get(*node, "gtsam_enable_scan_overlap_gate", false);
+    config.minimum_scan_overlap_ratio =
+      declare_or_get(*node, "gtsam_minimum_scan_overlap_ratio", 0.65);
+    config.scan_overlap_gate_min_translation_residual_m = declare_or_get(
+      *node, "gtsam_scan_overlap_gate_min_translation_residual_m", 1.0);
+    compute_scan_overlap_ = config.enable_scan_overlap_gate ||
+      declare_or_get(*node, "gtsam_compute_scan_overlap_evidence", false);
+    scan_overlap_config_.match_distance_m =
+      declare_or_get(*node, "gtsam_scan_overlap_match_distance_m", 0.20);
+    scan_overlap_config_.point_stride = static_cast<std::size_t>(std::max(
+        1, declare_or_get(*node, "gtsam_scan_overlap_point_stride", 2)));
+    scan_overlap_config_.minimum_points = static_cast<std::size_t>(std::max(
+        1, declare_or_get(*node, "gtsam_scan_overlap_minimum_points", 30)));
+    if (compute_scan_overlap_ && (!(scan_overlap_config_.match_distance_m > 0.0) ||
+      !std::isfinite(scan_overlap_config_.match_distance_m)))
+    {
+      throw std::invalid_argument("gtsam_scan_overlap_match_distance_m must be positive");
+    }
     if (configured_loop_id_separation < 2) {
       RCLCPP_WARN(
         node->get_logger(), "gtsam_loop_constraint_min_id_separation=%d is unsafe; using 2",
@@ -87,12 +109,15 @@ public:
     RCLCPP_INFO(
       node->get_logger(),
       "Configured GTSAM backend: kernel=%s k=%.3f loop_only=%s "
-      "loop_id_separation=%zu gate=%s gate_translation=%.3f gate_yaw=%.3f",
+      "loop_id_separation=%zu gate=%s gate_translation=%.3f gate_yaw=%.3f "
+      "scan_overlap_gate=%s compute_overlap=%s min_overlap=%.3f",
       robust_kernel_name(config.robust_kernel), config.robust_kernel_k,
       config.robustify_loop_constraints_only ? "true" : "false",
       config.loop_constraint_min_id_separation,
       config.enable_nonlocal_consistency_gate ? "true" : "false",
-      config.max_nonlocal_translation_residual_m, config.max_nonlocal_yaw_residual_rad);
+      config.max_nonlocal_translation_residual_m, config.max_nonlocal_yaw_residual_rad,
+      config.enable_scan_overlap_gate ? "true" : "false",
+      compute_scan_overlap_ ? "true" : "false", config.minimum_scan_overlap_ratio);
   }
 
   void AddNode(karto::Vertex<karto::LocalizedRangeScan> * vertex) override
@@ -128,12 +153,23 @@ public:
         constraint.covariance(row, column) = link->GetCovariance()(row, column);
       }
     }
+    const auto id_separation = static_cast<std::size_t>(
+      std::abs(constraint.source_id - constraint.target_id));
+    if (compute_scan_overlap_ && id_separation >= loop_constraint_min_id_separation_) {
+      const auto overlap = evaluateScanOverlap(
+        // Karto 的缓存点已经随 corrected pose 放到世界系，不能再套相对位姿。
+        // 这里从原始量程和激光外参重建 base 局部点，使在线与离线消融坐标语义一致。
+        to_local_scan_points(*source),
+        to_local_scan_points(*target),
+        constraint.relative_pose, scan_overlap_config_);
+      if (overlap.available) {
+        constraint.scan_overlap_ratio = overlap.overlap_ratio;
+      }
+    }
     std::scoped_lock lock(mutex_);
     constraints_.push_back(constraint);
     evidence_constraints_[constraint_key(constraint.source_id, constraint.target_id)] = constraint;
     if (constraint_log_) {
-      const auto id_separation = static_cast<std::size_t>(
-        std::abs(constraint.source_id - constraint.target_id));
       const char * kind =
         id_separation >= loop_constraint_min_id_separation_ ? "loop" : "sequential";
       // ScanSolver 只会收到前端已经接受的边；记录时间戳和相对约束后，离线评估器才能
@@ -148,7 +184,14 @@ public:
                       << "\"target_stamp_s\":" << target->GetTime() << ","
                       << "\"relative_x_m\":" << constraint.relative_pose.x << ","
                       << "\"relative_y_m\":" << constraint.relative_pose.y << ","
-                      << "\"relative_yaw_rad\":" << constraint.relative_pose.yaw << "}\n";
+                      << "\"relative_yaw_rad\":" << constraint.relative_pose.yaw << ","
+                      << "\"scan_overlap_ratio\":";
+      if (constraint.scan_overlap_ratio.has_value()) {
+        constraint_log_ << *constraint.scan_overlap_ratio;
+      } else {
+        constraint_log_ << "null";
+      }
+      constraint_log_ << "}\n";
       constraint_log_.flush();
     }
   }
@@ -176,9 +219,11 @@ public:
         RCLCPP_DEBUG(
           node->get_logger(),
           "GTSAM optimized %zu nodes/%zu constraints (%zu robust/%zu rejected): "
-          "%.6f -> %.6f (%zu iterations)",
+          "%zu overlap rejected/%zu unavailable, %.6f -> %.6f (%zu iterations)",
           result.poses.size(), constraints_.size(), result.robustified_constraints,
           result.consistency_rejected_constraints,
+          result.scan_overlap_rejected_constraints,
+          result.scan_overlap_unavailable_constraints,
           result.initial_error, result.final_error, result.iterations);
       }
     } catch (const std::exception & error) {
@@ -270,6 +315,38 @@ private:
     return {pose.GetX(), pose.GetY(), pose.GetHeading()};
   }
 
+  static std::vector<ScanPoint2d> to_local_scan_points(
+    const karto::LocalizedRangeScan & scan)
+  {
+    const auto * laser = scan.GetLaserRangeFinder();
+    const auto * ranges = scan.GetRangeReadings();
+    std::vector<ScanPoint2d> output;
+    if (laser == nullptr || ranges == nullptr) {
+      return output;
+    }
+    const auto count = scan.GetNumberOfRangeReadings();
+    output.reserve(count);
+    const auto offset = laser->GetOffsetPose();
+    const double cosine = std::cos(offset.GetHeading());
+    const double sine = std::sin(offset.GetHeading());
+    for (std::size_t index = 0U; index < count; ++index) {
+      const double range = ranges[index];
+      if (!std::isfinite(range) || range <= laser->GetMinimumRange() ||
+        range >= laser->GetRangeThreshold())
+      {
+        continue;
+      }
+      const double angle = laser->GetMinimumAngle() +
+        static_cast<double>(index) * laser->GetAngularResolution();
+      const double laser_x = range * std::cos(angle);
+      const double laser_y = range * std::sin(angle);
+      output.push_back({
+        offset.GetX() + cosine * laser_x - sine * laser_y,
+        offset.GetY() + sine * laser_x + cosine * laser_y});
+    }
+    return output;
+  }
+
   static std::uint64_t constraint_key(int source_id, int target_id)
   {
     return (static_cast<std::uint64_t>(static_cast<std::uint32_t>(source_id)) << 32U) |
@@ -298,7 +375,8 @@ private:
       }
       return;
     }
-    output << "# embodied_slam_pose_graph_v1\n" << std::setprecision(17);
+    output << "# embodied_slam_pose_graph_v2 scan_overlap_ratio=optional\n"
+           << std::setprecision(17);
     std::vector<int> ids;
     ids.reserve(evidence_poses_.size());
     for (const auto & [id, pose] : evidence_poses_) {
@@ -330,6 +408,9 @@ private:
           output << ' ' << constraint.covariance(row, column);
         }
       }
+      if (constraint.scan_overlap_ratio.has_value()) {
+        output << ' ' << *constraint.scan_overlap_ratio;
+      }
       output << '\n';
     }
     output.close();
@@ -356,6 +437,8 @@ private:
   std::unordered_map<int, double> evidence_node_stamps_;
   std::unordered_map<std::uint64_t, PoseGraphConstraint> evidence_constraints_;
   std::size_t loop_constraint_min_id_separation_{20U};
+  bool compute_scan_overlap_{false};
+  ScanOverlapConfig scan_overlap_config_;
   std::string constraint_log_path_;
   std::ofstream constraint_log_;
   std::string graph_log_path_;

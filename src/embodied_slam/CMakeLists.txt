@@ -26,8 +26,10 @@ add_library(embodied_slam_core
   src/closed_loop_controller.cpp
   src/drift_model.cpp
   src/loop_frontend_diagnostics.cpp
+  src/scan_overlap_validator.cpp
   src/trajectory_metrics.cpp
 )
+set_target_properties(embodied_slam_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(embodied_slam_core PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
@@ -46,7 +48,7 @@ target_include_directories(embodied_slam_gtsam_solver PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
-target_link_libraries(embodied_slam_gtsam_solver embodied_slam_gtsam_core)
+target_link_libraries(embodied_slam_gtsam_solver embodied_slam_core embodied_slam_gtsam_core)
 ament_target_dependencies(embodied_slam_gtsam_solver
   pluginlib rclcpp_lifecycle slam_toolbox)
 pluginlib_export_plugin_description_file(slam_toolbox gtsam_solver_plugin.xml)
@@ -115,12 +117,25 @@ if(BUILD_TESTING)
   target_link_libraries(test_gtsam_pose_graph embodied_slam_gtsam_core)
   ament_add_gtest(test_loop_frontend_diagnostics test/test_loop_frontend_diagnostics.cpp)
   target_link_libraries(test_loop_frontend_diagnostics embodied_slam_core)
+  ament_add_gtest(test_scan_overlap_validator test/test_scan_overlap_validator.cpp)
+  target_link_libraries(test_scan_overlap_validator embodied_slam_core)
   add_test(
     NAME test_gtsam_graph_optimize_cli
     COMMAND gtsam_graph_optimize
       ${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures/synthetic_pose_graph.txt
       ${CMAKE_CURRENT_BINARY_DIR}/synthetic_pose_graph.tum
       cauchy 1.0 true 2 20
+  )
+  add_test(
+    NAME test_gtsam_graph_optimize_overlap_cli
+    COMMAND gtsam_graph_optimize
+      ${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures/synthetic_pose_graph_overlap.txt
+      ${CMAKE_CURRENT_BINARY_DIR}/synthetic_pose_graph_overlap.tum
+      cauchy 1.0 true 2 20 false 2.0 0.785398 true 0.65 0.0
+  )
+  set_tests_properties(
+    test_gtsam_graph_optimize_overlap_cli
+    PROPERTIES PASS_REGULAR_EXPRESSION "\"scan_overlap_rejected_constraints\":1"
   )
 endif()
 
