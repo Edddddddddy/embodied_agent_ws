@@ -306,6 +306,16 @@ bash scripts/acceptance_test.sh openloris-lidar-shadow-matches
 局部几何上下文有价值，却仍不满足安全写图条件；发布状态为
 `shadow_only_submap_quality_insufficient`，直接图边写入继续关闭。
 
+离线评测算法现已通过 C++ Lifecycle component 接到实时 `/scan`：
+`LiveLidarLoopDetector::ingest()` 在纯领域层执行采样、先查询后入库和 Top-K 检索，
+`LidarLoopCandidateNode::on_scan()` 只负责 LaserScan 转点、生命周期与 typed message 发布。
+`mapping_baseline.launch.py` 默认并行启动该旁路，输出 `/slam/loop_candidates`；消息始终携带
+`shadow_only=true`，不会改变 slam_toolbox/Ceres/GTSAM 基线。运行时契约验收：
+
+```bash
+bash scripts/acceptance_test.sh lidar-loop-runtime
+```
+
 输出包含 bag 来源哈希、contract、两条 map-frame TUM 轨迹、ATE/RPE、直行/转弯退化分段、
 launch 日志、实验 manifest 和不预设胜者的后端对比。`source.json` 会区分完整 SHA256 验证与
 HTTPS Range 快速验证；动态遮挡只有提供人工复核时间区间才
@@ -344,6 +354,7 @@ slam_toolbox 回环候选生成/几何验证之前，而不是 GTSAM 后端。�
 | OpenLORIS 回放适配器 | `bash scripts/acceptance_test.sh openloris-replay-stage` | ROS 2 + rosbags |
 | LiDAR 回环候选多序列评测 | `bash scripts/acceptance_test.sh openloris-lidar-loop-candidates` | 已准备的两条真实 bag + GTSAM 图 |
 | LiDAR 影子扫描匹配评测 | `bash scripts/acceptance_test.sh openloris-lidar-shadow-matches` | 上述候选证据 + C++ matcher |
+| LiDAR 在线候选组件 | `bash scripts/acceptance_test.sh lidar-loop-runtime` | ROS 2；合成 LaserScan，无 Gazebo |
 | 机器人能力统一门禁 | `bash scripts/acceptance_test.sh robotics-gate` | ROS 2 + 本地构建 |
 | 发布聚合报告 | `bash scripts/acceptance_test.sh release-gate` | 本地运行时 |
 | 演示聚合报告 | `bash scripts/acceptance_test.sh demo-gate` | 本地运行时 |

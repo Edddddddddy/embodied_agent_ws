@@ -35,6 +35,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/RobotCommandResult.msg"
   "msg/DynamicObstacle.msg"
   "msg/DynamicObstacleArray.msg"
+  "msg/LidarLoopCandidate.msg"
+  "msg/LidarLoopCandidateArray.msg"
   "srv/SynthesizeSpeech.srv"
   "action/ExecuteRobotCommand.action"
   DEPENDENCIES builtin_interfaces geometry_msgs std_msgs

@@ -9,12 +9,18 @@ def test_slam_mapping_baseline_has_reproducible_inputs_and_evidence_entrypoints(
         package / "package.xml",
         package / "config" / "slam_mapping_ceres.yaml",
         package / "launch" / "mapping_baseline.launch.py",
+        package / "launch" / "lidar_loop_candidate.launch.py",
+        package / "include" / "embodied_slam" / "lidar_loop_runtime.hpp",
+        package / "src" / "lidar_loop_runtime.cpp",
+        package / "src" / "lidar_loop_candidate_node.cpp",
         package / "src" / "odom_drift_injector_node.cpp",
         package / "src" / "closed_loop_driver_node.cpp",
         ROOT / "src" / "embodied_simulation" / "worlds" / "slam_loop_demo.sdf.xacro",
         ROOT / "scripts" / "audit_slam_mapping_assets.py",
         ROOT / "scripts" / "smoke_test_slam_mapping_baseline.sh",
         ROOT / "tests" / "integration" / "test_slam_mapping_baseline.py",
+        ROOT / "tests" / "integration" / "test_lidar_loop_runtime.py",
+        ROOT / "scripts" / "smoke_test_lidar_loop_runtime.sh",
         package / "launch" / "localization_navigation.launch.py",
         ROOT / "scripts" / "smoke_test_slam_localization_navigation.sh",
         ROOT / "tests" / "integration" / "test_slam_localization_navigation.py",
@@ -31,6 +37,26 @@ def test_slam_mapping_baseline_has_reproducible_inputs_and_evidence_entrypoints(
     assert "slam-navigation" in acceptance
     assert "slam-evaluation-stage" in acceptance
     assert "openloris-evaluate" in acceptance
+    assert "lidar-loop-runtime" in acceptance
+
+
+def test_live_lidar_loop_frontend_is_typed_lifecycle_and_shadow_only():
+    interfaces = ROOT / "src" / "embodied_agent_interfaces"
+    package = ROOT / "src" / "embodied_slam"
+    node = (package / "src" / "lidar_loop_candidate_node.cpp").read_text(
+        encoding="utf-8"
+    )
+    launch = (package / "launch" / "mapping_baseline.launch.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert (interfaces / "msg" / "LidarLoopCandidate.msg").is_file()
+    assert (interfaces / "msg" / "LidarLoopCandidateArray.msg").is_file()
+    assert "rclcpp_lifecycle::LifecycleNode" in node
+    assert "RCLCPP_COMPONENTS_REGISTER_NODE" in node
+    assert "output.shadow_only = true" in node
+    assert "pose_graph" not in node.lower()
+    assert "enable_loop_candidate_shadow" in launch
 
 
 def test_slam_baseline_exposes_drift_and_loop_closure_as_measurable_variables():

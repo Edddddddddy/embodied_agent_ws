@@ -1128,6 +1128,30 @@ A/B，但抗重复结构能力明显更弱。
 个百分点。工程结论不是“子地图已解决回环”，而是：局部聚合值得保留为 matcher seam，下一步
 需要多帧时序一致性、可学习地点描述或相关扫描搜索；当前仍不允许生成正式图边。
 
+### 14.8 如何把离线回环算法变成可控的 ROS 2 在线组件
+
+关键代码：
+
+- `src/embodied_slam/include/embodied_slam/lidar_loop_runtime.hpp`：与 ROS 无关的在线领域接口。
+- `src/embodied_slam/src/lidar_loop_runtime.cpp`：采样、时间单调性、先查询后入库和 ID 关联。
+- `src/embodied_slam/src/lidar_loop_candidate_node.cpp`：LaserScan Adapter、Lifecycle 和 typed 发布。
+- `src/embodied_agent_interfaces/msg/LidarLoopCandidateArray.msg`：候选批次的稳定进程间契约。
+- `src/embodied_slam/launch/lidar_loop_candidate.launch.py`：自动 configure/activate。
+- `tests/integration/test_lidar_loop_runtime.py`：DDS + Lifecycle 运行时契约探针。
+
+`LiveLidarLoopDetector` 是深模块：节点不关心环键、循环偏航或索引内部数据结构，只提交
+`stamp + points` 并接收候选批次。它必须“先 query、后 add”，否则当前扫描会以满分匹配自己；
+无效稀疏帧不会消耗 query ID，采样间隔则在描述子计算前拒绝帧，降低在线 CPU 占用。
+
+ROS 壳采用 Lifecycle 而非普通 Node：configure 才分配索引和 DDS 实体，inactive 不消费输入，
+cleanup 明确删除内存历史，bag reset 或重复实验不会继承旧候选。组件同时注册到
+`rclcpp_components`，既能独立运行，也能后续装入组合容器减少进程与 DDS 序列化开销。
+
+与直接修改 slam_toolbox 回环代码相比，shadow component 不影响现有建图基线、可独立 A/B，失败
+也不会污染位姿图；代价是当前只产出候选，后续仍需 scan-to-submap、时序/语义验证和后端门控。
+与 ROS 字符串/JSON topic 相比，typed message 在编译期固定 ID、时间戳、排序和相似度字段，下游
+不会靠字符串键名猜测含义。`shadow_only` 作为消息字段而非日志文本，使安全边界可被自动测试。
+
 ## 15. 动态障碍运动模型与同场景消融
 
 关键代码：
