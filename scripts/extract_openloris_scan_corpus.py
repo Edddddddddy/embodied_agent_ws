@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import bisect
 import json
+import math
 from pathlib import Path
 
 import numpy as np
@@ -31,6 +32,69 @@ def write_corpus(rows: list[tuple[int, float, np.ndarray]], output: Path) -> Non
             stream.write(" ".join(fields) + "\n")
 
 
+def _wrap_angle(angle: float) -> float:
+    return math.atan2(math.sin(angle), math.cos(angle))
+
+
+def _yaw_from_quaternion(orientation) -> float:
+    siny = 2.0 * (orientation.w * orientation.z + orientation.x * orientation.y)
+    cosy = 1.0 - 2.0 * (orientation.y**2 + orientation.z**2)
+    return math.atan2(siny, cosy)
+
+
+def associate_odometry(
+    rows: list[tuple[int, float, np.ndarray]],
+    raw_odometry: list[tuple[float, float, float, float]],
+    maximum_delta_s: float = 0.10,
+) -> tuple[list[tuple[int, float, float, float, float]], list[int]]:
+    if maximum_delta_s <= 0.0:
+        raise ValueError("odometry association tolerance must be positive")
+    # 某些 OpenLORIS 旧 bag 含重复 /odom 时间戳；后到样本覆盖前者，使插值轴严格单调。
+    by_stamp = {sample[0]: sample for sample in raw_odometry}
+    samples = [by_stamp[stamp] for stamp in sorted(by_stamp)]
+    stamps = [sample[0] for sample in samples]
+    associated: list[tuple[int, float, float, float, float]] = []
+    missing: list[int] = []
+    for scan_id, stamp, _points in rows:
+        insertion = bisect.bisect_left(stamps, stamp)
+        if insertion < len(samples) and abs(samples[insertion][0] - stamp) <= 1e-9:
+            _, x, y, yaw = samples[insertion]
+            associated.append((scan_id, stamp, x, y, yaw))
+            continue
+        if insertion == 0 or insertion == len(samples):
+            nearest = samples[0 if insertion == 0 else -1]
+            if abs(nearest[0] - stamp) > maximum_delta_s:
+                missing.append(scan_id)
+                continue
+            associated.append((scan_id, stamp, nearest[1], nearest[2], nearest[3]))
+            continue
+        left, right = samples[insertion - 1], samples[insertion]
+        if stamp - left[0] > maximum_delta_s or right[0] - stamp > maximum_delta_s:
+            missing.append(scan_id)
+            continue
+        ratio = (stamp - left[0]) / (right[0] - left[0])
+        associated.append(
+            (
+                scan_id,
+                stamp,
+                left[1] + ratio * (right[1] - left[1]),
+                left[2] + ratio * (right[2] - left[2]),
+                _wrap_angle(left[3] + ratio * _wrap_angle(right[3] - left[3])),
+            )
+        )
+    return associated, missing
+
+
+def write_odometry_priors(
+    rows: list[tuple[int, float, float, float, float]], output: Path
+) -> None:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.open("w", encoding="utf-8") as stream:
+        stream.write("# embodied_lidar_odometry_priors_v1\n")
+        for scan_id, stamp, x, y, yaw in rows:
+            stream.write(f"O {scan_id} {stamp:.9f} {x:.9f} {y:.9f} {yaw:.9f}\n")
+
+
 def extract(
     graph: Path,
     bag: Path,
@@ -45,6 +109,8 @@ def extract(
     minimum_points: int = 30,
     maximum_association_delta: float = 0.001,
     sample_interval_s: float = 0.5,
+    odometry_output: Path | None = None,
+    odometry_topic: str = "/odom",
 ) -> dict[str, object]:
     if point_stride <= 0 or minimum_points <= 0:
         raise ValueError("point stride and minimum points must be positive")
@@ -57,11 +123,23 @@ def extract(
 
     _lines, node_stamps, _constraints = parse_graph(graph)
     raw_scans: list[tuple[float, object]] = []
+    raw_odometry: list[tuple[float, float, float, float]] = []
     static_transforms: list[object] = []
     scan_frame = ""
-    for event in iter_events(bag, topics={scan_topic, "/tf_static"}):
+    topics = {scan_topic, "/tf_static"}
+    if odometry_output is not None:
+        topics.add(odometry_topic)
+    for event in iter_events(bag, topics=topics):
         if event.topic == "/tf_static":
             static_transforms.extend(event.message.transforms)
+            continue
+        if event.topic == odometry_topic:
+            message = event.message
+            stamp = float(message.header.stamp.sec) + float(message.header.stamp.nanosec) * 1e-9
+            position = message.pose.pose.position
+            raw_odometry.append(
+                (stamp, float(position.x), float(position.y), _yaw_from_quaternion(message.pose.pose.orientation))
+            )
             continue
         message = event.message
         current_frame = normalize_frame(message.header.frame_id)
@@ -127,6 +205,25 @@ def extract(
         sampling_mode = "fixed_graph_node_timestamp"
 
     write_corpus(rows, output)
+    odometry_metadata: dict[str, object] | None = None
+    if odometry_output is not None:
+        if not raw_odometry:
+            raise RuntimeError(f"bag has no {odometry_topic} messages")
+        odometry_rows, missing_odometry = associate_odometry(rows, raw_odometry)
+        write_odometry_priors(odometry_rows, odometry_output)
+        odometry_metadata = {
+            "path": str(odometry_output.resolve()),
+            "sha256": sha256(odometry_output),
+            "topic": odometry_topic,
+            "messages": len(raw_odometry),
+            "associated_scans": len(odometry_rows),
+            "coverage_ratio": len(odometry_rows) / len(rows),
+            "missing_scan_ids": missing_odometry,
+            "claim_boundary": (
+                "Wheel/visual odometry is a runtime prior for resolving scan symmetry; "
+                "it is not OpenLORIS ground truth."
+            ),
+        }
     values = np.asarray(association_deltas, dtype=float)
     metadata: dict[str, object] = {
         "schema_version": 1,
@@ -173,6 +270,7 @@ def extract(
             "maximum_association_delta_s": maximum_association_delta,
             "sample_interval_s": sample_interval_s,
         },
+        "odometry_prior": odometry_metadata,
         "claim_boundary": (
             "The corpus deterministically samples raw LaserScan geometry and binds the source "
             "graph/bag hashes. It contains no ground-truth pose and cannot score loop "
@@ -190,6 +288,8 @@ def main() -> int:
     parser.add_argument("--bag", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--metadata", type=Path, required=True)
+    parser.add_argument("--odometry-output", type=Path)
+    parser.add_argument("--odometry-topic", default="/odom")
     parser.add_argument("--scan-topic", default="/scan")
     parser.add_argument("--base-frame", default="base_link")
     parser.add_argument("--minimum-range", type=float, default=0.12)
@@ -219,6 +319,8 @@ def main() -> int:
         minimum_points=args.minimum_points,
         maximum_association_delta=args.maximum_association_delta,
         sample_interval_s=args.sample_interval,
+        odometry_output=args.odometry_output,
+        odometry_topic=args.odometry_topic,
     )
     print(json.dumps(report, indent=2))
     print(f"{'PASS' if report['passed'] else 'FAIL'}: OpenLORIS scan corpus")

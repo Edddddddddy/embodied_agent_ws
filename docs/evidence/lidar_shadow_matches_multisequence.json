@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "passed": true,
+  "checks": {
+    "minimum_two_sequences": true,
+    "source_reports_passed": true,
+    "distinct_match_outputs": true,
+    "same_groundtruth_thresholds": true,
+    "same_fixed_profiles": true,
+    "all_sequences_have_true_candidates": true
+  },
+  "sequence_count": 2,
+  "sequences": [
+    {
+      "sequence": "corridor1-1",
+      "source_report_passed": true,
+      "scored_pairs": 3763,
+      "true_candidate_pairs": 105,
+      "accepted_pairs": 333,
+      "precision": 0.084084,
+      "conditional_pair_recall": 0.266667,
+      "query_recall": 0.296875,
+      "median_translation_error_m": 0.687527,
+      "median_yaw_error_deg": 2.075128,
+      "recovered_events": 1,
+      "event_count": 2
+    },
+    {
+      "sequence": "corridor1-2",
+      "source_report_passed": true,
+      "scored_pairs": 1075,
+      "true_candidate_pairs": 62,
+      "accepted_pairs": 74,
+      "precision": 0.337838,
+      "conditional_pair_recall": 0.403226,
+      "query_recall": 0.40625,
+      "median_translation_error_m": 1.435698,
+      "median_yaw_error_deg": 1.889974,
+      "recovered_events": 0,
+      "event_count": 2
+    }
+  ],
+  "aggregate": {
+    "mean_cpp_precision": 0.210961,
+    "mean_conditional_pair_recall": 0.3349465,
+    "recovered_events": 1,
+    "event_count": 4
+  },
+  "release_decision": {
+    "guarded_graph_edge_ablation_ready": false,
+    "direct_graph_edge_insertion_enabled": false,
+    "status": "shadow_only_improve_geometric_verification",
+    "reason": "All sequences must exceed the fixed precision, recall, and transform-error thresholds before a separate guarded pose-graph ablation is allowed."
+  },
+  "claim_boundary": "C++ scan matching consumes candidate scans, descriptor yaw, and an optional odometry yaw prior. Official ground truth is offline-only; no result is inserted into Ceres/GTSAM in this stage."
+}

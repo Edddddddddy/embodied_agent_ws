@@ -375,3 +375,17 @@ bash scripts/acceptance_test.sh openloris-lidar-loop-candidates
 PASS 证明两条独立数据契约、候选评分和多序列公平性检查成立。它不会启动 Gazebo，也不会把候选
 写入图；应同时查看 `docs/evidence/lidar_loop_candidates_multisequence.md` 中的 Recall、Precision
 和 shadow-only 发布结论。
+
+## 9. OpenLORIS 影子扫描匹配
+
+在候选级验收完成后运行：
+
+```bash
+bash scripts/acceptance_test.sh openloris-lidar-shadow-matches
+```
+
+该入口提取两条序列的确定性 LaserScan corpus 与 `/odom` 偏航先验，把 Top-10 候选送入 C++
+粗到细 ICP，再用官方轨迹离线统计 precision、conditional recall、相对位姿误差和事件恢复。
+`PASS` 只表示数据覆盖、哈希、固定 profile 和跨序列公平性契约成立；是否允许下一阶段图边消融由
+`docs/evidence/lidar_shadow_matches_multisequence.json` 的 `release_decision` 单独决定。当前状态是
+`shadow_only_improve_geometric_verification`，`direct_graph_edge_insertion_enabled=false`。

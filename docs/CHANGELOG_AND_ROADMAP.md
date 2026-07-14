@@ -94,6 +94,7 @@
 | 运行时证据口径收口 | 避免短时、fixture、fallback 后结果被误写成真实长稳或模型原始能力 | 在线/离线分别生成 5 分钟报告，增加 Agent 模式、queue reject、P50/P95 和统一事实汇总；缺失或失败证据明确标记，不阻塞无麦克风 CI |
 | 离线 E2E Lifecycle 就绪探针 | 修复 Agent 已激活但 smoke 仍等待旧 `ready` 日志直至超时 | 复用 Lifecycle `GetState` 服务，以只读 wait policy 等待 active；Lifecycle manager 保持唯一转换者，当前真实模型 fixture 整轮 1428.6 ms |
 | LiDAR 回环候选检索 | 补齐“后端门控只能复核已接受边、无法度量前端漏检”的证据缺口 | 新增 C++ 极坐标环键 Top-K 与循环偏航对齐；两条 OpenLORIS 序列 Recall@10 为 33.51%/62.75%、事件召回 4/4，但低 precision 使发布决策限定为 shadow scan matcher，不直接插图 |
+| LiDAR 影子扫描匹配 | 验证 Top-K 候选能否形成安全相对位姿，而不是把检索命中误写成回环边 | 新增 C++17 多初值粗到细 trimmed ICP、走廊半周歧义检测、里程计偏航先验与多序列 release gate；平均 accepted precision 21.10%、事件恢复 1/4，因此保持 shadow-only，禁止直接插图 |
 
 ## 2. 当前完成度结论
 
@@ -240,8 +241,9 @@ bash scripts/acceptance_test.sh continuous-live-check offline
   2.92%，但第二序列没有逐条收益，因此决策为 `keep_disabled_collect_more_sequences`；不以均值
   掩盖无效序列，也不把“跨序列能运行”写成“阈值已泛化”。
 - 新增候选级 C++ LiDAR 检索：完整原始扫描流按 0.5 秒采样，不受异步图节点覆盖率影响；
-  `corridor1-1/1-2` 环键 Recall@10 为 33.51%/62.75%，均恢复 2/2 事件。下一步只在 shadow 模式
-  将 Top-K 送入 scan matcher，先测候选到几何验证的 precision/latency，再决定是否影响生产图。
+  `corridor1-1/1-2` 环键 Recall@10 为 33.51%/62.75%，均恢复 2/2 事件。Top-K 已进入 C++ shadow
+  scan matcher；固定参数 accepted precision 为 8.41%/33.78%，4 个事件只恢复 1 个，所以下一步
+  是 scan-to-submap/多帧一致性，当前仍不允许影响生产图。
 - 已完成动态障碍 current-only、常速度、Kalman、IMM 同场景消融：C++ 固定输入报告预测
   RMSE/遮挡/停车过冲，四轮 Gazebo/Nav2 报告验证 lethal cost、重规划、到达和最终零速；场景、
   地图栅格和 Nav2 参数已纳入 SHA256 一致性门禁。输入仍是合成 `PoseArray`，物理动态 actor 与
