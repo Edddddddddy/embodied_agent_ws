@@ -47,9 +47,12 @@ def compare(
     if not math.isclose(c_ate, g_ate, rel_tol=0.01, abs_tol=1e-4):
         winner = "ceres" if c_ate < g_ate else "gtsam"
     motion_classes: dict[str, object] = {}
+    labelled_intervals: list[dict[str, object]] = []
     if (ceres_degradation is None) != (gtsam_degradation is None):
         raise ValueError("both degradation reports are required for motion A/B")
     if ceres_degradation is not None and gtsam_degradation is not None:
+        checks["ceres_degradation_passed"] = bool(ceres_degradation.get("passed"))
+        checks["gtsam_degradation_passed"] = bool(gtsam_degradation.get("passed"))
         for label in ("straight", "turning", "stationary"):
             c_item = ceres_degradation["motion_classes"][label]
             g_item = gtsam_degradation["motion_classes"][label]
@@ -67,6 +70,35 @@ def compare(
                     else None
                 ),
             }
+        c_intervals = {
+            (item["label"], float(item["start_s"]), float(item["end_s"])): item
+            for item in ceres_degradation.get("labelled_intervals", [])
+        }
+        g_intervals = {
+            (item["label"], float(item["start_s"]), float(item["end_s"])): item
+            for item in gtsam_degradation.get("labelled_intervals", [])
+        }
+        checks["same_labelled_intervals"] = c_intervals.keys() == g_intervals.keys()
+        for key in sorted(c_intervals.keys() & g_intervals.keys()):
+            c_item, g_item = c_intervals[key], g_intervals[key]
+            same_samples = int(c_item["samples"]) == int(g_item["samples"])
+            checks[f"same_labelled_samples:{key[0]}:{key[1]}-{key[2]}"] = same_samples
+            c_value, g_value = c_item["ate_rmse_m"], g_item["ate_rmse_m"]
+            labelled_intervals.append(
+                {
+                    "label": key[0],
+                    "start_s": key[1],
+                    "end_s": key[2],
+                    "samples": int(c_item["samples"]),
+                    "ceres_ate_rmse_m": c_value,
+                    "gtsam_ate_rmse_m": g_value,
+                    "gtsam_minus_ceres_m": (
+                        round(float(g_value) - float(c_value), 6)
+                        if c_value is not None and g_value is not None
+                        else None
+                    ),
+                }
+            )
     return {
         "passed": all(checks.values()),
         "checks": checks,
@@ -94,6 +126,7 @@ def compare(
             "rpe_gtsam_minus_ceres_m": round(g_rpe - c_rpe, 6),
         },
         "motion_classes": motion_classes,
+        "labelled_intervals": labelled_intervals,
         "lower_ate_backend": winner,
     }
 

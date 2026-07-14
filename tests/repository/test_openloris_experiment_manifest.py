@@ -76,6 +76,10 @@ def test_manifest_binds_dataset_commit_config_metrics_and_artifacts(tmp_path):
         ),
     )
     launch_log = _write(tmp_path / "launch.log", "replay complete")
+    annotations = _write(
+        tmp_path / "annotations.json",
+        json.dumps({"intervals": [{"label": "dynamic_occlusion", "start_s": 1, "end_s": 2}]}),
+    )
     result = MODULE.build_manifest(
         workspace=tmp_path,
         sequence="office1-1",
@@ -89,12 +93,16 @@ def test_manifest_binds_dataset_commit_config_metrics_and_artifacts(tmp_path):
         degradation_path=degradation,
         launch_log_path=launch_log,
         replay_rate=1.0,
+        annotations_path=annotations,
     )
     assert result["passed"] is True
     assert result["evidence_scope"]["fixture"] is False
     assert result["artifacts"]["estimate"]["pose_count"] == 100
     assert result["configuration"]["solver_plugin"] == "solver_plugins::CeresSolver"
     assert result["checks"]["source_verification_declared"] is True
+    assert result["configuration"]["semantic_annotations"]["sha256"] == MODULE.sha256(
+        annotations
+    )
 
 
 def test_manifest_rejects_crashed_replay_and_wrong_backend_config(tmp_path, monkeypatch):

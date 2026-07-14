@@ -14,6 +14,7 @@ import tarfile
 import time
 import urllib.request
 from pathlib import Path, PurePosixPath
+from typing import NamedTuple
 
 
 ARCHIVE_NAME = "office1-1_7-rosbag.tar"
@@ -30,6 +31,26 @@ OFFICE1_1_MEMBER_SIZE = 1_245_178_774
 OFFICE1_1_RANGE_END = 1_245_179_391
 OFFICE1_1_RANGE_SHA256 = "c637329c32caa00561419cdce8d04bc7e659cf5edcdc3a6b8f220791210f3c52"
 OFFICE1_1_BAG_SHA256 = "d18e335a34dc25b6f26df911886bdefbeeeacd41620c0ea525fe0314ea9f7a65"
+
+
+class SequenceRangeContract(NamedTuple):
+    range_start: int
+    range_end: int
+    member_size: int
+    range_sha256: str
+    bag_sha256: str
+
+
+# 这些边界来自固定 commit 的未压缩 tar header；range 与解出的 bag 还必须分别过摘要校验。
+SEQUENCE_RANGE_CONTRACTS = {
+    "office1-7": SequenceRangeContract(
+        range_start=7_838_556_672,
+        range_end=9_267_224_063,
+        member_size=1_428_666_703,
+        range_sha256="da2abbacc4a4c200890c8128186b677d0c3b0a7de6a66a2d7095c656ff0e4b6b",
+        bag_sha256="23f443c33353e4059b5d108ca099d452550954613b8af1b02e8159fb147af3ca",
+    )
+}
 
 
 def sha256(path: Path) -> str:
@@ -198,11 +219,18 @@ def download_range_parallel(
     *,
     expected_size: int,
     connections: int = 8,
+    remote_start: int = 0,
 ) -> Path:
-    """Download a bounded object with independently resumable byte ranges."""
+    """Download one bounded remote interval with resumable byte ranges.
+
+    ``remote_start`` keeps local part offsets independent from the source object.  That
+    lets callers fetch a later tar member without downloading every preceding bag.
+    """
 
     if connections < 1:
         raise ValueError("connections must be positive")
+    if expected_size < 1 or remote_start < 0:
+        raise ValueError("range bounds must be non-negative and non-empty")
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.is_file():
         if destination.stat().st_size == expected_size:
@@ -236,15 +264,19 @@ def download_range_parallel(
                 _download_range_part,
                 url,
                 part_root / f"{index:03d}.part",
-                start=start,
-                end=end,
+                start=remote_start + start,
+                end=remote_start + end,
             ): (index, start, end)
             for index, start, end in ranges
         }
         for future in concurrent.futures.as_completed(futures):
             index, start, end = futures[future]
             future.result()
-            print(f"completed range[{index}]={start}-{end}", flush=True)
+            print(
+                f"completed range[{index}]="
+                f"{remote_start + start}-{remote_start + end}",
+                flush=True,
+            )
 
     assembled = destination.with_name(destination.name + ".assemble.part")
     with assembled.open("wb") as target:
@@ -301,17 +333,18 @@ def extract_sequence(archive_path: Path, sequence: str, output_root: Path) -> Pa
     return destination
 
 
-def prepare_first_sequence_range(
-    *, output_root: Path, download: bool = True, connections: int = 8
+def prepare_sequence_range(
+    *,
+    sequence: str,
+    contract: SequenceRangeContract,
+    output_root: Path,
+    download: bool = True,
+    connections: int = 8,
 ) -> Path:
-    """Fetch only the first tar member for a quicker office1-1 real-data run.
+    """Fetch and verify exactly one member interval from the pinned remote tar."""
 
-    This mode pins the repository commit, full-object metadata and member size, but cannot
-    recompute the full 9.27 GB archive SHA256. The provenance file states that distinction.
-    """
-
-    range_archive = output_root / "archive" / "office1-1.range.tar"
-    expected_range_size = OFFICE1_1_RANGE_END + 1
+    range_archive = output_root / "archive" / f"{sequence}.range.tar"
+    expected_range_size = contract.range_end - contract.range_start + 1
     if not range_archive.is_file():
         if not download:
             raise FileNotFoundError(range_archive)
@@ -320,6 +353,7 @@ def prepare_first_sequence_range(
             range_archive,
             expected_size=expected_range_size,
             connections=connections,
+            remote_start=contract.range_start,
         )
     if range_archive.stat().st_size != expected_range_size:
         raise ValueError(
@@ -327,47 +361,47 @@ def prepare_first_sequence_range(
             f"got {range_archive.stat().st_size}"
         )
     range_sha256 = sha256(range_archive)
-    if range_sha256 != OFFICE1_1_RANGE_SHA256:
+    if range_sha256 != contract.range_sha256:
         raise ValueError(
-            f"range SHA256 mismatch: expected {OFFICE1_1_RANGE_SHA256}, "
+            f"range SHA256 mismatch: expected {contract.range_sha256}, "
             f"got {range_sha256}"
         )
-    destination = output_root / "rosbag" / "office1-1" / "office1-1.bag"
+    destination = output_root / "rosbag" / sequence / f"{sequence}.bag"
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_suffix(".bag.part")
-    # 流式 tar reader 在第一个成员后立即停止，不要求下载后续六条序列或伪造 tar 结束块。
+    # 本地 range 从目标成员 header 开始；流式读取无需伪造前序成员或 tar 结束块。
     with tarfile.open(range_archive, mode="r|") as archive:
         member = archive.next()
         if (
             member is None
             or not member.isfile()
-            or PurePosixPath(member.name).name != "office1-1.bag"
-            or member.size != OFFICE1_1_MEMBER_SIZE
+            or PurePosixPath(member.name).name != f"{sequence}.bag"
+            or member.size != contract.member_size
         ):
-            raise ValueError(f"unexpected first archive member: {member}")
+            raise ValueError(f"unexpected range archive member: {member}")
         source = archive.extractfile(member)
         if source is None:
-            raise ValueError("cannot read first office rosbag member")
+            raise ValueError("cannot read range rosbag member")
         with source, temporary.open("wb") as target:
             shutil.copyfileobj(source, target, length=8 * 1024 * 1024)
     bag_sha256 = sha256(temporary)
-    if bag_sha256 != OFFICE1_1_BAG_SHA256:
+    if bag_sha256 != contract.bag_sha256:
         raise ValueError(
-            f"bag SHA256 mismatch: expected {OFFICE1_1_BAG_SHA256}, got {bag_sha256}"
+            f"bag SHA256 mismatch: expected {contract.bag_sha256}, got {bag_sha256}"
         )
     # 只有 tar 成员和内容摘要都满足固定契约，消费者才会看到最终 .bag。
     os.replace(temporary, destination)
     metadata = {
         "dataset": "OpenLORIS-Scene",
-        "sequence": "office1-1",
+        "sequence": sequence,
         "dataset_page": DATASET_PAGE,
         "dataset_commit": DATASET_COMMIT,
         "archive_url": ARCHIVE_URL,
         "archive_size_bytes": ARCHIVE_SIZE,
         "archive_sha256": ARCHIVE_SHA256,
         "archive_verification": "pinned_https_range_not_full_hash",
-        "range_start": 0,
-        "range_end": OFFICE1_1_RANGE_END,
+        "range_start": contract.range_start,
+        "range_end": contract.range_end,
         "range_sha256": range_sha256,
         "bag": str(destination.resolve()),
         "bag_size_bytes": destination.stat().st_size,
@@ -378,6 +412,26 @@ def prepare_first_sequence_range(
         json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     return destination
+
+
+def prepare_first_sequence_range(
+    *, output_root: Path, download: bool = True, connections: int = 8
+) -> Path:
+    """Backward-compatible office1-1 quick path used by existing automation."""
+
+    return prepare_sequence_range(
+        sequence="office1-1",
+        contract=SequenceRangeContract(
+            range_start=0,
+            range_end=OFFICE1_1_RANGE_END,
+            member_size=OFFICE1_1_MEMBER_SIZE,
+            range_sha256=OFFICE1_1_RANGE_SHA256,
+            bag_sha256=OFFICE1_1_BAG_SHA256,
+        ),
+        output_root=output_root,
+        download=download,
+        connections=connections,
+    )
 
 
 def prepare(
@@ -435,7 +489,7 @@ def main() -> int:
     parser.add_argument(
         "--range-only",
         action="store_true",
-        help="Download only the first office1-1 tar member (~1.25 GB)",
+        help="Download a pinned office1-1 or office1-7 tar member interval",
     )
     parser.add_argument(
         "--download-connections",
@@ -445,13 +499,22 @@ def main() -> int:
     )
     args = parser.parse_args()
     if args.range_only:
-        if args.sequence != "office1-1" or args.archive is not None:
-            parser.error("--range-only supports only default office1-1 without --archive")
-        bag = prepare_first_sequence_range(
-            output_root=args.output_root,
-            download=not args.no_download,
-            connections=args.download_connections,
-        )
+        if args.archive is not None or args.sequence not in {"office1-1", "office1-7"}:
+            parser.error("--range-only supports office1-1/office1-7 without --archive")
+        if args.sequence == "office1-1":
+            bag = prepare_first_sequence_range(
+                output_root=args.output_root,
+                download=not args.no_download,
+                connections=args.download_connections,
+            )
+        else:
+            bag = prepare_sequence_range(
+                sequence=args.sequence,
+                contract=SEQUENCE_RANGE_CONTRACTS[args.sequence],
+                output_root=args.output_root,
+                download=not args.no_download,
+                connections=args.download_connections,
+            )
     else:
         bag = prepare(
             sequence=args.sequence,

@@ -36,6 +36,7 @@ class EvaluationConfig:
         loop_yaw_tolerance_deg: float = 30.0,
         loop_min_separation_s: float = 10.0,
         loop_sample_interval_s: float = 1.0,
+        loop_event_gap_s: float = 2.0,
         loop_recovery_tolerance_m: float = 0.50,
         min_match_ratio: float = 0.80,
         max_ate_rmse_m: float | None = None,
@@ -43,6 +44,8 @@ class EvaluationConfig:
     ) -> None:
         if max_time_diff_s <= 0 or rpe_delta_s <= 0:
             raise ValueError("time tolerances must be positive")
+        if loop_sample_interval_s <= 0 or loop_event_gap_s <= 0:
+            raise ValueError("loop sampling and event gap must be positive")
         if not 0.0 <= min_match_ratio <= 1.0:
             raise ValueError("min_match_ratio must be in [0, 1]")
         self.max_time_diff_s = max_time_diff_s
@@ -52,6 +55,7 @@ class EvaluationConfig:
         self.loop_yaw_tolerance_rad = math.radians(loop_yaw_tolerance_deg)
         self.loop_min_separation_s = loop_min_separation_s
         self.loop_sample_interval_s = loop_sample_interval_s
+        self.loop_event_gap_s = loop_event_gap_s
         self.loop_recovery_tolerance_m = loop_recovery_tolerance_m
         self.min_match_ratio = min_match_ratio
         self.max_ate_rmse_m = max_ate_rmse_m
@@ -290,10 +294,9 @@ def _sample_indices(poses: Sequence[Pose2], interval_s: float) -> list[int]:
 
 def _loop_metrics(
     reference: Sequence[Pose2], estimate: Sequence[Pose2], config: EvaluationConfig
-) -> dict[str, float | int | None]:
+) -> dict[str, object]:
     sampled = _sample_indices(reference, config.loop_sample_interval_s)
-    opportunities = 0
-    recovered = 0
+    opportunities: list[dict[str, object]] = []
     relation_errors: list[float] = []
     yaw_return_errors: list[float] = []
     for current_position, current_index in enumerate(sampled):
@@ -309,8 +312,7 @@ def _loop_metrics(
                 candidates.append((distance, previous_index))
         if not candidates:
             continue
-        opportunities += 1
-        _, previous_index = min(candidates)
+        reference_distance, previous_index = min(candidates)
         estimated_distance = math.hypot(
             estimate[current_index].x - estimate[previous_index].x,
             estimate[current_index].y - estimate[previous_index].y,
@@ -320,22 +322,74 @@ def _loop_metrics(
         )
         relation_errors.append(estimated_distance)
         yaw_return_errors.append(estimated_yaw_delta)
-        if (
+        recovered = (
             estimated_distance <= config.loop_recovery_tolerance_m
             and estimated_yaw_delta <= config.loop_yaw_tolerance_rad
+        )
+        opportunities.append(
+            {
+                "current_stamp_s": current.stamp,
+                "previous_stamp_s": reference[previous_index].stamp,
+                "reference_distance_m": reference_distance,
+                "reference_yaw_delta_deg": math.degrees(
+                    abs(_wrap_angle(current.yaw - reference[previous_index].yaw))
+                ),
+                "estimated_distance_m": estimated_distance,
+                "estimated_yaw_delta_deg": math.degrees(estimated_yaw_delta),
+                "recovered": recovered,
+            }
+        )
+
+    # 相邻采样点常属于同一次“进入旧区域”的回访过程。按时间聚合后再报告 event recall，
+    # 避免提高采样率就人为放大回环机会数量。
+    events: list[dict[str, object]] = []
+    for opportunity in opportunities:
+        if (
+            not events
+            or float(opportunity["current_stamp_s"])
+            - float(events[-1]["end_stamp_s"])
+            > config.loop_event_gap_s
         ):
-            recovered += 1
+            events.append(
+                {
+                    "event_id": len(events) + 1,
+                    "start_stamp_s": opportunity["current_stamp_s"],
+                    "end_stamp_s": opportunity["current_stamp_s"],
+                    "opportunity_count": 1,
+                    "recovered": bool(opportunity["recovered"]),
+                }
+            )
+        else:
+            events[-1]["end_stamp_s"] = opportunity["current_stamp_s"]
+            events[-1]["opportunity_count"] = int(events[-1]["opportunity_count"]) + 1
+            events[-1]["recovered"] = bool(events[-1]["recovered"]) or bool(
+                opportunity["recovered"]
+            )
+
+    recovered_opportunities = sum(bool(item["recovered"]) for item in opportunities)
+    recovered_events = sum(bool(item["recovered"]) for item in events)
     return {
-        "opportunities": opportunities,
-        "recovered": recovered,
-        "recall": recovered / opportunities if opportunities else None,
+        "opportunities": len(opportunities),
+        "recovered": recovered_opportunities,
+        "recall": (
+            recovered_opportunities / len(opportunities) if opportunities else None
+        ),
+        "event_count": len(events),
+        "events_recovered": recovered_events,
+        "event_recall": recovered_events / len(events) if events else None,
+        "event_gap_s": config.loop_event_gap_s,
+        "events": events,
+        "opportunity_samples": opportunities,
         "mean_estimated_return_distance_m": (
             statistics.fmean(relation_errors) if relation_errors else None
         ),
         "mean_estimated_return_yaw_deg": (
             math.degrees(statistics.fmean(yaw_return_errors)) if yaw_return_errors else None
         ),
-        "definition": "ground-truth return events recovered by estimated XY distance and yaw",
+        "definition": (
+            "ground-truth return samples and time-clustered revisit events recovered by "
+            "estimated XY distance and yaw"
+        ),
     }
 
 
@@ -457,7 +511,8 @@ def render_markdown(report: dict[str, object], reference: Path, estimate: Path) 
 | RPE 平移 RMSE ({rpe['delta_s']:.1f}s) | {rpe['translation_m']['rmse'] if rpe['translation_m'] else 'N/A'} m |
 | 路径长度比 | {path['length_ratio']:.4f} |
 | 终点误差 | {closure['final_pose_error_m']:.4f} m |
-| 回环机会/恢复 | {loop['opportunities']} / {loop['recovered']} |
+| 回访采样点/恢复 | {loop['opportunities']} / {loop['recovered']} |
+| 回访事件/恢复 | {loop['event_count']} / {loop['events_recovered']} |
 
 > ATE 反映全局一致性，RPE 反映局部漂移；对齐过程不估计尺度，因此轮径/尺度误差不会被隐藏。
 """
@@ -474,6 +529,7 @@ def main() -> int:
     parser.add_argument("--segment-window", type=float, default=10.0)
     parser.add_argument("--loop-radius", type=float, default=0.50)
     parser.add_argument("--loop-min-separation", type=float, default=10.0)
+    parser.add_argument("--loop-event-gap", type=float, default=2.0)
     parser.add_argument("--loop-recovery-tolerance", type=float, default=0.50)
     parser.add_argument("--min-match-ratio", type=float, default=0.80)
     parser.add_argument("--max-ate-rmse", type=float)
@@ -485,6 +541,7 @@ def main() -> int:
         segment_window_s=args.segment_window,
         loop_radius_m=args.loop_radius,
         loop_min_separation_s=args.loop_min_separation,
+        loop_event_gap_s=args.loop_event_gap,
         loop_recovery_tolerance_m=args.loop_recovery_tolerance,
         min_match_ratio=args.min_match_ratio,
         max_ate_rmse_m=args.max_ate_rmse,

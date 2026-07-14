@@ -168,7 +168,8 @@ bash scripts/acceptance_test.sh openloris-slam-ab
 - 未完成：真实传感器标定误差、轮滑/玻璃/长走廊等真实退化数据的系统评测。
 - 已完成工具：OpenLORIS topic contract、ROS 1→ROS 2 SLAM 回放、map-frame 轨迹记录、
   Ceres/GTSAM A/B、ATE/RPE/回访统计和阈值门禁。
-- 已完成实验：`office1-1` 真实 bag 已保存 SHA256/commit/config/日志/轨迹 manifest，Ceres 与
-  GTSAM 的 ATE 均约 2.9 cm；该序列没有真值回访事件，不能作为回环召回率证据。
-- 下一步：选择含回访、长走廊或人工动态遮挡标注的更多序列做跨场景实验；再比较动态障碍
+- 已完成实验：`office1-1` 接线基线与 `office1-7` 回访序列都保存 SHA256/commit/config/日志/
+  轨迹 manifest；`office1-7` Ceres/GTSAM ATE 均约 10.0 cm，轨迹恢复 2/2 个回访事件，但
+  accepted 非局部图边为 0，不能作为“回环前端成功”的证据。
+- 下一步：对走廊/动态遮挡区间做人工复核标注与前端阈值消融，再比较动态障碍
   current-only 与 constant-velocity prediction，并引入 Kalman/IMM 做消融。

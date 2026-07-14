@@ -74,6 +74,7 @@ Automated modes:
   openloris-slam-ceres Replay a real OpenLORIS bag through the Ceres backend
   openloris-slam-gtsam Replay a real OpenLORIS bag through the GTSAM backend
   openloris-slam-ab    Run both backends on one bag and compare their reports
+  openloris-loop-evidence Audit office1-7 revisits and run accepted-loop evaluation
   openloris-evaluate  Evaluate SLAM_ESTIMATE_FILE against an OpenLORIS sequence
   dynamic-obstacle-stage Build/test tracker, motion predictor, and Nav2 costmap plugin seam
   dynamic-obstacle-navigation Heavy run: predicted crossing obstacle -> Nav2 replan -> goal
@@ -491,6 +492,34 @@ case "$LEVEL" in
       --ceres-degradation "$OPENLORIS_OUTPUT_DIR/ceres_degradation.json" \
       --gtsam-degradation "$OPENLORIS_OUTPUT_DIR/gtsam_degradation.json" \
       --output "$OPENLORIS_OUTPUT_DIR/backend_comparison.json"
+    ;;
+  openloris-loop-evidence)
+    OPENLORIS_SEQUENCE="${OPENLORIS_SEQUENCE:-office1-7}"
+    OPENLORIS_ROOT="${OPENLORIS_ROOT:-$WORKSPACE/datasets/openloris}"
+    OPENLORIS_REFERENCE="$OPENLORIS_ROOT/groundtruth/$OPENLORIS_SEQUENCE/groundtruth.txt"
+    if [[ ! -s "$OPENLORIS_REFERENCE" ]]; then
+      python3 scripts/setup_openloris_groundtruth.py \
+        --sequence "$OPENLORIS_SEQUENCE" --output-root "$OPENLORIS_ROOT"
+    fi
+    python3 scripts/analyze_openloris_revisits.py \
+      --reference "$OPENLORIS_REFERENCE" \
+      --output "${OPENLORIS_REVISIT_REPORT:-logs/openloris/$OPENLORIS_SEQUENCE/revisit_catalog.json}" \
+      --min-events "${OPENLORIS_MIN_REVISIT_EVENTS:-1}"
+    colcon build --packages-up-to embodied_slam embodied_slam_tools --symlink-install
+    OPENLORIS_BAG="${OPENLORIS_BAG:-$OPENLORIS_ROOT/rosbag/$OPENLORIS_SEQUENCE/$OPENLORIS_SEQUENCE.bag}"
+    DEFAULT_OPENLORIS_ANNOTATIONS=""
+    if [[ "$OPENLORIS_SEQUENCE" == "office1-7" ]]; then
+      DEFAULT_OPENLORIS_ANNOTATIONS="$WORKSPACE/src/embodied_slam/config/openloris_office1_7_annotations.json"
+    fi
+    OPENLORIS_ANNOTATIONS="${OPENLORIS_ANNOTATIONS:-$DEFAULT_OPENLORIS_ANNOTATIONS}"
+    if [[ ! -s "$OPENLORIS_BAG" ]]; then
+      OPENLORIS_SEQUENCE="$OPENLORIS_SEQUENCE" OPENLORIS_ROOT="$OPENLORIS_ROOT" \
+        OPENLORIS_RANGE_ONLY=true bash scripts/acceptance_test.sh openloris-rosbag-setup
+    fi
+    OPENLORIS_SEQUENCE="$OPENLORIS_SEQUENCE" OPENLORIS_ROOT="$OPENLORIS_ROOT" \
+      OPENLORIS_BAG="$OPENLORIS_BAG" OPENLORIS_EVALUATE_LOOP_CONSTRAINTS=true \
+      OPENLORIS_ANNOTATIONS="$OPENLORIS_ANNOTATIONS" \
+      bash scripts/run_openloris_slam_replay.sh gtsam
     ;;
   openloris-evaluate)
     if [[ -z "${SLAM_ESTIMATE_FILE:-}" ]]; then

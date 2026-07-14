@@ -109,8 +109,37 @@ def test_closed_loop_reports_recovered_and_missed_return_events():
         ),
     )
     assert recovered_report["loop"]["opportunities"] == 1
+    assert recovered_report["loop"]["event_count"] == 1
+    assert recovered_report["loop"]["event_recall"] == 1.0
     assert recovered_report["loop"]["recall"] == 1.0
     assert missed_report["loop"]["recall"] == 0.0
+
+
+def test_adjacent_return_samples_are_clustered_into_one_revisit_event():
+    reference = [
+        MODULE.Pose2(0.0, 0.0, 0.0, 0.0),
+        MODULE.Pose2(5.0, 2.0, 0.0, 0.0),
+        MODULE.Pose2(10.0, 2.0, 2.0, math.pi),
+        MODULE.Pose2(15.0, 0.0, 2.0, math.pi),
+        MODULE.Pose2(20.0, 0.1, 0.0, 0.0),
+        MODULE.Pose2(21.0, 0.2, 0.0, 0.0),
+        MODULE.Pose2(30.0, 2.0, 2.0, math.pi),
+        MODULE.Pose2(31.0, 2.1, 2.0, math.pi),
+    ]
+    report = MODULE.evaluate(
+        reference,
+        reference,
+        MODULE.EvaluationConfig(
+            max_time_diff_s=0.1,
+            loop_min_separation_s=15.0,
+            loop_sample_interval_s=1.0,
+            loop_event_gap_s=2.0,
+        ),
+    )
+
+    assert report["loop"]["opportunities"] == 4
+    assert report["loop"]["event_count"] == 2
+    assert [item["opportunity_count"] for item in report["loop"]["events"]] == [2, 2]
 
 
 def test_association_rejects_interpolation_across_a_large_gap():

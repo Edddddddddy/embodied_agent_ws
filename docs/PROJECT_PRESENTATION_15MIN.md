@@ -173,7 +173,7 @@ benchmark，并用 `runtime-evidence-summary` 核对 `proven/failed/missing`。�
 
 - 实体 UART/SPI 硬件控制是 mock/预留，不是本阶段实体验收。
 - LoRA 训练、Q8 量化可以作为规划和接口说明，不宣称完整复现实验指标。
-- 已完成 OpenLORIS `office1-1` 真实 bag 双后端报告：322 个对齐位姿、99.65% 覆盖率，
-  Ceres/GTSAM ATE RMSE 分别为 2.879/2.890 cm。该片段只有约 27 秒且没有真值回访事件，
-  因此不能把这组 ATE 包装成回环 precision/recall 或跨场景泛化证据。
+- 已完成 OpenLORIS `office1-1` 接线基线和 `office1-7` 回访序列双后端报告；后者 449 个对齐
+  位姿、99.753% 覆盖率，Ceres/GTSAM ATE RMSE 为 9.996/9.989 cm。最终轨迹恢复 2/2 个回访
+  事件，但 accepted 非局部图边为 0，因此不能包装成“前端回环成功”或跨场景泛化证据。
 - SummerTTS 已服务化，但当前 CPU 推理瓶颈仍明显，后续可做量化、缓存或更快声码器优化。

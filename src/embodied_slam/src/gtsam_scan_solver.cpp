@@ -1,4 +1,7 @@
 #include <algorithm>
+#include <cstdlib>
+#include <fstream>
+#include <iomanip>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -30,6 +33,32 @@ public:
     config.huber_k = declare_or_get(*node, "gtsam_huber_k", 1.345);
     config.minimum_covariance_eigenvalue =
       declare_or_get(*node, "gtsam_minimum_covariance_eigenvalue", 1e-8);
+    const int configured_loop_id_separation =
+      declare_or_get(*node, "gtsam_loop_constraint_min_id_separation", 20);
+    loop_constraint_min_id_separation_ = static_cast<std::size_t>(
+      std::max(2, configured_loop_id_separation));
+    if (configured_loop_id_separation < 2) {
+      RCLCPP_WARN(
+        node->get_logger(), "gtsam_loop_constraint_min_id_separation=%d is unsafe; using 2",
+        configured_loop_id_separation);
+    }
+    const char * log_from_environment = std::getenv("EMBODIED_SLAM_CONSTRAINT_LOG");
+    constraint_log_path_ = declare_or_get(*node, "gtsam_constraint_log_path", std::string(""));
+    if (constraint_log_path_.empty() && log_from_environment != nullptr) {
+      constraint_log_path_ = log_from_environment;
+    }
+    if (!constraint_log_path_.empty()) {
+      if (constraint_log_.is_open()) {
+        constraint_log_.close();
+      }
+      constraint_log_.clear();
+      constraint_log_.open(constraint_log_path_, std::ios::out | std::ios::trunc);
+      if (!constraint_log_) {
+        RCLCPP_WARN(
+          node->get_logger(), "Cannot open GTSAM constraint evidence log: %s",
+          constraint_log_path_.c_str());
+      }
+    }
     optimizer_ = GtsamPoseGraphOptimizer(config);
     RCLCPP_INFO(node->get_logger(), "Configured embodied_slam GTSAM pose-graph backend");
   }
@@ -65,7 +94,27 @@ public:
       }
     }
     std::scoped_lock lock(mutex_);
-    constraints_.push_back(std::move(constraint));
+    constraints_.push_back(constraint);
+    if (constraint_log_) {
+      const auto id_separation = static_cast<std::size_t>(
+        std::abs(constraint.source_id - constraint.target_id));
+      const char * kind =
+        id_separation >= loop_constraint_min_id_separation_ ? "loop" : "sequential";
+      // ScanSolver 只会收到前端已经接受的边；记录时间戳和相对约束后，离线评估器才能
+      // 用独立真值计算 accepted-edge precision / false-loop rate，而不是从最终 ATE 猜测。
+      constraint_log_ << std::setprecision(17)
+                      << "{\"schema_version\":1,\"backend\":\"gtsam\","
+                      << "\"accepted\":true,\"constraint_kind\":\"" << kind << "\","
+                      << "\"source_id\":" << constraint.source_id << ","
+                      << "\"target_id\":" << constraint.target_id << ","
+                      << "\"id_separation\":" << id_separation << ","
+                      << "\"source_stamp_s\":" << source->GetTime() << ","
+                      << "\"target_stamp_s\":" << target->GetTime() << ","
+                      << "\"relative_x_m\":" << constraint.relative_pose.x << ","
+                      << "\"relative_y_m\":" << constraint.relative_pose.y << ","
+                      << "\"relative_yaw_rad\":" << constraint.relative_pose.yaw << "}\n";
+      constraint_log_.flush();
+    }
   }
 
   void Compute() override
@@ -172,6 +221,9 @@ private:
   GtsamPoseGraphOptimizer optimizer_;
   std::unordered_map<int, Pose2d> initial_poses_;
   std::vector<PoseGraphConstraint> constraints_;
+  std::size_t loop_constraint_min_id_separation_{20U};
+  std::string constraint_log_path_;
+  std::ofstream constraint_log_;
   IdPoseVector corrections_;
   std::unordered_map<int, Eigen::Vector3d> graph_;
 };

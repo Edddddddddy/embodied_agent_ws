@@ -184,11 +184,11 @@ bash scripts/acceptance_test.sh slam-evaluation-stage
 固定时间间隔 RPE、路径尺度比、终点漂移、最差时间窗和真值回访事件恢复率。固定尺度是刻意设计：
 轮径或尺度误差不能靠对齐步骤被隐藏。
 
-公开数据推荐 OpenLORIS `office1-1`：办公室序列使用独立 OptiTrack 真值。地面真值约 11 MB，
-按来源 SHA256 校验后才解压：
+公开数据使用 OpenLORIS office 场景的独立 OptiTrack 真值。`office1-1` 适合快速接线检查，
+但不含满足当前定义的回访；需要讲回环时应使用已经审计出 2 次独立回访事件的 `office1-7`：
 
 ```bash
-bash scripts/acceptance_test.sh openloris-groundtruth
+OPENLORIS_SEQUENCE=office1-7 bash scripts/acceptance_test.sh openloris-groundtruth
 ```
 
 OpenLORIS 原始包是 ROS 1 bag。项目用可选 `rosbags` 流式读取 `/odom`、`/scan` 和
@@ -200,12 +200,18 @@ pip install -r requirements-slam-eval.txt
 bash scripts/acceptance_test.sh openloris-replay-stage
 ```
 
-下载并解压官方 bag 后运行真实 A/B。首次验证推荐只取归档中的首条序列，约 1.25 GB；
-正式归档审计再使用 9.27 GB 完整下载：
+下载并解压官方 bag 后运行真实 A/B。Range 模式可按固定 tar 成员边界只取 `office1-1`
+约 1.25 GB 或 `office1-7` 约 1.43 GB；range 和解出的 bag 都必须通过固定 SHA256：
 
 ```bash
-# 快速实验：固定数据集 commit，并校验首段与 bag 的独立 SHA256。
+# 快速接线序列。
 OPENLORIS_RANGE_ONLY=true bash scripts/acceptance_test.sh openloris-rosbag-setup
+
+# 回访/accepted-loop 证据：自动准备 office1-7、审计真值事件并运行 GTSAM。
+bash scripts/acceptance_test.sh openloris-loop-evidence
+
+# 同一 office1-7 前端输入下比较 Ceres/GTSAM。
+OPENLORIS_SEQUENCE=office1-7 bash scripts/acceptance_test.sh openloris-slam-ab
 
 # 最强来源验证：下载完整归档，校验固定大小和 SHA256（约 9.27 GB）。
 bash scripts/acceptance_test.sh openloris-rosbag-setup
@@ -219,8 +225,11 @@ HTTPS Range 快速验证；动态遮挡只有提供人工复核时间区间才
 单独统计；大型 bag 和实验结果不会伪装成 CI 证据。完整方法与限制见
 [真实数据 SLAM 评估](docs/REAL_WORLD_SLAM_EVALUATION.md)。
 
-当前 `office1-1` 实测中，Ceres/GTSAM 的 ATE RMSE 为 2.879/2.890 cm，按预设 1% 容差为平局；
-该 27 秒序列没有真值回访事件，所以此结果不作为回环召回率证据。
+当前 `office1-7` 实测覆盖 449 个估计位姿和 99.753% 真值时间窗；Ceres/GTSAM 的 ATE RMSE
+分别为 9.996/9.989 cm，差值 0.077 mm，仍判为平局。真值 5 个回访采样点聚合为 2 次事件，
+两条最终轨迹都保持了事件级几何闭合，但 GTSAM 约束日志中的 46 条边全部是相邻边，非局部
+accepted loop 为 0。也就是说当前结果证明了“真实回访和轨迹恢复评价链路”，尚未证明前端成功
+接受回环；这种区分避免用较低的最终 ATE 冒充回环 precision/recall。
 
 ## 测试与验收
 
