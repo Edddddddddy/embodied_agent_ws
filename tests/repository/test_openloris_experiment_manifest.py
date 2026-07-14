@@ -83,6 +83,14 @@ def test_manifest_binds_dataset_commit_config_metrics_and_artifacts(tmp_path):
         ),
     )
     launch_log = _write(tmp_path / "launch.log", "replay complete")
+    frontend_log = _write(
+        tmp_path / "frontend.jsonl",
+        json.dumps({"schema_version": 1, "event": "candidate_topology"}) + "\n",
+    )
+    frontend_report = _write(
+        tmp_path / "frontend_report.json",
+        json.dumps({"passed": True, "failure_boundary": "candidate_generation"}),
+    )
     annotations = _write(
         tmp_path / "annotations.json",
         json.dumps({"intervals": [{"label": "dynamic_occlusion", "start_s": 1, "end_s": 2}]}),
@@ -102,6 +110,8 @@ def test_manifest_binds_dataset_commit_config_metrics_and_artifacts(tmp_path):
         replay_rate=1.0,
         wall_clock_s=42.0,
         annotations_path=annotations,
+        frontend_log_path=frontend_log,
+        frontend_report_path=frontend_report,
     )
     assert result["passed"] is True
     assert result["evidence_scope"]["fixture"] is False
@@ -114,6 +124,9 @@ def test_manifest_binds_dataset_commit_config_metrics_and_artifacts(tmp_path):
     assert result["configuration"]["semantic_annotations"]["sha256"] == MODULE.sha256(
         annotations
     )
+    assert result["schema_version"] == 3
+    assert result["checks"]["loop_frontend_report_passed"] is True
+    assert result["metrics"]["loop_frontend"]["failure_boundary"] == "candidate_generation"
 
 
 def test_manifest_rejects_crashed_replay_and_wrong_backend_config(tmp_path, monkeypatch):

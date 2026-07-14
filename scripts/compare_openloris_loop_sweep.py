@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+from collections import Counter
 from pathlib import Path
 
 
@@ -41,6 +42,7 @@ def compare(config_manifest: dict[str, object], result_root: Path) -> dict[str, 
         manifest = _load(directory / "gtsam_manifest.json")
         loop = _load(directory / "gtsam_loop_constraints.json")
         report = _load(directory / "gtsam_report.json")
+        frontend = _load(directory / "gtsam_frontend_report.json")
         topology = _graph_topology(directory / "gtsam_constraints.jsonl")
         bag_hashes.add(str(manifest["dataset"]["bag_sha256"]))  # type: ignore[index]
         matched = int(report["association"]["matched_poses"])  # type: ignore[index]
@@ -49,6 +51,11 @@ def compare(config_manifest: dict[str, object], result_root: Path) -> dict[str, 
         recovery = loop["event_recovery"]  # type: ignore[index]
         checks[f"{profile_id}:manifest"] = bool(manifest.get("passed"))
         checks[f"{profile_id}:loop_report"] = bool(loop.get("passed"))
+        checks[f"{profile_id}:frontend_report"] = bool(frontend.get("passed"))
+        checks[f"{profile_id}:frontend_graph_node_coverage"] = (
+            int(frontend["events"]["processed_topology_scans"])  # type: ignore[index]
+            == topology["accepted_graph_edges"] + 1
+        )
         checks[f"{profile_id}:config_hash"] = (
             manifest["configuration"]["params"]["sha256"] == profile["sha256"]  # type: ignore[index]
         )
@@ -71,6 +78,14 @@ def compare(config_manifest: dict[str, object], result_root: Path) -> dict[str, 
                 "replay_wall_clock_s": manifest["configuration"].get(  # type: ignore[index]
                     "replay_wall_clock_s"
                 ),
+                "loop_frontend": {
+                    "failure_boundary": frontend["failure_boundary"],
+                    "candidate_primary_reasons": frontend[
+                        "candidate_primary_reasons"
+                    ],
+                    "topology_maxima": frontend["topology_maxima"],
+                    "events": frontend["events"],
+                },
             }
         )
 
@@ -88,8 +103,16 @@ def compare(config_manifest: dict[str, object], result_root: Path) -> dict[str, 
         row["id"] for row in rows if row["event_recall"] == best_recall
     ]
     lowest_ate = min(rows, key=lambda row: float(row["ate_rmse_m"]))
+    failure_boundaries = Counter(
+        str(row["loop_frontend"]["failure_boundary"]) for row in rows  # type: ignore[index]
+    )
+    candidate_reasons: Counter[str] = Counter()
+    for row in rows:
+        candidate_reasons.update(  # type: ignore[arg-type]
+            row["loop_frontend"]["candidate_primary_reasons"]  # type: ignore[index]
+        )
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "passed": all(checks.values()),
         "checks": checks,
         "profiles": rows,
@@ -98,10 +121,15 @@ def compare(config_manifest: dict[str, object], result_root: Path) -> dict[str, 
             "best_event_recall_profiles": best_recall_profiles,
             "lowest_ate_profile": lowest_ate["id"],
             "lowest_ate_rmse_m": lowest_ate["ate_rmse_m"],
+            "failure_boundaries": dict(sorted(failure_boundaries.items())),
+            "candidate_primary_reason_totals": dict(sorted(candidate_reasons.items())),
         },
         "methodology": {
             "controlled": "same lossless topic-subset bag, GTSAM backend and evaluator",
             "changed": "declared slam_toolbox loop-front-end parameters only",
+            "frontend_diagnostics": (
+                "replicated Karto candidate-chain topology plus native matcher callbacks"
+            ),
             "precision": "ground-truth-consistent accepted non-local graph edges",
             "event_recall": "ground-truth revisit events recovered by a true accepted edge",
             "boundary": config_manifest.get("claim_boundary"),

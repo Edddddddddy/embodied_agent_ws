@@ -175,7 +175,10 @@ bash scripts/acceptance_test.sh openloris-slam-ab
 来源哈希的约 5 MB SLAM-only bag；后续可复用校验通过的 profile 结果。验收要求 6 组 manifest、
 参数哈希、bag 哈希和轨迹覆盖可比，并生成 `logs/openloris/office1-7/loop_sweep/comparison.json`。
 当前真实结果是 6 组均有 46 条相邻边、0 条非局部边、event recall 0；这是有效的失败边界证据，
-不是测试失败。完整候选 PR 曲线仍需在 karto 前端增加 rejected-candidate instrumentation。
+不是测试失败。每个 profile 还必须生成 `gtsam_frontend.jsonl` 和
+`gtsam_frontend_report.json`，并满足“诊断图节点数 = accepted graph edge 数 + 1”、JSONL 全部可
+解析、closure begin/end 平衡。`failure_boundary` 用于区分 candidate generation、coarse、fine、
+constraint insertion 和 accepted loop；没有 matcher callback 时不能猜成“响应阈值太高”。
 
 ### 动态障碍
 

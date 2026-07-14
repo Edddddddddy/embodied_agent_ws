@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(ament_cmake REQUIRED)
+find_package(Boost REQUIRED COMPONENTS serialization thread)
 find_package(diagnostic_msgs REQUIRED)
 find_package(embodied_agent_middleware REQUIRED)
 find_package(geometry_msgs REQUIRED)
@@ -17,12 +18,14 @@ find_package(rclcpp_lifecycle REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(slam_toolbox REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(TBB REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 
 add_library(embodied_slam_core
   src/closed_loop_controller.cpp
   src/drift_model.cpp
+  src/loop_frontend_diagnostics.cpp
   src/trajectory_metrics.cpp
 )
 target_include_directories(embodied_slam_core PUBLIC
@@ -58,12 +61,32 @@ target_link_libraries(closed_loop_driver_node embodied_slam_core)
 ament_target_dependencies(closed_loop_driver_node
   embodied_agent_middleware geometry_msgs nav_msgs rclcpp sensor_msgs std_msgs tf2)
 
+add_executable(instrumented_async_slam_toolbox_node
+  src/instrumented_async_slam_toolbox_node.cpp)
+# slam_toolbox 的 Jazzy 二进制包没有为这些实现库导出 CMake target；只定位本节点
+# 直接使用的三个库，避免把整个 legacy *_LIBRARIES 依赖闭包重复塞进链接命令。
+find_library(SLAM_TOOLBOX_ASYNC_LIBRARY NAMES async_slam_toolbox
+  HINTS "${slam_toolbox_DIR}/../../../lib" REQUIRED)
+find_library(SLAM_TOOLBOX_COMMON_LIBRARY NAMES toolbox_common
+  HINTS "${slam_toolbox_DIR}/../../../lib" REQUIRED)
+find_library(SLAM_TOOLBOX_KARTO_LIBRARY NAMES kartoSlamToolbox
+  HINTS "${slam_toolbox_DIR}/../../../lib" REQUIRED)
+target_link_libraries(instrumented_async_slam_toolbox_node
+  embodied_slam_core
+  ${SLAM_TOOLBOX_ASYNC_LIBRARY}
+  ${SLAM_TOOLBOX_COMMON_LIBRARY}
+  ${SLAM_TOOLBOX_KARTO_LIBRARY}
+  Boost::serialization Boost::thread TBB::tbb)
+ament_target_dependencies(instrumented_async_slam_toolbox_node
+  rclcpp rclcpp_lifecycle sensor_msgs slam_toolbox)
+
 install(TARGETS
   embodied_slam_core
   embodied_slam_gtsam_core
   embodied_slam_gtsam_solver
   odom_drift_injector_node
   closed_loop_driver_node
+  instrumented_async_slam_toolbox_node
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION lib/${PROJECT_NAME}
@@ -86,6 +109,8 @@ if(BUILD_TESTING)
   target_link_libraries(test_closed_loop_controller embodied_slam_core)
   ament_add_gtest(test_gtsam_pose_graph test/test_gtsam_pose_graph.cpp)
   target_link_libraries(test_gtsam_pose_graph embodied_slam_gtsam_core)
+  ament_add_gtest(test_loop_frontend_diagnostics test/test_loop_frontend_diagnostics.cpp)
+  target_link_libraries(test_loop_frontend_diagnostics embodied_slam_core)
 endif()
 
 ament_export_include_directories(include)

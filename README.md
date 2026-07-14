@@ -244,8 +244,11 @@ accepted loop 为 0。也就是说当前结果证明了“真实回访和轨迹�
 子集，并在 `source.json` 中绑定原包 SHA256、消息数和时间范围。基线、短 chain、低响应阈值、
 宽搜索、组合放宽以及诊断性极宽配置均得到 449 个匹配位姿；每轮 49～52 秒，但 46 条 accepted
 graph edge 始终全是 ID 相邻边，非局部边和事件召回仍为 0。这个结果把故障边界定位在
-slam_toolbox 回环候选生成/几何验证之前，而不是 GTSAM 后端；极宽配置只用于诊断，不会自动成为
-生产参数。大型 bag 和 sweep 结果位于 `datasets/`、`logs/`，不提交 Git，也不进入 CI。
+slam_toolbox 回环候选生成/几何验证之前，而不是 GTSAM 后端。项目进一步用 C++ 生命周期节点旁路
+记录 Karto 候选拓扑和原生 coarse/fine matcher callback；baseline 的 47 个图节点中，8 个处于
+历史不足阶段，其余 39 个附近历史扫描全部已被 near-linked 集合排除，因此没有候选进入粗匹配。
+极宽配置只用于诊断，不会自动成为生产参数。大型 bag 和 sweep 结果位于 `datasets/`、`logs/`，
+不提交 Git，也不进入 CI。
 
 ## 测试与验收
 

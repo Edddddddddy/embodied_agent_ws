@@ -65,7 +65,8 @@ config_hash = hashlib.sha256(Path(sys.argv[2]).read_bytes()).hexdigest()
 source = json.loads(Path(sys.argv[3]).read_text(encoding="utf-8"))
 valid = (
     manifest.get("passed") is True
-    and int(manifest.get("schema_version", 0)) >= 2
+    and int(manifest.get("schema_version", 0)) >= 3
+    and manifest.get("checks", {}).get("loop_frontend_report_passed") is True
     and manifest.get("checks", {}).get("derived_topic_subset_bound") is True
     and manifest["configuration"]["params"]["sha256"] == config_hash
     and manifest["dataset"]["bag_sha256"] == source["bag_sha256"]
@@ -86,6 +87,7 @@ PY
   OPENLORIS_REPLAY_RATE="${OPENLORIS_REPLAY_RATE:-1.0}" \
   OPENLORIS_STARTUP_DELAY_S="${OPENLORIS_STARTUP_DELAY_S:-3.0}" \
   OPENLORIS_EVALUATE_LOOP_CONSTRAINTS=true \
+  OPENLORIS_EVALUATE_FRONTEND=true \
   OPENLORIS_ANNOTATIONS="$ANNOTATIONS" \
     bash scripts/run_openloris_slam_replay.sh gtsam
 done

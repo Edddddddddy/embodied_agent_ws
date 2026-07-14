@@ -268,11 +268,14 @@ static TF 和 38.52 秒时间窗。六组实验固定派生 bag、GTSAM 后端�
 | diagnostic_extreme | chain=1，response=0.05，variance=100 | 449 | 0 | 0 | 0.099597 m | 52 s |
 
 所有 profile 的约束日志都只有 46 条相邻边，最大 node ID separation 为 1。诊断性 extreme 也未
-产生非局部约束，因此不能再把问题归因于 GTSAM 求解器或单纯的 response 阈值。更准确的结论是：
-当前公开 `ScanSolver` seam 看不到 rejected candidate，失败边界位于 karto 候选 chain 生成或几何
-验证层。后续需要在 `FindPossibleLoopClosure/TryCloseLoop` 处增加结构化 instrumentation，才能
-记录 coarse/fine response、variance、拒绝原因并画候选级 PR 曲线。extreme 只用于定位边界，绝不
-自动替换生产配置。
+产生非局部约束，因此不能再把问题归因于 GTSAM 求解器或单纯的 response 阈值。新增的
+`instrumented_async_slam_toolbox_node` 在不修改 Karto 决策的前提下，为每个真正入图的 scan 输出
+候选拓扑 JSONL，并通过 `MapperLoopClosureListener` 记录 coarse/fine response、variance、reject
+和 closure callback。baseline 共覆盖 47 个图节点：8 次 `insufficient_history`，39 次
+`all_geometric_neighbors_near_linked`，没有候选送入 coarse matcher。失败边界因此被定位到
+near-linked 排除/候选生成层。由于 Karto 候选函数是 private，候选链为同规则复算而不是私有函数
+执行 trace；accepted edge 仍以 `ScanSolver` 日志为准。extreme 只用于定位边界，绝不自动替换
+生产配置。
 
 语义区间来自每 3 秒抽取的 D400 RGB 联络表人工复核：18–24 秒附近标为玻璃隔断，27–30 秒可见
 移动人员穿越并近距离遮挡，因此标为动态遮挡。画面没有足够证据支持“长走廊”，配置文件显式记录
@@ -294,6 +297,6 @@ negative evidence，未为了凑指标虚构 corridor 标签；视觉标签也�
 - 在没有相同数据和阈值时，笼统宣称 GTSAM 优于 Ceres。
 
 当前仓库已经具备真实 office bag 的双后端回放、来源 manifest、人工退化区间、SLAM-only
-派生包和 accepted-edge 参数消融入口，但不随 Git 提交大型 bag/实验结果。下一步应增加 karto
-候选级 instrumentation，并扩展到更长的跨序列 lifelong/relocalization；动态障碍预测则另行
-比较 current-only、CV、Kalman 与 IMM。
+派生包、accepted-edge 参数消融和 Karto 候选级 instrumentation，但不随 Git 提交大型 bag/实验
+结果。下一步应扩展到更长的跨序列 lifelong/relocalization，获得能越过 near-linked 排除边界的
+真实候选；动态障碍预测则另行比较 current-only、CV、Kalman 与 IMM。

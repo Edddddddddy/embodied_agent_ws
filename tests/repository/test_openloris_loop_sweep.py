@@ -139,6 +139,26 @@ def _write_result(root: Path, profile: dict, *, loops: int, recall: float, ate: 
         ),
         encoding="utf-8",
     )
+    (directory / "gtsam_frontend_report.json").write_text(
+        json.dumps(
+            {
+                "passed": True,
+                "failure_boundary": "candidate_generation" if loops == 0 else "accepted_loop",
+                "candidate_primary_reasons": {
+                    "all_geometric_neighbors_near_linked": 1
+                },
+                "topology_maxima": {"maximum_eligible_chain_size": loops},
+                "events": {
+                    "processed_topology_scans": 4,
+                    "candidate_scans": loops,
+                    "coarse_checks": loops,
+                    "fine_checks": loops,
+                    "closure_ends": loops,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
     edges = [
         {
             "source_id": index,
@@ -167,4 +187,9 @@ def test_comparison_requires_same_bag_and_reports_zero_loop_as_evidence(tmp_path
     assert report["profiles"][0]["precision"] is None
     assert report["profiles"][0]["graph_topology"]["maximum_node_id_separation"] == 1
     assert report["summary"]["best_event_recall_profiles"] == ["permissive"]
+    assert report["summary"]["failure_boundaries"] == {
+        "accepted_loop": 1,
+        "candidate_generation": 1,
+    }
+    assert report["profiles"][0]["loop_frontend"]["failure_boundary"] == "candidate_generation"
     assert report["methodology"]["boundary"] == "accepted edges only"
