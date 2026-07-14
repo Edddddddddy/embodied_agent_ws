@@ -15,6 +15,10 @@ slam_toolbox:
     gtsam_constraint_log_path: ""
     # 最终前端位姿图快照，供 none/Huber/Cauchy 在完全相同输入上离线消融。
     gtsam_graph_log_path: ""
+    # 默认关闭，先通过固定图消融验证阈值；启用后只拒绝明显不一致的非局部边。
+    gtsam_enable_nonlocal_consistency_gate: false
+    gtsam_max_nonlocal_translation_residual_m: 2.0
+    gtsam_max_nonlocal_yaw_residual_rad: 0.7853981633974483
 
     odom_frame: dataset_odom
     map_frame: map

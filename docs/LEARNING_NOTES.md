@@ -971,6 +971,7 @@ sidecar 输出实际相似度。多人准确率仍需另建注册/查询数据�
 - `src/embodied_slam/src/loop_frontend_diagnostics.cpp`
 - `src/embodied_slam/src/gtsam_graph_optimize.cpp`
 - `scripts/run_gtsam_robust_kernel_ablation.py`
+- `scripts/run_gtsam_loop_consistency_ablation.sh`
 - `src/embodied_slam/config/openloris_loop_sweep.json`
 - `src/embodied_slam/config/openloris_office1_7_annotations.json`
 
@@ -1027,6 +1028,13 @@ node/edge 去重的证据图；四种配置只读取同一个 SHA256 快照。18
 Gaussian、Huber-all、Huber-non-local、Cauchy-non-local 的 ATE 分别为
 1.8235/1.4081/1.4626/1.2236 m。Cauchy 重尾损失对大残差降权更强，但 node ID 间隔只是
 non-local 启发式，不是 Karto closure 真值；这项优化降低错误边破坏程度，却不会找回漏检回环。
+
+进一步的 consistency gate 位于鲁棒核之前：`violates_consistency_gate()` 用优化前两节点计算预测
+相对位姿，并与候选边测量比较 SE(2) 平移/偏航创新量。它和“用真值筛边”有本质区别——运行时
+只读当前图，因此能部署；真值只在离线实验结束后评价 ATE/RPE。固定图上 2 m / π/4 阈值拒绝
+23 条边，Cauchy ATE 从 1.2236 m 降到 1.1713 m。不过，强回环本来就是为了纠正累计漂移：若当前
+图错得超过阈值，硬门控会把最有价值的真回环拒掉。因此工程上采用“明显异常才硬拒绝、中等异常交给
+鲁棒核、默认关闭等待多序列验证”的分层策略，而不是把一次消融最优参数直接写成生产默认值。
 
 ## 15. 动态障碍运动模型与同场景消融
 

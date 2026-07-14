@@ -28,6 +28,15 @@ if [[ ! -x "$OPTIMIZER" ]]; then
   exit 2
 fi
 
+EXTRA_ARGS=()
+if [[ "${GTSAM_INCLUDE_CONSISTENCY_GATE:-false}" == "true" ]]; then
+  EXTRA_ARGS+=(
+    --include-consistency-gate
+    --max-consistency-translation "${GTSAM_MAX_CONSISTENCY_TRANSLATION_M:-2.0}"
+    --max-consistency-yaw-rad "${GTSAM_MAX_CONSISTENCY_YAW_RAD:-0.7853981633974483}"
+  )
+fi
+
 python3 scripts/run_gtsam_robust_kernel_ablation.py \
   --graph "$GRAPH" --reference "$REFERENCE" --optimizer "$OPTIMIZER" \
   --output-dir "$OUTPUT_DIR" \
@@ -37,4 +46,5 @@ python3 scripts/run_gtsam_robust_kernel_ablation.py \
   --min-match-ratio "${SLAM_MIN_MATCH_RATIO:-0.80}" \
   --loop-radius "${SLAM_LOOP_RADIUS_M:-1.0}" \
   --loop-yaw-tolerance-deg "${SLAM_LOOP_YAW_TOLERANCE_DEG:-180.0}" \
-  --loop-min-separation "${SLAM_LOOP_MIN_SEPARATION_S:-60.0}"
+  --loop-min-separation "${SLAM_LOOP_MIN_SEPARATION_S:-60.0}" \
+  "${EXTRA_ARGS[@]}"

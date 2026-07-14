@@ -94,4 +94,69 @@ TEST(GtsamPoseGraphOptimizer, CauchyLoopOnlySuppressesAFalseLongRangeClosure)
   EXPECT_EQ(cauchy.robustified_constraints, 1U);
 }
 
+TEST(GtsamPoseGraphOptimizer, ConsistencyGateRejectsAnObviouslyFalseNonlocalEdge)
+{
+  std::unordered_map<int, Pose2d> initial;
+  std::vector<PoseGraphConstraint> constraints;
+  for (int id = 0; id <= 10; ++id) {
+    initial[id] = {static_cast<double>(id), 0.0, 0.0};
+    if (id > 0) {
+      constraints.push_back(between(id - 1, id, 1.0));
+    }
+  }
+  constraints.push_back(between(0, 10, 0.0));
+
+  PoseGraphOptimizerConfig config;
+  config.robust_kernel = RobustKernel::kCauchy;
+  config.robust_kernel_k = 1.0;
+  config.robustify_loop_constraints_only = true;
+  config.loop_constraint_min_id_separation = 5U;
+  config.enable_nonlocal_consistency_gate = true;
+  config.max_nonlocal_translation_residual_m = 2.0;
+  const auto result = GtsamPoseGraphOptimizer(config).optimize(initial, constraints);
+
+  EXPECT_NEAR(result.poses.at(10).x, 10.0, 1e-6);
+  EXPECT_EQ(result.consistency_rejected_constraints, 1U);
+  EXPECT_EQ(result.constraints_used, 10U);
+  EXPECT_EQ(result.robustified_constraints, 0U);
+}
+
+TEST(GtsamPoseGraphOptimizer, RejectsAnInvalidEnabledConsistencyGate)
+{
+  PoseGraphOptimizerConfig config;
+  config.enable_nonlocal_consistency_gate = true;
+  config.max_nonlocal_translation_residual_m = 0.0;
+  EXPECT_THROW(
+    {
+      const GtsamPoseGraphOptimizer optimizer(config);
+      (void)optimizer;
+    },
+    std::invalid_argument);
+}
+
+TEST(GtsamPoseGraphOptimizer, ConsistencyGateKeepsAConsistentNonlocalEdge)
+{
+  std::unordered_map<int, Pose2d> initial;
+  std::vector<PoseGraphConstraint> constraints;
+  for (int id = 0; id <= 10; ++id) {
+    initial[id] = {static_cast<double>(id), 0.0, 0.0};
+    if (id > 0) {
+      constraints.push_back(between(id - 1, id, 1.0));
+    }
+  }
+  constraints.push_back(between(0, 10, 10.0));
+
+  PoseGraphOptimizerConfig config;
+  config.robust_kernel = RobustKernel::kCauchy;
+  config.robustify_loop_constraints_only = true;
+  config.loop_constraint_min_id_separation = 5U;
+  config.enable_nonlocal_consistency_gate = true;
+  config.max_nonlocal_translation_residual_m = 2.0;
+  const auto result = GtsamPoseGraphOptimizer(config).optimize(initial, constraints);
+
+  EXPECT_EQ(result.consistency_rejected_constraints, 0U);
+  EXPECT_EQ(result.constraints_used, 11U);
+  EXPECT_EQ(result.robustified_constraints, 1U);
+}
+
 }  // namespace embodied_slam

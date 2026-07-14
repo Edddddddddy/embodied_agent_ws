@@ -157,6 +157,10 @@ bash scripts/acceptance_test.sh openloris-loop-sweep
 bash scripts/acceptance_test.sh openloris-sequence-ranking
 bash scripts/acceptance_test.sh openloris-long-loop-evidence
 
+# 固定图后端鲁棒性与几何一致性门控；不重新回放 11 GB 原包。
+bash scripts/acceptance_test.sh openloris-robust-kernel-ablation
+bash scripts/acceptance_test.sh openloris-loop-consistency-ablation
+
 # 发布级来源审计再下载完整约 9.27 GB 归档。
 bash scripts/acceptance_test.sh openloris-rosbag-setup
 
@@ -189,6 +193,11 @@ slam_toolbox 传感器契约必须共同推荐 `corridor1-1`；range/bag 大小�
 绑定原包哈希；轨迹覆盖达标；按 360° LiDAR 位置口径存在 2 次至少相隔 60 秒的真值回访；
 frontend trace 与 accepted-edge 报告均可解析。event recall 允许为 0，因为“真实回环存在但前端
 未恢复”本身就是不能篡改的有效负结果。
+
+`openloris-loop-consistency-ablation` 要求五组读取同一 graph SHA256、输入节点/约束数和真值匹配数。
+门控组可以少用约束，但必须同时报告 `constraints_used` 和 `consistency_rejected_constraints`；公平性
+检查比较的是不可变输入图，不会把主动拒绝异常边误判为换了数据。当前 2 m / π/4 门控拒绝 23 条边，
+但该数值只对 `corridor1-1` 构成证据，门控仍默认关闭。
 
 ### 动态障碍
 

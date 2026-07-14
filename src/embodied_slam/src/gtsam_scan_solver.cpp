@@ -45,6 +45,12 @@ public:
     loop_constraint_min_id_separation_ = static_cast<std::size_t>(
       std::max(2, configured_loop_id_separation));
     config.loop_constraint_min_id_separation = loop_constraint_min_id_separation_;
+    config.enable_nonlocal_consistency_gate =
+      declare_or_get(*node, "gtsam_enable_nonlocal_consistency_gate", false);
+    config.max_nonlocal_translation_residual_m =
+      declare_or_get(*node, "gtsam_max_nonlocal_translation_residual_m", 2.0);
+    config.max_nonlocal_yaw_residual_rad =
+      declare_or_get(*node, "gtsam_max_nonlocal_yaw_residual_rad", 0.7853981633974483);
     if (configured_loop_id_separation < 2) {
       RCLCPP_WARN(
         node->get_logger(), "gtsam_loop_constraint_min_id_separation=%d is unsafe; using 2",
@@ -80,10 +86,13 @@ public:
     optimizer_ = GtsamPoseGraphOptimizer(config);
     RCLCPP_INFO(
       node->get_logger(),
-      "Configured GTSAM backend: kernel=%s k=%.3f loop_only=%s loop_id_separation=%zu",
+      "Configured GTSAM backend: kernel=%s k=%.3f loop_only=%s "
+      "loop_id_separation=%zu gate=%s gate_translation=%.3f gate_yaw=%.3f",
       robust_kernel_name(config.robust_kernel), config.robust_kernel_k,
       config.robustify_loop_constraints_only ? "true" : "false",
-      config.loop_constraint_min_id_separation);
+      config.loop_constraint_min_id_separation,
+      config.enable_nonlocal_consistency_gate ? "true" : "false",
+      config.max_nonlocal_translation_residual_m, config.max_nonlocal_yaw_residual_rad);
   }
 
   void AddNode(karto::Vertex<karto::LocalizedRangeScan> * vertex) override
@@ -166,8 +175,10 @@ public:
       if (auto node = node_.lock()) {
         RCLCPP_DEBUG(
           node->get_logger(),
-          "GTSAM optimized %zu nodes/%zu constraints (%zu robust): %.6f -> %.6f (%zu iterations)",
+          "GTSAM optimized %zu nodes/%zu constraints (%zu robust/%zu rejected): "
+          "%.6f -> %.6f (%zu iterations)",
           result.poses.size(), constraints_.size(), result.robustified_constraints,
+          result.consistency_rejected_constraints,
           result.initial_error, result.final_error, result.iterations);
       }
     } catch (const std::exception & error) {

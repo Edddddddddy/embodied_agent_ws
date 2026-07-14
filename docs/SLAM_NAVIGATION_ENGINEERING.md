@@ -34,6 +34,7 @@ Gazebo LaserScan + 参考里程计
 | GTSAM 深模块 | `gtsam_pose_graph.cpp`：`GtsamPoseGraphOptimizer::optimize` | 用纯 Pose2/constraint 接口隔离 GTSAM，支持 none/Huber/Cauchy 和全边/非局部边策略 |
 | ScanSolver Adapter | `gtsam_scan_solver.cpp`：`AddNode/AddConstraint/Compute` | 将 karto 节点、相对位姿和协方差适配为 GTSAM Prior/Between factors，通过 pluginlib 注入 slam_toolbox |
 | 固定图后端消融 | `gtsam_graph_optimize.cpp`、`run_gtsam_robust_kernel_ablation.py` | 累计去重的前端图只生成一次，四种后端复用相同 SHA256 输入，隔离异步前端波动 |
+| 非局部边一致性门控 | `gtsam_pose_graph.cpp`：`violates_consistency_gate` | 不用真值，比较候选约束与优化前图预测；硬拒绝明显异常边，中等残差仍交给鲁棒核 |
 | 协方差防护 | `make_positive_definite` | 对称化协方差并钳制特征值，防止走廊等退化几何给出奇异矩阵导致求解器崩溃 |
 | 地图/轨迹报告 | `tests/integration/test_slam_mapping_baseline.py`：`build_report` | 同时统计原始 ATE、闭环误差、`map->odom` 校正轨迹和已知地图面积 |
 | 后端 A/B | `scripts/compare_slam_backends.py`：`compare` | 检查两次路线与漂移尺度一致，再比较校正 ATE、闭环误差、覆盖面积和时间 |
@@ -73,6 +74,11 @@ argmin Σ ρ( || Log( z_ij^-1 * (x_i^-1 * x_j) ) ||²_Ωij )
 
 本项目的 `loop_only` 实际按 node ID 间隔识别“非局部边”，用于后端防护而非正式回环标签。
 正式 precision 必须使用 Karto 原生 closure callback 与独立真值相对位姿残差；两套口径不能混用。
+
+鲁棒核与一致性门控解决的区间不同：鲁棒核为每条残差连续赋权，适合中等异常；一致性门控在
+优化前计算候选边测量和当前图预测的 SE(2) 创新量，只拒绝超过平移/偏航阈值的明显异常非局部边。
+它不读取真值，能够在线运行，但当前图已经严重漂移时也可能误拒绝真正纠偏的回环。因此项目配置
+默认关闭门控，只在固定图消融中展示收益与风险，不以单条序列自动选择生产阈值。
 
 ### 3.2 GTSAM、Ceres、g2o 的差异
 

@@ -64,6 +64,23 @@ def test_comparison_rejects_different_graph_or_temporal_association():
     assert report["checks"]["same_matched_pose_count"] is False
 
 
+def test_comparison_allows_gate_to_use_fewer_edges_from_the_same_input_graph():
+    variants = [_variant("gaussian", 1.2), _variant("cauchy_loop_gated", 0.9)]
+    variants[1]["optimizer"].update(
+        {
+            "constraints_used": 80,
+            "consistency_gate": True,
+            "consistency_rejected_constraints": 10,
+        }
+    )
+
+    report = MODULE.build_comparison(variants, "fixed-graph")
+
+    assert report["passed"] is True
+    assert report["checks"]["same_constraint_count"] is True
+    assert report["variants"][1]["constraints_used"] == 80
+
+
 def test_published_real_data_evidence_preserves_fairness_and_claim_boundary():
     evidence = json.loads(
         (ROOT / "docs" / "evidence" / "gtsam_robust_kernel_ablation.json").read_text(
@@ -78,3 +95,24 @@ def test_published_real_data_evidence_preserves_fairness_and_claim_boundary():
     assert evidence["best_ate_variant"] == "cauchy_loop"
     assert "heuristic" in evidence["interpretation_boundary"]
     assert "does not improve" in evidence["interpretation_boundary"]
+
+
+def test_published_consistency_gate_evidence_is_fair_and_keeps_runtime_truth_free():
+    evidence = json.loads(
+        (ROOT / "docs" / "evidence" / "gtsam_loop_consistency_ablation.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert evidence["passed"] is True
+    assert all(evidence["checks"].values())
+    assert evidence["fixed_graph_contract"]["sha256"] == (
+        "792ecb7d1871b506274423631fdf16da60b52e46aa18eaa1287cddbd4cadbc65"
+    )
+    assert evidence["gate_contract"]["uses_ground_truth_at_runtime"] is False
+    assert evidence["gate_contract"]["rejected_constraints"] == 23
+    assert evidence["best_ate_variant"] == "cauchy_loop_gated"
+    gated = next(item for item in evidence["variants"] if item["consistency_gate"])
+    assert gated["constraints_used"] == 2751 - 23
+    assert gated["ate_rmse_m"] < 1.223586
+    assert "disabled by default" in evidence["interpretation_boundary"]

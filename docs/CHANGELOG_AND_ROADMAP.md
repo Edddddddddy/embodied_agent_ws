@@ -74,6 +74,7 @@
 | Karto 回环前端可观测性 | 把“无 accepted loop”定位到候选、粗匹配、细匹配或约束插入阶段 | 新增 C++ 生命周期诊断节点、候选链规则复算、原生 matcher callback、JSONL 汇总和 manifest 绑定；office1-7 当前定位为 near-linked 排除 |
 | OpenLORIS 长环路序列筛选 | 避免只看真值排名或先下载十几 GB bag 才发现传感器不兼容 | 真值包支持断点续传/缓存；批量比较 22 条轨迹；`market1-3` 因完整 bag 缺少 `/scan` 被拒绝，传感器 profile 正式选择约 272.5 s / 220.1 m、含 2 次位置长回访的 `corridor1-1`；range 与 bag 固定 commit/大小/SHA256 |
 | GTSAM 鲁棒核固定图消融 | 排除异步回放前端差异，量化错误非局部边对后端的影响 | 导出 1834 节点/2751 约束去重图；同 SHA256 比较 none/Huber/Cauchy；Cauchy non-local ATE 1.2236 m，较 Gaussian 下降 32.90%，同时保留“不改善前端 precision”的边界 |
+| 非局部边几何一致性门控 | 在鲁棒核前拒绝与当前图预测明显冲突的候选边，并保持运行时不依赖真值 | 固定图上拒绝 23 条约束；Cauchy + gate ATE 1.1713 m，较 Gaussian 下降 35.77%；因累计漂移可能误拒真回环，默认关闭 |
 | DDS domain 上界护栏 | 避免 PID 取模生成 Fast DDS 无法映射端口的 domain | 修正连续语音/Nav2/OpenLORIS 等 6 个入口，并用仓库测试保证所有公式最大值不超过 232 |
 | 系统就绪状态收敛 | 替代 launch/test 中分散的固定 sleep、topic graph 猜测和日志字符串判断 | 新增 `ComponentHealth`、`SystemReadiness`、心跳超时聚合器和 profile 化启动门禁；保留音频/仿真数据质量探针 |
 | Agent 参数与 launch 契约收敛 | 消除 online/offline 节点、YAML、Gazebo/Nav2 launch 中重复默认值和转发映射 | 新增共享参数 schema、ROS range/enum 描述、启动前校验、只读快照与组合 launch 转发契约；provider YAML 仅保留模型配置 |
@@ -229,6 +230,9 @@ bash scripts/acceptance_test.sh continuous-live-check offline
 - 已完成同一 `corridor1-1` 固定图的后端鲁棒核消融：图哈希、1834 节点、2751 约束和 1828 个
   真值匹配姿态在四组间完全一致；Cauchy non-local 指标最好。下一步转向前端感知混淆抑制，
   不再通过调整后端掩盖错误 closure 或回环漏检。
+- 在同一固定图上新增无真值在线依赖的一致性门控消融：以优化前图预测计算创新量，2 m / π/4
+  阈值拒绝 23 条明显异常非局部边，Cauchy + gate ATE 为 1.1713 m。该启发式可能在大漂移时
+  误拒真回环，默认关闭，且不改变前端 precision 的正式评价口径。
 - 已完成动态障碍 current-only、常速度、Kalman、IMM 同场景消融：C++ 固定输入报告预测
   RMSE/遮挡/停车过冲，四轮 Gazebo/Nav2 报告验证 lethal cost、重规划、到达和最终零速；场景、
   地图栅格和 Nav2 参数已纳入 SHA256 一致性门禁。输入仍是合成 `PoseArray`，物理动态 actor 与
