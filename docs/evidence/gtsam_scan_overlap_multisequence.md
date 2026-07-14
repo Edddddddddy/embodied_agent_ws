@@ -8,7 +8,7 @@
 | sequence | nodes | constraints | baseline ATE | innovation ATE | dual ATE | dual ATE change | dual P95 change | naive reject | dual reject |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | corridor1-1 | 1834 | 2751 | 1.2236 | 1.1713 | 1.1521 | -5.84% | -8.27% | 269 | 11 |
-| corridor1-2 | 488 | 491 | 0.1538 | 0.1538 | 0.1538 | +0.00% | +0.00% | 0 | 0 |
+| corridor1-2 | 488 | 491 | 0.1484 | 0.1484 | 0.1484 | +0.00% | +0.00% | 0 | 0 |
 
 > 决策规则：Enable only when every independent fixed graph improves ATE, no sequence regresses ATE P95 by more than 2%, and dual evidence rejects fewer edges than the naive overlap-only gate.
 

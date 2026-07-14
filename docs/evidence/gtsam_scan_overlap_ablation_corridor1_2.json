@@ -9,7 +9,7 @@
     "all_trajectory_evaluations_passed": true,
     "all_nonlocal_edges_have_overlap_evidence": true
   },
-  "graph_sha256": "6f9d819a0384bf5a3356980c003c9d2bc3af23fb918ea6293b0a090e5aaf342f",
+  "graph_sha256": "fa49951b7424b1bad120690b1e518f977f259169a7d61f8371f05bf24723765f",
   "graph_nodes": 488,
   "graph_constraints": 491,
   "matched_poses_per_variant": 488,
@@ -25,10 +25,10 @@
       "consistency_rejected_constraints": 0,
       "scan_overlap_evaluated_constraints": 0,
       "scan_overlap_rejected_constraints": 0,
-      "ate_rmse_m": 0.153845,
-      "ate_p95_m": 0.276874,
-      "rpe_translation_rmse_m": 0.064138,
-      "final_pose_error_m": 0.431556,
+      "ate_rmse_m": 0.148374,
+      "ate_p95_m": 0.27917,
+      "rpe_translation_rmse_m": 0.064379,
+      "final_pose_error_m": 0.403638,
       "ate_change_vs_baseline_pct": 0.0
     },
     {
@@ -41,10 +41,10 @@
       "consistency_rejected_constraints": 0,
       "scan_overlap_evaluated_constraints": 1,
       "scan_overlap_rejected_constraints": 0,
-      "ate_rmse_m": 0.153845,
-      "ate_p95_m": 0.276874,
-      "rpe_translation_rmse_m": 0.064138,
-      "final_pose_error_m": 0.431556,
+      "ate_rmse_m": 0.148374,
+      "ate_p95_m": 0.27917,
+      "rpe_translation_rmse_m": 0.064379,
+      "final_pose_error_m": 0.403638,
       "ate_change_vs_baseline_pct": 0.0
     },
     {
@@ -57,10 +57,10 @@
       "consistency_rejected_constraints": 0,
       "scan_overlap_evaluated_constraints": 0,
       "scan_overlap_rejected_constraints": 0,
-      "ate_rmse_m": 0.153845,
-      "ate_p95_m": 0.276874,
-      "rpe_translation_rmse_m": 0.064138,
-      "final_pose_error_m": 0.431556,
+      "ate_rmse_m": 0.148374,
+      "ate_p95_m": 0.27917,
+      "rpe_translation_rmse_m": 0.064379,
+      "final_pose_error_m": 0.403638,
       "ate_change_vs_baseline_pct": 0.0
     },
     {
@@ -73,17 +73,17 @@
       "consistency_rejected_constraints": 0,
       "scan_overlap_evaluated_constraints": 1,
       "scan_overlap_rejected_constraints": 0,
-      "ate_rmse_m": 0.153845,
-      "ate_p95_m": 0.276874,
-      "rpe_translation_rmse_m": 0.064138,
-      "final_pose_error_m": 0.431556,
+      "ate_rmse_m": 0.148374,
+      "ate_p95_m": 0.27917,
+      "rpe_translation_rmse_m": 0.064379,
+      "final_pose_error_m": 0.403638,
       "ate_change_vs_baseline_pct": 0.0
     }
   ],
   "interpretation_boundary": "Overlap is computed from timestamp-associated raw LaserScan and static TF, without ground truth. This validates Karto-accepted constraints at the frontend/backend boundary; it neither generates candidates nor proves frontend precision.",
   "sequence": "corridor1-2",
   "fixed_graph_contract": {
-    "sha256": "6f9d819a0384bf5a3356980c003c9d2bc3af23fb918ea6293b0a090e5aaf342f",
+    "sha256": "fa49951b7424b1bad120690b1e518f977f259169a7d61f8371f05bf24723765f",
     "nodes": 488,
     "constraints": 491,
     "source_is_immutable_across_variants": true
@@ -98,9 +98,9 @@
   "scan_evidence": {
     "schema_version": 1,
     "passed": true,
-    "source_graph_sha256": "6f9d819a0384bf5a3356980c003c9d2bc3af23fb918ea6293b0a090e5aaf342f",
+    "source_graph_sha256": "fa49951b7424b1bad120690b1e518f977f259169a7d61f8371f05bf24723765f",
     "source_bag_sha256": "11c854856da3c0c3f8ab93e454328be3e7c6b92501a44f7b3df18dd0ef5cc84c",
-    "output_graph_sha256": "6f9d819a0384bf5a3356980c003c9d2bc3af23fb918ea6293b0a090e5aaf342f",
+    "output_graph_sha256": "fa49951b7424b1bad120690b1e518f977f259169a7d61f8371f05bf24723765f",
     "nodes": 488,
     "constraints": 491,
     "scan_messages": 4632,
@@ -127,10 +127,10 @@
       "match_distance_m": 0.2
     },
     "overlap_ratio": {
-      "minimum": 0.856124,
-      "median": 0.856124,
-      "p95": 0.856124,
-      "maximum": 0.856124
+      "minimum": 0.854649,
+      "median": 0.854649,
+      "p95": 0.854649,
+      "maximum": 0.854649
     },
     "methodology_boundary": "Raw LaserScan is associated by timestamp and scored without ground truth. Single-frame overlap is supporting evidence, not a replacement for Karto chain matching."
   }
