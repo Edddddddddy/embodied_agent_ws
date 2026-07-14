@@ -1089,6 +1089,26 @@ Precision@10 仅 4.28%；它足以进入 shadow scan matcher，却远不足以�
 对比 Scan Context 的 3D 高度描述子，本实现面向 2D LaserScan，采用占用计数而非高度统计；对比
 Karto 几何近邻 chain，它不依赖当前漂移位姿，但更容易受到重复走廊的感知混淆。
 
+### 14.6 为什么 scan matcher 仍然只运行在 shadow 模式
+
+关键代码：
+
+- `src/embodied_slam/src/lidar_scan_matcher.cpp`：多初值粗到细 ICP、trim、重叠和退化门限。
+- `src/embodied_slam/src/lidar_shadow_scan_match.cpp`：显式 pair 输入契约与 JSONL 诊断输出。
+- `scripts/prepare_lidar_shadow_pairs.py`：Top-K 候选与 `/odom` 相对位姿先验。
+- `scripts/evaluate_lidar_shadow_matches.py`：真值离线标注和固定 profile 对比。
+- `scripts/compare_lidar_shadow_match_sequences.py`：跨序列发布决策，始终禁止直接写图。
+
+设计上把历史候选扫描变换到当前查询扫描坐标系。零平移初值适合“检索层认为位置接近”的闭环，
+质心初值覆盖较大视角变化；显式加入 π 偏航种子，用 `/odom` 偏航排除走廊半周镜像。里程计平移
+不会默认参与一致性 veto，因为它正是长时回访中会积累漂移的量。每个种子必须经过 convergence、
+最大平移、inlier、RMSE 和 observability 门，最终结果仍只进入 shadow 报告。
+
+与单初值 ICP 相比，多初值减少局部极值；与 NDT 相比，本实现依赖更少、易做 C++ 单测，但对重复
+结构仍弱；与 Cartographer 的 correlative scan matching 相比，它没有搜索窗分支限界和子地图上下文。
+真实多序列平均 accepted precision 只有 21.10%，说明单帧 scan-to-scan 几何不足以安全构造图边。
+这是发布门拒绝上线的依据，也是下一步升级为 scan-to-submap/多帧时序一致性的原因。
+
 ## 15. 动态障碍运动模型与同场景消融
 
 关键代码：

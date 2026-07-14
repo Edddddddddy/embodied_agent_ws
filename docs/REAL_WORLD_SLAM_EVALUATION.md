@@ -458,6 +458,22 @@ bash scripts/acceptance_test.sh openloris-lidar-loop-candidates
 分别为 2.79%/5.77%。因此发布状态是 `ready_for_shadow_scan_match_integration`，直接图边插入保持
 关闭。完整相似度重排在两个序列都弱于环键，报告保留该负向消融。
 
+### 6.8 Top-K 影子扫描匹配
+
+```bash
+bash scripts/acceptance_test.sh openloris-lidar-shadow-matches
+```
+
+`lidar_shadow_scan_match` 使用 C++17 trimmed point-to-point ICP，粗匹配 1.0 m、细匹配 0.25 m，
+同时验证描述子正/负偏航、半周镜像、零平移和质心初值。`/odom` 只提供偏航一致性先验：长时间
+回访时平移漂移不参与 veto，官方真值只在 Python 评估器中生成离线标签。输出还包含 inlier、
+双向 overlap、RMSE、可观测性、歧义与拒绝原因。
+
+固定参数在 `corridor1-1/1-2` 上的 accepted precision 为 8.41%/33.78%，conditional recall 为
+26.67%/40.32%，两序列平均 precision 21.10%，4 个真值事件只恢复 1 个。真实结果说明重复走廊中
+局部几何高分不等于正确闭环；发布门判定 `shadow_only_improve_geometric_verification`，不向
+Ceres/GTSAM 写边。下一步应增加子地图、多帧一致性或分支限界相关扫描，而不是放宽单帧阈值。
+
 ## 7. 面试讲法和事实边界
 
 可以讲：

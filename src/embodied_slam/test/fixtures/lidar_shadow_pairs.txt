@@ -1,0 +1,2 @@
+# embodied_lidar_candidate_pairs_v1
+P 3 1 160.0 0.0 1 0.0 1.0 0.0

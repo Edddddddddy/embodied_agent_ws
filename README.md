@@ -287,6 +287,16 @@ Karto 前端 precision 提升。
 scan-matcher 集成，禁止直接插入位姿图。完整相似度重排在两条序列都比环键排序差，这个反例被
 保留在报告中，而不是通过更换口径隐藏。
 
+shadow 层现已实现 C++17 粗到细 trimmed ICP：同时尝试描述子偏航、半周对称、零平移与质心初值，
+计算双向重叠、RMSE、可观测性，并用 `/odom` 偏航先验消除长走廊 0°/180° 歧义。两条固定序列的
+accepted precision 为 8.41%/33.78%，conditional recall 为 26.67%/40.32%；偏航中位误差约
+2.08°/1.89°，但平移中位误差仍为 0.69/1.44 m。多序列门因此保持
+`shadow_only_improve_geometric_verification`，直接图边写入关闭。复现实验：
+
+```bash
+bash scripts/acceptance_test.sh openloris-lidar-shadow-matches
+```
+
 输出包含 bag 来源哈希、contract、两条 map-frame TUM 轨迹、ATE/RPE、直行/转弯退化分段、
 launch 日志、实验 manifest 和不预设胜者的后端对比。`source.json` 会区分完整 SHA256 验证与
 HTTPS Range 快速验证；动态遮挡只有提供人工复核时间区间才
@@ -324,6 +334,7 @@ slam_toolbox 回环候选生成/几何验证之前，而不是 GTSAM 后端。�
 | SLAM 轨迹指标 | `bash scripts/acceptance_test.sh slam-evaluation-stage` | Python |
 | OpenLORIS 回放适配器 | `bash scripts/acceptance_test.sh openloris-replay-stage` | ROS 2 + rosbags |
 | LiDAR 回环候选多序列评测 | `bash scripts/acceptance_test.sh openloris-lidar-loop-candidates` | 已准备的两条真实 bag + GTSAM 图 |
+| LiDAR 影子扫描匹配评测 | `bash scripts/acceptance_test.sh openloris-lidar-shadow-matches` | 上述候选证据 + C++ matcher |
 | 机器人能力统一门禁 | `bash scripts/acceptance_test.sh robotics-gate` | ROS 2 + 本地构建 |
 | 发布聚合报告 | `bash scripts/acceptance_test.sh release-gate` | 本地运行时 |
 | 演示聚合报告 | `bash scripts/acceptance_test.sh demo-gate` | 本地运行时 |
