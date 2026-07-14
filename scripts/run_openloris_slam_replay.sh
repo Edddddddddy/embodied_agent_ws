@@ -26,6 +26,7 @@ DEGRADATION="$OUTPUT_DIR/${BACKEND}_degradation.json"
 LAUNCH_LOG="$OUTPUT_DIR/${BACKEND}_replay.log"
 MANIFEST="$OUTPUT_DIR/${BACKEND}_manifest.json"
 CONSTRAINT_LOG="$OUTPUT_DIR/${BACKEND}_constraints.jsonl"
+GRAPH_LOG="$OUTPUT_DIR/${BACKEND}_graph.txt"
 LOOP_REPORT="$OUTPUT_DIR/${BACKEND}_loop_constraints.json"
 FRONTEND_LOG="$OUTPUT_DIR/${BACKEND}_frontend.jsonl"
 FRONTEND_REPORT="$OUTPUT_DIR/${BACKEND}_frontend_report.json"
@@ -33,7 +34,7 @@ CONTRACT="$OUTPUT_DIR/bag_contract.json"
 BAG_SOURCE="${OPENLORIS_BAG_SOURCE:-$(dirname "$OPENLORIS_BAG")/source.json}"
 REFERENCE="$ROOT/groundtruth/$SEQUENCE/groundtruth.txt"
 mkdir -p "$OUTPUT_DIR"
-rm -f "$CONSTRAINT_LOG" "$LOOP_REPORT" "$FRONTEND_LOG" "$FRONTEND_REPORT"
+rm -f "$CONSTRAINT_LOG" "$GRAPH_LOG" "$LOOP_REPORT" "$FRONTEND_LOG" "$FRONTEND_REPORT"
 
 python3 -c "import rosbags" || {
   echo "Missing rosbags; run: pip install -r requirements-slam-eval.txt" >&2
@@ -63,6 +64,7 @@ echo "[OpenLORIS] ROS_DOMAIN_ID=$ROS_DOMAIN_ID"
 SECONDS=0
 ROS_DOMAIN_ID="$ROS_DOMAIN_ID" \
 EMBODIED_SLAM_CONSTRAINT_LOG="$CONSTRAINT_LOG" \
+EMBODIED_SLAM_GRAPH_LOG="$GRAPH_LOG" \
 EMBODIED_SLAM_FRONTEND_LOG="$FRONTEND_LOG" \
 ros2 launch embodied_slam openloris_mapping.launch.py \
   bag_path:="$OPENLORIS_BAG" params_file:="$PARAMS_FILE" \
@@ -146,6 +148,28 @@ fi
 LOOP_MANIFEST_ARGS=()
 if [[ -s "$LOOP_REPORT" ]]; then
   LOOP_MANIFEST_ARGS+=(--constraint-log "$CONSTRAINT_LOG" --loop-report "$LOOP_REPORT")
+fi
+if [[ "$BACKEND" == "gtsam" ]]; then
+  if [[ ! -s "$GRAPH_LOG" ]]; then
+    echo "FAIL: missing final GTSAM graph snapshot: $GRAPH_LOG" >&2
+    exit 1
+  fi
+  python3 - "$GRAPH_LOG" "${OPENLORIS_MIN_GRAPH_NODES:-3}" <<'PY'
+import sys
+from pathlib import Path
+
+lines = Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
+node_ids = {int(line.split()[1]) for line in lines if line.startswith("N ")}
+constraints = [tuple(map(int, line.split()[1:3])) for line in lines if line.startswith("C ")]
+dangling = [(source, target) for source, target in constraints if source not in node_ids or target not in node_ids]
+if len(node_ids) < int(sys.argv[2]) or not constraints or dangling:
+    raise SystemExit(
+        f"invalid GTSAM graph snapshot: nodes={len(node_ids)} "
+        f"constraints={len(constraints)} dangling={len(dangling)}"
+    )
+print(f"PASS: GTSAM graph snapshot nodes={len(node_ids)} constraints={len(constraints)}")
+PY
+  echo "Graph evidence: $GRAPH_LOG"
 fi
 ANNOTATION_MANIFEST_ARGS=()
 if [[ -n "${OPENLORIS_ANNOTATIONS:-}" ]]; then

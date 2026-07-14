@@ -31,8 +31,9 @@ Gazebo LaserScan + 参考里程计
 | 漂移 TF/传感器隔离 | `odom_drift_injector_node.cpp`：`on_odometry/on_scan` | 创建 `slam_odom -> slam_base_link -> slam_laser` 独立 TF 树，不污染 Gazebo 参考 `/odom` |
 | 固定闭环路线 | `closed_loop_controller.cpp`、`closed_loop_driver_node.cpp`：`update/step` | 同一四边形路线用于 Ceres/GTSAM A/B；雷达近障停车仍保留 |
 | Ceres 基线 | `config/slam_mapping_ceres.yaml` | 使用 slam_toolbox 官方默认支持的 Ceres + Huber，作为稳定参照 |
-| GTSAM 深模块 | `gtsam_pose_graph.cpp`：`GtsamPoseGraphOptimizer::optimize` | 用纯 Pose2/constraint 接口隔离 GTSAM，能脱离 ROS/karto 做单元测试 |
+| GTSAM 深模块 | `gtsam_pose_graph.cpp`：`GtsamPoseGraphOptimizer::optimize` | 用纯 Pose2/constraint 接口隔离 GTSAM，支持 none/Huber/Cauchy 和全边/非局部边策略 |
 | ScanSolver Adapter | `gtsam_scan_solver.cpp`：`AddNode/AddConstraint/Compute` | 将 karto 节点、相对位姿和协方差适配为 GTSAM Prior/Between factors，通过 pluginlib 注入 slam_toolbox |
+| 固定图后端消融 | `gtsam_graph_optimize.cpp`、`run_gtsam_robust_kernel_ablation.py` | 累计去重的前端图只生成一次，四种后端复用相同 SHA256 输入，隔离异步前端波动 |
 | 协方差防护 | `make_positive_definite` | 对称化协方差并钳制特征值，防止走廊等退化几何给出奇异矩阵导致求解器崩溃 |
 | 地图/轨迹报告 | `tests/integration/test_slam_mapping_baseline.py`：`build_report` | 同时统计原始 ATE、闭环误差、`map->odom` 校正轨迹和已知地图面积 |
 | 后端 A/B | `scripts/compare_slam_backends.py`：`compare` | 检查两次路线与漂移尺度一致，再比较校正 ATE、闭环误差、覆盖面积和时间 |
@@ -65,9 +66,13 @@ Gazebo LaserScan + 参考里程计
 argmin Σ ρ( || Log( z_ij^-1 * (x_i^-1 * x_j) ) ||²_Ωij )
 ```
 
-首节点 Prior factor 消除整张图可任意平移/旋转的规范自由度；Huber 核 `ρ` 降低错误
-回环的影响。优化结果不会重写轮速里程计，而是更新 `map->odom`，所以局部控制仍保持
+首节点 Prior factor 消除整张图可任意平移/旋转的规范自由度。Huber 在小残差区保持二次损失、
+大残差区转为线性；Cauchy 对极大残差进一步降权，更适合已接受图中存在明显离群边的情况。
+优化结果不会重写轮速里程计，而是更新 `map->odom`，所以局部控制仍保持
 连续，地图和全局位姿则被整体校正。
+
+本项目的 `loop_only` 实际按 node ID 间隔识别“非局部边”，用于后端防护而非正式回环标签。
+正式 precision 必须使用 Karto 原生 closure callback 与独立真值相对位姿残差；两套口径不能混用。
 
 ### 3.2 GTSAM、Ceres、g2o 的差异
 
@@ -84,8 +89,9 @@ argmin Σ ρ( || Log( z_ij^-1 * (x_i^-1 * x_j) ) ||²_Ωij )
 回环链路至少要拆成四步讲：候选检索、几何验证、加图约束、全局优化。候选检索追求召回，
 几何验证用 scan matching 分数和协方差抑制假阳性；通过后才添加跨时间 Between factor，
 最后由鲁棒核后端分摊累计漂移。本项目用固定路线和固定 seed 控制输入，再同时报告优化前后
-ATE 与闭环误差，避免只凭 RViz 截图判断。当前还没有带人工回环标注的真实数据，因此尚不能
-给出 loop precision/recall；这项边界必须在面试中主动说明。
+ATE 与闭环误差，避免只凭 RViz 截图判断。OpenLORIS `corridor1-1` 已能计算 accepted closure
+precision/event recall，并暴露了错误 closure；但它不是逐个 rejected candidate 的完整标注集，
+因此不能声称已得到全候选 PR 曲线。
 
 ## 4. 预测动态障碍如何进入 Nav2
 
@@ -196,7 +202,8 @@ bash scripts/acceptance_test.sh openloris-slam-ab
 ## 8. 事实边界和下一步
 
 - 已完成：仿真受控漂移、闭环建图、Ceres/GTSAM 后端、地图保存、AMCL、目标规划和预测动态避障。
-- 未完成：真实传感器标定误差、轮滑/玻璃/长走廊等真实退化数据的系统评测。
+- 未完成：真实传感器标定误差、轮滑与跨设备/跨序列泛化；长走廊和动态遮挡已有单序列分段证据，
+  但不足以代表多环境统计结论。
 - 已完成工具：OpenLORIS topic contract、ROS 1→ROS 2 SLAM 回放、map-frame 轨迹记录、
   Ceres/GTSAM A/B、ATE/RPE/回访统计和阈值门禁。
 - 已完成实验：`office1-1` 接线基线与 `office1-7` 回访序列都保存 SHA256/commit/config/日志/
@@ -207,5 +214,8 @@ bash scripts/acceptance_test.sh openloris-slam-ab
 - 已完成：真实 `office1-7` 的 6 组 accepted-edge 参数消融和可追溯 SLAM-only bag。即使将 chain
   降到 1、coarse/fine response 降到 0.05、协方差上限放到 100，46 条 accepted edge 仍全为
   相邻边，故失败边界位于 karto 候选生成/验证层，不能归因于 GTSAM。
-- 下一步：在 karto 前端记录候选 chain、coarse/fine response、variance 与拒绝原因，或扩展跨序列
-  lifelong/relocalization；动态障碍后续再评估带时间维的局部控制器。
+- 已完成：`corridor1-1` 1834 节点/2751 约束固定图的 none/Huber/Cauchy 后端消融；Cauchy
+  非局部边配置 ATE 1.2236 m，较 Gaussian 下降 32.90%。该结果只证明后端离群抑制，不代表
+  回环前端 precision 或 recall 改善。
+- 下一步：针对错误 closure 做感知混淆抑制，扩展跨序列 lifelong/relocalization，并评估带时间维
+  的局部动态障碍控制器。

@@ -51,6 +51,9 @@ ament_target_dependencies(embodied_slam_gtsam_solver
   pluginlib rclcpp_lifecycle slam_toolbox)
 pluginlib_export_plugin_description_file(slam_toolbox gtsam_solver_plugin.xml)
 
+add_executable(gtsam_graph_optimize src/gtsam_graph_optimize.cpp)
+target_link_libraries(gtsam_graph_optimize embodied_slam_gtsam_core)
+
 add_executable(odom_drift_injector_node src/odom_drift_injector_node.cpp)
 target_link_libraries(odom_drift_injector_node embodied_slam_core)
 ament_target_dependencies(odom_drift_injector_node
@@ -84,6 +87,7 @@ install(TARGETS
   embodied_slam_core
   embodied_slam_gtsam_core
   embodied_slam_gtsam_solver
+  gtsam_graph_optimize
   odom_drift_injector_node
   closed_loop_driver_node
   instrumented_async_slam_toolbox_node
@@ -111,6 +115,13 @@ if(BUILD_TESTING)
   target_link_libraries(test_gtsam_pose_graph embodied_slam_gtsam_core)
   ament_add_gtest(test_loop_frontend_diagnostics test/test_loop_frontend_diagnostics.cpp)
   target_link_libraries(test_loop_frontend_diagnostics embodied_slam_core)
+  add_test(
+    NAME test_gtsam_graph_optimize_cli
+    COMMAND gtsam_graph_optimize
+      ${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures/synthetic_pose_graph.txt
+      ${CMAKE_CURRENT_BINARY_DIR}/synthetic_pose_graph.tum
+      cauchy 1.0 true 2 20
+  )
 endif()
 
 ament_export_include_directories(include)

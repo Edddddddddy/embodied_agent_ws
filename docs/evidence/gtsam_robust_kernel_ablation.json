@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "scenario": "openloris_corridor1_1_fixed_pose_graph_robust_kernel_ablation",
+  "passed": true,
+  "dataset": {
+    "name": "OpenLORIS-Scene",
+    "sequence": "corridor1-1",
+    "derived_slam_bag_sha256": "54ab373b4d340021ec11c2f817058458b01e6f2cdab840b515556a3640303d84",
+    "source_bag_sha256": "a373fb24539561ee6a8900c91603baeedf8b739881a7b04860ed5e363dc93a22"
+  },
+  "fixed_graph_contract": {
+    "sha256": "792ecb7d1871b506274423631fdf16da60b52e46aa18eaa1287cddbd4cadbc65",
+    "nodes": 1834,
+    "constraints": 2751,
+    "continuous_node_ids": true,
+    "dangling_constraints": 0,
+    "matched_ground_truth_poses_per_variant": 1828
+  },
+  "checks": {
+    "same_graph_sha256": true,
+    "same_node_count": true,
+    "same_constraint_count": true,
+    "same_matched_pose_count": true,
+    "all_trajectory_evaluations_passed": true
+  },
+  "best_ate_variant": "cauchy_loop",
+  "variants": [
+    {
+      "name": "gaussian",
+      "kernel": "none",
+      "loop_only": false,
+      "robustified_constraints": 0,
+      "ate_rmse_m": 1.823458,
+      "ate_p95_m": 4.779422,
+      "rpe_translation_rmse_m": 0.210272,
+      "final_pose_error_m": 5.448602,
+      "ate_change_vs_gaussian_pct": 0.0
+    },
+    {
+      "name": "huber_all",
+      "kernel": "huber",
+      "kernel_k": 1.345,
+      "loop_only": false,
+      "robustified_constraints": 2751,
+      "ate_rmse_m": 1.408141,
+      "ate_p95_m": 3.157143,
+      "rpe_translation_rmse_m": 0.178373,
+      "final_pose_error_m": 3.685815,
+      "ate_change_vs_gaussian_pct": -22.77634
+    },
+    {
+      "name": "huber_loop",
+      "kernel": "huber",
+      "kernel_k": 1.345,
+      "loop_only": true,
+      "robustified_constraints": 858,
+      "ate_rmse_m": 1.462616,
+      "ate_p95_m": 3.358192,
+      "rpe_translation_rmse_m": 0.173992,
+      "final_pose_error_m": 3.923454,
+      "ate_change_vs_gaussian_pct": -19.788885
+    },
+    {
+      "name": "cauchy_loop",
+      "kernel": "cauchy",
+      "kernel_k": 1.0,
+      "loop_only": true,
+      "robustified_constraints": 858,
+      "ate_rmse_m": 1.223586,
+      "ate_p95_m": 2.396779,
+      "rpe_translation_rmse_m": 0.159484,
+      "final_pose_error_m": 2.474148,
+      "ate_change_vs_gaussian_pct": -32.897495
+    }
+  ],
+  "interpretation_boundary": "The loop-only switch uses node-id separation >= 20 as a non-local-edge heuristic. This fixed-graph backend ablation does not improve or prove Karto loop-closure front-end precision."
+}

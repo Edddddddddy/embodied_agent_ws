@@ -73,6 +73,7 @@
 | OpenLORIS 真实回访证据 | 区分“轨迹回到附近”与“前端实际接受回环” | 选择 `office1-7`，按 tar 成员 range 下载并双哈希；新增真值事件聚合、GTSAM accepted-edge 日志和 false-loop/event-recall 报告 |
 | Karto 回环前端可观测性 | 把“无 accepted loop”定位到候选、粗匹配、细匹配或约束插入阶段 | 新增 C++ 生命周期诊断节点、候选链规则复算、原生 matcher callback、JSONL 汇总和 manifest 绑定；office1-7 当前定位为 near-linked 排除 |
 | OpenLORIS 长环路序列筛选 | 避免只看真值排名或先下载十几 GB bag 才发现传感器不兼容 | 真值包支持断点续传/缓存；批量比较 22 条轨迹；`market1-3` 因完整 bag 缺少 `/scan` 被拒绝，传感器 profile 正式选择约 272.5 s / 220.1 m、含 2 次位置长回访的 `corridor1-1`；range 与 bag 固定 commit/大小/SHA256 |
+| GTSAM 鲁棒核固定图消融 | 排除异步回放前端差异，量化错误非局部边对后端的影响 | 导出 1834 节点/2751 约束去重图；同 SHA256 比较 none/Huber/Cauchy；Cauchy non-local ATE 1.2236 m，较 Gaussian 下降 32.90%，同时保留“不改善前端 precision”的边界 |
 | DDS domain 上界护栏 | 避免 PID 取模生成 Fast DDS 无法映射端口的 domain | 修正连续语音/Nav2/OpenLORIS 等 6 个入口，并用仓库测试保证所有公式最大值不超过 232 |
 | 系统就绪状态收敛 | 替代 launch/test 中分散的固定 sleep、topic graph 猜测和日志字符串判断 | 新增 `ComponentHealth`、`SystemReadiness`、心跳超时聚合器和 profile 化启动门禁；保留音频/仿真数据质量探针 |
 | Agent 参数与 launch 契约收敛 | 消除 online/offline 节点、YAML、Gazebo/Nav2 launch 中重复默认值和转发映射 | 新增共享参数 schema、ROS range/enum 描述、启动前校验、只读快照与组合 launch 转发契约；provider YAML 仅保留模型配置 |
@@ -225,6 +226,9 @@ bash scripts/acceptance_test.sh continuous-live-check offline
   1 条相对位姿残差达标，accepted-edge 长回访 recall 为 0。先行运行曾产生 4 次 closure，暴露
   异步前端运行间波动。node-id 间隔不再作为正式 loop 分类，
   改用原生 closure scan id 与 SE(2) 相对位姿残差。
+- 已完成同一 `corridor1-1` 固定图的后端鲁棒核消融：图哈希、1834 节点、2751 约束和 1828 个
+  真值匹配姿态在四组间完全一致；Cauchy non-local 指标最好。下一步转向前端感知混淆抑制，
+  不再通过调整后端掩盖错误 closure 或回环漏检。
 - 已完成动态障碍 current-only、常速度、Kalman、IMM 同场景消融：C++ 固定输入报告预测
   RMSE/遮挡/停车过冲，四轮 Gazebo/Nav2 报告验证 lethal cost、重规划、到达和最终零速；场景、
   地图栅格和 Nav2 参数已纳入 SHA256 一致性门禁。输入仍是合成 `PoseArray`，物理动态 actor 与

@@ -1,4 +1,6 @@
 #include <algorithm>
+#include <cstdio>
+#include <cstdint>
 #include <cstdlib>
 #include <fstream>
 #include <iomanip>
@@ -30,13 +32,19 @@ public:
       declare_or_get(*node, "gtsam_max_iterations", 50));
     config.relative_error_tolerance =
       declare_or_get(*node, "gtsam_relative_error_tolerance", 1e-5);
-    config.huber_k = declare_or_get(*node, "gtsam_huber_k", 1.345);
+    const double legacy_huber_k = declare_or_get(*node, "gtsam_huber_k", 1.345);
+    config.robust_kernel = robust_kernel_from_string(
+      declare_or_get(*node, "gtsam_robust_kernel", std::string("huber")));
+    config.robust_kernel_k = declare_or_get(*node, "gtsam_robust_kernel_k", legacy_huber_k);
+    config.robustify_loop_constraints_only =
+      declare_or_get(*node, "gtsam_robustify_loop_constraints_only", false);
     config.minimum_covariance_eigenvalue =
       declare_or_get(*node, "gtsam_minimum_covariance_eigenvalue", 1e-8);
     const int configured_loop_id_separation =
       declare_or_get(*node, "gtsam_loop_constraint_min_id_separation", 20);
     loop_constraint_min_id_separation_ = static_cast<std::size_t>(
       std::max(2, configured_loop_id_separation));
+    config.loop_constraint_min_id_separation = loop_constraint_min_id_separation_;
     if (configured_loop_id_separation < 2) {
       RCLCPP_WARN(
         node->get_logger(), "gtsam_loop_constraint_min_id_separation=%d is unsafe; using 2",
@@ -59,8 +67,23 @@ public:
           constraint_log_path_.c_str());
       }
     }
+    const char * graph_from_environment = std::getenv("EMBODIED_SLAM_GRAPH_LOG");
+    graph_log_path_ = declare_or_get(*node, "gtsam_graph_log_path", std::string(""));
+    if (graph_log_path_.empty() && graph_from_environment != nullptr) {
+      graph_log_path_ = graph_from_environment;
+    }
+    best_graph_snapshot_nodes_ = 0U;
+    best_graph_snapshot_constraints_ = 0U;
+    evidence_poses_.clear();
+    evidence_node_stamps_.clear();
+    evidence_constraints_.clear();
     optimizer_ = GtsamPoseGraphOptimizer(config);
-    RCLCPP_INFO(node->get_logger(), "Configured embodied_slam GTSAM pose-graph backend");
+    RCLCPP_INFO(
+      node->get_logger(),
+      "Configured GTSAM backend: kernel=%s k=%.3f loop_only=%s loop_id_separation=%zu",
+      robust_kernel_name(config.robust_kernel), config.robust_kernel_k,
+      config.robustify_loop_constraints_only ? "true" : "false",
+      config.loop_constraint_min_id_separation);
   }
 
   void AddNode(karto::Vertex<karto::LocalizedRangeScan> * vertex) override
@@ -71,6 +94,9 @@ public:
     std::scoped_lock lock(mutex_);
     const auto * scan = vertex->GetObject();
     initial_poses_[scan->GetUniqueId()] = from_karto(scan->GetCorrectedPose());
+    node_stamps_[scan->GetUniqueId()] = scan->GetTime();
+    evidence_poses_[scan->GetUniqueId()] = initial_poses_.at(scan->GetUniqueId());
+    evidence_node_stamps_[scan->GetUniqueId()] = scan->GetTime();
   }
 
   void AddConstraint(karto::Edge<karto::LocalizedRangeScan> * edge) override
@@ -95,6 +121,7 @@ public:
     }
     std::scoped_lock lock(mutex_);
     constraints_.push_back(constraint);
+    evidence_constraints_[constraint_key(constraint.source_id, constraint.target_id)] = constraint;
     if (constraint_log_) {
       const auto id_separation = static_cast<std::size_t>(
         std::abs(constraint.source_id - constraint.target_id));
@@ -121,6 +148,9 @@ public:
   {
     std::scoped_lock lock(mutex_);
     try {
+      // 每次优化前覆盖写入“本次真正使用”的完整图。消融实验随后复用同一份节点和边，
+      // 避免多次 rosbag 回放因异步前端时序不同而把前端差异误判成后端鲁棒核收益。
+      write_graph_snapshot();
       const PoseGraphResult result = optimizer_.optimize(initial_poses_, constraints_);
       corrections_.clear();
       corrections_.reserve(result.poses.size());
@@ -136,9 +166,9 @@ public:
       if (auto node = node_.lock()) {
         RCLCPP_DEBUG(
           node->get_logger(),
-          "GTSAM optimized %zu nodes/%zu constraints: %.6f -> %.6f (%zu iterations)",
-          result.poses.size(), constraints_.size(), result.initial_error, result.final_error,
-          result.iterations);
+          "GTSAM optimized %zu nodes/%zu constraints (%zu robust): %.6f -> %.6f (%zu iterations)",
+          result.poses.size(), constraints_.size(), result.robustified_constraints,
+          result.initial_error, result.final_error, result.iterations);
       }
     } catch (const std::exception & error) {
       if (auto node = node_.lock()) {
@@ -153,11 +183,21 @@ public:
   {
     std::scoped_lock lock(mutex_);
     initial_poses_.erase(id);
+    node_stamps_.erase(id);
+    evidence_poses_.erase(id);
+    evidence_node_stamps_.erase(id);
     constraints_.erase(
       std::remove_if(
         constraints_.begin(), constraints_.end(),
         [id](const auto & item) {return item.source_id == id || item.target_id == id;}),
       constraints_.end());
+    for (auto iterator = evidence_constraints_.begin(); iterator != evidence_constraints_.end();) {
+      if (iterator->second.source_id == id || iterator->second.target_id == id) {
+        iterator = evidence_constraints_.erase(iterator);
+      } else {
+        ++iterator;
+      }
+    }
   }
 
   void RemoveConstraint(kt_int32s source_id, kt_int32s target_id) override
@@ -170,12 +210,14 @@ public:
           return item.source_id == source_id && item.target_id == target_id;
         }),
       constraints_.end());
+    evidence_constraints_.erase(constraint_key(source_id, target_id));
   }
 
   void Clear() override
   {
     std::scoped_lock lock(mutex_);
     initial_poses_.clear();
+    node_stamps_.clear();
     constraints_.clear();
     corrections_.clear();
     graph_.clear();
@@ -189,6 +231,7 @@ public:
   {
     std::scoped_lock lock(mutex_);
     initial_poses_[unique_id] = Pose2d{pose.x(), pose.y(), pose.z()};
+    evidence_poses_[unique_id] = initial_poses_.at(unique_id);
   }
 
   void GetNodeOrientation(const int & unique_id, double & yaw) override
@@ -216,14 +259,97 @@ private:
     return {pose.GetX(), pose.GetY(), pose.GetHeading()};
   }
 
+  static std::uint64_t constraint_key(int source_id, int target_id)
+  {
+    return (static_cast<std::uint64_t>(static_cast<std::uint32_t>(source_id)) << 32U) |
+           static_cast<std::uint32_t>(target_id);
+  }
+
+  void write_graph_snapshot()
+  {
+    if (graph_log_path_.empty()) {
+      return;
+    }
+    if (evidence_poses_.size() < best_graph_snapshot_nodes_ ||
+      (evidence_poses_.size() == best_graph_snapshot_nodes_ &&
+      evidence_constraints_.size() <= best_graph_snapshot_constraints_))
+    {
+      // slam_toolbox 会为局部校正临时重建较小的 ScanSolver 图；只保留迄今最完整的
+      // 快照，防止进程结束前的尾段优化覆盖整段数据集位姿图。
+      return;
+    }
+    const std::string temporary_path = graph_log_path_ + ".tmp";
+    std::ofstream output(temporary_path, std::ios::out | std::ios::trunc);
+    if (!output) {
+      if (auto node = node_.lock()) {
+        RCLCPP_WARN(
+          node->get_logger(), "Cannot write GTSAM graph snapshot: %s", temporary_path.c_str());
+      }
+      return;
+    }
+    output << "# embodied_slam_pose_graph_v1\n" << std::setprecision(17);
+    std::vector<int> ids;
+    ids.reserve(evidence_poses_.size());
+    for (const auto & [id, pose] : evidence_poses_) {
+      (void)pose;
+      ids.push_back(id);
+    }
+    std::sort(ids.begin(), ids.end());
+    for (const int id : ids) {
+      const auto & pose = evidence_poses_.at(id);
+      const auto stamp = evidence_node_stamps_.find(id);
+      output << "N " << id << ' '
+             << (stamp == evidence_node_stamps_.end() ? 0.0 : stamp->second) << ' '
+             << pose.x << ' ' << pose.y << ' ' << pose.yaw << '\n';
+    }
+    std::vector<std::uint64_t> constraint_keys;
+    constraint_keys.reserve(evidence_constraints_.size());
+    for (const auto & [key, constraint] : evidence_constraints_) {
+      (void)constraint;
+      constraint_keys.push_back(key);
+    }
+    std::sort(constraint_keys.begin(), constraint_keys.end());
+    for (const auto key : constraint_keys) {
+      const auto & constraint = evidence_constraints_.at(key);
+      output << "C " << constraint.source_id << ' ' << constraint.target_id << ' '
+             << constraint.relative_pose.x << ' ' << constraint.relative_pose.y << ' '
+             << constraint.relative_pose.yaw;
+      for (std::size_t row = 0; row < 3U; ++row) {
+        for (std::size_t column = 0; column < 3U; ++column) {
+          output << ' ' << constraint.covariance(row, column);
+        }
+      }
+      output << '\n';
+    }
+    output.close();
+    if (!output || std::rename(temporary_path.c_str(), graph_log_path_.c_str()) != 0) {
+      if (auto node = node_.lock()) {
+        RCLCPP_WARN(
+          node->get_logger(), "Cannot publish GTSAM graph snapshot: %s", graph_log_path_.c_str());
+      }
+    } else {
+      best_graph_snapshot_nodes_ = evidence_poses_.size();
+      best_graph_snapshot_constraints_ = evidence_constraints_.size();
+    }
+  }
+
   mutable std::mutex mutex_;
   std::weak_ptr<rclcpp_lifecycle::LifecycleNode> node_;
   GtsamPoseGraphOptimizer optimizer_;
   std::unordered_map<int, Pose2d> initial_poses_;
+  std::unordered_map<int, double> node_stamps_;
   std::vector<PoseGraphConstraint> constraints_;
+  // ScanSolver 的工作集会被 slam_toolbox 分批 Clear；证据图独立累计并按 ID/边去重，
+  // 因而既不改变在线优化语义，又能导出覆盖整段 bag 的固定后端输入。
+  std::unordered_map<int, Pose2d> evidence_poses_;
+  std::unordered_map<int, double> evidence_node_stamps_;
+  std::unordered_map<std::uint64_t, PoseGraphConstraint> evidence_constraints_;
   std::size_t loop_constraint_min_id_separation_{20U};
   std::string constraint_log_path_;
   std::ofstream constraint_log_;
+  std::string graph_log_path_;
+  std::size_t best_graph_snapshot_nodes_{0U};
+  std::size_t best_graph_snapshot_constraints_{0U};
   IdPoseVector corrections_;
   std::unordered_map<int, Eigen::Vector3d> graph_;
 };

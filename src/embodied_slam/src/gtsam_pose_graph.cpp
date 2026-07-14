@@ -1,6 +1,9 @@
 #include "embodied_slam/gtsam_pose_graph.hpp"
 
 #include <algorithm>
+#include <cctype>
+#include <stdexcept>
+#include <string>
 #include <utility>
 
 #include <Eigen/Eigenvalues>
@@ -13,6 +16,37 @@
 
 namespace embodied_slam
 {
+
+RobustKernel robust_kernel_from_string(const std::string & value)
+{
+  std::string normalized = value;
+  std::transform(
+    normalized.begin(), normalized.end(), normalized.begin(),
+    [](unsigned char character) {return static_cast<char>(std::tolower(character));});
+  if (normalized == "none") {
+    return RobustKernel::kNone;
+  }
+  if (normalized == "huber") {
+    return RobustKernel::kHuber;
+  }
+  if (normalized == "cauchy") {
+    return RobustKernel::kCauchy;
+  }
+  throw std::invalid_argument("unsupported robust kernel: " + value);
+}
+
+const char * robust_kernel_name(RobustKernel value)
+{
+  switch (value) {
+    case RobustKernel::kNone:
+      return "none";
+    case RobustKernel::kHuber:
+      return "huber";
+    case RobustKernel::kCauchy:
+      return "cauchy";
+  }
+  return "unknown";
+}
 
 namespace
 {
@@ -39,6 +73,20 @@ Eigen::Matrix3d make_positive_definite(Eigen::Matrix3d covariance, double minimu
   eigenvalues = eigenvalues.array().max(minimum_eigenvalue);
   return solver.eigenvectors() * eigenvalues.asDiagonal() * solver.eigenvectors().transpose();
 }
+
+gtsam::SharedNoiseModel robust_noise(
+  RobustKernel kernel, double parameter, const gtsam::SharedNoiseModel & gaussian)
+{
+  if (kernel == RobustKernel::kHuber) {
+    return gtsam::noiseModel::Robust::Create(
+      gtsam::noiseModel::mEstimator::Huber::Create(parameter), gaussian);
+  }
+  if (kernel == RobustKernel::kCauchy) {
+    return gtsam::noiseModel::Robust::Create(
+      gtsam::noiseModel::mEstimator::Cauchy::Create(parameter), gaussian);
+  }
+  return gaussian;
+}
 }  // namespace
 
 GtsamPoseGraphOptimizer::GtsamPoseGraphOptimizer(PoseGraphOptimizerConfig config)
@@ -56,6 +104,7 @@ PoseGraphResult GtsamPoseGraphOptimizer::optimize(
 
   gtsam::NonlinearFactorGraph graph;
   gtsam::Values initial;
+  PoseGraphResult output;
   int anchor_id = initial_poses.begin()->first;
   for (const auto & [id, pose] : initial_poses) {
     anchor_id = std::min(anchor_id, id);
@@ -76,21 +125,29 @@ PoseGraphResult GtsamPoseGraphOptimizer::optimize(
       constraint.covariance, config_.minimum_covariance_eigenvalue);
     auto gaussian = gtsam::noiseModel::Gaussian::Covariance(covariance);
     gtsam::SharedNoiseModel noise = gaussian;
-    if (config_.huber_k > 0.0) {
-      noise = gtsam::noiseModel::Robust::Create(
-        gtsam::noiseModel::mEstimator::Huber::Create(config_.huber_k), gaussian);
+    const auto id_separation = static_cast<std::size_t>(
+      std::abs(constraint.source_id - constraint.target_id));
+    const bool is_loop = id_separation >= config_.loop_constraint_min_id_separation;
+    const bool should_robustify =
+      config_.robust_kernel != RobustKernel::kNone && config_.robust_kernel_k > 0.0 &&
+      (!config_.robustify_loop_constraints_only || is_loop);
+    if (should_robustify) {
+      // 局部里程计链通常连续可靠；loop-only 模式仅抑制非局部闭环的离群残差，
+      // 避免错误回环把整条走廊轨迹强行拉回，同时不削弱正常相邻边。
+      noise = robust_noise(config_.robust_kernel, config_.robust_kernel_k, gaussian);
+      ++output.robustified_constraints;
     }
     graph.emplace_shared<gtsam::BetweenFactor<gtsam::Pose2>>(
       static_cast<gtsam::Key>(constraint.source_id),
       static_cast<gtsam::Key>(constraint.target_id),
       to_gtsam(constraint.relative_pose), noise);
+    ++output.constraints_used;
   }
 
   gtsam::LevenbergMarquardtParams parameters;
   parameters.maxIterations = config_.max_iterations;
   parameters.relativeErrorTol = config_.relative_error_tolerance;
   gtsam::LevenbergMarquardtOptimizer optimizer(graph, initial, parameters);
-  PoseGraphResult output;
   output.initial_error = graph.error(initial);
   const gtsam::Values result = optimizer.optimize();
   output.final_error = graph.error(result);

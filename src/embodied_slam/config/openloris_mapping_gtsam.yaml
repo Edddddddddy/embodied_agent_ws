@@ -4,11 +4,17 @@ slam_toolbox:
     solver_plugin: embodied_slam::GtsamScanSolver
     gtsam_max_iterations: 50
     gtsam_relative_error_tolerance: 0.00001
+    gtsam_robust_kernel: huber
+    gtsam_robust_kernel_k: 1.345
+    gtsam_robustify_loop_constraints_only: false
+    # 旧参数保留为兼容默认值；新实验应使用 gtsam_robust_kernel_k。
     gtsam_huber_k: 1.345
     gtsam_minimum_covariance_eigenvalue: 0.00000001
     # 低于该 ID 间隔的图边属于局部链约束，不计入回环 accepted-edge 评估。
     gtsam_loop_constraint_min_id_separation: 20
     gtsam_constraint_log_path: ""
+    # 最终前端位姿图快照，供 none/Huber/Cauchy 在完全相同输入上离线消融。
+    gtsam_graph_log_path: ""
 
     odom_frame: dataset_odom
     map_frame: map

@@ -969,6 +969,8 @@ sidecar 输出实际相似度。多人准确率仍需另建注册/查询数据�
 - `scripts/analyze_loop_frontend_trace.py`
 - `src/embodied_slam/src/instrumented_async_slam_toolbox_node.cpp`
 - `src/embodied_slam/src/loop_frontend_diagnostics.cpp`
+- `src/embodied_slam/src/gtsam_graph_optimize.cpp`
+- `scripts/run_gtsam_robust_kernel_ablation.py`
 - `src/embodied_slam/config/openloris_loop_sweep.json`
 - `src/embodied_slam/config/openloris_office1_7_annotations.json`
 
@@ -1018,6 +1020,13 @@ Karto 的候选函数本身是 private，因此报告明确标为 `replicated_ka
 0。失败点因此进一步收窄到“候选 chain 生成前的 near-linked 排除”，不是 response、variance 或
 GTSAM 鲁棒核。下一步应选择时间跨度和空间回访更大的序列，或在不破坏上游语义的前提下研究
 near-linked 图遍历半径，而不是继续盲目降低 scan matcher 阈值。
+
+`corridor1-1` 随后证明前端确实会接受真假混合的 closure，因此后端鲁棒性才成为有意义的问题。
+为排除异步回放每轮 closure 数不同的干扰，`GtsamScanSolver` 将分批工作集之外再维护一份按
+node/edge 去重的证据图；四种配置只读取同一个 SHA256 快照。1834 节点/2751 约束实测中，
+Gaussian、Huber-all、Huber-non-local、Cauchy-non-local 的 ATE 分别为
+1.8235/1.4081/1.4626/1.2236 m。Cauchy 重尾损失对大残差降权更强，但 node ID 间隔只是
+non-local 启发式，不是 Karto closure 真值；这项优化降低错误边破坏程度，却不会找回漏检回环。
 
 ## 15. 动态障碍运动模型与同场景消融
 
