@@ -244,6 +244,10 @@ bash scripts/acceptance_test.sh continuous-live-check offline
   `corridor1-1/1-2` 环键 Recall@10 为 33.51%/62.75%，均恢复 2/2 事件。Top-K 已进入 C++ shadow
   scan matcher；固定参数 accepted precision 为 8.41%/33.78%，4 个事件只恢复 1 个，所以下一步
   是 scan-to-submap/多帧一致性，当前仍不允许影响生产图。
+- 已完成 scan-to-submap 固定 A/B：短时里程计聚合三帧局部几何，两序列 precision 平均提升
+  2.32 个百分点且平移中位误差均下降，但 recall 平均下降 1.72 个百分点。由于逐序列绝对质量线
+  未通过，状态保持 `shadow_only_submap_quality_insufficient`，下一步转向多帧时序一致性而非
+  调低阈值或直接写图。
 - 已完成动态障碍 current-only、常速度、Kalman、IMM 同场景消融：C++ 固定输入报告预测
   RMSE/遮挡/停车过冲，四轮 Gazebo/Nav2 报告验证 lethal cost、重规划、到达和最终零速；场景、
   地图栅格和 Nav2 参数已纳入 SHA256 一致性门禁。输入仍是合成 `PoseArray`，物理动态 actor 与

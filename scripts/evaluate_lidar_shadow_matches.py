@@ -51,10 +51,17 @@ def _summary(values: Sequence[float]) -> dict[str, float | int | None]:
 def load_rows(path: Path) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     seen: set[tuple[int, int]] = set()
+    matching_modes: set[str] = set()
     for line_number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         if not raw.strip():
             continue
         row = json.loads(raw)
+        # 旧版单帧结果没有显式模式字段；读入时归一化，避免 A/B 报告靠文件名猜测。
+        row.setdefault("matching_mode", "scan_to_scan")
+        mode = str(row["matching_mode"])
+        if mode not in {"scan_to_scan", "scan_to_submap"}:
+            raise ValueError(f"unsupported matching_mode at line {line_number}: {mode}")
+        matching_modes.add(mode)
         key = (int(row["query_id"]), int(row["candidate_id"]))
         if key in seen:
             raise ValueError(f"duplicate shadow pair at line {line_number}: {key}")
@@ -72,6 +79,8 @@ def load_rows(path: Path) -> list[dict[str, object]]:
         rows.append(row)
     if not rows:
         raise ValueError("shadow match file is empty")
+    if len(matching_modes) != 1:
+        raise ValueError("one evidence file must contain exactly one matching_mode")
     return rows
 
 
@@ -256,6 +265,10 @@ def evaluate(
         "has_groundtruth_revisit_events": len(events) > 0,
     }
     reason_counts = collections.Counter(str(row["rejection_reason"]) for row in scored)
+    matching_mode = str(scored[0].get("matching_mode", "scan_to_scan"))
+    # 旧版报告使用 matcher 默认值 2/30；新结果会把等效采样步长写入每一行。
+    effective_point_stride = int(scored[0].get("effective_point_stride", 2))
+    matcher_minimum_points = int(scored[0].get("matcher_minimum_points", 30))
     return EVALUATOR._round_floats(
         {
             "schema_version": 1,
@@ -285,6 +298,19 @@ def evaluate(
                 "event_count": len(events),
             },
             "diagnostics": {
+                "matching_mode": matching_mode,
+                "query_submap_scans": _summary(
+                    [float(row.get("query_submap_scans", 1)) for row in scored]
+                ),
+                "candidate_submap_scans": _summary(
+                    [float(row.get("candidate_submap_scans", 1)) for row in scored]
+                ),
+                "query_geometry_points": _summary(
+                    [float(row.get("query_geometry_points", 0)) for row in scored]
+                ),
+                "candidate_geometry_points": _summary(
+                    [float(row.get("candidate_geometry_points", 0)) for row in scored]
+                ),
                 "available_pairs": sum(bool(row["available"]) for row in scored),
                 "converged_pairs": sum(bool(row["converged"]) for row in scored),
                 "yaw_ambiguous_pairs": sum(
@@ -345,8 +371,13 @@ def evaluate(
                 ),
             },
             "methodology": {
+                "matching_mode": matching_mode,
+                "geometry_sampling": {
+                    "effective_point_stride_per_scan": effective_point_stride,
+                    "matcher_minimum_points": matcher_minimum_points,
+                },
                 "runtime_input": (
-                    "candidate scan pair + descriptor yaw seed + optional odometry yaw prior"
+                    "candidate scan/submap pair + descriptor yaw seed + optional odometry yaw prior"
                 ),
                 "matcher": (
                     "C++17 trimmed coarse-to-fine point-to-point ICP with multi-yaw seeds"

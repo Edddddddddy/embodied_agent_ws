@@ -77,6 +77,7 @@ Automated modes:
   openloris-scan-overlap-multisequence Aggregate independent fixed-graph overlap ablations
   openloris-lidar-loop-candidates Evaluate C++ LiDAR loop retrieval on two real sequences
   openloris-lidar-shadow-matches Evaluate C++ shadow scan matching on two real sequences
+  openloris-lidar-submap-ablation Compare scan-to-scan and local-submap shadow matching
   openloris-replay-stage Generate a tiny bag and replay it through Ceres/GTSAM SLAM
   openloris-bag-preflight Validate OPENLORIS_BAG topics, frames, and optional runtime
   openloris-slam-ceres Replay a real OpenLORIS bag through the Ceres backend
@@ -502,6 +503,9 @@ case "$LEVEL" in
     ;;
   openloris-lidar-shadow-matches)
     bash scripts/run_openloris_lidar_shadow_matches.sh
+    ;;
+  openloris-lidar-submap-ablation)
+    bash scripts/run_openloris_lidar_submap_ablation.sh
     ;;
   openloris-replay-stage)
     python3 -c 'import rosbags' || {
