@@ -14,6 +14,14 @@ REFERENCE="${OPENLORIS_REFERENCE:-$OPENLORIS_ROOT/groundtruth/$SEQUENCE/groundtr
 OUTPUT_DIR="${GTSAM_SCAN_OVERLAP_OUTPUT_DIR:-$SOURCE_DIR/scan_overlap_ablation}"
 ENRICHED_GRAPH="$OUTPUT_DIR/gtsam_graph_with_scan_overlap.txt"
 OPTIMIZER="$WORKSPACE/install/embodied_slam/lib/embodied_slam/gtsam_graph_optimize"
+PUBLISHED_SUFFIX="${SEQUENCE//-/_}"
+if [[ "$SEQUENCE" == "corridor1-1" ]]; then
+  PUBLISHED_JSON="${GTSAM_SCAN_OVERLAP_PUBLISHED_JSON:-$WORKSPACE/docs/evidence/gtsam_scan_overlap_ablation.json}"
+  PUBLISHED_MARKDOWN="${GTSAM_SCAN_OVERLAP_PUBLISHED_MARKDOWN:-$WORKSPACE/docs/evidence/gtsam_scan_overlap_ablation.md}"
+else
+  PUBLISHED_JSON="${GTSAM_SCAN_OVERLAP_PUBLISHED_JSON:-$WORKSPACE/docs/evidence/gtsam_scan_overlap_ablation_${PUBLISHED_SUFFIX}.json}"
+  PUBLISHED_MARKDOWN="${GTSAM_SCAN_OVERLAP_PUBLISHED_MARKDOWN:-$WORKSPACE/docs/evidence/gtsam_scan_overlap_ablation_${PUBLISHED_SUFFIX}.md}"
+fi
 
 for required in "$SOURCE_GRAPH" "$BAG" "$REFERENCE" "$OPTIMIZER"; do
   if [[ ! -s "$required" ]]; then
@@ -27,10 +35,11 @@ python3 scripts/augment_pose_graph_scan_overlap.py \
   --metadata "$OUTPUT_DIR/augmentation.json"
 
 python3 scripts/run_gtsam_scan_overlap_ablation.py \
+  --sequence "$SEQUENCE" \
   --graph "$ENRICHED_GRAPH" --reference "$REFERENCE" --optimizer "$OPTIMIZER" \
   --output-dir "$OUTPUT_DIR" \
   --minimum-overlap "${GTSAM_MIN_SCAN_OVERLAP_RATIO:-0.65}" \
   --minimum-overlap-innovation "${GTSAM_SCAN_OVERLAP_MIN_INNOVATION_M:-1.0}" \
   --augmentation-metadata "$OUTPUT_DIR/augmentation.json" \
-  --published-json "$WORKSPACE/docs/evidence/gtsam_scan_overlap_ablation.json" \
-  --published-markdown "$WORKSPACE/docs/evidence/gtsam_scan_overlap_ablation.md"
+  --published-json "$PUBLISHED_JSON" \
+  --published-markdown "$PUBLISHED_MARKDOWN"

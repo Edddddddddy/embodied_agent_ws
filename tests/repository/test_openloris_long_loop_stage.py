@@ -12,6 +12,8 @@ def test_long_loop_stage_is_pinned_and_preserves_evidence_boundaries():
     compact = (ROOT / "scripts" / "compact_openloris_rosbag.py").read_text()
 
     assert 'SEQUENCE="${OPENLORIS_SEQUENCE:-corridor1-1}"' in stage
+    assert "corridor1-1|corridor1-2" in stage
+    assert '"duration_at_least_90s"' in stage
     assert "rank_openloris_revisit_sequences.py" in stage
     assert "--verify-source-hash" in stage
     assert "OPENLORIS_EVALUATE_LOOP_CONSTRAINTS=true" in stage
@@ -21,6 +23,7 @@ def test_long_loop_stage_is_pinned_and_preserves_evidence_boundaries():
     assert 'SLAM_LOOP_YAW_TOLERANCE_DEG="${SLAM_LOOP_YAW_TOLERANCE_DEG:-180.0}"' in stage
     assert 'SLAM_LOOP_MIN_SEPARATION_S="${SLAM_LOOP_MIN_SEPARATION_S:-60.0}"' in stage
     assert "a373fb24539561ee6a8900c91603baeedf8b739881a7b04860ed5e363dc93a22" in setup
+    assert "e8a25490762e8b07537a4297cf6b228b8eee42345587cb3892776264995eb3b6" in setup
     assert '--loop-yaw-tolerance-deg "${SLAM_LOOP_YAW_TOLERANCE_DEG:-30.0}"' in replay
     assert "start=target_stamp_ns" in review
     assert "writer.write(outputs[connection.id], timestamp_ns, rawdata)" in compact

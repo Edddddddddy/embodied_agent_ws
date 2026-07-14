@@ -74,6 +74,7 @@ Automated modes:
   openloris-robust-kernel-ablation Re-optimize one fixed graph with none/Huber/Cauchy
   openloris-loop-consistency-ablation Reject geometrically inconsistent non-local graph edges
   openloris-scan-overlap-ablation Validate accepted constraints with no-GT scan overlap evidence
+  openloris-scan-overlap-multisequence Aggregate independent fixed-graph overlap ablations
   openloris-replay-stage Generate a tiny bag and replay it through Ceres/GTSAM SLAM
   openloris-bag-preflight Validate OPENLORIS_BAG topics, frames, and optional runtime
   openloris-slam-ceres Replay a real OpenLORIS bag through the Ceres backend
@@ -490,6 +491,9 @@ case "$LEVEL" in
     ;;
   openloris-scan-overlap-ablation)
     bash scripts/run_gtsam_scan_overlap_ablation.sh
+    ;;
+  openloris-scan-overlap-multisequence)
+    bash scripts/run_gtsam_scan_overlap_multisequence.sh
     ;;
   openloris-replay-stage)
     python3 -c 'import rosbags' || {
