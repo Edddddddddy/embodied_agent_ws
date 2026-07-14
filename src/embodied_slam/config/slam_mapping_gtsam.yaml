@@ -11,6 +11,9 @@ slam_toolbox:
     gtsam_huber_k: 1.345
     gtsam_minimum_covariance_eigenvalue: 0.00000001
     gtsam_graph_log_path: ""
+    gtsam_enable_nonlocal_consistency_gate: false
+    gtsam_max_nonlocal_translation_residual_m: 2.0
+    gtsam_max_nonlocal_yaw_residual_rad: 0.7853981633974483
 
     odom_frame: slam_odom
     map_frame: map

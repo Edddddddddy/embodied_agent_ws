@@ -127,9 +127,10 @@ bool parse_bool(const std::string & value)
 
 int main(int argc, char ** argv)
 {
-  if (argc != 8) {
+  if (argc != 8 && argc != 11) {
     std::cerr << "Usage: gtsam_graph_optimize GRAPH OUTPUT_TUM KERNEL K "
-              << "LOOP_ONLY LOOP_ID_SEPARATION MAX_ITERATIONS\n";
+              << "LOOP_ONLY LOOP_ID_SEPARATION MAX_ITERATIONS "
+              << "[CONSISTENCY_GATE MAX_TRANSLATION_RESIDUAL_M MAX_YAW_RESIDUAL_RAD]\n";
     return 2;
   }
   try {
@@ -140,6 +141,11 @@ int main(int argc, char ** argv)
     config.robustify_loop_constraints_only = parse_bool(argv[5]);
     config.loop_constraint_min_id_separation = std::stoul(argv[6]);
     config.max_iterations = std::stoul(argv[7]);
+    if (argc == 11) {
+      config.enable_nonlocal_consistency_gate = parse_bool(argv[8]);
+      config.max_nonlocal_translation_residual_m = std::stod(argv[9]);
+      config.max_nonlocal_yaw_residual_rad = std::stod(argv[10]);
+    }
     const embodied_slam::PoseGraphResult result =
       embodied_slam::GtsamPoseGraphOptimizer(config).optimize(graph.poses, graph.constraints);
     write_tum(argv[2], result, graph.stamps);
@@ -151,8 +157,14 @@ int main(int argc, char ** argv)
               << ",\"loop_only\":"
               << (config.robustify_loop_constraints_only ? "true" : "false")
               << ",\"nodes\":" << result.poses.size()
-              << ",\"constraints\":" << result.constraints_used
+              // constraints 表示不可变输入图规模，用于消融公平性检查；实际采用数量单独报告。
+              << ",\"constraints\":" << graph.constraints.size()
+              << ",\"constraints_used\":" << result.constraints_used
               << ",\"robustified_constraints\":" << result.robustified_constraints
+              << ",\"consistency_gate\":"
+              << (config.enable_nonlocal_consistency_gate ? "true" : "false")
+              << ",\"consistency_rejected_constraints\":"
+              << result.consistency_rejected_constraints
               << ",\"initial_error\":" << result.initial_error
               << ",\"final_error\":" << result.final_error
               << ",\"iterations\":" << result.iterations << "}\n";

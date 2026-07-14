@@ -238,6 +238,9 @@ bash scripts/acceptance_test.sh openloris-long-loop-evidence
 # 不重新回放 bag：在同一份固定图上比较 Gaussian/Huber/Cauchy 后端。
 bash scripts/acceptance_test.sh openloris-robust-kernel-ablation
 
+# 在同一固定图上增加无真值运行时依赖的非局部边几何一致性门控。
+bash scripts/acceptance_test.sh openloris-loop-consistency-ablation
+
 # 同一 office1-7 前端输入下比较 Ceres/GTSAM。
 OPENLORIS_SEQUENCE=office1-7 bash scripts/acceptance_test.sh openloris-slam-ab
 
@@ -252,6 +255,11 @@ bash scripts/acceptance_test.sh openloris-slam-ab
 1834 节点/2751 约束的固定图，四组各匹配 1828 个真值位姿：Cauchy 非局部边配置 ATE 为
 1.2236 m，相比 Gaussian 的 1.8235 m 下降 32.90%。这只证明后端对已接受离群约束更稳，不代表
 Karto 前端 precision 提升。
+
+同一固定图再加入 2 m / π/4 非局部边一致性门控后，拒绝 23/2751 条明显不一致约束；
+`Cauchy + gate` 的 ATE 为 1.1713 m，相比 Gaussian 下降 35.77%，相比单独 Cauchy 下降 4.28%。
+门控只比较候选约束与优化前图估计，不读取真值，但严重累计漂移可能使真回环也不一致，因此
+默认关闭，当前只作为可复现消融能力，不宣称前端回环 precision 已改善。
 
 输出包含 bag 来源哈希、contract、两条 map-frame TUM 轨迹、ATE/RPE、直行/转弯退化分段、
 launch 日志、实验 manifest 和不预设胜者的后端对比。`source.json` 会区分完整 SHA256 验证与

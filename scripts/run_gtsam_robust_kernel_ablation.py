@@ -13,10 +13,10 @@ from typing import Any
 
 
 VARIANTS = (
-    ("gaussian", "none", 0.0, False),
-    ("huber_all", "huber", 1.345, False),
-    ("huber_loop", "huber", 1.345, True),
-    ("cauchy_loop", "cauchy", 1.0, True),
+    ("gaussian", "none", 0.0, False, False),
+    ("huber_all", "huber", 1.345, False, False),
+    ("huber_loop", "huber", 1.345, True, False),
+    ("cauchy_loop", "cauchy", 1.0, True, False),
 )
 
 
@@ -59,7 +59,14 @@ def build_comparison(variants: list[dict[str, Any]], graph_sha256: str) -> dict[
                 "kernel": item["optimizer"]["kernel"],
                 "kernel_k": item["optimizer"]["kernel_k"],
                 "loop_only": item["optimizer"]["loop_only"],
+                "constraints_used": item["optimizer"].get(
+                    "constraints_used", item["optimizer"]["constraints"]
+                ),
                 "robustified_constraints": item["optimizer"]["robustified_constraints"],
+                "consistency_gate": item["optimizer"].get("consistency_gate", False),
+                "consistency_rejected_constraints": item["optimizer"].get(
+                    "consistency_rejected_constraints", 0
+                ),
                 "ate_rmse_m": evaluation["ate_xy_m"]["rmse"],
                 "ate_p95_m": evaluation["ate_xy_m"]["p95"],
                 "rpe_translation_rmse_m": evaluation["rpe"]["translation_m"]["rmse"],
@@ -93,7 +100,8 @@ def build_comparison(variants: list[dict[str, Any]], graph_sha256: str) -> dict[
 
 def render_markdown(report: dict[str, Any], graph: Path) -> str:
     rows = "\n".join(
-        "| {name} | {kernel} | {loop_only} | {robustified_constraints} | "
+        "| {name} | {kernel} | {loop_only} | {consistency_gate} | {constraints_used} | "
+        "{robustified_constraints} | {consistency_rejected_constraints} | "
         "{ate_rmse_m:.4f} | {ate_p95_m:.4f} | {rpe_translation_rmse_m:.4f} | "
         "{final_pose_error_m:.4f} | {ate_change_vs_gaussian_pct:+.2f}% |".format(**item)
         for item in report["variants"]
@@ -107,12 +115,13 @@ def render_markdown(report: dict[str, Any], graph: Path) -> str:
 - ATE 最优组：**{report['best_ate_variant']}**
 - 公平性检查：**{'PASS' if report['passed'] else 'FAIL'}**
 
-| variant | kernel | loop only | robust edges | ATE RMSE m | ATE P95 m | RPE RMSE m | final m | ATE vs Gaussian |
-| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| variant | kernel | loop only | gate | used edges | robust edges | rejected | ATE RMSE m | ATE P95 m | RPE RMSE m | final m | ATE vs Gaussian |
+| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 {rows}
 
-> 结论边界：四组复用同一份前端已接受的节点和约束，只衡量后端对离群边的敏感性；
-> 鲁棒核不能替代感知混淆抑制，也不能证明回环前端 precision 得到改善。
+> 结论边界：所有变体复用同一份前端已接受的节点和约束。鲁棒核衡量后端对离群边的
+> 敏感性；一致性门控只使用入图前估计，不使用真值，但可能在累计漂移严重时误拒绝真回环。
+> 该实验不能证明回环前端 precision 得到改善。
 """
 
 
@@ -141,6 +150,9 @@ def main() -> int:
     parser.add_argument("--loop-radius", type=float, default=1.0)
     parser.add_argument("--loop-yaw-tolerance-deg", type=float, default=180.0)
     parser.add_argument("--loop-min-separation", type=float, default=60.0)
+    parser.add_argument("--include-consistency-gate", action="store_true")
+    parser.add_argument("--max-consistency-translation", type=float, default=2.0)
+    parser.add_argument("--max-consistency-yaw-rad", type=float, default=0.7853981633974483)
     args = parser.parse_args()
 
     for path in (args.graph, args.reference, args.optimizer, args.evaluator):
@@ -149,7 +161,10 @@ def main() -> int:
     args.output_dir.mkdir(parents=True, exist_ok=True)
     graph_digest = sha256(args.graph)
     records: list[dict[str, Any]] = []
-    for name, kernel, kernel_k, loop_only in VARIANTS:
+    variants = list(VARIANTS)
+    if args.include_consistency_gate:
+        variants.append(("cauchy_loop_gated", "cauchy", 1.0, True, True))
+    for name, kernel, kernel_k, loop_only, consistency_gate in variants:
         trajectory = args.output_dir / f"{name}.tum"
         optimizer_result = _run(
             [
@@ -161,6 +176,9 @@ def main() -> int:
                 str(loop_only).lower(),
                 str(args.loop_id_separation),
                 str(args.max_iterations),
+                str(consistency_gate).lower(),
+                str(args.max_consistency_translation),
+                str(args.max_consistency_yaw_rad),
             ]
         )
         optimizer_summary = json.loads(optimizer_result.stdout.strip().splitlines()[-1])

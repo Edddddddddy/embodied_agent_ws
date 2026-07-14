@@ -369,6 +369,26 @@ Cauchy 相比 Gaussian 的 ATE 下降 32.90%，说明重尾损失能降低已接
 也不能把错误前端变成正确前端。可提交的小型结果见
 [`docs/evidence/gtsam_robust_kernel_ablation.md`](evidence/gtsam_robust_kernel_ablation.md)。
 
+### 5.6 非局部边几何一致性门控
+
+鲁棒核会连续降低大残差的权重，但不会彻底移除特别荒谬的错误边。项目在 GTSAM 因子入图前增加
+可选 consistency gate：先由优化前节点位姿预测 `source→target` 相对变换，再与候选边测量计算
+平移和偏航创新量。该判定不读取真值；只对 ID 间隔至少 20 的非局部边生效，局部里程计链不受影响。
+
+```bash
+bash scripts/acceptance_test.sh openloris-loop-consistency-ablation
+```
+
+五组仍复用 5.5 节同一 SHA256 图。2 m / π/4 门控拒绝 23 条输入约束，保留 2728 条；
+`Cauchy + gate` 的 ATE/RPE/终点误差为 1.1713/0.1427/1.8071 m，相比单独 Cauchy 的 ATE
+1.2236 m 进一步下降 4.28%。因为门控组主动少用因子，`initial_error/final_error` 不能跨组直接比较，
+结论以独立真值 ATE/RPE 为准。
+
+门控不是前端感知模型：node ID separation 仍只是非局部启发式；当累计漂移超过 2 m 时，真实回环
+也可能与当前图预测冲突。故参数默认关闭，当前结果只证明这一固定图上的后端防护收益，不证明跨场景
+泛化或回环前端 precision 改善。小型证据见
+[`docs/evidence/gtsam_loop_consistency_ablation.md`](evidence/gtsam_loop_consistency_ablation.md)。
+
 ## 6. 面试讲法和事实边界
 
 可以讲：

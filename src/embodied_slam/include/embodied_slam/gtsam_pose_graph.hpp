@@ -38,6 +38,9 @@ struct PoseGraphOptimizerConfig
   double robust_kernel_k{1.345};
   bool robustify_loop_constraints_only{false};
   std::size_t loop_constraint_min_id_separation{20U};
+  bool enable_nonlocal_consistency_gate{false};
+  double max_nonlocal_translation_residual_m{2.0};
+  double max_nonlocal_yaw_residual_rad{0.7853981633974483};
   double minimum_covariance_eigenvalue{1e-8};
 };
 
@@ -49,6 +52,7 @@ struct PoseGraphResult
   std::size_t iterations{0U};
   std::size_t constraints_used{0U};
   std::size_t robustified_constraints{0U};
+  std::size_t consistency_rejected_constraints{0U};
 };
 
 class GtsamPoseGraphOptimizer
