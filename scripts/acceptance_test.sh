@@ -68,7 +68,9 @@ Automated modes:
   slam-navigation     Heavy run: saved map -> AMCL -> Nav2 plan -> goal execution
   slam-evaluation-stage Synthetic ATE/RPE/loop-correction gate without Gazebo or downloads
   openloris-groundtruth Download and verify one public OpenLORIS ground-truth trajectory
-  openloris-rosbag-setup Resume, verify, and extract one office rosbag (full or range-only)
+  openloris-rosbag-setup Resume and verify a tar-range or standalone public rosbag
+  openloris-sequence-ranking Rank all ground-truth trajectories before large bag download
+  openloris-long-loop-evidence Verified corridor1-1 long-loop GTSAM/frontend experiment
   openloris-replay-stage Generate a tiny bag and replay it through Ceres/GTSAM SLAM
   openloris-bag-preflight Validate OPENLORIS_BAG topics, frames, and optional runtime
   openloris-slam-ceres Replay a real OpenLORIS bag through the Ceres backend
@@ -458,7 +460,23 @@ case "$LEVEL" in
     if [[ "${OPENLORIS_RANGE_ONLY:-false}" == "true" ]]; then
       ROSBAG_ARGS+=(--range-only)
     fi
+    if [[ "${OPENLORIS_DIRECT_BAG:-false}" == "true" ]]; then
+      ROSBAG_ARGS+=(--direct-bag)
+    fi
+    ROSBAG_ARGS+=(--download-connections "${OPENLORIS_DOWNLOAD_CONNECTIONS:-8}")
     python3 scripts/setup_openloris_rosbag.py "${ROSBAG_ARGS[@]}"
+    ;;
+  openloris-sequence-ranking)
+    OPENLORIS_ROOT="${OPENLORIS_ROOT:-$WORKSPACE/datasets/openloris}"
+    python3 scripts/setup_openloris_groundtruth.py \
+      --sequence "${OPENLORIS_SEQUENCE:-office1-1}" --output-root "$OPENLORIS_ROOT"
+    python3 scripts/rank_openloris_revisit_sequences.py \
+      --archive "$OPENLORIS_ROOT/archive/groundtruth.zip" \
+      --sensor-contracts "$WORKSPACE/src/embodied_slam/config/openloris_sensor_contracts.json" \
+      --output "${OPENLORIS_RANKING_REPORT:-logs/openloris/revisit_sequence_ranking.json}"
+    ;;
+  openloris-long-loop-evidence)
+    bash scripts/run_openloris_long_loop_evidence.sh
     ;;
   openloris-replay-stage)
     python3 -c 'import rosbags' || {
@@ -516,6 +534,8 @@ case "$LEVEL" in
     python3 scripts/analyze_openloris_revisits.py \
       --reference "$OPENLORIS_REFERENCE" \
       --output "${OPENLORIS_REVISIT_REPORT:-logs/openloris/$OPENLORIS_SEQUENCE/revisit_catalog.json}" \
+      --loop-radius "${SLAM_LOOP_RADIUS_M:-0.50}" \
+      --loop-yaw-tolerance-deg "${SLAM_LOOP_YAW_TOLERANCE_DEG:-30.0}" \
       --min-events "${OPENLORIS_MIN_REVISIT_EVENTS:-1}"
     colcon build --packages-up-to embodied_slam embodied_slam_tools --symlink-install
     OPENLORIS_BAG="${OPENLORIS_BAG:-$OPENLORIS_ROOT/rosbag/$OPENLORIS_SEQUENCE/$OPENLORIS_SEQUENCE.bag}"
@@ -525,8 +545,13 @@ case "$LEVEL" in
     fi
     OPENLORIS_ANNOTATIONS="${OPENLORIS_ANNOTATIONS:-$DEFAULT_OPENLORIS_ANNOTATIONS}"
     if [[ ! -s "$OPENLORIS_BAG" ]]; then
-      OPENLORIS_SEQUENCE="$OPENLORIS_SEQUENCE" OPENLORIS_ROOT="$OPENLORIS_ROOT" \
-        OPENLORIS_RANGE_ONLY=true bash scripts/acceptance_test.sh openloris-rosbag-setup
+      if [[ "$OPENLORIS_SEQUENCE" == "market1-3" ]]; then
+        OPENLORIS_SEQUENCE="$OPENLORIS_SEQUENCE" OPENLORIS_ROOT="$OPENLORIS_ROOT" \
+          OPENLORIS_DIRECT_BAG=true bash scripts/acceptance_test.sh openloris-rosbag-setup
+      else
+        OPENLORIS_SEQUENCE="$OPENLORIS_SEQUENCE" OPENLORIS_ROOT="$OPENLORIS_ROOT" \
+          OPENLORIS_RANGE_ONLY=true bash scripts/acceptance_test.sh openloris-rosbag-setup
+      fi
     fi
     OPENLORIS_SEQUENCE="$OPENLORIS_SEQUENCE" OPENLORIS_ROOT="$OPENLORIS_ROOT" \
       OPENLORIS_BAG="$OPENLORIS_BAG" OPENLORIS_EVALUATE_LOOP_CONSTRAINTS=true \

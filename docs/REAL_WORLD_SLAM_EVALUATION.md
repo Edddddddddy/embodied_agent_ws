@@ -24,6 +24,7 @@ OpenLORIS ROS 1 bag (/odom + /scan + /tf_static)
 | `scripts/setup_openloris_rosbag.py` | 断点续传、固定对象校验、只提取指定 bag、记录来源 |
 | `scripts/evaluate_slam_trajectory.py` | 时间同步、SE(2) 对齐、指标与报告 |
 | `scripts/analyze_openloris_revisits.py` | 从独立真值聚合回访事件，先验证序列是否适合回环实验 |
+| `scripts/rank_openloris_revisit_sequences.py` | 在下载大型 bag 前批量比较方向敏感/360° LiDAR 回访与长序列门槛 |
 | `scripts/evaluate_loop_constraints.py` | accepted 非局部图边的 precision、false-loop 与事件 recall |
 | `scripts/extract_openloris_review_frames.py` | 稀疏提取 RGB 联络表，辅助人工标注走廊/动态遮挡区间 |
 | `scripts/analyze_slam_degradation.py` | 共享同一对齐，按直行/转弯/静止及人工标注区间拆分误差 |
@@ -34,10 +35,10 @@ OpenLORIS ROS 1 bag (/odom + /scan + /tf_static)
 
 ## 2. 数据集选择
 
-首选 [OpenLORIS-Scene](https://lifelong-robotic-vision.github.io/dataset/scene.html) 的
-`office1-*`：它来自真实轮式机器人，包含 2D Hokuyo LiDAR、轮式里程计和多次场景采集；官方说明
-office 场景使用 OptiTrack motion capture 真值，因此适合独立评价激光 SLAM。其他场景的真值由
-离线 LiDAR SLAM 生成，不应与独立 mocap 真值混为一谈。
+首选 [OpenLORIS-Scene](https://lifelong-robotic-vision.github.io/dataset/scene.html)。office 场景使用
+OptiTrack motion capture 真值，适合独立评价激光 SLAM，但当前可快速取得的 office 单序列只有
+约 6 米/38 秒，不能代表长环路。market/corridor 等场景的真值由官方离线 LiDAR SLAM 生成，路径
+更长但与在线 Hokuyo 输入并非完全独立；报告必须同时说明这项取舍，不能把它称为 mocap 真值。
 
 项目可以自动下载真值和 office rosbag，但 `datasets/` 被 Git 忽略，不会把大型数据提交到仓库。
 原始数据下载列表见
@@ -50,6 +51,17 @@ office 场景使用 OptiTrack motion capture 真值，因此适合独立评价�
 bash scripts/acceptance_test.sh openloris-groundtruth
 # datasets/openloris/groundtruth/office1-1/groundtruth.txt
 # datasets/openloris/groundtruth/office1-1/source.json
+```
+
+大型 bag 下载前先批量扫描真值 ZIP。排名同时计算相机式“同位置且同朝向”与 360° LiDAR
+“同位置、允许反向通过”两种口径，并要求路径至少 100 米、时长至少 120 秒、回访两端至少相隔
+60 秒。轨迹层第一名 `market1-3` 有 1 次同向长回访，但完整 bag 缺少 `/scan`，不能进入当前
+slam_toolbox 2D 管线。经过 `/odom`、`/scan`、`/tf_static` 全量传感器契约后，正式推荐为
+`corridor1-1`：272.49 秒、220.06 米、2 次位置回访；其 yaw 差约 129°～180°，因此报告明确使用
+`position_only_360_lidar`，不把反向穿越伪装成同向视觉回环。
+
+```bash
+bash scripts/acceptance_test.sh openloris-sequence-ranking
 ```
 
 下载器固定校验：
@@ -95,6 +107,18 @@ office1-1 range sha256 c637329c32caa00561419cdce8d04bc7e659cf5edcdc3a6b8f2207912
 office1-1 bag   sha256 d18e335a34dc25b6f26df911886bdefbeeeacd41620c0ea525fe0314ea9f7a65
 office1-7 range sha256 da2abbacc4a4c200890c8128186b677d0c3b0a7de6a66a2d7095c656ff0e4b6b
 office1-7 bag   sha256 23f443c33353e4059b5d108ca099d452550954613b8af1b02e8159fb147af3ca
+corridor1-1 range sha256 14aed071ea7198d47bd14ea992ce5e46dd17b128766ef77b953cc4a50d3744da
+corridor1-1 bag   sha256 a373fb24539561ee6a8900c91603baeedf8b739881a7b04860ed5e363dc93a22
+corridor1-1 bag   size   11227075960 bytes
+```
+
+`corridor1-1` 下载器按固定数据集 commit 和 tar 成员边界并行 Range 续传；先校验区间摘要，再
+流式解出唯一 bag 并校验内容摘要，最后原子发布。正式入口随后只复制 `/odom`、`/scan`、
+`/tf_static` 生成 provenance-bound 轻量 bag，避免每次参数实验重复扫描 RGB/Depth 数据。
+`market1-3` 的完整对象摘要仍保留在下载器中，作为“真值排名不能替代传感器契约”的负例：
+
+```bash
+bash scripts/acceptance_test.sh openloris-long-loop-evidence
 ```
 
 ## 3. rosbag 回放 Adapter
@@ -143,14 +167,18 @@ Adapter 的关键处理：
 
 ### 回环指标
 
-先从真值定义回访事件：间隔超过阈值的位姿重新进入相同位置半径且朝向接近。再检查估计轨迹中
+先从真值定义回访事件：间隔超过阈值的位姿重新进入相同位置半径且朝向接近。方向敏感策略适合
+保守的同向重访评价；`position_only_360_lidar` 允许 180°，只用于说明 360° 激光的地点重叠，
+必须和传感器 profile 一起声明，不能与相机式同向指标直接比较。再检查估计轨迹中
 对应两帧是否也在恢复容差内。它是“真值回访恢复率”，不是 scan descriptor 的候选
 precision/recall；要评价前端候选质量，还需额外记录每个候选、匹配分数和人工真值标签。
 
-本项目进一步在 GTSAM `ScanSolver::AddConstraint` Adapter 记录前端已经接受的图边。ID 间隔小于
-阈值的局部链约束与非局部 loop 分开写入 JSONL，再用独立真值评价 accepted-edge precision、
-false-loop rate 和事件 recall。该 API 看不到 scan matcher 已拒绝的所有候选，因此报告明确限定为
-“accepted constraint 质量”，不声称完成了全候选阈值曲线。
+本项目进一步在 GTSAM `ScanSolver::AddConstraint` Adapter 记录前端已经接受的全部图边，并用
+Karto 原生 `end_closure` callback 的 scan id 选出真实闭环边。仅按 node id 间隔分类会把大量局部
+图连接误当成 loop，已不用于正式指标。边是否正确通过“测得相对位姿 vs 真值相对位姿”的 SE(2)
+残差判定（当前 0.75 m / 15°）；端点是否回到 1 m 内只用于真值事件 recall，不能替代约束正确性。
+该 API 看不到 scan matcher 已拒绝的所有候选，因此报告仍限定为“accepted constraint 质量”，
+不声称完成了全候选阈值曲线。
 
 ## 5. 使用方法
 
@@ -196,6 +224,9 @@ logs/openloris/office1-1/backend_comparison.json
 logs/openloris/office1-7/revisit_catalog.json
 logs/openloris/office1-7/gtsam_constraints.jsonl
 logs/openloris/office1-7/gtsam_loop_constraints.json
+logs/openloris/corridor1-1/gtsam_frontend.jsonl
+logs/openloris/corridor1-1/gtsam_loop_constraints.json
+logs/openloris/corridor1-1/gtsam_manifest.json
 ```
 
 `compare_openloris_backends.py` 只在样本窗和时间覆盖可比时通过，不写死 GTSAM 或 Ceres 必须获胜。
@@ -226,7 +257,7 @@ ATE 差值只有 0.105 mm，按比较器预设 1% 容差判定为平局。该短
 回访机会，`loop.recall=null`；没有人工动态遮挡标注，相关证据也为 unavailable。因此可以讲
 “真实 bag 回放与精度评价已闭环”，不能讲“已在此序列证明回环或动态遮挡优化有效”。
 
-### 5.2 `office1-7` 回访与 accepted-edge 实测
+### 5.2 `office1-7` 短时回访与 accepted-edge 实测
 
 2026-07-14 使用固定 range/bag SHA256 对 `office1-7` 完成同前端 A/B：
 
@@ -240,11 +271,10 @@ ATE 差值只有 0.105 mm，按比较器预设 1% 容差判定为平局。该短
 | glass partition 区间 ATE | 0.106098 m | 0.106386 m |
 | dynamic occlusion 区间 ATE | 0.097820 m | 0.097419 m |
 
-ATE 差值 0.077 mm，比较器仍判定平局。需要特别区分两层证据：最终估计轨迹在两次真值回访时
-都回到容差内，但 GTSAM Adapter 实际记录到的 46 条 accepted graph edges 全部为 ID 相邻边，
-非局部 accepted loop 数为 0，故 accepted-loop event recall 为 0。当前可以讲“轨迹在短路径内
-保持几何一致”，不能讲“回环前端检测成功”。下一轮应针对前端阈值/搜索半径做受控消融，并优先
-寻找时间跨度更大的跨序列回访。
+ATE 差值 0.077 mm，比较器仍判定平局。这张旧表使用最少相隔 10 秒的宽松回访定义；按正式长环路
+采用的 60 秒门槛，`office1-7` 没有真值事件，因此“两次”不能再表述为独立长回环。GTSAM Adapter
+实际记录到的 46 条 accepted graph edges 也全部为 ID 相邻边，非局部 accepted loop 数为 0。
+当前只能讲“轨迹在短路径内保持几何一致”，不能讲“回环前端检测成功”。
 
 ### 5.3 前端 accepted-edge 阈值消融
 
@@ -260,12 +290,12 @@ static TF 和 38.52 秒时间窗。六组实验固定派生 bag、GTSAM 后端�
 
 | profile | 主要变化 | 匹配位姿 | accepted 非局部边 | event recall | ATE RMSE | wall clock |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| baseline | 当前配置 | 449 | 0 | 0 | 0.099583 m | 49 s |
-| short_chain | chain 8→5 | 449 | 0 | 0 | 0.100173 m | 51 s |
-| lower_response | coarse/fine 0.30/0.40→0.20/0.30 | 449 | 0 | 0 | 0.099730 m | 51 s |
-| wider_search | neighbour 4→6 m，grid 8→10 m | 449 | 0 | 0 | 0.099804 m | 49 s |
-| permissive_combined | 上述组合 | 449 | 0 | 0 | 0.099578 m | 52 s |
-| diagnostic_extreme | chain=1，response=0.05，variance=100 | 449 | 0 | 0 | 0.099597 m | 52 s |
+| baseline | 当前配置 | 449 | 0 | 0 | 0.099840 m | 52 s |
+| short_chain | chain 8→5 | 449 | 0 | 0 | 0.099576 m | 49 s |
+| lower_response | coarse/fine 0.30/0.40→0.20/0.30 | 449 | 0 | 0 | 0.099806 m | 49 s |
+| wider_search | neighbour 4→6 m，grid 8→10 m | 449 | 0 | 0 | 0.099800 m | 49 s |
+| permissive_combined | 上述组合 | 449 | 0 | 0 | 0.099891 m | 49 s |
+| diagnostic_extreme | chain=1，response=0.05，variance=100 | 449 | 0 | 0 | 0.100133 m | 52 s |
 
 所有 profile 的约束日志都只有 46 条相邻边，最大 node ID separation 为 1。诊断性 extreme 也未
 产生非局部约束，因此不能再把问题归因于 GTSAM 求解器或单纯的 response 阈值。新增的
@@ -280,6 +310,33 @@ near-linked 排除/候选生成层。由于 Karto 候选函数是 private，候�
 语义区间来自每 3 秒抽取的 D400 RGB 联络表人工复核：18–24 秒附近标为玻璃隔断，27–30 秒可见
 移动人员穿越并近距离遮挡，因此标为动态遮挡。画面没有足够证据支持“长走廊”，配置文件显式记录
 negative evidence，未为了凑指标虚构 corridor 标签；视觉标签也不等价于逐束 LiDAR 遮挡真值。
+
+### 5.4 `corridor1-1` 长走廊与真实回访结果
+
+2026-07-14 使用固定 range/bag SHA256、2× 回放和 GTSAM 前端/后端完成 284.15 秒传感器覆盖。真值
+有效区间为 272.49 秒、路径 220.06 米，按 `position_only_360_lidar` 有 2 个至少相隔 60 秒的
+位置回访事件：
+
+| 指标 | 实测结果 |
+| --- | ---: |
+| 估计匹配 / 参考覆盖 | 3263 / 99.9743% |
+| ATE XY RMSE / P95 | 1.675949 m / 4.539156 m |
+| 1 s RPE 平移 RMSE | 0.337416 m |
+| 路径长度比 | 1.016358 |
+| 最终位置误差 | 4.445675 m |
+| 轨迹几何回访事件恢复 | 2 / 2 |
+| Karto 原生 closure callback | 8 |
+| 真值覆盖内可评价 closure | 7（1 正确、6 错误） |
+| accepted-edge precision | 14.2857% |
+| accepted-edge 长回访事件恢复 | 0 / 2 |
+
+这组结果不能包装成“回环优化成功”。它证明了更有面试价值的失败边界：最终轨迹仍能在两个事件
+中回到相近位置，但 Karto 真正接受的闭环边没有恢复正式长回访；7 条可评价 closure 中只有 1 条
+相对位姿残差通过 0.75 m / 15° 门槛。另 1 条 closure 的一端早于官方真值起点，被报告为
+`outside_reference_coverage`，不强行判断真假。长走廊后段 ATE RMSE 约 2.10 m，
+230 秒附近人工标注的行人区间约 0.97 m；两者只是时间区间统计，不能据此断言行人造成漂移。
+相同 bag/参数的一次先行回放只产生 4 次 closure，说明异步前端仍有运行间波动；当前报告记录的是
+随后通过完整正式入口生成的 8 次结果，后续应增加多次重复统计，而不是只挑最好的一次。
 
 ## 6. 面试讲法和事实边界
 
@@ -296,7 +353,7 @@ negative evidence，未为了凑指标虚构 corridor 标签；视觉标签也�
 - 把回访恢复率说成回环前端 precision/recall。
 - 在没有相同数据和阈值时，笼统宣称 GTSAM 优于 Ceres。
 
-当前仓库已经具备真实 office bag 的双后端回放、来源 manifest、人工退化区间、SLAM-only
-派生包、accepted-edge 参数消融和 Karto 候选级 instrumentation，但不随 Git 提交大型 bag/实验
-结果。下一步应扩展到更长的跨序列 lifelong/relocalization，获得能越过 near-linked 排除边界的
-真实候选；动态障碍预测则另行比较 current-only、CV、Kalman 与 IMM。
+当前仓库已经具备真实 office bag 的双后端回放、长走廊回访序列、来源 manifest、人工退化区间、
+SLAM-only 派生包、accepted-edge 参数消融和 Karto 候选级 instrumentation，但不随 Git 提交大型
+bag/实验结果。下一步应针对 `corridor1-1` 的两条错误 closure 做感知混淆抑制或鲁棒核消融，再扩展
+到跨序列 lifelong/relocalization；动态障碍预测则另行比较 current-only、CV、Kalman 与 IMM。

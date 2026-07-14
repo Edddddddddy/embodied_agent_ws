@@ -89,6 +89,10 @@ EVAL_ARGS=(
   --max-time-diff "${SLAM_MAX_TIME_DIFF_S:-0.05}"
   --rpe-delta "${SLAM_RPE_DELTA_S:-1.0}"
   --min-match-ratio "${SLAM_MIN_MATCH_RATIO:-0.80}"
+  --loop-radius "${SLAM_LOOP_RADIUS_M:-0.50}"
+  --loop-yaw-tolerance-deg "${SLAM_LOOP_YAW_TOLERANCE_DEG:-30.0}"
+  --loop-min-separation "${SLAM_LOOP_MIN_SEPARATION_S:-10.0}"
+  --loop-event-gap "${SLAM_LOOP_EVENT_GAP_S:-2.0}"
 )
 if [[ -n "${SLAM_MAX_ATE_RMSE_M:-}" ]]; then
   EVAL_ARGS+=(--max-ate-rmse "$SLAM_MAX_ATE_RMSE_M")
@@ -123,9 +127,14 @@ if [[ "$BACKEND" == "gtsam" && "${OPENLORIS_EVALUATE_LOOP_CONSTRAINTS:-false}" =
     --reference "$REFERENCE" --constraints "$CONSTRAINT_LOG" --output "$LOOP_REPORT"
     --timestamp-tolerance "${SLAM_MAX_TIME_DIFF_S:-0.05}"
     --loop-radius "${SLAM_LOOP_RADIUS_M:-0.50}"
+    --loop-yaw-tolerance-deg "${SLAM_LOOP_YAW_TOLERANCE_DEG:-30.0}"
     --loop-min-separation "${SLAM_LOOP_MIN_SEPARATION_S:-10.0}"
     --loop-event-gap "${SLAM_LOOP_EVENT_GAP_S:-2.0}"
   )
+  if [[ -s "$FRONTEND_LOG" ]]; then
+    # node-id 间隔只能近似区分局部边；用原生 Karto closure callback 选择真实闭环边。
+    LOOP_ARGS+=(--frontend-trace "$FRONTEND_LOG")
+  fi
   if [[ -n "${SLAM_MIN_LOOP_PRECISION:-}" ]]; then
     LOOP_ARGS+=(--min-precision "$SLAM_MIN_LOOP_PRECISION")
   fi

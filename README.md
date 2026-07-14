@@ -190,11 +190,14 @@ bash scripts/acceptance_test.sh slam-evaluation-stage
 固定时间间隔 RPE、路径尺度比、终点漂移、最差时间窗和真值回访事件恢复率。固定尺度是刻意设计：
 轮径或尺度误差不能靠对齐步骤被隐藏。
 
-公开数据使用 OpenLORIS office 场景的独立 OptiTrack 真值。`office1-1` 适合快速接线检查，
-但不含满足当前定义的回访；需要讲回环时应使用已经审计出 2 次独立回访事件的 `office1-7`：
+公开数据分成两类证据：office 使用独立 OptiTrack 真值，适合检查绝对精度，但现有短序列不足以
+越过 Karto near-linked 排除边界；market/corridor 使用官方离线 LiDAR-SLAM 真值，独立性较弱，
+但能提供长轨迹。真值排名最高的 `market1-3` 缺少 `/scan`，因此被 2D 传感器契约拒绝；正式目标
+改为 `corridor1-1`，它约 272.5 秒、220.1 米，按 360° LiDAR 位置回访口径有 2 次至少相隔
+60 秒的反向重访。先在约 11 MB 的真值包上筛选，再用完整 bag 话题契约过滤：
 
 ```bash
-OPENLORIS_SEQUENCE=office1-7 bash scripts/acceptance_test.sh openloris-groundtruth
+bash scripts/acceptance_test.sh openloris-sequence-ranking
 ```
 
 OpenLORIS 原始包是 ROS 1 bag。项目用可选 `rosbags` 流式读取 `/odom`、`/scan` 和
@@ -207,17 +210,21 @@ bash scripts/acceptance_test.sh openloris-replay-stage
 ```
 
 下载并解压官方 bag 后运行真实 A/B。Range 模式可按固定 tar 成员边界只取 `office1-1`
-约 1.25 GB 或 `office1-7` 约 1.43 GB；range 和解出的 bag 都必须通过固定 SHA256：
+约 1.25 GB、`office1-7` 约 1.43 GB 或 `corridor1-1` 约 11.23 GB；tar range 与解出的 bag
+都必须通过固定 SHA256：
 
 ```bash
 # 快速接线序列。
 OPENLORIS_RANGE_ONLY=true bash scripts/acceptance_test.sh openloris-rosbag-setup
 
-# 回访/accepted-loop 证据：自动准备 office1-7、审计真值事件并运行 GTSAM。
+# 短序列诊断：office1-7 的 accepted-edge 与 Karto 候选失败边界。
 bash scripts/acceptance_test.sh openloris-loop-evidence
 
 # 重型受控消融：一次性裁出 SLAM-only bag，再运行 6 组真实前端参数。
 bash scripts/acceptance_test.sh openloris-loop-sweep
+
+# 正式长回环证据：真值筛选 → 传感器契约 → 校验 corridor1-1 → GTSAM/frontend。
+bash scripts/acceptance_test.sh openloris-long-loop-evidence
 
 # 同一 office1-7 前端输入下比较 Ceres/GTSAM。
 OPENLORIS_SEQUENCE=office1-7 bash scripts/acceptance_test.sh openloris-slam-ab
@@ -227,6 +234,11 @@ bash scripts/acceptance_test.sh openloris-rosbag-setup
 bash scripts/acceptance_test.sh openloris-bag-preflight
 bash scripts/acceptance_test.sh openloris-slam-ab
 ```
+
+当前 `corridor1-1` 正式回放覆盖 272.5 秒 / 220.1 米真值轨迹：ATE RMSE 约 1.68 m，2 个位置
+回访事件在最终轨迹几何上均被恢复；但 8 次原生 Karto closure 中仅 7 次落在真值覆盖内，其中
+1 条相对位姿正确，正式长回访 accepted-edge recall 仍为 0。这是保留的真实失败边界，不宣称
+“回环已优化”；重复回放曾得到 4 次 closure，也暴露了异步前端的运行间波动。
 
 输出包含 bag 来源哈希、contract、两条 map-frame TUM 轨迹、ATE/RPE、直行/转弯退化分段、
 launch 日志、实验 manifest 和不预设胜者的后端对比。`source.json` 会区分完整 SHA256 验证与

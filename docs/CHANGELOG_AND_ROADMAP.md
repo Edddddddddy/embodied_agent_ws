@@ -72,6 +72,7 @@
 | OpenLORIS 实验可复现性 | 让大型公开数据和精度数字具备来源链 | 新增断点续传/哈希/安全解包、运动退化分段、人工标注边界和 commit/config/artifact manifest |
 | OpenLORIS 真实回访证据 | 区分“轨迹回到附近”与“前端实际接受回环” | 选择 `office1-7`，按 tar 成员 range 下载并双哈希；新增真值事件聚合、GTSAM accepted-edge 日志和 false-loop/event-recall 报告 |
 | Karto 回环前端可观测性 | 把“无 accepted loop”定位到候选、粗匹配、细匹配或约束插入阶段 | 新增 C++ 生命周期诊断节点、候选链规则复算、原生 matcher callback、JSONL 汇总和 manifest 绑定；office1-7 当前定位为 near-linked 排除 |
+| OpenLORIS 长环路序列筛选 | 避免只看真值排名或先下载十几 GB bag 才发现传感器不兼容 | 真值包支持断点续传/缓存；批量比较 22 条轨迹；`market1-3` 因完整 bag 缺少 `/scan` 被拒绝，传感器 profile 正式选择约 272.5 s / 220.1 m、含 2 次位置长回访的 `corridor1-1`；range 与 bag 固定 commit/大小/SHA256 |
 | DDS domain 上界护栏 | 避免 PID 取模生成 Fast DDS 无法映射端口的 domain | 修正连续语音/Nav2/OpenLORIS 等 6 个入口，并用仓库测试保证所有公式最大值不超过 232 |
 | 系统就绪状态收敛 | 替代 launch/test 中分散的固定 sleep、topic graph 猜测和日志字符串判断 | 新增 `ComponentHealth`、`SystemReadiness`、心跳超时聚合器和 profile 化启动门禁；保留音频/仿真数据质量探针 |
 | Agent 参数与 launch 契约收敛 | 消除 online/offline 节点、YAML、Gazebo/Nav2 launch 中重复默认值和转发映射 | 新增共享参数 schema、ROS range/enum 描述、启动前校验、只读快照与组合 launch 转发契约；provider YAML 仅保留模型配置 |
@@ -206,16 +207,22 @@ bash scripts/acceptance_test.sh continuous-live-check offline
 - 已补齐 OpenLORIS ROS 1 bag 的 ROS 2 `/clock`/TF/LaserScan 流式 Adapter、轨迹 recorder、
   Ceres/GTSAM 公平 A/B、fixture 门禁和 `office1-1` 实验报告；当前 322 个对齐位姿、
   99.65% 覆盖率，Ceres/GTSAM ATE RMSE 为 2.879/2.890 cm。
-- 已选择 `office1-7` 补齐 2 次真值回访事件、449 个对齐位姿和 accepted-edge 证据；
-  Ceres/GTSAM ATE RMSE 为 9.996/9.989 cm。最终轨迹事件恢复为 2/2，但实际非局部 accepted
-  loop 为 0，因此尚不能宣称前端回环成功。
+- `office1-7` 在旧 10 秒宽松定义下有 2 次短时回访和 449 个对齐位姿，但 46 条图边全部相邻；
+  六组参数与 C++ Karto trace 已把失败定位到 near-linked 候选排除。按正式 60 秒长回环门槛，
+  它没有真值事件，因此不能再作为长回环召回率证据。
 - 已用视觉联络表人工标注玻璃隔断与动态人员遮挡；画面不支持长走廊标签，已显式保留 negative
   evidence。
 - 已完成真实前端 accepted-edge 阈值消融：把 1.43 GB 原包裁为带来源链的约 5 MB SLAM-only
   bag，固定数据/GTSAM/评估器比较 baseline、chain、response、search、combined 和 extreme 六组。
   每组 449 个匹配位姿、49～52 秒；46 条图边始终全部相邻，说明仅放宽公开参数仍未触发非局部
-  约束。下一步应增加 karto 候选/拒绝原因 instrumentation，或扩展跨序列 lifelong/relocalization，
-  而不是继续盲调 GTSAM。
+  约束。Karto 候选/拒绝 instrumentation 已完成；真值排名第一的 `market1-3` 因原始 bag 缺少
+  `/scan` 被传感器契约拒绝，当前转向 `corridor1-1`（约 272.5 秒、220.1 米、2 次至少相隔
+  60 秒的位置回访）验证真实候选与 accepted loop。
+- `corridor1-1` 已完成 GTSAM 长序列证据：参考覆盖 99.9743%、正式运行 ATE RMSE 1.676 m；最终
+  轨迹几何恢复 2/2 个位置回访，但 8 次 Karto 原生 closure 中只有 7 次落在真值覆盖内，其中
+  1 条相对位姿残差达标，accepted-edge 长回访 recall 为 0。先行运行曾产生 4 次 closure，暴露
+  异步前端运行间波动。node-id 间隔不再作为正式 loop 分类，
+  改用原生 closure scan id 与 SE(2) 相对位姿残差。
 - 已完成动态障碍 current-only、常速度、Kalman、IMM 同场景消融：C++ 固定输入报告预测
   RMSE/遮挡/停车过冲，四轮 Gazebo/Nav2 报告验证 lethal cost、重规划、到达和最终零速。
 - 继续细分 Nav2 planner/controller/behavior tree 失败原因和恢复行为指标。

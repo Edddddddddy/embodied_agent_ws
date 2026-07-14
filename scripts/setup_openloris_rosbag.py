@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Download, verify and safely extract one OpenLORIS office rosbag."""
+"""Download, verify and safely extract one pinned OpenLORIS rosbag."""
 
 from __future__ import annotations
 
@@ -39,6 +39,15 @@ class SequenceRangeContract(NamedTuple):
     member_size: int
     range_sha256: str
     bag_sha256: str
+    archive_url: str = ARCHIVE_URL
+    archive_size: int = ARCHIVE_SIZE
+    archive_sha256: str = ARCHIVE_SHA256
+
+
+class DirectBagContract(NamedTuple):
+    url: str
+    size: int
+    sha256: str
 
 
 # 这些边界来自固定 commit 的未压缩 tar header；range 与解出的 bag 还必须分别过摘要校验。
@@ -49,6 +58,36 @@ SEQUENCE_RANGE_CONTRACTS = {
         member_size=1_428_666_703,
         range_sha256="da2abbacc4a4c200890c8128186b677d0c3b0a7de6a66a2d7095c656ff0e4b6b",
         bag_sha256="23f443c33353e4059b5d108ca099d452550954613b8af1b02e8159fb147af3ca",
+    ),
+    # corridor1-1 是当前 2D SLAM 长回环基准。只下载 tar 中目标成员所在区间，
+    # 但区间和解出的 bag 都必须匹配固定摘要，避免把 CDN 半包当成正式证据。
+    "corridor1-1": SequenceRangeContract(
+        range_start=0,
+        range_end=11_227_076_607,
+        member_size=11_227_075_960,
+        range_sha256="14aed071ea7198d47bd14ea992ce5e46dd17b128766ef77b953cc4a50d3744da",
+        bag_sha256="a373fb24539561ee6a8900c91603baeedf8b739881a7b04860ed5e363dc93a22",
+        archive_url=(
+            "https://huggingface.co/datasets/shixuesong/openloris-scene/resolve/"
+            f"{DATASET_COMMIT}/rosbag/corridor1-1_2-rosbag.tar?download=true"
+        ),
+        archive_size=16_237_660_160,
+        archive_sha256="10fce93b8b9dc9efea52c918b7c1b62fce67686e6d0d0bfdc772a2d073a92e66",
+    ),
+}
+
+
+DIRECT_BAG_CONTRACTS = {
+    # market1-3 轨迹有约 294 s / 222 m / 1 个同向长重访，但完整 bag 缺少 /scan；
+    # 保留下载契约用于 RGB-D 后续实验，不把它选入当前 slam_toolbox 2D 正式证据。
+    # URL 固定到数据集 commit；Hugging Face LFS oid 就是完整对象 SHA256。
+    "market1-3": DirectBagContract(
+        url=(
+            "https://huggingface.co/datasets/shixuesong/openloris-scene/resolve/"
+            f"{DATASET_COMMIT}/rosbag/market1-3.bag?download=true"
+        ),
+        size=13_936_979_145,
+        sha256="725d29251a261c94873e3851e3674824b57f1efa15d98d9ce3cbea54d68d35b7",
     )
 }
 
@@ -349,7 +388,7 @@ def prepare_sequence_range(
         if not download:
             raise FileNotFoundError(range_archive)
         download_range_parallel(
-            ARCHIVE_URL,
+            contract.archive_url,
             range_archive,
             expected_size=expected_range_size,
             connections=connections,
@@ -369,36 +408,49 @@ def prepare_sequence_range(
     destination = output_root / "rosbag" / sequence / f"{sequence}.bag"
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_suffix(".bag.part")
-    # 本地 range 从目标成员 header 开始；流式读取无需伪造前序成员或 tar 结束块。
-    with tarfile.open(range_archive, mode="r|") as archive:
-        member = archive.next()
-        if (
-            member is None
-            or not member.isfile()
-            or PurePosixPath(member.name).name != f"{sequence}.bag"
-            or member.size != contract.member_size
-        ):
-            raise ValueError(f"unexpected range archive member: {member}")
-        source = archive.extractfile(member)
-        if source is None:
-            raise ValueError("cannot read range rosbag member")
-        with source, temporary.open("wb") as target:
-            shutil.copyfileobj(source, target, length=8 * 1024 * 1024)
-    bag_sha256 = sha256(temporary)
-    if bag_sha256 != contract.bag_sha256:
-        raise ValueError(
-            f"bag SHA256 mismatch: expected {contract.bag_sha256}, got {bag_sha256}"
-        )
-    # 只有 tar 成员和内容摘要都满足固定契约，消费者才会看到最终 .bag。
-    os.replace(temporary, destination)
+    reusable: Path | None = destination if destination.is_file() else temporary
+    if reusable.is_file() and reusable.stat().st_size == contract.member_size:
+        bag_sha256 = sha256(reusable)
+        if bag_sha256 == contract.bag_sha256:
+            # 大型公开 bag 已经验证过时直接复用；仍会重新验证 range，保证来源契约完整。
+            if reusable == temporary:
+                os.replace(temporary, destination)
+        else:
+            reusable = None
+    else:
+        reusable = None
+
+    if reusable is None:
+        # 本地 range 从目标成员 header 开始；流式读取无需伪造前序成员或 tar 结束块。
+        with tarfile.open(range_archive, mode="r|") as archive:
+            member = archive.next()
+            if (
+                member is None
+                or not member.isfile()
+                or PurePosixPath(member.name).name != f"{sequence}.bag"
+                or member.size != contract.member_size
+            ):
+                raise ValueError(f"unexpected range archive member: {member}")
+            source = archive.extractfile(member)
+            if source is None:
+                raise ValueError("cannot read range rosbag member")
+            with source, temporary.open("wb") as target:
+                shutil.copyfileobj(source, target, length=8 * 1024 * 1024)
+        bag_sha256 = sha256(temporary)
+        if bag_sha256 != contract.bag_sha256:
+            raise ValueError(
+                f"bag SHA256 mismatch: expected {contract.bag_sha256}, got {bag_sha256}"
+            )
+        # 只有 tar 成员和内容摘要都满足固定契约，消费者才会看到最终 .bag。
+        os.replace(temporary, destination)
     metadata = {
         "dataset": "OpenLORIS-Scene",
         "sequence": sequence,
         "dataset_page": DATASET_PAGE,
         "dataset_commit": DATASET_COMMIT,
-        "archive_url": ARCHIVE_URL,
-        "archive_size_bytes": ARCHIVE_SIZE,
-        "archive_sha256": ARCHIVE_SHA256,
+        "archive_url": contract.archive_url,
+        "archive_size_bytes": contract.archive_size,
+        "archive_sha256": contract.archive_sha256,
         "archive_verification": "pinned_https_range_not_full_hash",
         "range_start": contract.range_start,
         "range_end": contract.range_end,
@@ -406,6 +458,71 @@ def prepare_sequence_range(
         "bag": str(destination.resolve()),
         "bag_size_bytes": destination.stat().st_size,
         "bag_sha256": bag_sha256,
+        "license": "CC BY-ND 4.0; consult the official dataset page",
+    }
+    (destination.parent / "source.json").write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    return destination
+
+
+def prepare_direct_bag(
+    *,
+    sequence: str,
+    contract: DirectBagContract,
+    output_root: Path,
+    download: bool = True,
+    connections: int = 12,
+) -> Path:
+    """Download one pinned standalone bag and publish it only after full verification."""
+
+    destination = output_root / "rosbag" / sequence / f"{sequence}.bag"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.is_file():
+        if destination.stat().st_size != contract.size:
+            raise ValueError(f"existing bag has an unexpected size: {destination}")
+        actual_sha256 = sha256(destination)
+        if actual_sha256 != contract.sha256:
+            raise ValueError(
+                f"existing bag SHA256 mismatch: expected {contract.sha256}, "
+                f"got {actual_sha256}"
+            )
+    else:
+        staging = output_root / "archive" / f"{sequence}.bag.download"
+        if not staging.is_file():
+            if not download:
+                raise FileNotFoundError(staging)
+            download_range_parallel(
+                contract.url,
+                staging,
+                expected_size=contract.size,
+                connections=connections,
+            )
+        if staging.stat().st_size != contract.size:
+            raise ValueError(
+                f"direct bag size mismatch: expected {contract.size}, "
+                f"got {staging.stat().st_size}"
+            )
+        actual_sha256 = sha256(staging)
+        if actual_sha256 != contract.sha256:
+            raise ValueError(
+                f"direct bag SHA256 mismatch: expected {contract.sha256}, "
+                f"got {actual_sha256}"
+            )
+        # 消费者只能看到通过完整对象摘要校验后的最终文件。
+        os.replace(staging, destination)
+
+    metadata = {
+        "dataset": "OpenLORIS-Scene",
+        "sequence": sequence,
+        "dataset_page": DATASET_PAGE,
+        "dataset_commit": DATASET_COMMIT,
+        "archive_url": contract.url,
+        "archive_verification": "full_size_and_sha256",
+        "bag": str(destination.resolve()),
+        "bag_size_bytes": destination.stat().st_size,
+        "bag_sha256": actual_sha256,
+        "source_kind": "pinned_standalone_rosbag",
         "license": "CC BY-ND 4.0; consult the official dataset page",
     }
     (destination.parent / "source.json").write_text(
@@ -480,7 +597,17 @@ def main() -> int:
     """CLI entry point."""
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--sequence", choices=OFFICE_SEQUENCES, default="office1-1")
+    parser.add_argument(
+        "--sequence",
+        choices=tuple(
+            dict.fromkeys(
+                OFFICE_SEQUENCES
+                + tuple(SEQUENCE_RANGE_CONTRACTS)
+                + tuple(DIRECT_BAG_CONTRACTS)
+            )
+        ),
+        default="office1-1",
+    )
     parser.add_argument("--output-root", type=Path, default=Path("datasets/openloris"))
     parser.add_argument("--archive", type=Path)
     parser.add_argument(
@@ -489,7 +616,7 @@ def main() -> int:
     parser.add_argument(
         "--range-only",
         action="store_true",
-        help="Download a pinned office1-1 or office1-7 tar member interval",
+        help="Download a pinned office/corridor tar member interval",
     )
     parser.add_argument(
         "--download-connections",
@@ -497,10 +624,31 @@ def main() -> int:
         default=8,
         help="Parallel HTTP ranges used by --range-only (default: 8)",
     )
+    parser.add_argument(
+        "--direct-bag",
+        action="store_true",
+        help="Download a pinned standalone bag such as market1-3",
+    )
     args = parser.parse_args()
-    if args.range_only:
-        if args.archive is not None or args.sequence not in {"office1-1", "office1-7"}:
-            parser.error("--range-only supports office1-1/office1-7 without --archive")
+    if args.direct_bag:
+        if args.range_only or args.archive is not None or args.sequence not in DIRECT_BAG_CONTRACTS:
+            parser.error(
+                "--direct-bag requires a supported standalone sequence without "
+                "--range-only/--archive"
+            )
+        bag = prepare_direct_bag(
+            sequence=args.sequence,
+            contract=DIRECT_BAG_CONTRACTS[args.sequence],
+            output_root=args.output_root,
+            download=not args.no_download,
+            connections=args.download_connections,
+        )
+    elif args.range_only:
+        range_sequences = {"office1-1", *SEQUENCE_RANGE_CONTRACTS}
+        if args.archive is not None or args.sequence not in range_sequences:
+            parser.error(
+                "--range-only requires a pinned range sequence without --archive"
+            )
         if args.sequence == "office1-1":
             bag = prepare_first_sequence_range(
                 output_root=args.output_root,

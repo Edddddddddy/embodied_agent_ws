@@ -40,13 +40,22 @@ def main() -> int:
         connections = [item for item in reader.connections if item.topic == args.topic]
         if not connections:
             raise ValueError(f"topic missing from bag: {args.topic}")
-        first_stamp_ns = None
-        next_elapsed_s = 0.0
-        for connection, timestamp_ns, raw in reader.messages(connections=connections):
-            first_stamp_ns = timestamp_ns if first_stamp_ns is None else first_stamp_ns
+        first_message = next(reader.messages(connections=connections), None)
+        if first_message is None:
+            raise ValueError("no image frames extracted")
+        first_stamp_ns = first_message[1]
+        interval_ns = round(args.interval * 1e9)
+        # rosbag 已有按时间索引；逐个 seek 到采样时刻，避免顺序读取数万张未使用的 RGB 图像。
+        # 对十几 GB 的真实 bag，这会把人工审阅帧抽取从数分钟缩短到数秒。
+        for frame_index in range(args.max_frames):
+            target_stamp_ns = first_stamp_ns + frame_index * interval_ns
+            item = next(
+                reader.messages(connections=connections, start=target_stamp_ns), None
+            )
+            if item is None:
+                break
+            connection, timestamp_ns, raw = item
             elapsed_s = (timestamp_ns - first_stamp_ns) * 1e-9
-            if elapsed_s + 1e-9 < next_elapsed_s:
-                continue
             message = reader.deserialize(raw, connection.msgtype)
             if message.encoding not in {"rgb8", "bgr8"}:
                 raise ValueError(f"unsupported image encoding: {message.encoding}")
@@ -70,9 +79,6 @@ def main() -> int:
                 }
             )
             thumbnails.append(thumbnail)
-            next_elapsed_s += args.interval
-            if len(index) >= args.max_frames:
-                break
 
     if not thumbnails:
         raise ValueError("no image frames extracted")

@@ -147,11 +147,15 @@ bash scripts/acceptance_test.sh openloris-replay-stage
 # 推荐先用约 1.25 GB 的首序列快速模式完成真实数据闭环。
 OPENLORIS_RANGE_ONLY=true bash scripts/acceptance_test.sh openloris-rosbag-setup
 
-# 回环证据使用含 2 次真值回访的 office1-7，Range 下载约 1.43 GB。
+# 短序列失败边界：office1-7 Range 下载约 1.43 GB。
 bash scripts/acceptance_test.sh openloris-loop-evidence
 
 # 本地重型实验：真实 office1-7 的 6 组 accepted-edge 前端阈值消融。
 bash scripts/acceptance_test.sh openloris-loop-sweep
+
+# 真值预筛选（小下载）与 corridor1-1 正式 2D 长回环证据（11.23 GB raw bag）。
+bash scripts/acceptance_test.sh openloris-sequence-ranking
+bash scripts/acceptance_test.sh openloris-long-loop-evidence
 
 # 发布级来源审计再下载完整约 9.27 GB 归档。
 bash scripts/acceptance_test.sh openloris-rosbag-setup
@@ -179,6 +183,12 @@ bash scripts/acceptance_test.sh openloris-slam-ab
 `gtsam_frontend_report.json`，并满足“诊断图节点数 = accepted graph edge 数 + 1”、JSONL 全部可
 解析、closure begin/end 平衡。`failure_boundary` 用于区分 candidate generation、coarse、fine、
 constraint insertion 和 accepted loop；没有 matcher callback 时不能猜成“响应阈值太高”。
+
+`openloris-long-loop-evidence` 的通过含义是证据链完整，不是保证算法性能达标：轨迹排名与
+slam_toolbox 传感器契约必须共同推荐 `corridor1-1`；range/bag 大小与 SHA256 通过；派生 bag
+绑定原包哈希；轨迹覆盖达标；按 360° LiDAR 位置口径存在 2 次至少相隔 60 秒的真值回访；
+frontend trace 与 accepted-edge 报告均可解析。event recall 允许为 0，因为“真实回环存在但前端
+未恢复”本身就是不能篡改的有效负结果。
 
 ### 动态障碍
 
@@ -326,6 +336,6 @@ CLEANUP_CONFIRM=true bash scripts/cleanup_simulation_processes.sh
 - 自动 mock、真实模型、Gazebo、真实麦克风和公开 rosbag 是五类不同证据，不能相互替代。
 - 当前真实硬件是 Adapter/mock；Gazebo PASS 不等于 UART/SPI 实机 PASS。
 - LoRA 流水线 dry-run 不等于已训练并达到准确率。
-- OpenLORIS 小 fixture 只验证接口；真实指标目前覆盖 `office1-1` 与 `office1-7`，仍不能外推到
-  其他场景。`office1-7` 当前 accepted 非局部回环为 0，不能宣称已证明前端回环能力。
+- OpenLORIS 小 fixture 只验证接口；office 短序列使用 OptiTrack，market 长序列使用官方离线
+  LiDAR-SLAM 真值，证据独立性不同。任何序列 accepted 非局部回环为 0 时都不能宣称前端成功。
 - 完整功能完成后再 push/开 PR 触发 GitHub CI，避免为文档碎片频繁运行 CI。

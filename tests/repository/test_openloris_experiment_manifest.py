@@ -195,3 +195,8 @@ def test_manifest_rejects_crashed_replay_and_wrong_backend_config(tmp_path, monk
     assert result["passed"] is False
     assert result["checks"]["backend_config_matches"] is False
     assert result["checks"]["replay_completed_cleanly"] is False
+
+
+def test_ground_truth_scope_distinguishes_mocap_from_offline_lidar_slam():
+    assert MODULE._ground_truth_scope("office1-1") == "official OptiTrack motion capture"
+    assert "not independent" in MODULE._ground_truth_scope("corridor1-1")

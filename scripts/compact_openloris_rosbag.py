@@ -135,6 +135,7 @@ def compact(
     counts = {topic: 0 for topic in SELECTED_TOPICS}
     first_timestamp_ns: int | None = None
     last_timestamp_ns: int | None = None
+    next_progress_ns: int | None = None
     output_bag.parent.mkdir(parents=True, exist_ok=True)
     try:
         with AnyReader([raw_bag], default_typestore=typestore) as reader:
@@ -152,7 +153,10 @@ def compact(
                     connection.id: writer.add_connection(
                         connection.topic,
                         connection.msgtype,
-                        typestore=typestore,
+                        # 输入和输出同为 ROS 1 bag，沿用原始定义与 MD5 后可以无损复制
+                        # serialized payload；不必为数万条 scan/odom 做反序列化再序列化。
+                        msgdef=connection.msgdef.data,
+                        md5sum=connection.digest,
                         callerid="/embodied_openloris_compactor",
                         latching=1 if connection.topic == "/tf_static" else 0,
                     )
@@ -161,13 +165,8 @@ def compact(
                 for connection, timestamp_ns, rawdata in reader.messages(
                     connections=selected
                 ):
-                    # ROS1 -> dataclass -> ROS1 会归一化旧消息定义，但测量值和 bag 时间戳不变。
-                    message = reader.deserialize(rawdata, connection.msgtype)
-                    writer.write(
-                        outputs[connection.id],
-                        timestamp_ns,
-                        typestore.serialize_ros1(message, connection.msgtype),
-                    )
+                    # payload 与时间戳逐字节保留；只有 bag 连接头和 chunk 组织会重新生成。
+                    writer.write(outputs[connection.id], timestamp_ns, rawdata)
                     counts[connection.topic] += 1
                     first_timestamp_ns = (
                         timestamp_ns
@@ -179,6 +178,17 @@ def compact(
                         if last_timestamp_ns is None
                         else max(last_timestamp_ns, timestamp_ns)
                     )
+                    if next_progress_ns is None:
+                        next_progress_ns = timestamp_ns + 30_000_000_000
+                    elif timestamp_ns >= next_progress_ns:
+                        # 原始 bag 含大量 RGB/Depth 压缩块，提取可能持续数分钟；
+                        # 用 bag 时间和消息计数证明进程仍在前进，避免用户误判为卡死。
+                        elapsed_s = (timestamp_ns - first_timestamp_ns) * 1e-9
+                        print(
+                            f"compact progress: bag_time={elapsed_s:.1f}s counts={counts}",
+                            flush=True,
+                        )
+                        next_progress_ns += 30_000_000_000
         if first_timestamp_ns is None or last_timestamp_ns is None:
             raise ValueError("no selected messages were copied")
         if any(value == 0 for value in counts.values()):

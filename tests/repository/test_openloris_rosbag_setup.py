@@ -158,6 +158,75 @@ def test_prepare_first_sequence_range_records_limited_verification(tmp_path, mon
     assert source["bag_sha256"] == hashlib.sha256(payload).hexdigest()
 
 
+def test_sequence_range_contract_records_its_own_archive_provenance(tmp_path):
+    payload = b"#ROSBAG V2.0\nscene-specific archive"
+    output_root = tmp_path / "dataset"
+    range_archive = output_root / "archive" / "office1-7.range.tar"
+    range_archive.parent.mkdir(parents=True)
+    with tarfile.open(range_archive, "w") as archive:
+        member = tarfile.TarInfo("office1-7.bag")
+        member.size = len(payload)
+        archive.addfile(member, io.BytesIO(payload))
+    contract = MODULE.SequenceRangeContract(
+        range_start=123,
+        range_end=123 + range_archive.stat().st_size - 1,
+        member_size=len(payload),
+        range_sha256=hashlib.sha256(range_archive.read_bytes()).hexdigest(),
+        bag_sha256=hashlib.sha256(payload).hexdigest(),
+        archive_url="https://example.invalid/scene.tar",
+        archive_size=999,
+        archive_sha256="a" * 64,
+    )
+
+    destination = MODULE.prepare_sequence_range(
+        sequence="office1-7",
+        contract=contract,
+        output_root=output_root,
+        download=False,
+    )
+
+    source = json.loads((destination.parent / "source.json").read_text())
+    assert source["archive_url"] == contract.archive_url
+    assert source["archive_size_bytes"] == 999
+    assert source["archive_sha256"] == "a" * 64
+
+
+def test_sequence_range_reuses_a_fully_verified_extraction(tmp_path, monkeypatch):
+    payload = b"#ROSBAG V2.0\nreusable extraction"
+    output_root = tmp_path / "dataset"
+    range_archive = output_root / "archive" / "corridor1-1.range.tar"
+    range_archive.parent.mkdir(parents=True)
+    with tarfile.open(range_archive, "w") as archive:
+        member = tarfile.TarInfo("corridor1-1.bag")
+        member.size = len(payload)
+        archive.addfile(member, io.BytesIO(payload))
+    contract = MODULE.SequenceRangeContract(
+        range_start=0,
+        range_end=range_archive.stat().st_size - 1,
+        member_size=len(payload),
+        range_sha256=hashlib.sha256(range_archive.read_bytes()).hexdigest(),
+        bag_sha256=hashlib.sha256(payload).hexdigest(),
+    )
+    partial = output_root / "rosbag" / "corridor1-1" / "corridor1-1.bag.part"
+    partial.parent.mkdir(parents=True)
+    partial.write_bytes(payload)
+
+    def fail_if_reextracted(*_args, **_kwargs):
+        raise AssertionError("verified extraction should be reused")
+
+    monkeypatch.setattr(MODULE.tarfile, "open", fail_if_reextracted)
+    destination = MODULE.prepare_sequence_range(
+        sequence="corridor1-1",
+        contract=contract,
+        output_root=output_root,
+        download=False,
+    )
+
+    assert destination.read_bytes() == payload
+    assert not partial.exists()
+    assert json.loads((destination.parent / "source.json").read_text())["bag_sha256"] == contract.bag_sha256
+
+
 def test_range_extract_does_not_publish_a_bag_before_hash_verification(
     tmp_path, monkeypatch
 ):
@@ -254,3 +323,58 @@ def test_range_part_retries_only_missing_tail_after_short_read(tmp_path, monkeyp
 
     assert destination.read_bytes() == b"abcdef"
     assert requested_ranges == ["bytes=0-5", "bytes=3-5"]
+
+
+def test_prepare_direct_bag_publishes_only_verified_object(tmp_path, monkeypatch):
+    payload = b"#ROSBAG V2.0\nstandalone fixture"
+    contract = MODULE.DirectBagContract(
+        url="https://example.invalid/market1-3.bag",
+        size=len(payload),
+        sha256=hashlib.sha256(payload).hexdigest(),
+    )
+
+    def fake_download(_url, destination, *, expected_size, **_kwargs):
+        assert expected_size == len(payload)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(payload)
+        return destination
+
+    monkeypatch.setattr(MODULE, "download_range_parallel", fake_download)
+    destination = MODULE.prepare_direct_bag(
+        sequence="market1-3",
+        contract=contract,
+        output_root=tmp_path / "dataset",
+    )
+
+    assert destination.read_bytes() == payload
+    source = json.loads((destination.parent / "source.json").read_text())
+    assert source["archive_verification"] == "full_size_and_sha256"
+    assert source["source_kind"] == "pinned_standalone_rosbag"
+    assert source["bag_sha256"] == contract.sha256
+    assert not (tmp_path / "dataset" / "archive" / "market1-3.bag.download").exists()
+
+
+def test_prepare_direct_bag_does_not_publish_hash_mismatch(tmp_path, monkeypatch):
+    payload = b"corrupt"
+    contract = MODULE.DirectBagContract(
+        url="https://example.invalid/market1-3.bag",
+        size=len(payload),
+        sha256="0" * 64,
+    )
+
+    def fake_download(_url, destination, **_kwargs):
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(payload)
+        return destination
+
+    monkeypatch.setattr(MODULE, "download_range_parallel", fake_download)
+    root = tmp_path / "dataset"
+    with pytest.raises(ValueError, match="direct bag SHA256 mismatch"):
+        MODULE.prepare_direct_bag(
+            sequence="market1-3",
+            contract=contract,
+            output_root=root,
+        )
+
+    assert not (root / "rosbag" / "market1-3" / "market1-3.bag").exists()
+    assert (root / "archive" / "market1-3.bag.download").read_bytes() == payload
