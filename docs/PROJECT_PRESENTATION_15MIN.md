@@ -179,4 +179,6 @@ benchmark，并用 `runtime-evidence-summary` 核对 `proven/failed/missing`。�
   事件，但 accepted 非局部图边为 0。C++ 前端诊断进一步显示 baseline 的 47 个图节点中 39 次
   被 near-linked 集合排除、8 次历史不足、0 次进入 coarse matcher；因此不能包装成“前端回环
   成功”或跨场景泛化证据，也不能把问题错误归因给 GTSAM 后端。
+- 扫描重叠双证据已在 `corridor1-1/1-2` 两份独立固定图上聚合：前者 ATE 改善 5.84%，后者
+  指标不变。项目因此保留门控默认关闭，展示的是可复现实验和发布判断，而不是挑选正向均值。
 - SummerTTS 已服务化，但当前 CPU 推理瓶颈仍明显，后续可做量化、缓存或更快声码器优化。

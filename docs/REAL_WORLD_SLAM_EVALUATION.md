@@ -420,6 +420,30 @@ fail-open。它是“已接受约束的后端独立复核”，不是 Karto 候�
 可提交证据见
 [`docs/evidence/gtsam_scan_overlap_ablation.md`](evidence/gtsam_scan_overlap_ablation.md)。
 
+### 5.8 第二序列与跨序列发布门禁
+
+单序列最优不能证明阈值泛化。项目从与 `corridor1-1` 相同的固定 tar 中按成员边界取得
+`corridor1-2`，分别校验 5.01 GB range 和 bag SHA256；完整 bag/派生 bag 均确认包含
+`/odom`、`/scan`、`/tf_static`。其真值轨迹为 115.99 秒、139.83 米，按同一
+`position_only_360_lidar` 口径有 2 次至少相隔 60 秒的位置回访。
+
+同参数回放得到 488 节点/491 约束固定图，基线轨迹 ATE 为 0.2523 m。前端只接受 1 条 closure，
+该边相对位姿残差满足真值门槛，但时间间隔仅 6.84 秒，因此 accepted-edge 长回访 recall 仍为 0。
+扫描证据层为唯一非局部边得到 0.8561 重叠率；在 0.65/1 m 参数下四组均不删边，固定图离线
+优化后的 ATE 都是 0.1538 m。这个零变化结果是“可运行但收益不充分”，不能包装成正向提升。
+
+```bash
+OPENLORIS_SEQUENCE=corridor1-2 bash scripts/acceptance_test.sh openloris-long-loop-evidence
+OPENLORIS_SEQUENCE=corridor1-2 bash scripts/acceptance_test.sh openloris-scan-overlap-ablation
+bash scripts/acceptance_test.sh openloris-scan-overlap-multisequence
+```
+
+聚合器要求不同 graph SHA256、相同阈值、全部扫描证据可用，并逐序列检查：ATE 必须改善、P95
+退化不超过 2%、双证据必须比 naive 少删边。`corridor1-1` 改善 5.84%，`corridor1-2` 为 0%，
+所以平均改善 2.92% 不能作为启用依据，正式决策仍是 `keep_disabled_collect_more_sequences`。
+报告见
+[`docs/evidence/gtsam_scan_overlap_multisequence.md`](evidence/gtsam_scan_overlap_multisequence.md)。
+
 ## 6. 面试讲法和事实边界
 
 可以讲：
@@ -437,7 +461,7 @@ fail-open。它是“已接受约束的后端独立复核”，不是 Karto 候�
 
 当前仓库已经具备真实 office bag 的双后端回放、长走廊回访序列、来源 manifest、人工退化区间、
 SLAM-only 派生包、accepted-edge 参数消融和 Karto 候选级 instrumentation，但不随 Git 提交大型
-bag/实验结果。鲁棒核、创新门控和扫描重叠双证据消融已经完成；重叠实验同时证明，仅靠几何相似
-无法消除长走廊感知混淆。下一步应在多序列上验证门控，再研究描述子/候选检索，而不是继续在单一
-序列调阈值。之后可扩展到跨序列 lifelong/relocalization。动态障碍预测的 current-only、CV、Kalman、
+bag/实验结果。鲁棒核、创新门控和扫描重叠双证据消融已经完成；两条独立固定图的首轮多序列门禁
+也已完成，结果支持继续关闭门控，而不是发布 0.65 为通用阈值。下一步应增加有更多非局部边的场景，
+再研究描述子/候选检索，而不是继续在 `corridor1-1` 调阈值。之后可扩展到跨序列 lifelong/relocalization。动态障碍预测的 current-only、CV、Kalman、
 IMM 同场景消融已另行完成。

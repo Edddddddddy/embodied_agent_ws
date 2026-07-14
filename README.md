@@ -203,7 +203,8 @@ bash scripts/acceptance_test.sh slam-evaluation-stage
 越过 Karto near-linked 排除边界；market/corridor 使用官方离线 LiDAR-SLAM 真值，独立性较弱，
 但能提供长轨迹。真值排名最高的 `market1-3` 缺少 `/scan`，因此被 2D 传感器契约拒绝；正式目标
 改为 `corridor1-1`，它约 272.5 秒、220.1 米，按 360° LiDAR 位置回访口径有 2 次至少相隔
-60 秒的反向重访。先在约 11 MB 的真值包上筛选，再用完整 bag 话题契约过滤：
+60 秒的反向重访；`corridor1-2` 作为独立验证序列，约 116.0 秒、139.8 米，也有 2 次位置
+回访。先在约 11 MB 的真值包上筛选，再用完整 bag 话题契约过滤：
 
 ```bash
 bash scripts/acceptance_test.sh openloris-sequence-ranking
@@ -219,7 +220,7 @@ bash scripts/acceptance_test.sh openloris-replay-stage
 ```
 
 下载并解压官方 bag 后运行真实 A/B。Range 模式可按固定 tar 成员边界只取 `office1-1`
-约 1.25 GB、`office1-7` 约 1.43 GB 或 `corridor1-1` 约 11.23 GB；tar range 与解出的 bag
+约 1.25 GB、`office1-7` 约 1.43 GB、`corridor1-1` 约 11.23 GB 或 `corridor1-2` 约 5.01 GB；tar range 与解出的 bag
 都必须通过固定 SHA256：
 
 ```bash
@@ -243,6 +244,9 @@ bash scripts/acceptance_test.sh openloris-loop-consistency-ablation
 
 # 用原始 LaserScan + 静态 TF 为已接受约束补充重叠证据，并做双证据消融。
 bash scripts/acceptance_test.sh openloris-scan-overlap-ablation
+
+# 聚合 corridor1-1/1-2 两份独立固定图，给出是否允许默认启用的发布决策。
+bash scripts/acceptance_test.sh openloris-scan-overlap-multisequence
 
 # 同一 office1-7 前端输入下比较 Ceres/GTSAM。
 OPENLORIS_SEQUENCE=office1-7 bash scripts/acceptance_test.sh openloris-slam-ab
@@ -268,7 +272,10 @@ Karto 前端 precision 提升。
 统一到 `base_link`。858 条非局部边均得到无真值重叠证据。0.65 阈值下，仅按重叠率会删除
 269 条边；“创新量 >1 m 且重叠率 <0.65”的双证据策略只额外拒绝 11 条，ATE 为 1.1521 m，
 较单独一致性门控再下降 1.64%。但重叠阈值对单一走廊序列敏感，且不能识别“几何相似但地点
-错误”的感知混淆，所以功能默认关闭，必须经过多序列验证后才能作为通用策略。
+错误”的感知混淆。`corridor1-2` 的 488 节点/491 约束固定图只有 1 条非局部边，重叠率
+0.8561，四组 ATE 都为 0.1538 m；因此它证明实现跨序列可运行，却没有提供门控收益证据。
+跨序列发布规则不会用平均值掩盖单条序列：两条图必须逐条改善 ATE、P95 不明显退化且少删边。
+当前决策为 `keep_disabled_collect_more_sequences`，功能继续默认关闭。
 
 输出包含 bag 来源哈希、contract、两条 map-frame TUM 轨迹、ATE/RPE、直行/转弯退化分段、
 launch 日志、实验 manifest 和不预设胜者的后端对比。`source.json` 会区分完整 SHA256 验证与

@@ -378,3 +378,18 @@ def test_prepare_direct_bag_does_not_publish_hash_mismatch(tmp_path, monkeypatch
 
     assert not (root / "rosbag" / "market1-3" / "market1-3.bag").exists()
     assert (root / "archive" / "market1-3.bag.download").read_bytes() == payload
+
+
+def test_corridor_second_sequence_is_a_distinct_contiguous_pinned_tar_member():
+    first = MODULE.SEQUENCE_RANGE_CONTRACTS["corridor1-1"]
+    second = MODULE.SEQUENCE_RANGE_CONTRACTS["corridor1-2"]
+
+    assert second.range_start == first.range_end + 1
+    assert second.range_end < second.archive_size
+    assert second.member_size == 5_010_577_265
+    assert second.range_sha256 == (
+        "5e273cc884dcb73543045fb8b95f3ba758063150624acd3df723a88c92d24bb3"
+    )
+    assert second.bag_sha256 == (
+        "e8a25490762e8b07537a4297cf6b228b8eee42345587cb3892776264995eb3b6"
+    )

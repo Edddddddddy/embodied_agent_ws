@@ -151,8 +151,7 @@ def render_markdown(report: dict[str, Any], graph: Path) -> str:
 > 边界：重叠率来自原始 LaserScan、时间戳关联和静态 TF，不使用真值。该门控位于
 > Karto 已接受约束与 GTSAM 后端之间，不生成候选边，也不能证明前端 precision 提升。
 > 单帧低重叠不能独立否决 chain-matching 约束，因此保留 naive 组作为反例。
-> 当前 0.65 阈值只在 corridor1-1 做过敏感性检查，门控默认关闭；多序列验证前不作为
-> 通用参数发布。
+> 单序列结果不决定发布状态；默认启用与否由独立固定图的多序列报告统一裁决。
 """
 
 

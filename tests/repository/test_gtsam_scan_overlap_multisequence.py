@@ -88,3 +88,22 @@ def test_missing_required_variant_is_rejected():
 
     with pytest.raises(ValueError, match="missing variants"):
         MODULE.build_summary([("corridor1-1", report)])
+
+
+def test_published_multisequence_evidence_keeps_gate_disabled_when_second_graph_is_inconclusive():
+    import json
+
+    evidence = json.loads(
+        (ROOT / "docs" / "evidence" / "gtsam_scan_overlap_multisequence.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    rows = {row["sequence"]: row for row in evidence["sequences"]}
+
+    assert evidence["passed"] is True
+    assert evidence["sequence_count"] == 2
+    assert rows["corridor1-1"]["dual_ate_change_vs_baseline_pct"] < 0.0
+    assert rows["corridor1-2"]["dual_ate_change_vs_baseline_pct"] == 0.0
+    assert evidence["aggregate"]["dual_improves_all_sequence_ate"] is False
+    assert evidence["release_decision"]["recommended_default_enabled"] is False
+    assert evidence["release_decision"]["status"] == "keep_disabled_collect_more_sequences"
