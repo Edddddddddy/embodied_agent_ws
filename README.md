@@ -100,11 +100,18 @@ bash scripts/acceptance_test.sh offline-voice-e2e-report
 
 版本和证据边界见 [离线运行时版本](docs/OFFLINE_RUNTIME_VERSIONS.md) 与
 [离线模型 Benchmark 与展示报告](docs/OFFLINE_BENCHMARK_REPORT.md)。LoRA → GGUF → Q8_0
-目前提供可复现 dry-run 和人工审核数据入口，尚未把训练结果宣称为已完成：
+已完成 96 条合成训练集生成、LLaMA-Factory SFT、模型合并、GGUF/Q8 量化和 43 条独立
+holdout 对照。仓库只提交配置与小型证据，不提交模型产物：
 
 ```bash
+# 快速检查流水线与本地证据
 bash scripts/acceptance_test.sh lora-q8-pipeline
+# 重新启动两套独立 llama-server，做同口径真实推理对照
+bash scripts/acceptance_test.sh lora-q8-comparison
 ```
+
+本次 LoRA 将原始动作匹配从 30.23% 提升到 53.49%，但严格标签协议总分仍为 25.58%；
+这说明动作语义有所改善，`<speech>/<action>` 协议稳定性仍需继续优化，不能宣称达到 85%。
 
 ## 快速演示
 
@@ -340,5 +347,6 @@ CONTINUOUS_SAMPLE_LOG=logs/asr_nlu_samples.jsonl \
 - Ceres/GTSAM 仿真 A/B 有可复查报告；真实场景的结论必须使用公开/自采 rosbag 和独立真值。
 - OpenLORIS 接入提供 bag contract、ROS 1→ROS 2 实时回放、Ceres/GTSAM A/B 和指标工具；
   仓库不提交大型数据集，也不宣称尚未实跑的序列精度。
-- LoRA 训练、真实多人声纹 FAR/FRR、复杂动态人群预测仍属于后续工作。
+- LoRA/Q8 对照已在合成 holdout 上完成，但真实语音分布上的模型准确率、真实多人声纹
+  FAR/FRR、复杂动态人群预测仍属于后续工作。
 - JSON 仅用于离线报告和 JSONL 数据文件；运行时跨节点控制使用 typed ROS 2 接口。

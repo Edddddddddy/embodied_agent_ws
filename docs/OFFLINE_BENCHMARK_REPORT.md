@@ -26,8 +26,9 @@ logs/offline_evidence_audit.json
 
 `offline_showcase_report.json` 还包含 `claim_evidence` 指标证据矩阵，用于把每项能力标成
 `proven`、`missing`、`not_reproduced` 或 `not_default`。汇报时优先引用这张矩阵：
-它能清楚说明 Q8 GGUF 模型资产和 deterministic parser 评估已经有证据，而 LoRA 训练、
-llama.cpp tokens/s、离线 LLM 指令遵循准确率等仍需要单独 benchmark 或训练日志支撑。
+它能清楚说明 Q8 GGUF 模型资产和 deterministic parser 评估已经有证据。LoRA 训练与
+独立对照由 `lora-q8-pipeline` / `lora-q8-comparison` 单独留证；llama.cpp tokens/s 与语音
+端到端时延仍需在当前设备重新 benchmark，不能因训练完成自动视为已复现。
 
 演示前如果要补充真实延迟和 Sherpa ASR/TTS benchmark：
 
@@ -61,6 +62,7 @@ bash scripts/acceptance_test.sh offline-voice-e2e-report
 bash scripts/benchmark_offline.sh
 bash scripts/acceptance_test.sh instruction-parser-eval
 bash scripts/acceptance_test.sh instruction-following-eval
+bash scripts/acceptance_test.sh lora-q8-comparison
 ```
 
 ## 3. 指标记录
@@ -80,17 +82,21 @@ bash scripts/acceptance_test.sh instruction-following-eval
 | 伪流式首文本→首 PCM | 记录即可 | 315.08ms | `offline-voice-e2e-report` |
 | 整轮完成 | ≤ 3500ms | 1428.57ms | `offline-voice-e2e-report` |
 | deterministic parser 动作准确率 | ≥ 95% | 当前代表集 43/43（100%） | `instruction-parser-eval` |
-| 离线 LLM 原始指令动作准确率 | ≥ 70% 起步 | 3/8，37.5%，未达标 | `instruction-following-eval` / `--run-instruction-following` |
-| fallback/安全层后动作准确率 | ≥ 85% | 8/8，100% | 同上；不能冒充模型分数 |
+| 原始 Q8 动作语义 | 记录基线 | 13/43，30.23% | `lora-q8-comparison` |
+| LoRA Q8 动作语义 | 相对基线提升 | 23/43，53.49%，提升 23.26pp | `lora-q8-comparison` |
+| LoRA Q8 严格协议 + 动作 | 记录并继续优化 | 11/43，25.58% | 同上；不能只报动作语义分数 |
+| LoRA Q8 fallback/安全层后 | ≥ 85% 起步 | 36/43，83.72%，未达目标 | 同上；不能冒充模型分数 |
 
-`instruction-following-eval` 输出两个分数：
+`instruction-following-eval` 输出四个分数：
 
-- `model_score`：只看离线 LLM 原始 `<speech>/<action>` 协议输出是否正确，适合判断模型本身是否需要 LoRA/提示词优化。
+- `action_score`：只比较模型原始 action 与期望动作，衡量动作语义。
+- `protocol_score`：要求 speech 存在且标签解析无错误，衡量输出协议完整性。
+- `model_score`：动作语义与协议都正确的严格总分。
 - `effective_score`：只看确定性 fallback 和安全层兜底后的动作序列是否正确，报告字段
   `effective_score_policy=action_only_after_fallback_and_safety`。它适合判断工程链路在演示动作域内的可用性，
   不代表模型本身已经学会了标签协议。
 
-如果 `model_score` 低但 `effective_score` 高，应如实表述为“离线 LLM 原始指令遵循仍弱，
+如果 `model_score` 低但 `effective_score` 高，应如实表述为“离线 LLM 严格协议遵循仍弱，
 当前靠轻量 NLU/fallback/ActionGuard 保证演示动作稳定”，不要把 effective score 说成模型训练后准确率。
 
 当 `model_score` 低于目标时，把失败样例导出成 LoRA 候选集：
@@ -100,7 +106,7 @@ bash scripts/acceptance_test.sh instruction-following-lora-candidates
 ```
 
 导出的 `training/robot_dialogue_lora_candidates.jsonl` 仍需人工审核；它用于准备下一轮
-LLaMA-Factory SFT/LoRA 数据，不代表训练已经完成。
+增量数据，不替代当前 96 条确定性训练集和 43 条独立 holdout 的哈希证据。
 
 ## 4. 错误样例回归
 
@@ -127,11 +133,13 @@ Nav2 目标点/巡航、附件/模式命令，以及否定、疑问和危险速�
 ```text
 本轮离线链路可以支撑工程演示：Q8 GGUF、Sherpa-ONNX、Sherpa-TTS/SummerTTS
 模型资产和运行时版本可复查，deterministic parser 在当前代表集上通过评估。
-如果已额外运行 offline-latency，则可以引用本机首 token/首音频实测值；否则不应宣称
+LoRA 训练、合并、GGUF/Q8 量化与独立 holdout 对照已经完成。动作语义由 30.23% 提升到
+53.49%，但严格标签协议总分仍为 25.58%，不能宣称达到 85%。如果已额外运行
+offline-latency，则可以引用本机首 token/首音频实测值；否则不应宣称
 这些低延迟指标已复现。如果已运行 llama-decode-benchmark 和 instruction-following-eval，
 则可以引用本机 decode tokens/s、model_score 和 effective_score；否则仍只能说已有评估入口。
-SummerTTS 已完成服务化封装，但当前不作为默认低延迟 TTS。主要不足是 LoRA 微调和训练后
-大规模指令遵循精度仍需补完整训练日志与更大评估集。
+SummerTTS 已完成服务化封装，但当前不作为默认低延迟 TTS。主要不足是标签协议稳定性、
+更大真实分布评估集和真实语音输入下的模型准确率仍未收口。
 如需展示 SummerTTS 的低延迟改进，只建议引用 `summer-tts-cache-audit` 对固定短反馈语缓存
 命中的 roundtrip 证据，不应把它扩展成整句生成或默认首音频 `<300ms`。
 ```

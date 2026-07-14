@@ -1,4 +1,4 @@
-### LLaMA-Factory SFT/LoRA configuration. Seed data only validates the pipeline.
+### LLaMA-Factory SFT/LoRA configuration for the reviewed synthetic command corpus.
 model_name_or_path: Qwen/Qwen3-0.6B
 trust_remote_code: true
 stage: sft
@@ -6,24 +6,28 @@ do_train: true
 finetuning_type: lora
 lora_target: all
 dataset_dir: training
-# 审核完成后可改为：robot_dialogue_seed,robot_dialogue_lora_approved
-# 不要直接把 robot_dialogue_lora_candidates 当作训练集，候选样例必须先人工审核。
-dataset: robot_dialogue_seed
+# 训练文本与 robot_instruction_eval.jsonl 做 exact-overlap 门禁；评估集绝不回流训练。
+dataset: robot_dialogue_train
 template: qwen3_nothink
-cutoff_len: 1024
+# 实测最长样本 437 token；512 保证答案完整并控制显存与训练时间。
+cutoff_len: 512
 max_samples: 10000
 overwrite_cache: true
 preprocessing_num_workers: 4
 output_dir: outputs/qwen3-0.6b-robot-lora
 logging_steps: 10
-save_steps: 100
+save_steps: 20
 plot_loss: true
 overwrite_output_dir: true
 per_device_train_batch_size: 2
-gradient_accumulation_steps: 8
+gradient_accumulation_steps: 4
 learning_rate: 0.0001
-num_train_epochs: 3.0
+num_train_epochs: 8.0
 lr_scheduler_type: cosine
 warmup_ratio: 0.1
 bf16: true
+gradient_checkpointing: true
+val_size: 0.1
+eval_strategy: steps
+eval_steps: 20
 ddp_timeout: 180000000

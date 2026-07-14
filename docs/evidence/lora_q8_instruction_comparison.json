@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "scenario": "baseline_vs_lora_q8_instruction_following",
+  "comparable": true,
+  "evaluation_contract": {
+    "dataset_sha256": "34ead59a58b183d26a67d28dc078e342f683fd4ba033b13b4c709e55f5156603",
+    "system_prompt_sha256": "0e4b5af787545f4d458b0a6b3d00ed682352561b584979875a5f8ab2a7154e96",
+    "temperature": 0.0,
+    "max_tokens": 192,
+    "seed": 42,
+    "total": 43
+  },
+  "baseline": {
+    "model": "Qwen3-0.6B-Q8_0.gguf",
+    "model_file_sha256": "9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031",
+    "total": 43,
+    "strict_protocol_and_action_score": 0.2558,
+    "raw_action_score": 0.3023,
+    "protocol_score": 0.6744,
+    "effective_fallback_score": 0.8372,
+    "failure_counts": {
+      "model_action_mismatch": 18,
+      "model_parse_error": 14
+    }
+  },
+  "tuned": {
+    "model": "Qwen3-0.6B-robot-Q8_0.gguf",
+    "model_file_sha256": "403225eb860073bae9cc6edd6cf1eaadc5d15bc5fec9b2783efb3e6739085cf2",
+    "total": 43,
+    "strict_protocol_and_action_score": 0.2558,
+    "raw_action_score": 0.5349,
+    "protocol_score": 0.6047,
+    "effective_fallback_score": 0.8372,
+    "failure_counts": {
+      "effective_action_mismatch": 1,
+      "model_action_mismatch": 15,
+      "model_no_speech": 14,
+      "model_parse_error": 3
+    }
+  },
+  "delta": {
+    "strict_protocol_and_action_score": 0.0,
+    "raw_action_score": 0.2326,
+    "protocol_score": -0.0697,
+    "effective_fallback_score": 0.0
+  },
+  "interpretation": "LoRA improved raw action semantics, while strict tagged-protocol and fallback scores must be reported separately. Synthetic holdout evidence is not production accuracy."
+}

@@ -717,7 +717,11 @@ sidecar 输出实际相似度。多人准确率仍需另建注册/查询数据�
 - 本地 TTS 通常不是天然流式；伪流式的关键是尽早切短句、尽早开始合成、音频按 PCM 小块发布。
 - 推理层独立预检可以快速判断问题在模型服务、ASR、TTS 还是 ROS 控制链路，避免完整 demo 失败时只能猜。
 - 离线展示最怕“工程接口接了”和“指标已复现”混在一起讲；证据审计脚本把未运行的 latency、
-  ASR/TTS benchmark、LoRA 训练指标显式标成 warning，帮助汇报时守住边界。
+  ASR/TTS benchmark 标成 warning，并用数据集、提示词、adapter、GGUF 和评估报告 SHA256
+  绑定 LoRA 证据，帮助汇报时守住边界。
+- Qwen3 thinking parser 可能造成“动作 JSON 正确但 speech 起始标签缺失”。因此评估永久拆成
+  `action_score`、`protocol_score`、严格 `model_score` 和 fallback `effective_score`，避免把模板
+  兼容问题误判为动作语义，也避免用工程兜底冒充模型能力。
 - `llama-bench` 的纯 decode 与 Agent API 长 prompt 指标必须分开：前者证明模型/CPU 上限，
   后者包含 prompt cache、历史滑窗和服务协议开销。本机同轮报告分别约为 `37.2` 与
   `28.9 tokens/s`，不能选择更高数字冒充端到端吞吐。

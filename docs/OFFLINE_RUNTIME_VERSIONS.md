@@ -64,14 +64,16 @@ bash scripts/acceptance_test.sh summer-pseudo-tts
 bash scripts/acceptance_test.sh sherpa-asr-preflight
 bash scripts/acceptance_test.sh silero-vad-runtime
 bash scripts/acceptance_test.sh lora-q8-pipeline
+bash scripts/acceptance_test.sh lora-q8-comparison
 ```
 
 ## 设计取舍
 
 - 固定第三方源码 commit，而不是永远跟随 `main`，避免“昨天能编译、今天不能编译”的演示风险。
 - `third_party/` 仍保持 `.gitignore`，避免把大型第三方源码和模型提交进本项目。
-- LoRA dry-run 通过只表示配置和命令完整；只有审计同时看到 adapter trainer state、
-  F16 GGUF 与 Q8_0 GGUF，才能标记 `training_and_artifacts_verified`。
+- LoRA dry-run 通过只表示配置和命令完整；审计还会校验训练集 manifest、adapter、合并模型、
+  F16/Q8 GGUF 和独立对照中的模型/数据/提示词哈希。全部匹配才标记
+  `training_quantization_and_holdout_verified`。
 - SummerTTS 在 Ubuntu 24.04 / GCC 13 上需要补 `<cstdint>` include；该兼容补丁在
   `scripts/setup_summer_tts_runtime.sh` 中自动执行，只作用于本地 ignored third_party 源码。
 - 当前 SummerTTS provider 使用命令行二进制封装，优点是接入快、边界清晰；缺点是每句会重新加载模型。
