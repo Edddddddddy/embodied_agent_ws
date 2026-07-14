@@ -52,4 +52,46 @@ TEST(GtsamPoseGraphOptimizer, SanitizesSingularScanMatchingCovariance)
   });
 }
 
+TEST(GtsamPoseGraphOptimizer, ParsesSupportedRobustKernels)
+{
+  EXPECT_EQ(robust_kernel_from_string("NONE"), RobustKernel::kNone);
+  EXPECT_EQ(robust_kernel_from_string("Huber"), RobustKernel::kHuber);
+  EXPECT_EQ(robust_kernel_from_string("cauchy"), RobustKernel::kCauchy);
+  EXPECT_THROW(robust_kernel_from_string("magic"), std::invalid_argument);
+}
+
+TEST(GtsamPoseGraphOptimizer, CauchyLoopOnlySuppressesAFalseLongRangeClosure)
+{
+  std::unordered_map<int, Pose2d> initial;
+  std::vector<PoseGraphConstraint> constraints;
+  for (int id = 0; id <= 10; ++id) {
+    initial[id] = {static_cast<double>(id), 0.0, 0.0};
+    if (id > 0) {
+      constraints.push_back(between(id - 1, id, 1.0));
+    }
+  }
+  auto false_loop = between(0, 10, 0.0);
+  false_loop.covariance = Eigen::Matrix3d::Identity() * 0.0001;
+  constraints.push_back(false_loop);
+
+  PoseGraphOptimizerConfig gaussian_config;
+  gaussian_config.robust_kernel = RobustKernel::kNone;
+  const auto gaussian = GtsamPoseGraphOptimizer(gaussian_config).optimize(initial, constraints);
+
+  PoseGraphOptimizerConfig cauchy_config;
+  cauchy_config.robust_kernel = RobustKernel::kCauchy;
+  cauchy_config.robust_kernel_k = 1.0;
+  cauchy_config.robustify_loop_constraints_only = true;
+  cauchy_config.loop_constraint_min_id_separation = 5U;
+  const auto cauchy = GtsamPoseGraphOptimizer(cauchy_config).optimize(initial, constraints);
+
+  const double gaussian_error = std::abs(gaussian.poses.at(10).x - 10.0);
+  const double cauchy_error = std::abs(cauchy.poses.at(10).x - 10.0);
+  EXPECT_GT(gaussian_error, 5.0);
+  EXPECT_LT(cauchy_error, 0.1);
+  EXPECT_LT(cauchy_error, gaussian_error);
+  EXPECT_EQ(cauchy.constraints_used, constraints.size());
+  EXPECT_EQ(cauchy.robustified_constraints, 1U);
+}
+
 }  // namespace embodied_slam

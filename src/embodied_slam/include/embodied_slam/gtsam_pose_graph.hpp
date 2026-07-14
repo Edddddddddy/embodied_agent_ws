@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -10,6 +11,16 @@
 
 namespace embodied_slam
 {
+
+enum class RobustKernel
+{
+  kNone,
+  kHuber,
+  kCauchy,
+};
+
+RobustKernel robust_kernel_from_string(const std::string & value);
+const char * robust_kernel_name(RobustKernel value);
 
 struct PoseGraphConstraint
 {
@@ -23,7 +34,10 @@ struct PoseGraphOptimizerConfig
 {
   std::size_t max_iterations{50U};
   double relative_error_tolerance{1e-5};
-  double huber_k{1.345};
+  RobustKernel robust_kernel{RobustKernel::kHuber};
+  double robust_kernel_k{1.345};
+  bool robustify_loop_constraints_only{false};
+  std::size_t loop_constraint_min_id_separation{20U};
   double minimum_covariance_eigenvalue{1e-8};
 };
 
@@ -33,6 +47,8 @@ struct PoseGraphResult
   double initial_error{0.0};
   double final_error{0.0};
   std::size_t iterations{0U};
+  std::size_t constraints_used{0U};
+  std::size_t robustified_constraints{0U};
 };
 
 class GtsamPoseGraphOptimizer

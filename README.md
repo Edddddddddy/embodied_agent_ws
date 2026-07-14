@@ -235,6 +235,9 @@ bash scripts/acceptance_test.sh openloris-loop-sweep
 # 正式长回环证据：真值筛选 → 传感器契约 → 校验 corridor1-1 → GTSAM/frontend。
 bash scripts/acceptance_test.sh openloris-long-loop-evidence
 
+# 不重新回放 bag：在同一份固定图上比较 Gaussian/Huber/Cauchy 后端。
+bash scripts/acceptance_test.sh openloris-robust-kernel-ablation
+
 # 同一 office1-7 前端输入下比较 Ceres/GTSAM。
 OPENLORIS_SEQUENCE=office1-7 bash scripts/acceptance_test.sh openloris-slam-ab
 
@@ -244,10 +247,11 @@ bash scripts/acceptance_test.sh openloris-bag-preflight
 bash scripts/acceptance_test.sh openloris-slam-ab
 ```
 
-当前 `corridor1-1` 正式回放覆盖 272.5 秒 / 220.1 米真值轨迹：ATE RMSE 约 1.68 m，2 个位置
-回访事件在最终轨迹几何上均被恢复；但 8 次原生 Karto closure 中仅 7 次落在真值覆盖内，其中
-1 条相对位姿正确，正式长回访 accepted-edge recall 仍为 0。这是保留的真实失败边界，不宣称
-“回环已优化”；重复回放曾得到 4 次 closure，也暴露了异步前端的运行间波动。
+`corridor1-1` 正式回放覆盖 272.5 秒 / 220.1 米真值轨迹；重复运行的 ATE 和 closure 数存在异步
+前端波动，accepted-edge 长回访 recall 仍为 0，因此不宣称“回环检测已优化”。后端消融另外导出
+1834 节点/2751 约束的固定图，四组各匹配 1828 个真值位姿：Cauchy 非局部边配置 ATE 为
+1.2236 m，相比 Gaussian 的 1.8235 m 下降 32.90%。这只证明后端对已接受离群约束更稳，不代表
+Karto 前端 precision 提升。
 
 输出包含 bag 来源哈希、contract、两条 map-frame TUM 轨迹、ATE/RPE、直行/转弯退化分段、
 launch 日志、实验 manifest 和不预设胜者的后端对比。`source.json` 会区分完整 SHA256 验证与

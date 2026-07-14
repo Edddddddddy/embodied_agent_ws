@@ -30,6 +30,8 @@ OpenLORIS ROS 1 bag (/odom + /scan + /tf_static)
 | `scripts/analyze_slam_degradation.py` | 共享同一对齐，按直行/转弯/静止及人工标注区间拆分误差 |
 | `scripts/build_openloris_experiment_manifest.py` | 绑定 bag/配置/commit/指标/日志哈希 |
 | `scripts/compare_openloris_backends.py` | 检查 A/B 输入可比性并描述指标差异 |
+| `gtsam_graph_optimize.cpp` | 在无 ROS 回放的情况下重放同一位姿图并输出 TUM 轨迹 |
+| `run_gtsam_robust_kernel_ablation.py` | 固定图 SHA256，比较 Gaussian/Huber/Cauchy 并生成报告 |
 | `tests/repository/test_slam_trajectory_evaluation.py` | 数学与异常时间轴回归测试 |
 | `tests/integration/test_rosbag_trajectory_adapter_runtime.py` | 可选 rosbags 真实读写测试 |
 
@@ -338,6 +340,35 @@ negative evidence，未为了凑指标虚构 corridor 标签；视觉标签也�
 相同 bag/参数的一次先行回放只产生 4 次 closure，说明异步前端仍有运行间波动；当前报告记录的是
 随后通过完整正式入口生成的 8 次结果，后续应增加多次重复统计，而不是只挑最好的一次。
 
+### 5.5 固定位姿图鲁棒核消融
+
+直接为每个鲁棒核重新回放 bag 并不公平：异步前端每轮接受的 closure 会变化。本项目因此让
+`GtsamScanSolver` 在不改变在线求解工作集的前提下，按 node ID 和 edge key 去重累计证据图；
+`gtsam_graph_optimize` 再读取同一份快照离线求解。比较器要求 graph SHA256、节点数、约束数和
+真值匹配位姿数完全一致，否则拒绝报告：
+
+```bash
+bash scripts/acceptance_test.sh openloris-long-loop-evidence
+bash scripts/acceptance_test.sh openloris-robust-kernel-ablation
+```
+
+2026-07-14 的固定图 SHA256 为
+`792ecb7d1871b506274423631fdf16da60b52e46aa18eaa1287cddbd4cadbc65`，包含 1834 个连续节点、
+2751 条去重约束、0 条悬空边；四组都匹配 1828 个真值位姿：
+
+| variant | 鲁棒范围 | ATE RMSE | ATE P95 | 1 s RPE RMSE | 终点误差 |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Gaussian | 无 | 1.8235 m | 4.7794 m | 0.2103 m | 5.4486 m |
+| Huber all | 全部 2751 条边 | 1.4081 m | 3.1571 m | 0.1784 m | 3.6858 m |
+| Huber non-local | 858 条非局部边 | 1.4626 m | 3.3582 m | 0.1740 m | 3.9235 m |
+| Cauchy non-local | 858 条非局部边 | **1.2236 m** | **2.3968 m** | **0.1595 m** | **2.4741 m** |
+
+Cauchy 相比 Gaussian 的 ATE 下降 32.90%，说明重尾损失能降低已接受离群边对全局解的影响。
+但 `non-local` 使用 node ID 间隔 ≥20 的后端启发式，其中不保证每条边都是 Karto 原生 closure；
+正式回环 precision 仍由 closure callback + 真值相对位姿残差计算。鲁棒核不能召回漏检回环，
+也不能把错误前端变成正确前端。可提交的小型结果见
+[`docs/evidence/gtsam_robust_kernel_ablation.md`](evidence/gtsam_robust_kernel_ablation.md)。
+
 ## 6. 面试讲法和事实边界
 
 可以讲：
@@ -355,5 +386,6 @@ negative evidence，未为了凑指标虚构 corridor 标签；视觉标签也�
 
 当前仓库已经具备真实 office bag 的双后端回放、长走廊回访序列、来源 manifest、人工退化区间、
 SLAM-only 派生包、accepted-edge 参数消融和 Karto 候选级 instrumentation，但不随 Git 提交大型
-bag/实验结果。下一步应针对 `corridor1-1` 的两条错误 closure 做感知混淆抑制或鲁棒核消融，再扩展
-到跨序列 lifelong/relocalization；动态障碍预测则另行比较 current-only、CV、Kalman 与 IMM。
+bag/实验结果。鲁棒核固定图消融已经完成；下一步应针对 `corridor1-1` 的错误 closure 做前端感知
+混淆抑制，再扩展到跨序列 lifelong/relocalization。动态障碍预测的 current-only、CV、Kalman、
+IMM 同场景消融已另行完成。
