@@ -235,7 +235,7 @@ bash scripts/acceptance_test.sh continuous-live-check offline
   阈值拒绝 23 条明显异常非局部边，Cauchy + gate ATE 为 1.1713 m。该启发式可能在大漂移时
   误拒真回环，默认关闭，且不改变前端 precision 的正式评价口径。
 - 新增 `corridor1-2` 第二序列契约与多序列扫描重叠发布门禁：固定 tar range/bag 分别做 SHA256，
-  488 节点/491 约束图仅有 1 条高重叠非局部边，四组 ATE 均为 0.1538 m。聚合后平均 ATE 改善
+  488 节点/491 约束图仅有 1 条高重叠非局部边，四组 ATE 均为 0.1484 m。聚合后平均 ATE 改善
   2.92%，但第二序列没有逐条收益，因此决策为 `keep_disabled_collect_more_sequences`；不以均值
   掩盖无效序列，也不把“跨序列能运行”写成“阈值已泛化”。
 - 已完成动态障碍 current-only、常速度、Kalman、IMM 同场景消融：C++ 固定输入报告预测
