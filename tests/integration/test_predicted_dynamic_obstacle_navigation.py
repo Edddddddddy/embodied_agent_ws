@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import time
@@ -22,6 +23,62 @@ from rclpy.action import ActionClient
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from tf2_msgs.msg import TFMessage
+
+
+ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_SCENARIO = (
+    ROOT
+    / "src"
+    / "embodied_navigation"
+    / "config"
+    / "dynamic_obstacle_crossing_scenario.json"
+)
+
+
+def sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def load_scenario(path: Path) -> tuple[dict, str]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    required = {
+        "schema_version",
+        "scenario_id",
+        "frame_id",
+        "goal",
+        "obstacle_x",
+        "prediction_horizon_s",
+        "warmup",
+        "navigation",
+        "thresholds",
+        "evidence_scope",
+    }
+    missing = required - payload.keys()
+    if missing:
+        raise ValueError(f"scenario contract missing fields: {sorted(missing)}")
+    for phase in ("warmup", "navigation"):
+        if not payload[phase].get("y_positions"):
+            raise ValueError(f"scenario {phase} needs at least one detection")
+        if float(payload[phase].get("interval_s", 0.0)) <= 0.0:
+            raise ValueError(f"scenario {phase} interval must be positive")
+    return payload, sha256_file(path)
+
+
+def map_artifact_sha256(map_yaml: Path) -> str:
+    """同时绑定 YAML 和栅格图，避免四轮实验悄悄换了同名地图。"""
+    digest = hashlib.sha256()
+    digest.update(map_yaml.read_bytes())
+    image_path: Path | None = None
+    for line in map_yaml.read_text(encoding="utf-8").splitlines():
+        key, separator, value = line.partition(":")
+        if separator and key.strip() == "image":
+            candidate = Path(value.strip().strip("'\""))
+            image_path = candidate if candidate.is_absolute() else map_yaml.parent / candidate
+            break
+    if image_path is None or not image_path.is_file():
+        raise ValueError(f"map image referenced by {map_yaml} is missing")
+    digest.update(image_path.read_bytes())
+    return digest.hexdigest()
 
 
 class DynamicNavigationProbe(Node):
@@ -179,8 +236,6 @@ def traveled_distance(positions: list[tuple[float, float]]) -> float:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--goal-x", type=float, default=2.1)
-    parser.add_argument("--goal-y", type=float, default=0.0)
     parser.add_argument("--timeout", type=float, default=160.0)
     parser.add_argument(
         "--motion-model",
@@ -190,8 +245,23 @@ def main() -> int:
     parser.add_argument(
         "--output", type=Path, default=Path("logs/dynamic_obstacle_navigation_report.json")
     )
+    parser.add_argument("--scenario", type=Path, default=DEFAULT_SCENARIO)
+    parser.add_argument("--map-file", type=Path, required=True)
+    parser.add_argument("--params-file", type=Path, required=True)
     args = parser.parse_args()
     started = time.monotonic()
+    scenario, scenario_sha256 = load_scenario(args.scenario)
+    goal_x = float(scenario["goal"]["x"])
+    goal_y = float(scenario["goal"]["y"])
+    obstacle_x = float(scenario["obstacle_x"])
+    prediction_horizon_s = float(scenario["prediction_horizon_s"])
+    thresholds = scenario["thresholds"]
+    provenance = {
+        "scenario_id": scenario["scenario_id"],
+        "scenario_sha256": scenario_sha256,
+        "map_artifact_sha256": map_artifact_sha256(args.map_file),
+        "nav2_params_sha256": sha256_file(args.params_file),
+    }
     rclpy.init()
     node = DynamicNavigationProbe()
     try:
@@ -204,39 +274,41 @@ def main() -> int:
         wait_for_bt_active(node, 45.0)
         spin_until(node, lambda: node.latest_costmap is not None, 20.0, "global costmap missing")
 
-        baseline_path = request_path(node, args.goal_x, args.goal_y)
-        baseline_clearance = path_clearance(baseline_path, 1.0, 0.0)
+        baseline_path = request_path(node, goal_x, goal_y)
+        baseline_clearance = path_clearance(baseline_path, obstacle_x, 0.0)
 
-        # 模拟一个从机器人前方横穿直线路径的行人。输入只有位置，速度由 tracker 自己估计。
-        for y in (-0.75, -0.60, -0.45, -0.30):
-            node.publish_detection(1.0, y)
-            spin_for(node, 0.32)
+        # 四种模型读取同一份带哈希的检测日程；输入只有位置，速度由 tracker 自己估计。
+        for y in scenario["warmup"]["y_positions"]:
+            node.publish_detection(obstacle_x, float(y))
+            spin_for(node, float(scenario["warmup"]["interval_s"]))
         spin_until(
             node,
             lambda: node.latest_tracks is not None
             and bool(node.latest_tracks.obstacles)
-            and node.latest_tracks.obstacles[0].confidence >= 0.6,
+            and node.latest_tracks.obstacles[0].confidence
+            >= float(thresholds["minimum_track_confidence"]),
             4.0,
             "typed dynamic track missing",
         )
         track = node.latest_tracks.obstacles[0]
-        predicted_x = track.position.x + track.velocity.x * 1.0
-        predicted_y = track.position.y + track.velocity.y * 1.0
+        predicted_x = track.position.x + track.velocity.x * prediction_horizon_s
+        predicted_y = track.position.y + track.velocity.y * prediction_horizon_s
         spin_until(
             node,
-            lambda: node.cost_at(predicted_x, predicted_y) >= 253,
+            lambda: node.cost_at(predicted_x, predicted_y)
+            >= int(thresholds["minimum_predicted_cost"]),
             4.0,
             "future predicted cell was not marked lethal",
         )
         predicted_cost = node.cost_at(predicted_x, predicted_y)
-        dynamic_path = request_path(node, args.goal_x, args.goal_y)
+        dynamic_path = request_path(node, goal_x, goal_y)
         dynamic_clearance = path_clearance(dynamic_path, predicted_x, predicted_y)
 
         nav_goal = NavigateToPose.Goal()
         nav_goal.pose.header.frame_id = "map"
         nav_goal.pose.header.stamp = node.get_clock().now().to_msg()
-        nav_goal.pose.pose.position.x = args.goal_x
-        nav_goal.pose.pose.position.y = args.goal_y
+        nav_goal.pose.pose.position.x = goal_x
+        nav_goal.pose.pose.position.y = goal_y
         nav_goal.pose.pose.orientation.w = 1.0
         goal_future = node.navigation.send_goal_async(nav_goal)
         spin_until(node, goal_future.done, 10.0, "NavigateToPose response timeout")
@@ -244,9 +316,9 @@ def main() -> int:
         if not goal_handle.accepted:
             raise RuntimeError("NavigateToPose goal rejected")
         # 再发布少量横穿位置，使导航开始阶段必须看到障碍；随后停止发布，超时清障。
-        for y in (-0.15, 0.0, 0.15, 0.30):
-            node.publish_detection(1.0, y)
-            spin_for(node, 0.28)
+        for y in scenario["navigation"]["y_positions"]:
+            node.publish_detection(obstacle_x, float(y))
+            spin_for(node, float(scenario["navigation"]["interval_s"]))
         result_future = goal_handle.get_result_async()
         spin_until(node, result_future.done, args.timeout, "dynamic navigation result timeout")
         nav_status = result_future.result().status
@@ -260,23 +332,29 @@ def main() -> int:
         )
         distance = traveled_distance(node.odom_positions)
         model_behavior_ok = (
-            abs(track.velocity.y) < 0.05
+            abs(track.velocity.y) < float(thresholds["maximum_current_only_velocity_mps"])
             if args.motion_model == "current_only"
-            else abs(track.velocity.y) >= 0.12
+            else abs(track.velocity.y) >= float(thresholds["minimum_moving_velocity_mps"])
         )
         checks = {
             "tracker_model_behavior": model_behavior_ok,
-            "future_cell_marked_lethal": predicted_cost >= 253,
-            "dynamic_plan_increased_clearance": dynamic_clearance >= baseline_clearance + 0.15,
+            "future_cell_marked_lethal": predicted_cost
+            >= int(thresholds["minimum_predicted_cost"]),
+            "dynamic_plan_increased_clearance": dynamic_clearance
+            >= baseline_clearance + float(thresholds["minimum_clearance_gain_m"]),
             "navigate_to_pose_succeeded": nav_status == GoalStatus.STATUS_SUCCEEDED,
-            "robot_moved_at_least_1m": distance >= 1.0,
+            "robot_moved_at_least_1m": distance
+            >= float(thresholds["minimum_travel_distance_m"]),
             "cmd_vel_returned_to_zero": node.last_cmd is not None
             and abs(node.last_cmd.linear.x) < 1e-3
             and abs(node.last_cmd.angular.z) < 1e-3,
         }
         report = {
+            "schema_version": 2,
             "passed": all(checks.values()),
             "motion_model": args.motion_model,
+            "provenance": provenance,
+            "scenario": scenario,
             "elapsed_s": round(time.monotonic() - started, 3),
             "checks": checks,
             "track": {
@@ -302,7 +380,14 @@ def main() -> int:
         print("PASS: track -> predict -> costmap -> replan -> control" if report["passed"] else "FAIL: dynamic obstacle gate")
         return 0 if report["passed"] else 1
     except Exception as error:  # noqa: BLE001 - 重型探针必须保存失败证据
-        report = {"passed": False, "error": str(error), "elapsed_s": round(time.monotonic() - started, 3)}
+        report = {
+            "schema_version": 2,
+            "passed": False,
+            "motion_model": args.motion_model,
+            "provenance": provenance,
+            "error": str(error),
+            "elapsed_s": round(time.monotonic() - started, 3),
+        }
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         print(json.dumps(report, ensure_ascii=False, indent=2))

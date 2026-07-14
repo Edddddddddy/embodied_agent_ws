@@ -175,7 +175,9 @@ bash scripts/acceptance_test.sh dynamic-obstacle-navigation-ablation  # 四模�
 `dynamic-obstacle-stage` 还会在完全相同的转向、停车、短遮挡输入上比较
 `current_only / constant_velocity / Kalman / IMM` 的位置、速度、0.75 s 预测和遮挡 RMSE；
 重型 `dynamic-obstacle-navigation-ablation` 则让四种模型分别跑完整 Gazebo/Nav2 横穿场景。
-两类报告分开保存，避免用跟踪器 benchmark 冒充真实导航成功。
+横穿检测由带 SHA256 的 `PoseArray` 场景契约确定，并校验地图和 Nav2 参数哈希；它验证完整
+规划控制闭环，但障碍物不是 Gazebo 物理 actor。两类报告分开保存，避免用跟踪器 benchmark
+冒充真实导航成功，也避免把合成感知输入表述成真实行人检测。
 
 ### OpenLORIS 公开数据回放
 

@@ -11,6 +11,7 @@ MAP_FILE="${SLAM_LOCALIZATION_MAP:-$WORKSPACE/logs/slam_ceres_map.yaml}"
 PARAMS_FILE="${SLAM_NAV2_PARAMS:-$WORKSPACE/logs/slam_nav2_params.yaml}"
 REPORT_FILE="${DYNAMIC_NAVIGATION_REPORT:-$WORKSPACE/logs/dynamic_obstacle_navigation_report.json}"
 MOTION_MODEL="${DYNAMIC_MOTION_MODEL:-constant_velocity}"
+SCENARIO_FILE="${DYNAMIC_NAVIGATION_SCENARIO:-$WORKSPACE/src/embodied_navigation/config/dynamic_obstacle_crossing_scenario.json}"
 if [[ ! -s "$MAP_FILE" ]]; then
   echo "Missing generated map: $MAP_FILE" >&2
   echo "Run: bash scripts/acceptance_test.sh slam-benchmark" >&2
@@ -38,6 +39,7 @@ trap cleanup EXIT
 
 if ! python3 tests/integration/test_predicted_dynamic_obstacle_navigation.py \
     --timeout "${DYNAMIC_NAVIGATION_TIMEOUT:-160}" --motion-model "$MOTION_MODEL" \
+    --scenario "$SCENARIO_FILE" --map-file "$MAP_FILE" --params-file "$PARAMS_FILE" \
     --output "$REPORT_FILE"; then
   echo "---- predicted dynamic obstacle launch log (last 240 lines) ----" >&2
   tail -n 240 "$LAUNCH_LOG" >&2

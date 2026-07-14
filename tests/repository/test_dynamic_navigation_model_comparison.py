@@ -19,10 +19,18 @@ def report(model: str, passed: bool = True) -> dict:
         "motion_model": model,
         "passed": passed,
         "checks": {
+            "tracker_model_behavior": True,
             "future_cell_marked_lethal": True,
             "dynamic_plan_increased_clearance": True,
             "navigate_to_pose_succeeded": True,
+            "robot_moved_at_least_1m": True,
             "cmd_vel_returned_to_zero": True,
+        },
+        "provenance": {
+            "scenario_id": "typed_crossing_v1",
+            "scenario_sha256": "scenario-sha",
+            "map_artifact_sha256": "map-sha",
+            "nav2_params_sha256": "params-sha",
         },
         "track": {"velocity_y_mps": 0.4},
         "prediction": {"y": 0.2},
@@ -46,3 +54,39 @@ def test_comparison_preserves_failed_navigation_evidence() -> None:
     result = MODULE.compare(reports)
     assert result["passed"] is False
     assert any("cmd_vel_returned_to_zero" in error for error in result["errors"])
+
+
+def test_comparison_rejects_different_scenario_or_map() -> None:
+    reports = [report(model) for model in MODULE.EXPECTED]
+    reports[1]["provenance"]["scenario_sha256"] = "different-scenario"
+    reports[2]["provenance"]["map_artifact_sha256"] = "different-map"
+    result = MODULE.compare(reports)
+    assert result["passed"] is False
+    assert any("scenario_sha256 differs" in error for error in result["errors"])
+    assert any("map_artifact_sha256 differs" in error for error in result["errors"])
+
+
+def test_comparison_requires_provenance_and_all_closed_loop_checks() -> None:
+    reports = [report(model) for model in MODULE.EXPECTED]
+    reports[0].pop("provenance")
+    reports[-1]["checks"].pop("robot_moved_at_least_1m")
+    result = MODULE.compare(reports)
+    assert result["passed"] is False
+    assert any("missing provenance" in error for error in result["errors"])
+    assert any("robot_moved_at_least_1m" in error for error in result["errors"])
+
+
+def test_markdown_exposes_hashes_metrics_and_evidence_boundary() -> None:
+    result = MODULE.compare([report(model) for model in MODULE.EXPECTED])
+    markdown = MODULE.render_markdown(result)
+    assert "Scenario SHA256: `scenario-sha`" in markdown
+    assert "| current_only |" in markdown
+    assert "synthetic PoseArray" in markdown
+
+
+def test_markdown_preserves_partial_failure_report() -> None:
+    reports = [report(model) for model in MODULE.EXPECTED]
+    reports[-1]["track"] = {}
+    reports[-1]["prediction"] = {}
+    markdown = MODULE.render_markdown(MODULE.compare(reports))
+    assert "| imm | n/a | n/a |" in markdown
