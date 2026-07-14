@@ -210,7 +210,8 @@ bash scripts/acceptance_test.sh continuous-live-check offline
   loop 为 0，因此尚不能宣称前端回环成功。
 - 已用视觉联络表人工标注玻璃隔断与动态人员遮挡；画面不支持长走廊标签，已显式保留 negative
   evidence。下一步做前端回环阈值消融，并扩展到更长的跨序列 lifelong/relocalization 实验。
-- 对动态障碍 current-only、常速度、Kalman/IMM 预测做相同场景消融。
+- 已完成动态障碍 current-only、常速度、Kalman、IMM 同场景消融：C++ 固定输入报告预测
+  RMSE/遮挡/停车过冲，四轮 Gazebo/Nav2 报告验证 lethal cost、重规划、到达和最终零速。
 - 继续细分 Nav2 planner/controller/behavior tree 失败原因和恢复行为指标。
 
 ### P3：可选增强

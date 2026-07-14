@@ -173,10 +173,17 @@ bash scripts/acceptance_test.sh openloris-slam-ab
 ```bash
 bash scripts/acceptance_test.sh dynamic-obstacle-stage
 bash scripts/acceptance_test.sh dynamic-obstacle-navigation
+bash scripts/acceptance_test.sh dynamic-obstacle-navigation-ablation
 ```
 
 判定：tracker 输出稳定 ID/速度；未来位置在 costmap 成为 lethal cost；路径净空提升；track TTL
 清除后机器人能继续规划并最终停车。
+
+`dynamic-obstacle-stage` 自动生成 `logs/dynamic_obstacle_model_ablation.json/.md`，要求四种模型
+使用相同 91 帧输入、没有轨迹丢失，并验证 CV 相对 current-only 的预测收益、IMM 在该固定机动
+场景中的预测/遮挡误差和停车过冲。`dynamic-obstacle-navigation-ablation` 是本地重型证据：四轮
+分别重新启动 Gazebo/Nav2，全部要求 future cell lethal、路径净空提升、导航成功和最终零速。
+它依赖 `slam-benchmark` 生成的地图，不进入 GitHub CI。
 
 ## 5. 真实麦克风连续验收
 

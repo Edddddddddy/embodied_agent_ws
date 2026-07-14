@@ -16,6 +16,7 @@ def generate_launch_description():
     default_world = os.path.join(simulation_share, "worlds", "slam_loop_demo.sdf.xacro")
     default_params = os.path.join(nav2_share, "params", "nav2_params.yaml")
     tracker_params = os.path.join(navigation_share, "config", "navigation_overrides.yaml")
+    motion_model = LaunchConfiguration("motion_model")
 
     # 跟踪器独立于 costmap 插件运行：感知输入可以替换，Nav2 只消费稳定的 typed tracks。
     dynamic_obstacle_tracker = Node(
@@ -23,7 +24,7 @@ def generate_launch_description():
         executable="dynamic_obstacle_tracker_node",
         name="dynamic_obstacle_tracker",
         output="screen",
-        parameters=[tracker_params, {"use_sim_time": True}],
+        parameters=[tracker_params, {"use_sim_time": True, "motion_model": motion_model}],
     )
 
     nav2 = IncludeLaunchDescription(
@@ -53,6 +54,7 @@ def generate_launch_description():
             DeclareLaunchArgument("x_pose", default_value="-1.40"),
             DeclareLaunchArgument("y_pose", default_value="-1.30"),
             DeclareLaunchArgument("yaw", default_value="0.0"),
+            DeclareLaunchArgument("motion_model", default_value="constant_velocity"),
             dynamic_obstacle_tracker,
             nav2,
         ]

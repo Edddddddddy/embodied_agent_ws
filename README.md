@@ -165,11 +165,17 @@ bash scripts/acceptance_test.sh slam-ab-benchmark      # 相同输入后端 A/B
 bash scripts/acceptance_test.sh slam-navigation        # 保存地图 → AMCL → Nav2
 bash scripts/acceptance_test.sh dynamic-obstacle-stage
 bash scripts/acceptance_test.sh dynamic-obstacle-navigation
+bash scripts/acceptance_test.sh dynamic-obstacle-navigation-ablation  # 四模型重型 A/B
 ```
 
 阶段证据包括 5 cm 地图、原始/校正 ATE、闭环误差、`map→odom`、Nav2 result、动态障碍速度、
 预测 cost、路径净空和最终 `/cmd_vel=0`。原理与实测表见
 [SLAM 与导航工程笔记](docs/SLAM_NAVIGATION_ENGINEERING.md)。
+
+`dynamic-obstacle-stage` 还会在完全相同的转向、停车、短遮挡输入上比较
+`current_only / constant_velocity / Kalman / IMM` 的位置、速度、0.75 s 预测和遮挡 RMSE；
+重型 `dynamic-obstacle-navigation-ablation` 则让四种模型分别跑完整 Gazebo/Nav2 横穿场景。
+两类报告分开保存，避免用跟踪器 benchmark 冒充真实导航成功。
 
 ### OpenLORIS 公开数据回放
 

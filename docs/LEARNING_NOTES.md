@@ -977,7 +977,33 @@ ATE 较低或回访恢复率较高，并不证明前端真正检测并接受了�
 文案影响；结构化 JSONL 图边可与真值重放关联。当前 Adapter 只能看到已接受边，看不到全部被拒绝
 候选，因此不能画完整阈值 PR 曲线，这一事实边界必须保留。
 
-## 15. 面试讲法建议
+## 15. 动态障碍运动模型与同场景消融
+
+关键代码：
+
+- `src/embodied_navigation/include/embodied_navigation/dynamic_obstacle_tracker.hpp`
+- `src/embodied_navigation/src/dynamic_obstacle_tracker.cpp`
+- `src/embodied_navigation/src/dynamic_obstacle_model_benchmark.cpp`
+- `src/embodied_navigation/src/predicted_obstacle_layer.cpp`
+- `scripts/verify_dynamic_obstacle_ablation.py`
+- `tests/integration/test_predicted_dynamic_obstacle_navigation.py`
+
+设计方式：ROS 节点只把 `PoseArray` 转成观测并调用 `DynamicObstacleTracker::update()`，运动模型、
+协方差和 IMM 模型概率全部藏在 PImpl 中。关联时使用模型预测位置而不是最后一次原始观测，短时
+漏检继续发布预测，但 `last_seen` 不前移，TTL 到期仍会删除轨迹。输出继续使用原有 typed
+`DynamicObstacleArray`，所以 costmap plugin 和 Nav2 不需要知道选择了哪种滤波器。
+
+为什么这样设计：消融实验必须只替换一个变量。如果为每种算法复制 ROS 节点、topic 或 launch，
+差异会混入 QoS、时间戳和调度噪声；统一 seam 让四种 Adapter 接收相同观测，并让同一个
+`PredictedObstacleLayer` 消费结果。tracker-level 报告负责比较 RMSE，Gazebo/Nav2 报告负责证明
+lethal cost、重规划、到达和最终零速，两层证据互不替代。
+
+方案区别：current-only 没有运动先验；平滑 CV 低成本但无法表达模式切换；单一 Kalman 假设固定
+过程模型；IMM 通过 Markov 转移概率、状态/协方差交互和观测似然在低运动与机动模型之间切换。
+当前 IMM 在长序列综合误差最低，但短序列启动偏保守，说明选择模型还要考虑观测窗口和业务风险，
+不能只看一个总 RMSE。
+
+## 16. 面试讲法建议
 
 可以用这条主线介绍项目：
 
