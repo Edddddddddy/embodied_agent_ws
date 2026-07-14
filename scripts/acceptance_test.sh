@@ -75,6 +75,7 @@ Automated modes:
   openloris-slam-gtsam Replay a real OpenLORIS bag through the GTSAM backend
   openloris-slam-ab    Run both backends on one bag and compare their reports
   openloris-loop-evidence Audit office1-7 revisits and run accepted-loop evaluation
+  openloris-loop-sweep Build a lossless topic subset and sweep loop-front-end thresholds
   openloris-evaluate  Evaluate SLAM_ESTIMATE_FILE against an OpenLORIS sequence
   dynamic-obstacle-stage Build/test tracker, motion predictor, and Nav2 costmap plugin seam
   dynamic-obstacle-ablation Compare current-only/CV/Kalman/IMM on one fixed C++ scenario
@@ -531,6 +532,10 @@ case "$LEVEL" in
       OPENLORIS_BAG="$OPENLORIS_BAG" OPENLORIS_EVALUATE_LOOP_CONSTRAINTS=true \
       OPENLORIS_ANNOTATIONS="$OPENLORIS_ANNOTATIONS" \
       bash scripts/run_openloris_slam_replay.sh gtsam
+    ;;
+  openloris-loop-sweep)
+    colcon build --packages-up-to embodied_slam embodied_slam_tools --symlink-install
+    bash scripts/run_openloris_loop_sweep.sh
     ;;
   openloris-evaluate)
     if [[ -z "${SLAM_ESTIMATE_FILE:-}" ]]; then

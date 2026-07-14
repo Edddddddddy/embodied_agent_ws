@@ -958,6 +958,10 @@ sidecar 输出实际相似度。多人准确率仍需另建注册/查询数据�
 - `scripts/evaluate_loop_constraints.py`
 - `scripts/analyze_slam_degradation.py`
 - `scripts/compare_openloris_backends.py`
+- `scripts/compact_openloris_rosbag.py`
+- `scripts/build_openloris_loop_sweep_configs.py`
+- `scripts/compare_openloris_loop_sweep.py`
+- `src/embodied_slam/config/openloris_loop_sweep.json`
 - `src/embodied_slam/config/openloris_office1_7_annotations.json`
 
 设计方式：先用独立 OptiTrack 真值定义“相隔足够久后再次进入同一位置/朝向容差”的回访采样点，
@@ -976,6 +980,17 @@ ATE 较低或回访恢复率较高，并不证明前端真正检测并接受了�
 方案对比：只报告 ATE/RPE 能评价最终轨迹，但解释不了回环前端行为；解析 INFO 日志容易受版本和
 文案影响；结构化 JSONL 图边可与真值重放关联。当前 Adapter 只能看到已接受边，看不到全部被拒绝
 候选，因此不能画完整阈值 PR 曲线，这一事实边界必须保留。
+
+为了让真实阈值消融可重复，项目没有复制 1.43 GB 原包做六份实验，而是流式生成只含三个 SLAM
+契约 topic 的约 5 MB ROS 1 bag。派生 `source.json` 同时保存原包/派生包 SHA256、消息数和时间窗，
+实验 manifest 再绑定参数文件哈希。runner 默认只复用“bag 哈希和配置哈希都一致”的已完成结果，
+避免断点续跑时混入旧参数。
+
+实测 baseline、短 chain、低 response、宽 search、组合放宽和 extreme 诊断配置都得到 449 个
+匹配位姿，ATE 约 9.96～10.02 cm；每组 46 条 accepted edge 全是相邻边。即使 extreme 把 chain
+降到 1、响应阈值降到 0.05，也没有非局部边。这说明继续优化 GTSAM 的鲁棒核不会提升回环召回，
+因为非局部约束尚未进入后端。下一步应在 karto `FindPossibleLoopClosure/TryCloseLoop` 处记录
+候选 chain、coarse/fine response、variance 和拒绝原因，才能做完整候选级 PR/失败归因。
 
 ## 15. 动态障碍运动模型与同场景消融
 

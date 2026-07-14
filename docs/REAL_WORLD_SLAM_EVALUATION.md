@@ -246,6 +246,34 @@ ATE 差值 0.077 mm，比较器仍判定平局。需要特别区分两层证据�
 保持几何一致”，不能讲“回环前端检测成功”。下一轮应针对前端阈值/搜索半径做受控消融，并优先
 寻找时间跨度更大的跨序列回访。
 
+### 5.3 前端 accepted-edge 阈值消融
+
+运行：
+
+```bash
+bash scripts/acceptance_test.sh openloris-loop-sweep
+```
+
+runner 先从固定 SHA256 的 1.43 GB 原包流式复制 `/odom`、`/scan`、`/tf_static`，得到约 5 MB
+SLAM-only ROS 1 bag；派生 `source.json` 绑定原包/派生包哈希、760 条 odom、1524 帧 scan、1 条
+static TF 和 38.52 秒时间窗。六组实验固定派生 bag、GTSAM 后端和评估器，只改变声明过的前端参数：
+
+| profile | 主要变化 | 匹配位姿 | accepted 非局部边 | event recall | ATE RMSE | wall clock |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| baseline | 当前配置 | 449 | 0 | 0 | 0.099583 m | 49 s |
+| short_chain | chain 8→5 | 449 | 0 | 0 | 0.100173 m | 51 s |
+| lower_response | coarse/fine 0.30/0.40→0.20/0.30 | 449 | 0 | 0 | 0.099730 m | 51 s |
+| wider_search | neighbour 4→6 m，grid 8→10 m | 449 | 0 | 0 | 0.099804 m | 49 s |
+| permissive_combined | 上述组合 | 449 | 0 | 0 | 0.099578 m | 52 s |
+| diagnostic_extreme | chain=1，response=0.05，variance=100 | 449 | 0 | 0 | 0.099597 m | 52 s |
+
+所有 profile 的约束日志都只有 46 条相邻边，最大 node ID separation 为 1。诊断性 extreme 也未
+产生非局部约束，因此不能再把问题归因于 GTSAM 求解器或单纯的 response 阈值。更准确的结论是：
+当前公开 `ScanSolver` seam 看不到 rejected candidate，失败边界位于 karto 候选 chain 生成或几何
+验证层。后续需要在 `FindPossibleLoopClosure/TryCloseLoop` 处增加结构化 instrumentation，才能
+记录 coarse/fine response、variance、拒绝原因并画候选级 PR 曲线。extreme 只用于定位边界，绝不
+自动替换生产配置。
+
 语义区间来自每 3 秒抽取的 D400 RGB 联络表人工复核：18–24 秒附近标为玻璃隔断，27–30 秒可见
 移动人员穿越并近距离遮挡，因此标为动态遮挡。画面没有足够证据支持“长走廊”，配置文件显式记录
 negative evidence，未为了凑指标虚构 corridor 标签；视觉标签也不等价于逐束 LiDAR 遮挡真值。
@@ -265,6 +293,7 @@ negative evidence，未为了凑指标虚构 corridor 标签；视觉标签也�
 - 把回访恢复率说成回环前端 precision/recall。
 - 在没有相同数据和阈值时，笼统宣称 GTSAM 优于 Ceres。
 
-当前仓库已经具备真实 office bag 的双后端回放、来源 manifest、人工退化区间和 accepted-edge
-报告入口，但不随 Git 提交大型原始 bag。下一步应做回环前端阈值消融，并扩展到更长的跨序列
-lifelong/relocalization；动态障碍预测则另行比较 current-only、CV、Kalman 与 IMM。
+当前仓库已经具备真实 office bag 的双后端回放、来源 manifest、人工退化区间、SLAM-only
+派生包和 accepted-edge 参数消融入口，但不随 Git 提交大型 bag/实验结果。下一步应增加 karto
+候选级 instrumentation，并扩展到更长的跨序列 lifelong/relocalization；动态障碍预测则另行
+比较 current-only、CV、Kalman 与 IMM。

@@ -216,6 +216,9 @@ OPENLORIS_RANGE_ONLY=true bash scripts/acceptance_test.sh openloris-rosbag-setup
 # 回访/accepted-loop 证据：自动准备 office1-7、审计真值事件并运行 GTSAM。
 bash scripts/acceptance_test.sh openloris-loop-evidence
 
+# 重型受控消融：一次性裁出 SLAM-only bag，再运行 6 组真实前端参数。
+bash scripts/acceptance_test.sh openloris-loop-sweep
+
 # 同一 office1-7 前端输入下比较 Ceres/GTSAM。
 OPENLORIS_SEQUENCE=office1-7 bash scripts/acceptance_test.sh openloris-slam-ab
 
@@ -236,6 +239,13 @@ HTTPS Range 快速验证；动态遮挡只有提供人工复核时间区间才
 两条最终轨迹都保持了事件级几何闭合，但 GTSAM 约束日志中的 46 条边全部是相邻边，非局部
 accepted loop 为 0。也就是说当前结果证明了“真实回访和轨迹恢复评价链路”，尚未证明前端成功
 接受回环；这种区分避免用较低的最终 ATE 冒充回环 precision/recall。
+
+`openloris-loop-sweep` 将 1.43 GB 原始 bag 无损裁为约 5 MB 的 `/odom + /scan + /tf_static`
+子集，并在 `source.json` 中绑定原包 SHA256、消息数和时间范围。基线、短 chain、低响应阈值、
+宽搜索、组合放宽以及诊断性极宽配置均得到 449 个匹配位姿；每轮 49～52 秒，但 46 条 accepted
+graph edge 始终全是 ID 相邻边，非局部边和事件召回仍为 0。这个结果把故障边界定位在
+slam_toolbox 回环候选生成/几何验证之前，而不是 GTSAM 后端；极宽配置只用于诊断，不会自动成为
+生产参数。大型 bag 和 sweep 结果位于 `datasets/`、`logs/`，不提交 Git，也不进入 CI。
 
 ## 测试与验收
 

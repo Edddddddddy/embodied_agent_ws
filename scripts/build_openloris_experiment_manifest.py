@@ -49,6 +49,7 @@ def build_manifest(
     degradation_path: Path,
     launch_log_path: Path,
     replay_rate: float,
+    wall_clock_s: float | None = None,
     constraint_log_path: Path | None = None,
     loop_report_path: Path | None = None,
     annotations_path: Path | None = None,
@@ -103,6 +104,7 @@ def build_manifest(
     )
     source_bag = Path(str(source.get("bag", "")))
     source_verification = source.get("archive_verification")
+    derived = source.get("derived")
     source_bag_sha256 = str(source.get("bag_sha256", ""))
     checks = {
         "bag_contract_passed": bool(contract.get("passed")),
@@ -128,14 +130,30 @@ def build_manifest(
     }
     if loop_report is not None:
         checks["loop_constraint_report_passed"] = bool(loop_report.get("passed"))
+    if derived is not None:
+        if not isinstance(derived, dict):
+            raise ValueError("derived provenance must be an object")
+        counts = derived.get("message_counts", {})
+        checks["derived_topic_subset_bound"] = (
+            derived.get("kind") == "lossless_topic_subset"
+            and derived.get("selected_topics") == ["/odom", "/scan", "/tf_static"]
+            and isinstance(counts, dict)
+            and all(
+                int(counts.get(topic, 0)) > 0
+                for topic in ("/odom", "/scan", "/tf_static")
+            )
+            and len(str(derived.get("source_bag_sha256", ""))) == 64
+            and len(str(derived.get("tool_sha256", ""))) == 64
+        )
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "passed": all(checks.values()),
         "checks": checks,
         "evidence_scope": {
             "dataset": "real_public_rosbag",
             "ground_truth": "office OptiTrack",
             "fixture": False,
+            "lossless_topic_subset": derived is not None,
             "claim_boundary": (
                 "metrics apply only to this sequence, bag hash, commit and parameter file"
             ),
@@ -148,6 +166,7 @@ def build_manifest(
             "bag_sha256": source["bag_sha256"],
             "bag_size_bytes": source["bag_size_bytes"],
             "dataset_commit": source.get("dataset_commit"),
+            "derived_from": derived,
         },
         "software": {
             "git_commit": _git(workspace, "rev-parse", "HEAD"),
@@ -158,6 +177,7 @@ def build_manifest(
             "backend": backend,
             "solver_plugin": expected_solver,
             "replay_rate": replay_rate,
+            "replay_wall_clock_s": wall_clock_s,
             "params": _artifact(params_path),
             "evaluation": report["methodology"],
             "accepted_loop_constraint_evaluation": loop_report is not None,
@@ -218,6 +238,7 @@ def main() -> int:
     parser.add_argument("--degradation", type=Path, required=True)
     parser.add_argument("--launch-log", type=Path, required=True)
     parser.add_argument("--replay-rate", type=float, required=True)
+    parser.add_argument("--wall-clock-s", type=float)
     parser.add_argument("--constraint-log", type=Path)
     parser.add_argument("--loop-report", type=Path)
     parser.add_argument("--annotations", type=Path)
@@ -236,6 +257,7 @@ def main() -> int:
         degradation_path=args.degradation,
         launch_log_path=args.launch_log,
         replay_rate=args.replay_rate,
+        wall_clock_s=args.wall_clock_s,
         constraint_log_path=args.constraint_log,
         loop_report_path=args.loop_report,
         annotations_path=args.annotations,

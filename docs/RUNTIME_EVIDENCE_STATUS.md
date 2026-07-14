@@ -14,7 +14,7 @@
 | fallback + safety 系统有效率 | 同一批样例 8/8，100% | **已测**，只能描述系统兜底效果，不能替代模型原始分数 |
 | 离线 fixture E2E | endpoint 到首音频 707.533 ms，turn complete 1428.566 ms，LLM 首 token 120.607 ms | **已测且 <3.5 s**，但它是测试音频/fixture，不是 5 分钟真人长稳证据 |
 | 离线组件性能 | warm LLM P95 544.79 ms、解码中位数 30.52 tokens/s、Sherpa-TTS 178.94 ms | **已测**，属于组件 benchmark |
-| OpenLORIS SLAM | office1-7：449 对齐位姿、99.753% 覆盖，Ceres/GTSAM ATE 9.996/9.989 cm；2 次真值回访，accepted 非局部边 0 | **已测**，已区分轨迹几何恢复与前端 accepted-loop，当前不能宣称回环检测成功 |
+| OpenLORIS SLAM | office1-7：449 对齐位姿、99.753% 覆盖，Ceres/GTSAM ATE 约 10 cm；6 组前端阈值均为 46 条相邻边、accepted 非局部边 0 | **已测**，已补来源绑定的 5 MB SLAM-only bag 和阈值消融；当前不能宣称回环检测成功 |
 
 > 5 分钟报告通过不代表截断问题消失；现场观察到的尾部丢失和 P95 长尾继续作为已知问题保留。
 
