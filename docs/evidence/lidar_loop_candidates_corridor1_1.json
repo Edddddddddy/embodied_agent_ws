@@ -1,0 +1,173 @@
+{
+  "schema_version": 1,
+  "passed": true,
+  "checks": {
+    "corpus_metadata_passed": true,
+    "candidate_rows_match_corpus": true,
+    "minimum_95pct_query_time_coverage": true,
+    "minimum_100_associated_queries": true,
+    "has_long_revisit_queries": true,
+    "has_ground_truth_events": true
+  },
+  "quality_checks": {
+    "recall_at_max_k_nonzero": true,
+    "at_least_one_event_recovered": true
+  },
+  "sequence": "corridor1-1",
+  "source": {
+    "groundtruth_sha256": "8bac84df6e0ec2ab1d08f0e3d5c47b1da067911ee9a814471b96ef13637a8e2d",
+    "corpus_sha256": "054a00a1ca451cce79c12b3dd81220d12f054bd4a3b4b6b6fb77bd088a5b505f",
+    "graph_sha256": "792ecb7d1871b506274423631fdf16da60b52e46aa18eaa1287cddbd4cadbc65",
+    "bag_sha256": "54ab373b4d340021ec11c2f817058458b01e6f2cdab840b515556a3640303d84"
+  },
+  "association": {
+    "candidate_rows": 542,
+    "associated_queries": 520,
+    "query_time_coverage_ratio": 0.95941,
+    "unassociated_query_ids": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21
+    ]
+  },
+  "ground_truth": {
+    "eligible_long_revisit_queries": 191,
+    "event_count": 2,
+    "minimum_temporal_separation_s": 60.0,
+    "revisit_radius_m": 1.0,
+    "heading_policy": "position_only_360_lidar"
+  },
+  "retrieval": {
+    "ring_key_retrieval": {
+      "top_k_metrics": {
+        "at_1": {
+          "query_recall": 0.068063,
+          "candidate_precision": 0.032828,
+          "hit_queries": 13,
+          "true_pairs": 13,
+          "scored_pairs": 396,
+          "unscored_outside_groundtruth_pairs": 31
+        },
+        "at_5": {
+          "query_recall": 0.193717,
+          "candidate_precision": 0.029488,
+          "hit_queries": 37,
+          "true_pairs": 57,
+          "scored_pairs": 1933,
+          "unscored_outside_groundtruth_pairs": 192
+        },
+        "at_10": {
+          "query_recall": 0.335079,
+          "candidate_precision": 0.027903,
+          "hit_queries": 64,
+          "true_pairs": 105,
+          "scored_pairs": 3763,
+          "unscored_outside_groundtruth_pairs": 462
+        }
+      },
+      "mean_reciprocal_rank": 0.125075,
+      "positive_score": {
+        "count": 105,
+        "mean": -0.217447,
+        "median": -0.213926,
+        "p95": -0.099278
+      },
+      "negative_score": {
+        "count": 3658,
+        "mean": -0.212415,
+        "median": -0.155941,
+        "p95": -0.074792
+      }
+    },
+    "similarity_rerank_ablation": {
+      "top_k_metrics": {
+        "at_1": {
+          "query_recall": 0.036649,
+          "candidate_precision": 0.017812,
+          "hit_queries": 7,
+          "true_pairs": 7,
+          "scored_pairs": 393,
+          "unscored_outside_groundtruth_pairs": 34
+        },
+        "at_5": {
+          "query_recall": 0.183246,
+          "candidate_precision": 0.026954,
+          "hit_queries": 35,
+          "true_pairs": 50,
+          "scored_pairs": 1855,
+          "unscored_outside_groundtruth_pairs": 270
+        },
+        "at_10": {
+          "query_recall": 0.240838,
+          "candidate_precision": 0.023996,
+          "hit_queries": 46,
+          "true_pairs": 86,
+          "scored_pairs": 3584,
+          "unscored_outside_groundtruth_pairs": 641
+        }
+      },
+      "mean_reciprocal_rank": 0.092957,
+      "positive_score": {
+        "count": 86,
+        "mean": 0.724446,
+        "median": 0.70744,
+        "p95": 0.923285
+      },
+      "negative_score": {
+        "count": 3498,
+        "mean": 0.702713,
+        "median": 0.766009,
+        "p95": 0.912526
+      }
+    },
+    "comparison_at_max_k": {
+      "ring_key_recall_delta_vs_similarity_rerank": 0.094241,
+      "ring_key_precision_delta_vs_similarity_rerank": 0.003908
+    }
+  },
+  "event_recovery": {
+    "recovered_events_at_max_k": 2,
+    "event_recall_at_max_k": 1.0,
+    "events": [
+      {
+        "event_id": 1,
+        "start_stamp_s": 1560000184.774759,
+        "end_stamp_s": 1560000211.391596,
+        "candidate_query_count": 54,
+        "recovered_at_max_k": true
+      },
+      {
+        "event_id": 2,
+        "start_stamp_s": 1560000214.463414,
+        "end_stamp_s": 1560000286.170971,
+        "candidate_query_count": 141,
+        "recovered_at_max_k": true
+      }
+    ]
+  },
+  "methodology": {
+    "runtime_input": "raw LaserScan polar occupancy descriptor + timestamp only",
+    "offline_label": "official trajectory position within radius after temporal exclusion",
+    "candidate_stage": "yaw-invariant ring-key Top-K retrieval; circular-shift descriptor alignment provides similarity and yaw initialization without overriding retrieval order",
+    "boundary": "This evaluates candidate retrieval before scan matching. Ground truth never enters the C++ index, and a retrieved candidate is not an accepted graph edge."
+  }
+}

@@ -364,3 +364,14 @@ CLEANUP_CONFIRM=true bash scripts/cleanup_simulation_processes.sh
 - OpenLORIS 小 fixture 只验证接口；office 短序列使用 OptiTrack，market 长序列使用官方离线
   LiDAR-SLAM 真值，证据独立性不同。任何序列 accepted 非局部回环为 0 时都不能宣称前端成功。
 - 完整功能完成后再 push/开 PR 触发 GitHub CI，避免为文档碎片频繁运行 CI。
+## 8. OpenLORIS 候选级回环检索
+
+准备好 `corridor1-1`、`corridor1-2` 的派生 bag、真值和固定图后运行：
+
+```bash
+bash scripts/acceptance_test.sh openloris-lidar-loop-candidates
+```
+
+PASS 证明两条独立数据契约、候选评分和多序列公平性检查成立。它不会启动 Gazebo，也不会把候选
+写入图；应同时查看 `docs/evidence/lidar_loop_candidates_multisequence.md` 中的 Recall、Precision
+和 shadow-only 发布结论。

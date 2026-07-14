@@ -25,6 +25,7 @@ find_package(tf2_ros REQUIRED)
 add_library(embodied_slam_core
   src/closed_loop_controller.cpp
   src/drift_model.cpp
+  src/lidar_loop_descriptor.cpp
   src/loop_frontend_diagnostics.cpp
   src/scan_overlap_validator.cpp
   src/trajectory_metrics.cpp
@@ -55,6 +56,9 @@ pluginlib_export_plugin_description_file(slam_toolbox gtsam_solver_plugin.xml)
 
 add_executable(gtsam_graph_optimize src/gtsam_graph_optimize.cpp)
 target_link_libraries(gtsam_graph_optimize embodied_slam_gtsam_core)
+
+add_executable(lidar_loop_candidates src/lidar_loop_candidates.cpp)
+target_link_libraries(lidar_loop_candidates embodied_slam_core)
 
 add_executable(odom_drift_injector_node src/odom_drift_injector_node.cpp)
 target_link_libraries(odom_drift_injector_node embodied_slam_core)
@@ -90,6 +94,7 @@ install(TARGETS
   embodied_slam_gtsam_core
   embodied_slam_gtsam_solver
   gtsam_graph_optimize
+  lidar_loop_candidates
   odom_drift_injector_node
   closed_loop_driver_node
   instrumented_async_slam_toolbox_node
@@ -117,6 +122,8 @@ if(BUILD_TESTING)
   target_link_libraries(test_gtsam_pose_graph embodied_slam_gtsam_core)
   ament_add_gtest(test_loop_frontend_diagnostics test/test_loop_frontend_diagnostics.cpp)
   target_link_libraries(test_loop_frontend_diagnostics embodied_slam_core)
+  ament_add_gtest(test_lidar_loop_descriptor test/test_lidar_loop_descriptor.cpp)
+  target_link_libraries(test_lidar_loop_descriptor embodied_slam_core)
   ament_add_gtest(test_scan_overlap_validator test/test_scan_overlap_validator.cpp)
   target_link_libraries(test_scan_overlap_validator embodied_slam_core)
   add_test(
@@ -136,6 +143,17 @@ if(BUILD_TESTING)
   set_tests_properties(
     test_gtsam_graph_optimize_overlap_cli
     PROPERTIES PASS_REGULAR_EXPRESSION "\"scan_overlap_rejected_constraints\":1"
+  )
+  add_test(
+    NAME test_lidar_loop_candidates_cli
+    COMMAND lidar_loop_candidates
+      ${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures/lidar_scan_corpus.txt
+      ${CMAKE_CURRENT_BINARY_DIR}/lidar_loop_candidates.jsonl
+      4 8 10.0 4 60.0 10 2 0.0
+  )
+  set_tests_properties(
+    test_lidar_loop_candidates_cli
+    PROPERTIES PASS_REGULAR_EXPRESSION "\"emitted_candidates\":3"
   )
 endif()
 

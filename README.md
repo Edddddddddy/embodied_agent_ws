@@ -248,6 +248,9 @@ bash scripts/acceptance_test.sh openloris-scan-overlap-ablation
 # 聚合 corridor1-1/1-2 两份独立固定图，给出是否允许默认启用的发布决策。
 bash scripts/acceptance_test.sh openloris-scan-overlap-multisequence
 
+# 原始 LaserScan 前端候选检索：环键 Top-K、循环偏航对齐和两序列 Recall/Precision。
+bash scripts/acceptance_test.sh openloris-lidar-loop-candidates
+
 # 同一 office1-7 前端输入下比较 Ceres/GTSAM。
 OPENLORIS_SEQUENCE=office1-7 bash scripts/acceptance_test.sh openloris-slam-ab
 
@@ -276,6 +279,13 @@ Karto 前端 precision 提升。
 0.8546，四组 ATE 都为 0.1484 m；因此它证明实现跨序列可运行，却没有提供门控收益证据。
 跨序列发布规则不会用平均值掩盖单条序列：两条图必须逐条改善 ATE、P95 不明显退化且少删边。
 当前决策为 `keep_disabled_collect_more_sequences`，功能继续默认关闭。
+
+针对“已接受边复核无法找回漏检候选”的缺口，项目新增无位姿输入的 C++ 2D LiDAR 极坐标描述子。
+原始扫描按 0.5 秒确定性采样；径向环键完成 60 秒历史隔离后的 Top-K 检索，完整占用矩阵循环移位
+只提供相似度和偏航初值。`corridor1-1/1-2` 的 Recall@10 分别为 33.51%/62.75%，两条序列的
+4/4 真值事件均有候选命中；Precision@10 只有 2.79%/5.77%，所以当前只允许进入 shadow
+scan-matcher 集成，禁止直接插入位姿图。完整相似度重排在两条序列都比环键排序差，这个反例被
+保留在报告中，而不是通过更换口径隐藏。
 
 输出包含 bag 来源哈希、contract、两条 map-frame TUM 轨迹、ATE/RPE、直行/转弯退化分段、
 launch 日志、实验 manifest 和不预设胜者的后端对比。`source.json` 会区分完整 SHA256 验证与
@@ -313,6 +323,7 @@ slam_toolbox 回环候选生成/几何验证之前，而不是 GTSAM 后端。�
 | Nav2 轻量门禁 | `bash scripts/acceptance_test.sh nav2-stage` | ROS 2 |
 | SLAM 轨迹指标 | `bash scripts/acceptance_test.sh slam-evaluation-stage` | Python |
 | OpenLORIS 回放适配器 | `bash scripts/acceptance_test.sh openloris-replay-stage` | ROS 2 + rosbags |
+| LiDAR 回环候选多序列评测 | `bash scripts/acceptance_test.sh openloris-lidar-loop-candidates` | 已准备的两条真实 bag + GTSAM 图 |
 | 机器人能力统一门禁 | `bash scripts/acceptance_test.sh robotics-gate` | ROS 2 + 本地构建 |
 | 发布聚合报告 | `bash scripts/acceptance_test.sh release-gate` | 本地运行时 |
 | 演示聚合报告 | `bash scripts/acceptance_test.sh demo-gate` | 本地运行时 |
