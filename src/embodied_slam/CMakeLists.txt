@@ -28,6 +28,7 @@ add_library(embodied_slam_core
   src/lidar_loop_descriptor.cpp
   src/lidar_scan_corpus.cpp
   src/lidar_scan_matcher.cpp
+  src/lidar_submap_builder.cpp
   src/loop_frontend_diagnostics.cpp
   src/scan_overlap_validator.cpp
   src/trajectory_metrics.cpp
@@ -132,6 +133,8 @@ if(BUILD_TESTING)
   target_link_libraries(test_lidar_loop_descriptor embodied_slam_core)
   ament_add_gtest(test_lidar_scan_matcher test/test_lidar_scan_matcher.cpp)
   target_link_libraries(test_lidar_scan_matcher embodied_slam_core)
+  ament_add_gtest(test_lidar_submap_builder test/test_lidar_submap_builder.cpp)
+  target_link_libraries(test_lidar_submap_builder embodied_slam_core)
   ament_add_gtest(test_scan_overlap_validator test/test_scan_overlap_validator.cpp)
   target_link_libraries(test_scan_overlap_validator embodied_slam_core)
   add_test(
@@ -174,6 +177,26 @@ if(BUILD_TESTING)
   set_tests_properties(
     test_lidar_shadow_scan_match_cli
     PROPERTIES PASS_REGULAR_EXPRESSION "\"accepted\":1"
+  )
+  add_test(
+    NAME test_lidar_shadow_submap_match_cli
+    COMMAND lidar_shadow_scan_match
+      ${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures/lidar_scan_corpus.txt
+      ${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures/lidar_shadow_pairs.txt
+      ${CMAKE_CURRENT_BINARY_DIR}/lidar_shadow_submap_matches.jsonl
+      --point-stride 1
+      --minimum-points 4
+      --submap-odometry
+        ${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures/lidar_odometry_corpus.txt
+      --submap-half-window 1
+      --submap-max-time-delta 100.0
+      --submap-point-stride 1
+      --submap-minimum-scans 2
+      --submap-minimum-points 4
+  )
+  set_tests_properties(
+    test_lidar_shadow_submap_match_cli
+    PROPERTIES PASS_REGULAR_EXPRESSION "\"matching_mode\":\"scan_to_submap\""
   )
 endif()
 

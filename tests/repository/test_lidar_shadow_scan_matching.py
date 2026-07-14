@@ -124,3 +124,31 @@ def test_invalid_pair_time_coverage_threshold_is_rejected():
         assert "coverage" in str(error)
     else:
         raise AssertionError("invalid coverage threshold should fail")
+
+
+def test_match_loader_normalizes_legacy_mode_and_rejects_mixed_modes(tmp_path: Path):
+    base = {
+        "query_id": 2,
+        "candidate_id": 1,
+        "query_stamp_s": 2.0,
+        "candidate_stamp_s": 1.0,
+        "inlier_ratio": 0.8,
+        "bidirectional_overlap_ratio": 0.8,
+        "rmse_m": 0.05,
+        "observability_ratio": 0.1,
+    }
+    legacy = tmp_path / "legacy.jsonl"
+    import json
+
+    legacy.write_text(json.dumps(base) + "\n", encoding="utf-8")
+    assert EVALUATE.load_rows(legacy)[0]["matching_mode"] == "scan_to_scan"
+
+    mixed = tmp_path / "mixed.jsonl"
+    second = dict(base, query_id=3, matching_mode="scan_to_submap")
+    mixed.write_text(json.dumps(base) + "\n" + json.dumps(second) + "\n", encoding="utf-8")
+    try:
+        EVALUATE.load_rows(mixed)
+    except ValueError as error:
+        assert "matching_mode" in str(error)
+    else:
+        raise AssertionError("mixed geometry modes must not share one evidence report")

@@ -389,3 +389,20 @@ bash scripts/acceptance_test.sh openloris-lidar-shadow-matches
 `PASS` 只表示数据覆盖、哈希、固定 profile 和跨序列公平性契约成立；是否允许下一阶段图边消融由
 `docs/evidence/lidar_shadow_matches_multisequence.json` 的 `release_decision` 单独决定。当前状态是
 `shadow_only_improve_geometric_verification`，`direct_graph_edge_insertion_enabled=false`。
+
+## 10. OpenLORIS 局部子地图 A/B
+
+先完成上一节、保留确定性 scan corpus 和 pair 文件，再运行：
+
+```bash
+bash scripts/acceptance_test.sh openloris-lidar-submap-ablation
+```
+
+该入口用短时 `/odom` 将中心帧前后各一帧变换到中心坐标系，形成三帧局部子地图；候选集合、
+真值、ICP 配置和评估 profile 与单帧基线保持一致。`PASS` 只证明两序列 A/B 输入契约公平、报告
+完整，不表示算法可进入正式位姿图。最终必须检查
+`docs/evidence/lidar_submap_ablation_multisequence.json`：当前
+`guarded_graph_edge_ablation_ready=false`、`direct_graph_edge_insertion_enabled=false`。
+
+固定门槛要求每条序列同时达到 precision ≥ 80%、conditional recall ≥ 15%、平移中位误差
+≤ 0.5 m。相对单帧有改善但未满足绝对门槛时，仍保持 shadow-only。

@@ -251,6 +251,9 @@ bash scripts/acceptance_test.sh openloris-scan-overlap-multisequence
 # 原始 LaserScan 前端候选检索：环键 Top-K、循环偏航对齐和两序列 Recall/Precision。
 bash scripts/acceptance_test.sh openloris-lidar-loop-candidates
 
+# 同一批 Top-K 候选：单帧 ICP 与三帧局部子地图 ICP 的 shadow-only A/B。
+bash scripts/acceptance_test.sh openloris-lidar-submap-ablation
+
 # 同一 office1-7 前端输入下比较 Ceres/GTSAM。
 OPENLORIS_SEQUENCE=office1-7 bash scripts/acceptance_test.sh openloris-slam-ab
 
@@ -296,6 +299,12 @@ accepted precision 为 8.41%/33.78%，conditional recall 为 26.67%/40.32%；偏
 ```bash
 bash scripts/acceptance_test.sh openloris-lidar-shadow-matches
 ```
+
+在完全相同的候选、真值与 ICP 门限上，三帧局部子地图把两序列 accepted precision 分别从
+8.41%/33.78% 提高到 10.34%/36.49%，平移中位误差从 0.69/1.44 m 降到 0.42/0.82 m；但
+`corridor1-1` recall 从 26.67% 降到 20.00%，跨序列平均 recall 下降 1.72 个百分点。因此它证明
+局部几何上下文有价值，却仍不满足安全写图条件；发布状态为
+`shadow_only_submap_quality_insufficient`，直接图边写入继续关闭。
 
 输出包含 bag 来源哈希、contract、两条 map-frame TUM 轨迹、ATE/RPE、直行/转弯退化分段、
 launch 日志、实验 manifest 和不预设胜者的后端对比。`source.json` 会区分完整 SHA256 验证与

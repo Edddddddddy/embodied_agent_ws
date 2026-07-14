@@ -1109,6 +1109,25 @@ Karto 几何近邻 chain，它不依赖当前漂移位姿，但更容易受到�
 真实多序列平均 accepted precision 只有 21.10%，说明单帧 scan-to-scan 几何不足以安全构造图边。
 这是发布门拒绝上线的依据，也是下一步升级为 scan-to-submap/多帧时序一致性的原因。
 
+### 14.7 scan-to-submap 为什么只使用短时里程计
+
+关键代码：
+
+- `src/embodied_slam/src/lidar_submap_builder.cpp`：邻帧到中心帧的 SE(2) 变换和局部点云聚合。
+- `src/embodied_slam/src/lidar_shadow_scan_match.cpp`：单帧/子地图共用 matcher 与输出契约。
+- `scripts/evaluate_lidar_shadow_matches.py`：显式记录 `matching_mode`、贡献帧数和几何点数。
+- `scripts/compare_lidar_submap_ablation.py`：校验同候选/同真值/同阈值并计算逐序列 delta。
+
+长时里程计会积累漂移，若直接用它构造查询到历史候选的初始平移，会把“待检测的真实回环”先验
+排除。这里仅在中心帧 ±0.75 秒内借用里程计，把相邻扫描聚合到局部坐标系；闭环两端之间的位姿
+仍由 ICP 独立估计。对比 scan-to-scan，它增加几何上下文、降低部分真闭环的平移误差；对比
+Cartographer 的概率子地图与分支限界搜索，它没有占用概率更新和全搜索窗，依赖更少、易做固定
+A/B，但抗重复结构能力明显更弱。
+
+真实结果是 precision 平均提高 2.32 个百分点、平移误差两序列均下降，但 recall 平均下降 1.72
+个百分点。工程结论不是“子地图已解决回环”，而是：局部聚合值得保留为 matcher seam，下一步
+需要多帧时序一致性、可学习地点描述或相关扫描搜索；当前仍不允许生成正式图边。
+
 ## 15. 动态障碍运动模型与同场景消融
 
 关键代码：

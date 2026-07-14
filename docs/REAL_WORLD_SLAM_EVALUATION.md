@@ -474,6 +474,24 @@ bash scripts/acceptance_test.sh openloris-lidar-shadow-matches
 局部几何高分不等于正确闭环；发布门判定 `shadow_only_improve_geometric_verification`，不向
 Ceres/GTSAM 写边。下一步应增加子地图、多帧一致性或分支限界相关扫描，而不是放宽单帧阈值。
 
+### 6.9 三帧局部子地图消融
+
+```bash
+bash scripts/acceptance_test.sh openloris-lidar-submap-ablation
+```
+
+`LidarSubmapBuilder` 使用扫描 ID 对齐的短时里程计，计算 `T_center^-1 * T_neighbor`，把前后各一帧
+点云转换到中心扫描坐标系。它只借用 ±0.75 秒的局部运动估计来补充门框和拐角上下文，不使用
+长时里程计平移判断闭环，也不读取真值。A/B 由同一 binary 现场重算，复用同一 Top-K、同一
+时间戳、等效逐帧点采样、同一 matcher 门限和固定 profile，避免“子地图换了一批更容易候选”
+或跨版本二进制的不公平比较。
+
+`corridor1-1/1-2` 的 precision 分别从 8.41%/33.78% 提高到 10.34%/36.49%，平移中位误差从
+0.69/1.44 m 降到 0.42/0.82 m；但 conditional recall 分别变为 20.00%/43.55%，第一序列出现
+退化，跨序列平均 recall 下降 1.72 个百分点。说明多帧上下文改善了已接受变换的精度，但重复
+走廊的地点混淆仍未解决。逐序列 80% precision、15% recall、0.5 m 中位误差门槛未通过，状态
+保持 `shadow_only_submap_quality_insufficient`，不开展图边写入。
+
 ## 7. 面试讲法和事实边界
 
 可以讲：

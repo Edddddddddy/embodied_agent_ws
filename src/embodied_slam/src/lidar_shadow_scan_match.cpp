@@ -1,6 +1,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
@@ -10,6 +11,7 @@
 
 #include "embodied_slam/lidar_scan_corpus.hpp"
 #include "embodied_slam/lidar_scan_matcher.hpp"
+#include "embodied_slam/lidar_submap_builder.hpp"
 
 namespace
 {
@@ -79,21 +81,78 @@ void writeBoolean(std::ostream & output, const bool value)
 void usage(const char * program)
 {
   std::cerr << "Usage: " << program
-            << " SCAN_CORPUS PAIR_FILE OUTPUT [point_stride minimum_points]" << '\n';
+            << " SCAN_CORPUS PAIR_FILE OUTPUT [point_stride minimum_points] "
+            << "[--point-stride N --minimum-points N --submap-odometry PATH "
+            << "--submap-half-window N --submap-max-time-delta S "
+            << "--submap-point-stride N --submap-minimum-scans N "
+            << "--submap-minimum-points N]" << '\n';
+}
+
+struct CliOptions
+{
+  embodied_slam::LidarScanMatcherConfig matcher;
+  embodied_slam::LidarSubmapConfig submap;
+  std::optional<std::string> odometry_path;
+};
+
+CliOptions parseOptions(const int argc, char ** argv)
+{
+  CliOptions options;
+  bool submap_option_seen = false;
+  // 保留既有 CTest/脚本的两个位置参数；新增模式一律使用显式 flag，避免参数串位。
+  if (argc == 6 && argv[4][0] != '-') {
+    options.matcher.point_stride = std::stoul(argv[4]);
+    options.matcher.minimum_points = std::stoul(argv[5]);
+    return options;
+  }
+  for (int index = 4; index < argc; ++index) {
+    const std::string argument = argv[index];
+    if (index + 1 >= argc) {
+      throw std::invalid_argument("missing value for " + argument);
+    }
+    const std::string value = argv[++index];
+    if (argument == "--point-stride") {
+      options.matcher.point_stride = std::stoul(value);
+    } else if (argument == "--minimum-points") {
+      options.matcher.minimum_points = std::stoul(value);
+    } else if (argument == "--submap-odometry") {
+      options.odometry_path = value;
+      submap_option_seen = true;
+    } else if (argument == "--submap-half-window") {
+      options.submap.half_window_scans = std::stoul(value);
+      submap_option_seen = true;
+    } else if (argument == "--submap-max-time-delta") {
+      options.submap.maximum_time_delta_s = std::stod(value);
+      submap_option_seen = true;
+    } else if (argument == "--submap-point-stride") {
+      options.submap.point_stride = std::stoul(value);
+      submap_option_seen = true;
+    } else if (argument == "--submap-minimum-scans") {
+      options.submap.minimum_contributing_scans = std::stoul(value);
+      submap_option_seen = true;
+    } else if (argument == "--submap-minimum-points") {
+      options.submap.minimum_points = std::stoul(value);
+      submap_option_seen = true;
+    } else {
+      throw std::invalid_argument("unknown option: " + argument);
+    }
+  }
+  if (submap_option_seen && !options.odometry_path) {
+    throw std::invalid_argument("submap options require --submap-odometry");
+  }
+  return options;
 }
 
 }  // namespace
 
 int main(int argc, char ** argv)
 {
-  if (argc < 4 || argc > 6) {
+  if (argc < 4) {
     usage(argv[0]);
     return 2;
   }
   try {
-    embodied_slam::LidarScanMatcherConfig config;
-    if (argc > 4) {config.point_stride = std::stoul(argv[4]);}
-    if (argc > 5) {config.minimum_points = std::stoul(argv[5]);}
+    const auto options = parseOptions(argc, argv);
 
     const auto scans = embodied_slam::loadLidarScanCorpus(argv[1]);
     std::unordered_map<int, const embodied_slam::LidarScanRecord *> scan_by_id;
@@ -101,6 +160,13 @@ int main(int argc, char ** argv)
       if (!scan_by_id.emplace(scan.scan_id, &scan).second) {
         throw std::runtime_error("duplicate scan id in corpus");
       }
+    }
+    std::unique_ptr<embodied_slam::LidarSubmapBuilder> submap_builder;
+    std::unordered_map<int, embodied_slam::LidarSubmap> submap_cache;
+    if (options.odometry_path) {
+      const auto odometry = embodied_slam::loadLidarOdometryCorpus(*options.odometry_path);
+      submap_builder = std::make_unique<embodied_slam::LidarSubmapBuilder>(
+        scans, odometry, options.submap);
     }
     const auto pairs = loadPairs(argv[2]);
     std::ofstream output(argv[3], std::ios::out | std::ios::trunc);
@@ -117,9 +183,37 @@ int main(int argc, char ** argv)
       if (query == scan_by_id.end() || candidate == scan_by_id.end()) {
         throw std::runtime_error("candidate pair references missing scan id");
       }
-      const auto result = embodied_slam::matchLidarScans(
-        query->second->points, candidate->second->points, pair.yaw_offset_rad, config,
-        pair.odometry_prior);
+      const std::vector<embodied_slam::LidarPoint2D> * query_points = &query->second->points;
+      const std::vector<embodied_slam::LidarPoint2D> * candidate_points =
+        &candidate->second->points;
+      std::size_t query_submap_scans = 1U;
+      std::size_t candidate_submap_scans = 1U;
+      embodied_slam::LidarScanMatchResult result;
+      if (submap_builder) {
+        auto get_submap = [&](const int scan_id) -> const embodied_slam::LidarSubmap & {
+            const auto existing = submap_cache.find(scan_id);
+            if (existing != submap_cache.end()) {
+              return existing->second;
+            }
+            return submap_cache.emplace(scan_id, submap_builder->build(scan_id)).first->second;
+          };
+        const auto & query_submap = get_submap(pair.query_id);
+        const auto & candidate_submap = get_submap(pair.candidate_id);
+        query_submap_scans = query_submap.contributing_scan_ids.size();
+        candidate_submap_scans = candidate_submap.contributing_scan_ids.size();
+        if (query_submap.available && candidate_submap.available) {
+          query_points = &query_submap.points;
+          candidate_points = &candidate_submap.points;
+        } else {
+          result.rejection_reason = query_submap.available ?
+            "candidate_submap_unavailable" : "query_submap_unavailable";
+        }
+      }
+      if (result.rejection_reason.empty()) {
+        result = embodied_slam::matchLidarScans(
+          *query_points, *candidate_points, pair.yaw_offset_rad, options.matcher,
+          pair.odometry_prior);
+      }
       available += result.available ? 1U : 0U;
       accepted += result.accepted ? 1U : 0U;
       output << "{\"schema_version\":1,\"query_id\":" << pair.query_id
@@ -129,6 +223,19 @@ int main(int argc, char ** argv)
              << ",\"candidate_rank\":" << pair.rank
              << ",\"similarity\":" << pair.similarity
              << ",\"ring_key_distance\":" << pair.ring_key_distance
+             << ",\"matching_mode\":\""
+             << (submap_builder ? "scan_to_submap" : "scan_to_scan") << '\"'
+             << ",\"matcher_point_stride\":" << options.matcher.point_stride
+             << ",\"submap_point_stride\":"
+             << (submap_builder ? options.submap.point_stride : 1U)
+             << ",\"effective_point_stride\":"
+             << options.matcher.point_stride *
+        (submap_builder ? options.submap.point_stride : 1U)
+             << ",\"matcher_minimum_points\":" << options.matcher.minimum_points
+             << ",\"query_submap_scans\":" << query_submap_scans
+             << ",\"candidate_submap_scans\":" << candidate_submap_scans
+             << ",\"query_geometry_points\":" << query_points->size()
+             << ",\"candidate_geometry_points\":" << candidate_points->size()
              << ",\"descriptor_yaw_offset_rad\":" << pair.yaw_offset_rad
              << ",\"selected_initial_yaw_rad\":" << result.selected_initial_yaw_rad
              << ",\"available\":";
@@ -166,7 +273,14 @@ int main(int argc, char ** argv)
     }
     std::cout << "{\"schema_version\":1,\"pairs\":" << pairs.size()
               << ",\"available\":" << available
-              << ",\"accepted\":" << accepted << "}\n";
+              << ",\"accepted\":" << accepted
+              << ",\"matching_mode\":\""
+              << (submap_builder ? "scan_to_submap" : "scan_to_scan") << "\""
+              << ",\"effective_point_stride\":"
+              << options.matcher.point_stride *
+        (submap_builder ? options.submap.point_stride : 1U)
+              << ",\"matcher_minimum_points\":" << options.matcher.minimum_points
+              << ",\"submaps_built\":" << submap_cache.size() << "}\n";
     return available > 0U ? 0 : 1;
   } catch (const std::exception & exception) {
     std::cerr << "lidar_shadow_scan_match: " << exception.what() << '\n';
