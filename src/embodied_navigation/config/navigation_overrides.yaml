@@ -16,7 +16,15 @@ global_costmap:
 
 dynamic_obstacle_tracker:
   ros__parameters:
+    # 运行时只切换这一项即可复现 current_only/CV/Kalman/IMM 同场景消融。
+    motion_model: constant_velocity
     association_distance_m: 0.8
     velocity_smoothing: 0.65
+    measurement_noise_variance: 0.01
+    process_noise_variance: 0.2
+    imm_stationary_process_noise: 0.01
+    imm_maneuver_process_noise: 1.0
+    imm_stay_probability: 0.94
+    imm_stationary_velocity_decay: 0.2
     track_timeout_s: 1.0
     default_radius_m: 0.25

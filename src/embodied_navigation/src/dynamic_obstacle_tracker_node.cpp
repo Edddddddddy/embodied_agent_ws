@@ -35,6 +35,18 @@ private:
     config.velocity_smoothing = declare_parameter("velocity_smoothing", 0.65);
     config.track_timeout_s = declare_parameter("track_timeout_s", 1.0);
     config.default_radius_m = declare_parameter("default_radius_m", 0.25);
+    config.motion_model = motion_model_from_string(
+      declare_parameter("motion_model", std::string("constant_velocity")));
+    config.measurement_noise_variance = declare_parameter(
+      "measurement_noise_variance", 0.01);
+    config.process_noise_variance = declare_parameter("process_noise_variance", 0.2);
+    config.imm_stationary_process_noise = declare_parameter(
+      "imm_stationary_process_noise", 0.01);
+    config.imm_maneuver_process_noise = declare_parameter(
+      "imm_maneuver_process_noise", 1.0);
+    config.imm_stay_probability = declare_parameter("imm_stay_probability", 0.94);
+    config.imm_stationary_velocity_decay = declare_parameter(
+      "imm_stationary_velocity_decay", 0.2);
     return config;
   }
 

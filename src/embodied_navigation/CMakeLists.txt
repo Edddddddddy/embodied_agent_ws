@@ -29,6 +29,9 @@ target_link_libraries(dynamic_obstacle_tracker_node dynamic_obstacle_tracker_cor
 ament_target_dependencies(dynamic_obstacle_tracker_node
   embodied_agent_interfaces geometry_msgs rclcpp)
 
+add_executable(dynamic_obstacle_model_benchmark src/dynamic_obstacle_model_benchmark.cpp)
+target_link_libraries(dynamic_obstacle_model_benchmark dynamic_obstacle_tracker_core)
+
 add_library(predicted_obstacle_layer SHARED src/predicted_obstacle_layer.cpp)
 target_link_libraries(predicted_obstacle_layer constant_velocity_predictor)
 target_include_directories(predicted_obstacle_layer PUBLIC
@@ -39,7 +42,7 @@ ament_target_dependencies(predicted_obstacle_layer
 pluginlib_export_plugin_description_file(nav2_costmap_2d costmap_plugins.xml)
 
 install(TARGETS constant_velocity_predictor dynamic_obstacle_tracker_core
-  dynamic_obstacle_tracker_node predicted_obstacle_layer
+  dynamic_obstacle_tracker_node dynamic_obstacle_model_benchmark predicted_obstacle_layer
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION lib/${PROJECT_NAME})

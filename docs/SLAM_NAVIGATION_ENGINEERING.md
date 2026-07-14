@@ -102,8 +102,31 @@ PoseArray detections
 这里只采用可解释的常速度模型，不把它包装成复杂学习算法。优势是 CPU 开销小、参数可解释、
 可独立单测；缺点是急转、急停和多人交叉时预测误差大。相比只把当前检测点写入 obstacle layer，
 预测层能在行人尚未走到机器人直线路径前提前让路。相比 TEB/MPPI 内部的时空轨迹优化，当前
-实现作用在全局二维代价地图，接入简单但时间维被压平；下一步可以把 track 送入支持时空障碍
-的局部控制器，或改为 Kalman/IMM 预测并做消融实验。
+实现作用在全局二维代价地图，接入简单但时间维被压平；后续可以把 track 送入支持时空障碍
+的局部控制器，但当前先通过统一跟踪器 seam 完成四种运动模型消融。
+
+### 4.1 current-only / CV / Kalman / IMM 消融
+
+外部接口仍只有 `DynamicObstacleTracker::update()`；`motion_model` 参数选择四个内部 Adapter：
+
+- `current_only`：只保留当前观测，速度为零，用作“不预测”基线。
+- `constant_velocity`：有限差分速度加指数平滑，计算最轻，但停车后容易过冲。
+- `kalman`：二维位置—速度状态分别进行协方差预测和观测更新，抑制测量噪声。
+- `imm`：低运动/机动两个 Kalman 模型按转移概率交互，混合状态与协方差，再用观测似然更新模型概率。
+
+固定 91 帧转向、停车、短遮挡场景的 C++ 实测如下；耗时只用于说明量级，不设置 CI 性能门槛：
+
+| 模型 | 位置 RMSE/m | 0.75 s 预测 RMSE/m | 遮挡 RMSE/m | 停车预测 RMSE/m |
+| --- | ---: | ---: | ---: | ---: |
+| current-only | 0.0628 | 0.3378 | 0.1944 | 0.0399 |
+| constant velocity | 0.0417 | 0.2434 | 0.0654 | 0.1560 |
+| Kalman | 0.0602 | 0.2717 | 0.1663 | 0.1180 |
+| IMM | 0.0383 | 0.2274 | 0.0457 | 0.0389 |
+
+四轮 Gazebo/Nav2 横穿场景也全部通过：future cell cost=254、动态路径净空约
+0.934～0.979 m、里程计移动约 1.85～1.89 m、导航成功且最终零速。短短 4 帧启动时 IMM
+速度估计偏保守，因此不能把上表解释为“IMM 在所有阶段总是最优”；RMSE 报告与导航闭环报告
+必须分开表述。
 
 ## 5. 当前量化结果
 
@@ -138,6 +161,7 @@ bash scripts/acceptance_test.sh slam-ab-benchmark
 bash scripts/acceptance_test.sh slam-navigation
 bash scripts/acceptance_test.sh dynamic-obstacle-stage
 bash scripts/acceptance_test.sh dynamic-obstacle-navigation
+bash scripts/acceptance_test.sh dynamic-obstacle-navigation-ablation
 ```
 
 其中 `mapping-stage` 适合日常提交前执行；其余会启动 Gazebo。`slam-navigation` 依赖
@@ -171,5 +195,7 @@ bash scripts/acceptance_test.sh openloris-slam-ab
 - 已完成实验：`office1-1` 接线基线与 `office1-7` 回访序列都保存 SHA256/commit/config/日志/
   轨迹 manifest；`office1-7` Ceres/GTSAM ATE 均约 10.0 cm，轨迹恢复 2/2 个回访事件，但
   accepted 非局部图边为 0，不能作为“回环前端成功”的证据。
-- 下一步：对走廊/动态遮挡区间做人工复核标注与前端阈值消融，再比较动态障碍
-  current-only 与 constant-velocity prediction，并引入 Kalman/IMM 做消融。
+- 已完成：玻璃/动态遮挡人工标注，以及 current-only、CV、Kalman、IMM 的跟踪器与
+  Gazebo/Nav2 同场景消融。
+- 下一步：对真实回环前端做候选生成/阈值消融，并扩展跨序列 lifelong/relocalization；动态
+  障碍后续再评估带时间维的局部控制器，而不是继续堆叠二维 costmap 参数。

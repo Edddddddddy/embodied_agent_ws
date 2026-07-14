@@ -77,7 +77,9 @@ Automated modes:
   openloris-loop-evidence Audit office1-7 revisits and run accepted-loop evaluation
   openloris-evaluate  Evaluate SLAM_ESTIMATE_FILE against an OpenLORIS sequence
   dynamic-obstacle-stage Build/test tracker, motion predictor, and Nav2 costmap plugin seam
+  dynamic-obstacle-ablation Compare current-only/CV/Kalman/IMM on one fixed C++ scenario
   dynamic-obstacle-navigation Heavy run: predicted crossing obstacle -> Nav2 replan -> goal
+  dynamic-obstacle-navigation-ablation Heavy four-model Gazebo/Nav2 crossing comparison
   continuous-mock     One wake word, several queued commands, and sleep gate
   continuous-soak     Long wake session keeps accepting many queued commands
   continuous-endpoint Endpoint speech_ended commits feed continuous ASR commands
@@ -164,6 +166,15 @@ require_file() {
     return 1
   fi
   echo "READY: $1"
+}
+
+run_dynamic_obstacle_ablation() {
+  mkdir -p logs
+  ros2 run embodied_navigation dynamic_obstacle_model_benchmark \
+    --output logs/dynamic_obstacle_model_ablation.json
+  python3 scripts/verify_dynamic_obstacle_ablation.py \
+    logs/dynamic_obstacle_model_ablation.json \
+    --markdown logs/dynamic_obstacle_model_ablation.md
 }
 
 run_base() {
@@ -549,9 +560,22 @@ case "$LEVEL" in
       embodied_agent_interfaces embodied_navigation
     colcon test --packages-select embodied_navigation --event-handlers console_direct+
     colcon test-result --test-result-base build/embodied_navigation --verbose
+    set +u
+    source install/setup.bash
+    set -u
     bash scripts/smoke_test_dynamic_obstacle_tracker.sh
+    run_dynamic_obstacle_ablation
+    ;;
+  dynamic-obstacle-ablation)
+    colcon build --packages-up-to embodied_navigation --symlink-install --allow-overriding \
+      embodied_agent_interfaces embodied_navigation
+    set +u
+    source install/setup.bash
+    set -u
+    run_dynamic_obstacle_ablation
     ;;
   dynamic-obstacle-navigation) bash scripts/smoke_test_predicted_dynamic_obstacle_navigation.sh ;;
+  dynamic-obstacle-navigation-ablation) bash scripts/run_dynamic_obstacle_navigation_ablation.sh ;;
   continuous-mock) bash scripts/smoke_test_continuous_voice.sh online; bash scripts/smoke_test_continuous_voice.sh offline ;;
   continuous-soak) bash scripts/smoke_test_continuous_voice_soak.sh online; bash scripts/smoke_test_continuous_voice_soak.sh offline ;;
   continuous-endpoint) bash scripts/smoke_test_continuous_endpoint_asr.sh online; bash scripts/smoke_test_continuous_endpoint_asr.sh offline ;;

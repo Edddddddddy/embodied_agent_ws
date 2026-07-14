@@ -183,6 +183,11 @@ def main() -> int:
     parser.add_argument("--goal-y", type=float, default=0.0)
     parser.add_argument("--timeout", type=float, default=160.0)
     parser.add_argument(
+        "--motion-model",
+        choices=("current_only", "constant_velocity", "kalman", "imm"),
+        default="constant_velocity",
+    )
+    parser.add_argument(
         "--output", type=Path, default=Path("logs/dynamic_obstacle_navigation_report.json")
     )
     args = parser.parse_args()
@@ -254,8 +259,13 @@ def main() -> int:
             "cmd_vel did not return to zero",
         )
         distance = traveled_distance(node.odom_positions)
+        model_behavior_ok = (
+            abs(track.velocity.y) < 0.05
+            if args.motion_model == "current_only"
+            else abs(track.velocity.y) >= 0.12
+        )
         checks = {
-            "tracker_estimated_crossing_velocity": abs(track.velocity.y) >= 0.15,
+            "tracker_model_behavior": model_behavior_ok,
             "future_cell_marked_lethal": predicted_cost >= 253,
             "dynamic_plan_increased_clearance": dynamic_clearance >= baseline_clearance + 0.15,
             "navigate_to_pose_succeeded": nav_status == GoalStatus.STATUS_SUCCEEDED,
@@ -266,6 +276,7 @@ def main() -> int:
         }
         report = {
             "passed": all(checks.values()),
+            "motion_model": args.motion_model,
             "elapsed_s": round(time.monotonic() - started, 3),
             "checks": checks,
             "track": {

@@ -34,7 +34,7 @@
 | 4:00 - 6:00 | C++ 安全边界：ActionGuard 如何校验、限幅、拒绝非法动作 | `src/embodied_agent_cpp/src/action_guard_node.cpp`、`src/embodied_agent_cpp/src/action_validator.cpp` |
 | 6:00 - 8:00 | 连续语音：唤醒、去重、filler 过滤、队列、急停抢占 | `src/embodied_agent_core/embodied_agent_core/continuous_voice.py` |
 | 8:00 - 10:30 | SLAM：受控漂移、回环约束、Ceres/GTSAM 后端 A/B 和地图指标 | `src/embodied_slam/src/gtsam_pose_graph.cpp`、`gtsam_scan_solver.cpp`、`logs/slam_backend_comparison.json` |
-| 10:30 - 12:30 | 动态避障：位置关联、常速度预测、Nav2 costmap plugin 与重规划净空 | `src/embodied_navigation/src/*.cpp`、`logs/dynamic_obstacle_navigation_report.json` |
+| 10:30 - 12:30 | 动态避障：current-only/CV/Kalman/IMM 消融、Nav2 costmap plugin 与重规划净空 | `src/embodied_navigation/src/dynamic_obstacle_tracker.cpp`、`logs/dynamic_obstacle_model_ablation.json` |
 | 12:30 - 13:30 | C++ 调度与执行：FIFO、急停、Action、BehaviorTree、pluginlib | `src/embodied_agent_cpp/src/action_scheduler.cpp`、`src/embodied_simulation/src/simulation_control_node.cpp` |
 | 13:30 - 15:00 | 现场演示与事实边界 | `dynamic-obstacle-navigation` 或 `continuous-offline` |
 
