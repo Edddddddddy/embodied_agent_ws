@@ -955,6 +955,7 @@ sidecar 输出实际相似度。多人准确率仍需另建注册/查询数据�
 - `src/embodied_slam/src/gtsam_scan_solver.cpp`
 - `scripts/evaluate_slam_trajectory.py`
 - `scripts/analyze_openloris_revisits.py`
+- `scripts/rank_openloris_revisit_sequences.py`
 - `scripts/evaluate_loop_constraints.py`
 - `scripts/analyze_slam_degradation.py`
 - `scripts/compare_openloris_backends.py`
@@ -967,14 +968,26 @@ sidecar 输出实际相似度。多人准确率仍需另建注册/查询数据�
 - `src/embodied_slam/config/openloris_loop_sweep.json`
 - `src/embodied_slam/config/openloris_office1_7_annotations.json`
 
-设计方式：先用独立 OptiTrack 真值定义“相隔足够久后再次进入同一位置/朝向容差”的回访采样点，
+设计方式：先用真值定义“相隔足够久后再次进入同一位置/朝向容差”的回访采样点，
 再按时间间隔聚合为事件，避免提高采样率就虚增回环机会。轨迹层检查估计轨迹是否保持回访几何；
-图优化层则在 GTSAM `ScanSolver::AddConstraint` 记录前端已经接受的边，并把局部相邻边与非局部
-loop 分开。后者才能计算 accepted-edge precision、false-loop rate 和事件 recall。
+图优化层则在 GTSAM `ScanSolver::AddConstraint` 记录前端已经接受的边，再用 Karto 原生
+`end_closure.scan_index` 选出真正的闭环边。仅靠 node id 间隔会把局部图连接误判成 loop，因此
+不再用于正式指标。边正确性比较测得相对位姿与真值相对位姿，回访半径只负责聚合事件；这两层
+分开后才能正确计算 accepted-edge precision、false-loop rate 和事件 recall。
+
+真值来源也分层：office 使用独立 OptiTrack；market/corridor 使用官方离线 LiDAR SLAM。后者能
+提供更长的轨迹，但与在线 Hokuyo 输入并非完全独立，不能混称为 mocap 证据。下载大型 bag 前，
+`rank_openloris_revisit_sequences.py` 会同时计算方向敏感回访和 360° LiDAR 位置回访；正式推荐
+还要求路径 ≥100 m、时长 ≥120 s、回访两端相隔 ≥60 s。轨迹层排序最高的 `market1-3`
+（约 294 s / 221.8 m / 1 个同向长回访）在完整 bag 契约中缺少 `/scan`，所以不能用于当前
+2D 管线。加入传感器 profile 后，正式推荐变为 `corridor1-1`（约 272.5 s / 220.1 m / 2 个
+位置长回访）。它是反向穿越同一走廊，360° LiDAR 仍有完整几何重叠，因此采用 180° 位置口径；
+报告必须同时展示 yaw 范围，不能把它描述为同向视觉回环。
 
 为什么分两层：机器人依靠较好的里程计和局部 scan matching，也可能在短路径上回到原处；最终
 ATE 较低或回访恢复率较高，并不证明前端真正检测并接受了回环。`office1-7` 就给出了反例：
-最终轨迹恢复 2/2 次真值事件，但 46 条 accepted graph edge 全是相邻边，非局部回环为 0。
+在旧的 10 秒宽松定义下最终轨迹恢复 2/2 次事件，但 46 条 accepted graph edge 全是相邻边，
+非局部回环为 0；按正式 60 秒长回环门槛，它没有真值事件。
 
 退化区间也不从速度阈值猜语义。工具按时间抽取 RGB 联络表，人工复核后才标注玻璃隔断和动态人员
 遮挡；没有长走廊证据就记录 negative evidence。Ceres/GTSAM A/B 固定 bag、前端参数、时间窗和

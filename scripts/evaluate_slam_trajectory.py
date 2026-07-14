@@ -357,6 +357,21 @@ def _loop_metrics(
                     "end_stamp_s": opportunity["current_stamp_s"],
                     "opportunity_count": 1,
                     "recovered": bool(opportunity["recovered"]),
+                    "minimum_reference_distance_m": opportunity[
+                        "reference_distance_m"
+                    ],
+                    "minimum_reference_yaw_delta_deg": opportunity[
+                        "reference_yaw_delta_deg"
+                    ],
+                    "maximum_reference_yaw_delta_deg": opportunity[
+                        "reference_yaw_delta_deg"
+                    ],
+                    "representative_current_stamp_s": opportunity[
+                        "current_stamp_s"
+                    ],
+                    "representative_previous_stamp_s": opportunity[
+                        "previous_stamp_s"
+                    ],
                 }
             )
         else:
@@ -364,6 +379,26 @@ def _loop_metrics(
             events[-1]["opportunity_count"] = int(events[-1]["opportunity_count"]) + 1
             events[-1]["recovered"] = bool(events[-1]["recovered"]) or bool(
                 opportunity["recovered"]
+            )
+            if float(opportunity["reference_distance_m"]) < float(
+                events[-1]["minimum_reference_distance_m"]
+            ):
+                events[-1]["minimum_reference_distance_m"] = opportunity[
+                    "reference_distance_m"
+                ]
+                events[-1]["representative_current_stamp_s"] = opportunity[
+                    "current_stamp_s"
+                ]
+                events[-1]["representative_previous_stamp_s"] = opportunity[
+                    "previous_stamp_s"
+                ]
+            events[-1]["minimum_reference_yaw_delta_deg"] = min(
+                float(events[-1]["minimum_reference_yaw_delta_deg"]),
+                float(opportunity["reference_yaw_delta_deg"]),
+            )
+            events[-1]["maximum_reference_yaw_delta_deg"] = max(
+                float(events[-1]["maximum_reference_yaw_delta_deg"]),
+                float(opportunity["reference_yaw_delta_deg"]),
             )
 
     recovered_opportunities = sum(bool(item["recovered"]) for item in opportunities)
@@ -378,6 +413,13 @@ def _loop_metrics(
         "events_recovered": recovered_events,
         "event_recall": recovered_events / len(events) if events else None,
         "event_gap_s": config.loop_event_gap_s,
+        "radius_m": config.loop_radius_m,
+        "yaw_tolerance_deg": math.degrees(config.loop_yaw_tolerance_rad),
+        "heading_policy": (
+            "position_only_360_lidar"
+            if config.loop_yaw_tolerance_rad >= math.pi - 1e-9
+            else "directional_view"
+        ),
         "events": events,
         "opportunity_samples": opportunities,
         "mean_estimated_return_distance_m": (
@@ -528,6 +570,7 @@ def main() -> int:
     parser.add_argument("--rpe-delta", type=float, default=1.0)
     parser.add_argument("--segment-window", type=float, default=10.0)
     parser.add_argument("--loop-radius", type=float, default=0.50)
+    parser.add_argument("--loop-yaw-tolerance-deg", type=float, default=30.0)
     parser.add_argument("--loop-min-separation", type=float, default=10.0)
     parser.add_argument("--loop-event-gap", type=float, default=2.0)
     parser.add_argument("--loop-recovery-tolerance", type=float, default=0.50)
@@ -540,6 +583,7 @@ def main() -> int:
         rpe_delta_s=args.rpe_delta,
         segment_window_s=args.segment_window,
         loop_radius_m=args.loop_radius,
+        loop_yaw_tolerance_deg=args.loop_yaw_tolerance_deg,
         loop_min_separation_s=args.loop_min_separation,
         loop_event_gap_s=args.loop_event_gap,
         loop_recovery_tolerance_m=args.loop_recovery_tolerance,

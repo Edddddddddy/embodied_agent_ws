@@ -35,6 +35,14 @@ def _artifact(path: Path) -> dict[str, object]:
     }
 
 
+def _ground_truth_scope(sequence: str) -> str:
+    """Describe independence of the official trajectory without overstating it."""
+
+    if sequence.startswith("office"):
+        return "official OptiTrack motion capture"
+    return "official offline LiDAR-SLAM trajectory; not independent of LiDAR input"
+
+
 def build_manifest(
     *,
     workspace: Path,
@@ -166,7 +174,7 @@ def build_manifest(
         "checks": checks,
         "evidence_scope": {
             "dataset": "real_public_rosbag",
-            "ground_truth": "office OptiTrack",
+            "ground_truth": _ground_truth_scope(sequence),
             "fixture": False,
             "lossless_topic_subset": derived is not None,
             "claim_boundary": (
@@ -212,10 +220,13 @@ def build_manifest(
             "motion_classes": degradation["motion_classes"],
             "labelled_intervals": degradation["labelled_intervals"],
             **(
-                {
-                    "accepted_loop_constraints": loop_report["accepted_constraints"],
-                    "loop_event_recovery": loop_report["event_recovery"],
-                }
+                        {
+                            "accepted_loop_constraints": loop_report["accepted_constraints"],
+                            "loop_event_recovery": loop_report["event_recovery"],
+                            "loop_constraint_selection": loop_report.get(
+                                "constraint_selection"
+                            ),
+                        }
                 if loop_report is not None
                 else {}
             ),

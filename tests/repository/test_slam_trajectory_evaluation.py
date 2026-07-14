@@ -140,6 +140,14 @@ def test_adjacent_return_samples_are_clustered_into_one_revisit_event():
     assert report["loop"]["opportunities"] == 4
     assert report["loop"]["event_count"] == 2
     assert [item["opportunity_count"] for item in report["loop"]["events"]] == [2, 2]
+    assert all(
+        item["minimum_reference_distance_m"] <= 0.2
+        for item in report["loop"]["events"]
+    )
+    assert all(
+        item["representative_previous_stamp_s"] < item["representative_current_stamp_s"]
+        for item in report["loop"]["events"]
+    )
 
 
 def test_association_rejects_interpolation_across_a_large_gap():

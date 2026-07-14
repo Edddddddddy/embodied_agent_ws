@@ -49,6 +49,9 @@ def test_accepted_constraint_precision_and_event_recall_are_separate_metrics():
             "target_id": 0,
             "source_stamp_s": 10.0,
             "target_stamp_s": 0.0,
+            "relative_x_m": 0.0,
+            "relative_y_m": 0.0,
+            "relative_yaw_rad": 0.0,
         },
         {
             "constraint_kind": "loop",
@@ -57,6 +60,9 @@ def test_accepted_constraint_precision_and_event_recall_are_separate_metrics():
             "target_id": 0,
             "source_stamp_s": 8.0,
             "target_stamp_s": 0.0,
+            "relative_x_m": 0.0,
+            "relative_y_m": 0.0,
+            "relative_yaw_rad": 0.0,
         },
     ]
     config = MODULE.EVALUATOR.EvaluationConfig(
@@ -103,6 +109,71 @@ def test_loader_ignores_sequential_edges_and_rejects_malformed_rows(tmp_path):
     path.write_text("{}\n", encoding="utf-8")
     with pytest.raises(ValueError, match="invalid loop constraint"):
         MODULE.load_constraints(path)
+
+
+def test_frontend_trace_filters_id_gap_heuristic_to_native_closure_edges(tmp_path):
+    path = tmp_path / "constraints.jsonl"
+    rows = [
+        {
+            "constraint_kind": "loop",
+            "accepted": True,
+            "source_id": 1,
+            "target_id": 30,
+            "source_stamp_s": 1.0,
+            "target_stamp_s": 8.0,
+        },
+        {
+            "constraint_kind": "sequential",
+            "accepted": True,
+            "source_id": 9,
+            "target_id": 10,
+            "source_stamp_s": 0.0,
+            "target_stamp_s": 10.0,
+        },
+        {
+            "constraint_kind": "sequential",
+            "accepted": True,
+            "source_id": 0,
+            "target_id": 10,
+            "source_stamp_s": 0.0,
+            "target_stamp_s": 10.0,
+        },
+    ]
+    path.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
+    trace = tmp_path / "frontend.jsonl"
+    trace.write_text(
+        json.dumps({"event": "end_closure", "scan_index": 10}) + "\n"
+    )
+
+    accepted = MODULE.load_constraints(path, include_all_accepted=True)
+    selected = MODULE.select_frontend_confirmed_constraints(
+        accepted, MODULE.load_frontend_closure_scan_ids(trace)
+    )
+
+    assert [(item["source_id"], item["target_id"]) for item in selected] == [(0, 10)]
+
+
+def test_constraint_outside_ground_truth_coverage_is_reported_not_failed():
+    constraints = [
+        {
+            "source_id": 99,
+            "target_id": 1,
+            "source_stamp_s": 99.0,
+            "target_stamp_s": 1.0,
+        }
+    ]
+    config = MODULE.EVALUATOR.EvaluationConfig(
+        loop_radius_m=0.25,
+        loop_min_separation_s=8.0,
+        loop_sample_interval_s=1.0,
+        loop_event_gap_s=2.0,
+    )
+
+    report = MODULE.evaluate_constraints(_reference(), constraints, config=config)
+
+    assert report["passed"] is True
+    assert report["accepted_constraints"]["outside_reference_coverage"] == 1
+    assert report["accepted_constraints"]["unassociated"] == 0
 
 
 def test_ground_truth_revisit_catalog_does_not_claim_slam_recovery(tmp_path):
