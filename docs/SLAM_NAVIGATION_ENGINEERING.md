@@ -197,5 +197,8 @@ bash scripts/acceptance_test.sh openloris-slam-ab
   accepted 非局部图边为 0，不能作为“回环前端成功”的证据。
 - 已完成：玻璃/动态遮挡人工标注，以及 current-only、CV、Kalman、IMM 的跟踪器与
   Gazebo/Nav2 同场景消融。
-- 下一步：对真实回环前端做候选生成/阈值消融，并扩展跨序列 lifelong/relocalization；动态
-  障碍后续再评估带时间维的局部控制器，而不是继续堆叠二维 costmap 参数。
+- 已完成：真实 `office1-7` 的 6 组 accepted-edge 参数消融和可追溯 SLAM-only bag。即使将 chain
+  降到 1、coarse/fine response 降到 0.05、协方差上限放到 100，46 条 accepted edge 仍全为
+  相邻边，故失败边界位于 karto 候选生成/验证层，不能归因于 GTSAM。
+- 下一步：在 karto 前端记录候选 chain、coarse/fine response、variance 与拒绝原因，或扩展跨序列
+  lifelong/relocalization；动态障碍后续再评估带时间维的局部控制器。

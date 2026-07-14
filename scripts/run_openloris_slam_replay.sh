@@ -14,12 +14,12 @@ SEQUENCE="${OPENLORIS_SEQUENCE:-office1-1}"
 OUTPUT_DIR="${OPENLORIS_OUTPUT_DIR:-$WORKSPACE/logs/openloris/$SEQUENCE}"
 ROOT="${OPENLORIS_ROOT:-$WORKSPACE/datasets/openloris}"
 OPENLORIS_BAG="${OPENLORIS_BAG:-$ROOT/rosbag/$SEQUENCE/$SEQUENCE.bag}"
-if [[ ! -f "$OPENLORIS_BAG" ]]; then
+if [[ ! -e "$OPENLORIS_BAG" ]]; then
   echo "Missing $OPENLORIS_BAG" >&2
   echo "Run: bash scripts/acceptance_test.sh openloris-rosbag-setup" >&2
   exit 2
 fi
-PARAMS_FILE="$WORKSPACE/install/embodied_slam/share/embodied_slam/config/openloris_mapping_${BACKEND}.yaml"
+PARAMS_FILE="${OPENLORIS_PARAMS_FILE:-$WORKSPACE/install/embodied_slam/share/embodied_slam/config/openloris_mapping_${BACKEND}.yaml}"
 ESTIMATE="$OUTPUT_DIR/${BACKEND}_estimate.tum"
 REPORT="$OUTPUT_DIR/${BACKEND}_report.json"
 DEGRADATION="$OUTPUT_DIR/${BACKEND}_degradation.json"
@@ -47,6 +47,7 @@ if [[ ! -s "$BAG_SOURCE" ]]; then
 fi
 
 echo "[OpenLORIS] sequence=$SEQUENCE backend=$BACKEND bag=$OPENLORIS_BAG"
+echo "[OpenLORIS] params=$PARAMS_FILE"
 # Fast DDS 的默认端口公式只允许 domain 0..232；使用进程号取模隔离并发验收，
 # 同时拒绝外部传入的非法值，避免节点启动前出现含糊的 RTPS 端口错误。
 ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((120 + $$ % 80))}"
@@ -57,6 +58,7 @@ fi
 echo "[OpenLORIS] ROS_DOMAIN_ID=$ROS_DOMAIN_ID"
 # 回放器统一发布 /clock、隔离后的 TF 和 LaserScan；Ceres/GTSAM 仅替换后端插件，
 # 从而保证 A/B 的激光前端、输入消息顺序和评估器完全一致。
+SECONDS=0
 ROS_DOMAIN_ID="$ROS_DOMAIN_ID" \
 EMBODIED_SLAM_CONSTRAINT_LOG="$CONSTRAINT_LOG" \
 ros2 launch embodied_slam openloris_mapping.launch.py \
@@ -65,6 +67,8 @@ ros2 launch embodied_slam openloris_mapping.launch.py \
   startup_delay_s:="${OPENLORIS_STARTUP_DELAY_S:-5.0}" \
   output_path:="$ESTIMATE" use_rviz:="${OPENLORIS_USE_RVIZ:-false}" \
   2>&1 | tee "$LAUNCH_LOG"
+REPLAY_WALL_CLOCK_S="$SECONDS"
+echo "[OpenLORIS] replay_wall_clock_s=$REPLAY_WALL_CLOCK_S"
 
 pose_count="$(grep -cv '^#' "$ESTIMATE")"
 if (( pose_count < ${OPENLORIS_MIN_POSES:-100} )); then
@@ -133,6 +137,7 @@ python3 scripts/build_openloris_experiment_manifest.py \
   --params "$PARAMS_FILE" --estimate "$ESTIMATE" --report "$REPORT" \
   --degradation "$DEGRADATION" \
   --launch-log "$LAUNCH_LOG" --replay-rate "${OPENLORIS_REPLAY_RATE:-1.0}" \
+  --wall-clock-s "$REPLAY_WALL_CLOCK_S" \
   "${LOOP_MANIFEST_ARGS[@]}" \
   "${ANNOTATION_MANIFEST_ARGS[@]}" \
   --output "$MANIFEST"

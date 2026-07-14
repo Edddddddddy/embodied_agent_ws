@@ -42,6 +42,13 @@ def test_manifest_binds_dataset_commit_config_metrics_and_artifacts(tmp_path):
                 "bag_sha256": MODULE.sha256(bag),
                 "bag_size_bytes": 3,
                 "bag": str(bag.resolve()),
+                "derived": {
+                    "kind": "lossless_topic_subset",
+                    "selected_topics": ["/odom", "/scan", "/tf_static"],
+                    "message_counts": {"/odom": 10, "/scan": 10, "/tf_static": 1},
+                    "source_bag_sha256": "b" * 64,
+                    "tool_sha256": "c" * 64,
+                },
             }
         ),
     )
@@ -93,6 +100,7 @@ def test_manifest_binds_dataset_commit_config_metrics_and_artifacts(tmp_path):
         degradation_path=degradation,
         launch_log_path=launch_log,
         replay_rate=1.0,
+        wall_clock_s=42.0,
         annotations_path=annotations,
     )
     assert result["passed"] is True
@@ -100,6 +108,9 @@ def test_manifest_binds_dataset_commit_config_metrics_and_artifacts(tmp_path):
     assert result["artifacts"]["estimate"]["pose_count"] == 100
     assert result["configuration"]["solver_plugin"] == "solver_plugins::CeresSolver"
     assert result["checks"]["source_verification_declared"] is True
+    assert result["configuration"]["replay_wall_clock_s"] == 42.0
+    assert result["checks"]["derived_topic_subset_bound"] is True
+    assert result["evidence_scope"]["lossless_topic_subset"] is True
     assert result["configuration"]["semantic_annotations"]["sha256"] == MODULE.sha256(
         annotations
     )

@@ -150,6 +150,9 @@ OPENLORIS_RANGE_ONLY=true bash scripts/acceptance_test.sh openloris-rosbag-setup
 # 回环证据使用含 2 次真值回访的 office1-7，Range 下载约 1.43 GB。
 bash scripts/acceptance_test.sh openloris-loop-evidence
 
+# 本地重型实验：真实 office1-7 的 6 组 accepted-edge 前端阈值消融。
+bash scripts/acceptance_test.sh openloris-loop-sweep
+
 # 发布级来源审计再下载完整约 9.27 GB 归档。
 bash scripts/acceptance_test.sh openloris-rosbag-setup
 
@@ -167,6 +170,12 @@ bash scripts/acceptance_test.sh openloris-slam-ab
 `openloris-loop-evidence` 还要求生成 `revisit_catalog.json`、GTSAM accepted constraint JSONL 和
 `gtsam_loop_constraints.json`。最终轨迹回访恢复率与 accepted-edge event recall 必须分开讲：前者
 可以在没有非局部图边时仍然很高，不能据此宣称回环前端成功。
+
+`openloris-loop-sweep` 首次运行会从公开 bag 流式复制 `/odom`、`/scan`、`/tf_static`，生成带
+来源哈希的约 5 MB SLAM-only bag；后续可复用校验通过的 profile 结果。验收要求 6 组 manifest、
+参数哈希、bag 哈希和轨迹覆盖可比，并生成 `logs/openloris/office1-7/loop_sweep/comparison.json`。
+当前真实结果是 6 组均有 46 条相邻边、0 条非局部边、event recall 0；这是有效的失败边界证据，
+不是测试失败。完整候选 PR 曲线仍需在 karto 前端增加 rejected-candidate instrumentation。
 
 ### 动态障碍
 

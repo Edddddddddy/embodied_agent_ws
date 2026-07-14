@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "experiment": "office1-7 accepted-edge loop frontend sweep",
+  "controlled_variables": [
+    "OpenLORIS bag hash",
+    "GTSAM backend configuration",
+    "trajectory evaluator",
+    "revisit-event definition"
+  ],
+  "profiles": [
+    {
+      "id": "baseline",
+      "description": "Current conservative production configuration.",
+      "overrides": {}
+    },
+    {
+      "id": "short_chain",
+      "description": "Require five linked scans instead of eight before loop matching.",
+      "overrides": {
+        "loop_match_minimum_chain_size": 5
+      }
+    },
+    {
+      "id": "lower_response",
+      "description": "Lower coarse/fine response thresholds while retaining baseline search geometry.",
+      "overrides": {
+        "loop_match_minimum_response_coarse": 0.2,
+        "loop_match_minimum_response_fine": 0.3
+      }
+    },
+    {
+      "id": "wider_search",
+      "description": "Increase loop-neighbour and correlation search range without relaxing response thresholds.",
+      "overrides": {
+        "loop_search_maximum_distance": 6.0,
+        "loop_search_space_dimension": 10.0
+      }
+    },
+    {
+      "id": "permissive_combined",
+      "description": "Combine the three permissive changes to expose the false-loop boundary.",
+      "overrides": {
+        "loop_match_minimum_chain_size": 5,
+        "loop_match_minimum_response_coarse": 0.2,
+        "loop_match_minimum_response_fine": 0.3,
+        "loop_search_maximum_distance": 6.0,
+        "loop_search_space_dimension": 10.0
+      }
+    },
+    {
+      "id": "diagnostic_extreme",
+      "description": "Diagnostic-only boundary: one-scan chain, very low responses and loose covariance; never promoted to production automatically.",
+      "overrides": {
+        "loop_match_minimum_chain_size": 1,
+        "loop_match_maximum_variance_coarse": 100.0,
+        "loop_match_minimum_response_coarse": 0.05,
+        "loop_match_minimum_response_fine": 0.05,
+        "loop_search_maximum_distance": 2.0
+      }
+    }
+  ],
+  "claim_boundary": "slam_toolbox exposes only accepted constraints through ScanSolver; rejected scan-matcher candidates are not observable"
+}
