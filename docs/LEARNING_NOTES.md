@@ -972,6 +972,11 @@ sidecar 输出实际相似度。多人准确率仍需另建注册/查询数据�
 - `src/embodied_slam/src/gtsam_graph_optimize.cpp`
 - `scripts/run_gtsam_robust_kernel_ablation.py`
 - `scripts/run_gtsam_loop_consistency_ablation.sh`
+- `src/embodied_slam/include/embodied_slam/scan_overlap_validator.hpp`
+- `src/embodied_slam/src/scan_overlap_validator.cpp`
+- `scripts/augment_pose_graph_scan_overlap.py`
+- `scripts/run_gtsam_scan_overlap_ablation.py`
+- `scripts/run_gtsam_scan_overlap_ablation.sh`
 - `src/embodied_slam/config/openloris_loop_sweep.json`
 - `src/embodied_slam/config/openloris_office1_7_annotations.json`
 
@@ -1035,6 +1040,24 @@ non-local 启发式，不是 Karto closure 真值；这项优化降低错误边�
 23 条边，Cauchy ATE 从 1.2236 m 降到 1.1713 m。不过，强回环本来就是为了纠正累计漂移：若当前
 图错得超过阈值，硬门控会把最有价值的真回环拒掉。因此工程上采用“明显异常才硬拒绝、中等异常交给
 鲁棒核、默认关闭等待多序列验证”的分层策略，而不是把一次消融最优参数直接写成生产默认值。
+
+扫描重叠层用于给创新门控补充独立传感器证据。`scan_overlap_validator.cpp` 把 target scan 按约束
+相对位姿变换到 source 坐标系，并用栅格空间哈希做双向最近邻匹配；对比直接构造 N×M 距离矩阵，
+在线复杂度和临时内存更适合 C++ 回调。输入点不是 Karto 的 `GetPointReadings()` 缓存，因为该缓存
+已随 corrected pose 进入世界系；`gtsam_scan_solver.cpp::to_local_scan_points()` 从原始 range、角分辨率
+和 LaserRangeFinder offset 重建 base 局部点，避免重复应用位姿。
+
+离线 `augment_pose_graph_scan_overlap.py` 使用完全相同的坐标语义，但从 bag 的 `/scan + /tf_static`
+恢复局部点。它将 overlap 作为 pose graph v2 的可选字段，因此旧图仍可读、缺证据时运行时 fail-open；
+所有变体再由 `run_gtsam_scan_overlap_ablation.py` 读取同一增强图。与基于真值删除错误边相比，这个
+判定可在线部署，真值只用于最后 ATE/RPE 评价。与 Scan Context 等全局描述子相比，它不负责召回
+候选，只复核 Karto 已接受边，改动面更小但无法解决漏检。
+
+`corridor1-1` 的关键结论不是“重叠越高越好”：0.65 naive 门控删除 269 条边并在该序列得到较低
+ATE，但 0.50 阈值反而使 ATE 恶化 1.73%，说明单帧重叠会受走廊视场、chain matching 和阈值影响。
+工程默认采用更保守的双条件——只有平移创新 >1 m 且 overlap <0.65 才由重叠层额外拒绝；固定图
+只多删 11 条，ATE 从 1.1713 m 降到 1.1521 m。即便如此仍默认关闭，因为真正的生产阈值必须用
+多个不同场景验证，不能在一个公开序列上调参后宣称泛化。
 
 ## 15. 动态障碍运动模型与同场景消融
 

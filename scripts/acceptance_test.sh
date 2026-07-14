@@ -73,6 +73,7 @@ Automated modes:
   openloris-long-loop-evidence Verified corridor1-1 long-loop GTSAM/frontend experiment
   openloris-robust-kernel-ablation Re-optimize one fixed graph with none/Huber/Cauchy
   openloris-loop-consistency-ablation Reject geometrically inconsistent non-local graph edges
+  openloris-scan-overlap-ablation Validate accepted constraints with no-GT scan overlap evidence
   openloris-replay-stage Generate a tiny bag and replay it through Ceres/GTSAM SLAM
   openloris-bag-preflight Validate OPENLORIS_BAG topics, frames, and optional runtime
   openloris-slam-ceres Replay a real OpenLORIS bag through the Ceres backend
@@ -486,6 +487,9 @@ case "$LEVEL" in
     ;;
   openloris-loop-consistency-ablation)
     bash scripts/run_gtsam_loop_consistency_ablation.sh
+    ;;
+  openloris-scan-overlap-ablation)
+    bash scripts/run_gtsam_scan_overlap_ablation.sh
     ;;
   openloris-replay-stage)
     python3 -c 'import rosbags' || {

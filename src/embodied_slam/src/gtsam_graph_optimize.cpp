@@ -63,6 +63,17 @@ GraphSnapshot load_graph(const std::string & path)
           }
         }
       }
+      row >> std::ws;
+      if (!row.eof()) {
+        double overlap_ratio = 0.0;
+        if (!(row >> overlap_ratio) || !std::isfinite(overlap_ratio) || overlap_ratio < 0.0 ||
+          overlap_ratio > 1.0)
+        {
+          throw std::runtime_error(
+                  "invalid scan overlap ratio at line " + std::to_string(line_number));
+        }
+        constraint.scan_overlap_ratio = overlap_ratio;
+      }
       graph.constraints.push_back(constraint);
     } else {
       throw std::runtime_error("unknown graph row at line " + std::to_string(line_number));
@@ -127,10 +138,11 @@ bool parse_bool(const std::string & value)
 
 int main(int argc, char ** argv)
 {
-  if (argc != 8 && argc != 11) {
+  if (argc != 8 && argc != 11 && argc != 14) {
     std::cerr << "Usage: gtsam_graph_optimize GRAPH OUTPUT_TUM KERNEL K "
               << "LOOP_ONLY LOOP_ID_SEPARATION MAX_ITERATIONS "
-              << "[CONSISTENCY_GATE MAX_TRANSLATION_RESIDUAL_M MAX_YAW_RESIDUAL_RAD]\n";
+              << "[CONSISTENCY_GATE MAX_TRANSLATION_RESIDUAL_M MAX_YAW_RESIDUAL_RAD "
+              << "[SCAN_OVERLAP_GATE MIN_OVERLAP MIN_TRANSLATION_RESIDUAL_M]]\n";
     return 2;
   }
   try {
@@ -141,10 +153,15 @@ int main(int argc, char ** argv)
     config.robustify_loop_constraints_only = parse_bool(argv[5]);
     config.loop_constraint_min_id_separation = std::stoul(argv[6]);
     config.max_iterations = std::stoul(argv[7]);
-    if (argc == 11) {
+    if (argc >= 11) {
       config.enable_nonlocal_consistency_gate = parse_bool(argv[8]);
       config.max_nonlocal_translation_residual_m = std::stod(argv[9]);
       config.max_nonlocal_yaw_residual_rad = std::stod(argv[10]);
+    }
+    if (argc == 14) {
+      config.enable_scan_overlap_gate = parse_bool(argv[11]);
+      config.minimum_scan_overlap_ratio = std::stod(argv[12]);
+      config.scan_overlap_gate_min_translation_residual_m = std::stod(argv[13]);
     }
     const embodied_slam::PoseGraphResult result =
       embodied_slam::GtsamPoseGraphOptimizer(config).optimize(graph.poses, graph.constraints);
@@ -165,6 +182,18 @@ int main(int argc, char ** argv)
               << (config.enable_nonlocal_consistency_gate ? "true" : "false")
               << ",\"consistency_rejected_constraints\":"
               << result.consistency_rejected_constraints
+              << ",\"scan_overlap_gate\":"
+              << (config.enable_scan_overlap_gate ? "true" : "false")
+              << ",\"minimum_scan_overlap_ratio\":"
+              << config.minimum_scan_overlap_ratio
+              << ",\"scan_overlap_gate_min_translation_residual_m\":"
+              << config.scan_overlap_gate_min_translation_residual_m
+              << ",\"scan_overlap_evaluated_constraints\":"
+              << result.scan_overlap_evaluated_constraints
+              << ",\"scan_overlap_rejected_constraints\":"
+              << result.scan_overlap_rejected_constraints
+              << ",\"scan_overlap_unavailable_constraints\":"
+              << result.scan_overlap_unavailable_constraints
               << ",\"initial_error\":" << result.initial_error
               << ",\"final_error\":" << result.final_error
               << ",\"iterations\":" << result.iterations << "}\n";

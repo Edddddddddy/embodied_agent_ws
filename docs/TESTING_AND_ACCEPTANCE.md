@@ -160,6 +160,7 @@ bash scripts/acceptance_test.sh openloris-long-loop-evidence
 # 固定图后端鲁棒性与几何一致性门控；不重新回放 11 GB 原包。
 bash scripts/acceptance_test.sh openloris-robust-kernel-ablation
 bash scripts/acceptance_test.sh openloris-loop-consistency-ablation
+bash scripts/acceptance_test.sh openloris-scan-overlap-ablation
 
 # 发布级来源审计再下载完整约 9.27 GB 归档。
 bash scripts/acceptance_test.sh openloris-rosbag-setup
@@ -198,6 +199,12 @@ frontend trace 与 accepted-edge 报告均可解析。event recall 允许为 0�
 门控组可以少用约束，但必须同时报告 `constraints_used` 和 `consistency_rejected_constraints`；公平性
 检查比较的是不可变输入图，不会把主动拒绝异常边误判为换了数据。当前 2 m / π/4 门控拒绝 23 条边，
 但该数值只对 `corridor1-1` 构成证据，门控仍默认关闭。
+
+`openloris-scan-overlap-ablation` 还要求派生 bag、固定图和真值文件已存在。验收器先以时间戳关联
+`/scan`，从 `/tf_static` 求出 `laser -> base_link` 变换，再为全部 858 条非局部边写入可选 overlap
+字段。四组必须共享增强图 SHA256、1834/2751 图规模和 1828 个真值匹配位姿；任何门控组出现
+`scan_overlap_unavailable_constraints > 0` 都判失败。当前 0.65/1 m 双证据组额外拒绝 11 条边，
+但参数默认关闭，PASS 表示证据和公平性完整，不表示该阈值已跨场景泛化。
 
 ### 动态障碍
 

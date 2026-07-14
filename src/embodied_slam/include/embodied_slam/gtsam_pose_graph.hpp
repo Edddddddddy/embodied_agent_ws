@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -28,6 +29,7 @@ struct PoseGraphConstraint
   int target_id{0};
   Pose2d relative_pose;
   Eigen::Matrix3d covariance{Eigen::Matrix3d::Identity()};
+  std::optional<double> scan_overlap_ratio;
 };
 
 struct PoseGraphOptimizerConfig
@@ -41,6 +43,9 @@ struct PoseGraphOptimizerConfig
   bool enable_nonlocal_consistency_gate{false};
   double max_nonlocal_translation_residual_m{2.0};
   double max_nonlocal_yaw_residual_rad{0.7853981633974483};
+  bool enable_scan_overlap_gate{false};
+  double minimum_scan_overlap_ratio{0.65};
+  double scan_overlap_gate_min_translation_residual_m{1.0};
   double minimum_covariance_eigenvalue{1e-8};
 };
 
@@ -53,6 +58,9 @@ struct PoseGraphResult
   std::size_t constraints_used{0U};
   std::size_t robustified_constraints{0U};
   std::size_t consistency_rejected_constraints{0U};
+  std::size_t scan_overlap_evaluated_constraints{0U};
+  std::size_t scan_overlap_rejected_constraints{0U};
+  std::size_t scan_overlap_unavailable_constraints{0U};
 };
 
 class GtsamPoseGraphOptimizer

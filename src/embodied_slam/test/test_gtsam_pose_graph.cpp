@@ -159,4 +159,59 @@ TEST(GtsamPoseGraphOptimizer, ConsistencyGateKeepsAConsistentNonlocalEdge)
   EXPECT_EQ(result.robustified_constraints, 1U);
 }
 
+TEST(GtsamPoseGraphOptimizer, ScanOverlapGateRequiresBothSuspiciousInnovationAndLowOverlap)
+{
+  const std::unordered_map<int, Pose2d> initial = {
+    {0, {0.0, 0.0, 0.0}}, {10, {10.0, 0.0, 0.0}}, {20, {20.0, 0.0, 0.0}}};
+  auto low_overlap_suspicious = between(0, 10, 8.8);
+  low_overlap_suspicious.scan_overlap_ratio = 0.10;
+  auto low_overlap_consistent = between(10, 20, 9.5);
+  low_overlap_consistent.scan_overlap_ratio = 0.10;
+  auto high_overlap_suspicious = between(0, 20, 18.8);
+  high_overlap_suspicious.scan_overlap_ratio = 0.60;
+
+  PoseGraphOptimizerConfig config;
+  config.robust_kernel = RobustKernel::kCauchy;
+  config.robustify_loop_constraints_only = true;
+  config.loop_constraint_min_id_separation = 5U;
+  config.enable_scan_overlap_gate = true;
+  config.minimum_scan_overlap_ratio = 0.15;
+  config.scan_overlap_gate_min_translation_residual_m = 1.0;
+  const auto result = GtsamPoseGraphOptimizer(config).optimize(
+    initial, {low_overlap_suspicious, low_overlap_consistent, high_overlap_suspicious});
+
+  EXPECT_EQ(result.scan_overlap_evaluated_constraints, 3U);
+  EXPECT_EQ(result.scan_overlap_rejected_constraints, 1U);
+  EXPECT_EQ(result.scan_overlap_unavailable_constraints, 0U);
+  EXPECT_EQ(result.constraints_used, 2U);
+}
+
+TEST(GtsamPoseGraphOptimizer, MissingScanOverlapFailsOpenAndIsReported)
+{
+  const std::unordered_map<int, Pose2d> initial = {
+    {0, {0.0, 0.0, 0.0}}, {10, {10.0, 0.0, 0.0}}};
+  PoseGraphOptimizerConfig config;
+  config.loop_constraint_min_id_separation = 5U;
+  config.enable_scan_overlap_gate = true;
+  const auto result = GtsamPoseGraphOptimizer(config).optimize(
+    initial, {between(0, 10, 1.0)});
+
+  EXPECT_EQ(result.scan_overlap_unavailable_constraints, 1U);
+  EXPECT_EQ(result.scan_overlap_rejected_constraints, 0U);
+  EXPECT_EQ(result.constraints_used, 1U);
+}
+
+TEST(GtsamPoseGraphOptimizer, RejectsInvalidScanOverlapGateThresholds)
+{
+  PoseGraphOptimizerConfig config;
+  config.enable_scan_overlap_gate = true;
+  config.minimum_scan_overlap_ratio = 1.1;
+  EXPECT_THROW(
+    {
+      const GtsamPoseGraphOptimizer optimizer(config);
+      (void)optimizer;
+    },
+    std::invalid_argument);
+}
+
 }  // namespace embodied_slam
