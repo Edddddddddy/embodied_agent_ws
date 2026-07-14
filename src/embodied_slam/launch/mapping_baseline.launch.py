@@ -100,6 +100,18 @@ def generate_launch_description():
             "slam_params_file": params_file,
         }.items(),
     )
+    # 回环候选组件与 slam_toolbox 并行旁路运行；输出仅用于诊断和后续几何验证，
+    # 不直接修改 Ceres/GTSAM 位姿图，因此不会改变现有建图基线。
+    lidar_loop_candidates = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(slam_share, "launch", "lidar_loop_candidate.launch.py")
+        ),
+        launch_arguments={
+            "use_sim_time": "true",
+            "autostart": "true",
+        }.items(),
+        condition=IfCondition(LaunchConfiguration("enable_loop_candidate_shadow")),
+    )
     rviz = Node(
         package="rviz2",
         executable="rviz2",
@@ -116,6 +128,9 @@ def generate_launch_description():
             DeclareLaunchArgument("headless", default_value="true"),
             DeclareLaunchArgument("auto_drive", default_value="true"),
             DeclareLaunchArgument("use_rviz", default_value="false"),
+            DeclareLaunchArgument(
+                "enable_loop_candidate_shadow", default_value="true"
+            ),
             DeclareLaunchArgument("robot_name", default_value="turtlebot3_waffle"),
             DeclareLaunchArgument(
                 "robot_sdf",
@@ -131,6 +146,7 @@ def generate_launch_description():
             robot_state_publisher,
             drift_injector,
             slam_toolbox,
+            lidar_loop_candidates,
             closed_loop_driver,
             rviz,
         ]

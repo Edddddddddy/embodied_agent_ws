@@ -95,6 +95,7 @@
 | 离线 E2E Lifecycle 就绪探针 | 修复 Agent 已激活但 smoke 仍等待旧 `ready` 日志直至超时 | 复用 Lifecycle `GetState` 服务，以只读 wait policy 等待 active；Lifecycle manager 保持唯一转换者，当前真实模型 fixture 整轮 1428.6 ms |
 | LiDAR 回环候选检索 | 补齐“后端门控只能复核已接受边、无法度量前端漏检”的证据缺口 | 新增 C++ 极坐标环键 Top-K 与循环偏航对齐；两条 OpenLORIS 序列 Recall@10 为 33.51%/62.75%、事件召回 4/4，但低 precision 使发布决策限定为 shadow scan matcher，不直接插图 |
 | LiDAR 影子扫描匹配 | 验证 Top-K 候选能否形成安全相对位姿，而不是把检索命中误写成回环边 | 新增 C++17 多初值粗到细 trimmed ICP、走廊半周歧义检测、里程计偏航先验与多序列 release gate；平均 accepted precision 21.10%、事件恢复 1/4，因此保持 shadow-only，禁止直接插图 |
+| LiDAR 在线候选组件 | 将离线候选算法接入实际建图数据流，同时隔离低精度算法风险 | 新增 typed candidate msg、C++ 深模块、Lifecycle/component、`/scan` Adapter 与 DDS 烟测；默认随建图旁路运行，固定 `shadow_only=true`，不写位姿图 |
 
 ## 2. 当前完成度结论
 

@@ -78,6 +78,7 @@ Automated modes:
   openloris-lidar-loop-candidates Evaluate C++ LiDAR loop retrieval on two real sequences
   openloris-lidar-shadow-matches Evaluate C++ shadow scan matching on two real sequences
   openloris-lidar-submap-ablation Compare scan-to-scan and local-submap shadow matching
+  lidar-loop-runtime  Lifecycle LaserScan -> typed shadow loop-candidate smoke
   openloris-replay-stage Generate a tiny bag and replay it through Ceres/GTSAM SLAM
   openloris-bag-preflight Validate OPENLORIS_BAG topics, frames, and optional runtime
   openloris-slam-ceres Replay a real OpenLORIS bag through the Ceres backend
@@ -506,6 +507,10 @@ case "$LEVEL" in
     ;;
   openloris-lidar-submap-ablation)
     bash scripts/run_openloris_lidar_submap_ablation.sh
+    ;;
+  lidar-loop-runtime)
+    colcon build --packages-up-to embodied_slam --symlink-install
+    bash scripts/smoke_test_lidar_loop_runtime.sh
     ;;
   openloris-replay-stage)
     python3 -c 'import rosbags' || {

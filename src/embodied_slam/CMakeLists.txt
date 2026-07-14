@@ -8,12 +8,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(ament_cmake REQUIRED)
 find_package(Boost REQUIRED COMPONENTS serialization thread)
 find_package(diagnostic_msgs REQUIRED)
+find_package(embodied_agent_interfaces REQUIRED)
 find_package(embodied_agent_middleware REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(GTSAM REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_components REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(slam_toolbox REQUIRED)
@@ -26,6 +28,7 @@ add_library(embodied_slam_core
   src/closed_loop_controller.cpp
   src/drift_model.cpp
   src/lidar_loop_descriptor.cpp
+  src/lidar_loop_runtime.cpp
   src/lidar_scan_corpus.cpp
   src/lidar_scan_matcher.cpp
   src/lidar_submap_builder.cpp
@@ -66,6 +69,18 @@ target_link_libraries(lidar_loop_candidates embodied_slam_core)
 add_executable(lidar_shadow_scan_match src/lidar_shadow_scan_match.cpp)
 target_link_libraries(lidar_shadow_scan_match embodied_slam_core)
 
+add_library(lidar_loop_candidate_component SHARED src/lidar_loop_candidate_node.cpp)
+target_link_libraries(lidar_loop_candidate_component embodied_slam_core)
+ament_target_dependencies(lidar_loop_candidate_component
+  embodied_agent_interfaces embodied_agent_middleware rclcpp rclcpp_components
+  rclcpp_lifecycle sensor_msgs)
+rclcpp_components_register_nodes(
+  lidar_loop_candidate_component "embodied_slam::LidarLoopCandidateNode")
+
+add_executable(lidar_loop_candidate_node src/lidar_loop_candidate_main.cpp)
+target_link_libraries(lidar_loop_candidate_node lidar_loop_candidate_component)
+ament_target_dependencies(lidar_loop_candidate_node rclcpp rclcpp_lifecycle)
+
 add_executable(odom_drift_injector_node src/odom_drift_injector_node.cpp)
 target_link_libraries(odom_drift_injector_node embodied_slam_core)
 ament_target_dependencies(odom_drift_injector_node
@@ -102,6 +117,8 @@ install(TARGETS
   gtsam_graph_optimize
   lidar_loop_candidates
   lidar_shadow_scan_match
+  lidar_loop_candidate_component
+  lidar_loop_candidate_node
   odom_drift_injector_node
   closed_loop_driver_node
   instrumented_async_slam_toolbox_node
@@ -131,6 +148,8 @@ if(BUILD_TESTING)
   target_link_libraries(test_loop_frontend_diagnostics embodied_slam_core)
   ament_add_gtest(test_lidar_loop_descriptor test/test_lidar_loop_descriptor.cpp)
   target_link_libraries(test_lidar_loop_descriptor embodied_slam_core)
+  ament_add_gtest(test_lidar_loop_runtime test/test_lidar_loop_runtime.cpp)
+  target_link_libraries(test_lidar_loop_runtime embodied_slam_core)
   ament_add_gtest(test_lidar_scan_matcher test/test_lidar_scan_matcher.cpp)
   target_link_libraries(test_lidar_scan_matcher embodied_slam_core)
   ament_add_gtest(test_lidar_submap_builder test/test_lidar_submap_builder.cpp)
