@@ -25,10 +25,13 @@ REPORT="$OUTPUT_DIR/${BACKEND}_report.json"
 DEGRADATION="$OUTPUT_DIR/${BACKEND}_degradation.json"
 LAUNCH_LOG="$OUTPUT_DIR/${BACKEND}_replay.log"
 MANIFEST="$OUTPUT_DIR/${BACKEND}_manifest.json"
+CONSTRAINT_LOG="$OUTPUT_DIR/${BACKEND}_constraints.jsonl"
+LOOP_REPORT="$OUTPUT_DIR/${BACKEND}_loop_constraints.json"
 CONTRACT="$OUTPUT_DIR/bag_contract.json"
 BAG_SOURCE="${OPENLORIS_BAG_SOURCE:-$(dirname "$OPENLORIS_BAG")/source.json}"
 REFERENCE="$ROOT/groundtruth/$SEQUENCE/groundtruth.txt"
 mkdir -p "$OUTPUT_DIR"
+rm -f "$CONSTRAINT_LOG" "$LOOP_REPORT"
 
 python3 -c "import rosbags" || {
   echo "Missing rosbags; run: pip install -r requirements-slam-eval.txt" >&2
@@ -54,7 +57,9 @@ fi
 echo "[OpenLORIS] ROS_DOMAIN_ID=$ROS_DOMAIN_ID"
 # 回放器统一发布 /clock、隔离后的 TF 和 LaserScan；Ceres/GTSAM 仅替换后端插件，
 # 从而保证 A/B 的激光前端、输入消息顺序和评估器完全一致。
-ROS_DOMAIN_ID="$ROS_DOMAIN_ID" ros2 launch embodied_slam openloris_mapping.launch.py \
+ROS_DOMAIN_ID="$ROS_DOMAIN_ID" \
+EMBODIED_SLAM_CONSTRAINT_LOG="$CONSTRAINT_LOG" \
+ros2 launch embodied_slam openloris_mapping.launch.py \
   bag_path:="$OPENLORIS_BAG" params_file:="$PARAMS_FILE" \
   replay_rate:="${OPENLORIS_REPLAY_RATE:-1.0}" \
   startup_delay_s:="${OPENLORIS_STARTUP_DELAY_S:-5.0}" \
@@ -94,13 +99,46 @@ if [[ -n "${OPENLORIS_ANNOTATIONS:-}" ]]; then
   DEGRADATION_ARGS+=(--annotations "$OPENLORIS_ANNOTATIONS")
 fi
 python3 scripts/analyze_slam_degradation.py "${DEGRADATION_ARGS[@]}"
+if [[ "$BACKEND" == "gtsam" && "${OPENLORIS_EVALUATE_LOOP_CONSTRAINTS:-false}" == "true" ]]; then
+  if [[ ! -s "$CONSTRAINT_LOG" ]]; then
+    echo "FAIL: missing accepted-constraint evidence: $CONSTRAINT_LOG" >&2
+    exit 1
+  fi
+  LOOP_ARGS=(
+    --reference "$REFERENCE" --constraints "$CONSTRAINT_LOG" --output "$LOOP_REPORT"
+    --timestamp-tolerance "${SLAM_MAX_TIME_DIFF_S:-0.05}"
+    --loop-radius "${SLAM_LOOP_RADIUS_M:-0.50}"
+    --loop-min-separation "${SLAM_LOOP_MIN_SEPARATION_S:-10.0}"
+    --loop-event-gap "${SLAM_LOOP_EVENT_GAP_S:-2.0}"
+  )
+  if [[ -n "${SLAM_MIN_LOOP_PRECISION:-}" ]]; then
+    LOOP_ARGS+=(--min-precision "$SLAM_MIN_LOOP_PRECISION")
+  fi
+  if [[ -n "${SLAM_MIN_LOOP_EVENT_RECALL:-}" ]]; then
+    LOOP_ARGS+=(--min-event-recall "$SLAM_MIN_LOOP_EVENT_RECALL")
+  fi
+  python3 scripts/evaluate_loop_constraints.py "${LOOP_ARGS[@]}"
+fi
+LOOP_MANIFEST_ARGS=()
+if [[ -s "$LOOP_REPORT" ]]; then
+  LOOP_MANIFEST_ARGS+=(--constraint-log "$CONSTRAINT_LOG" --loop-report "$LOOP_REPORT")
+fi
+ANNOTATION_MANIFEST_ARGS=()
+if [[ -n "${OPENLORIS_ANNOTATIONS:-}" ]]; then
+  ANNOTATION_MANIFEST_ARGS+=(--annotations "$OPENLORIS_ANNOTATIONS")
+fi
 python3 scripts/build_openloris_experiment_manifest.py \
   --workspace "$WORKSPACE" --sequence "$SEQUENCE" --backend "$BACKEND" \
   --bag "$OPENLORIS_BAG" --bag-source "$BAG_SOURCE" --contract "$CONTRACT" \
   --params "$PARAMS_FILE" --estimate "$ESTIMATE" --report "$REPORT" \
   --degradation "$DEGRADATION" \
   --launch-log "$LAUNCH_LOG" --replay-rate "${OPENLORIS_REPLAY_RATE:-1.0}" \
+  "${LOOP_MANIFEST_ARGS[@]}" \
+  "${ANNOTATION_MANIFEST_ARGS[@]}" \
   --output "$MANIFEST"
 
 echo "PASS: OpenLORIS $BACKEND replay/evaluation"
 echo "Evidence: $ESTIMATE $REPORT $DEGRADATION $LAUNCH_LOG $MANIFEST"
+if [[ -s "$LOOP_REPORT" ]]; then
+  echo "Loop evidence: $CONSTRAINT_LOG $LOOP_REPORT"
+fi

@@ -70,6 +70,7 @@
 | 公开数据 SLAM 评估层 | 把仿真闭环指标升级为可复用的真实轨迹评价工具 | 新增 ROS 1/2 bag Adapter、OpenLORIS 真值校验、固定尺度 SE(2) 对齐、ATE/RPE/回访/退化段报告和无下载 CI 门禁 |
 | OpenLORIS 双后端回放 | 让公开 bag 直接驱动项目 SLAM，而不只导出 odom | 新增单调时钟、隔离 TF、重复帧过滤、map-frame recorder、Ceres/GTSAM 真实 A/B 入口和小 bag 双后端门禁 |
 | OpenLORIS 实验可复现性 | 让大型公开数据和精度数字具备来源链 | 新增断点续传/哈希/安全解包、运动退化分段、人工标注边界和 commit/config/artifact manifest |
+| OpenLORIS 真实回访证据 | 区分“轨迹回到附近”与“前端实际接受回环” | 选择 `office1-7`，按 tar 成员 range 下载并双哈希；新增真值事件聚合、GTSAM accepted-edge 日志和 false-loop/event-recall 报告 |
 | DDS domain 上界护栏 | 避免 PID 取模生成 Fast DDS 无法映射端口的 domain | 修正连续语音/Nav2/OpenLORIS 等 6 个入口，并用仓库测试保证所有公式最大值不超过 232 |
 | 系统就绪状态收敛 | 替代 launch/test 中分散的固定 sleep、topic graph 猜测和日志字符串判断 | 新增 `ComponentHealth`、`SystemReadiness`、心跳超时聚合器和 profile 化启动门禁；保留音频/仿真数据质量探针 |
 | Agent 参数与 launch 契约收敛 | 消除 online/offline 节点、YAML、Gazebo/Nav2 launch 中重复默认值和转发映射 | 新增共享参数 schema、ROS range/enum 描述、启动前校验、只读快照与组合 launch 转发契约；provider YAML 仅保留模型配置 |
@@ -204,8 +205,11 @@ bash scripts/acceptance_test.sh continuous-live-check offline
 - 已补齐 OpenLORIS ROS 1 bag 的 ROS 2 `/clock`/TF/LaserScan 流式 Adapter、轨迹 recorder、
   Ceres/GTSAM 公平 A/B、fixture 门禁和 `office1-1` 实验报告；当前 322 个对齐位姿、
   99.65% 覆盖率，Ceres/GTSAM ATE RMSE 为 2.879/2.890 cm。
-- 下一步选择含真实回访事件的更长序列，补回环 precision/recall 与退化片段人工标签；
-  当前 27 秒片段没有回访事件，不能用于证明回环能力。
+- 已选择 `office1-7` 补齐 2 次真值回访事件、449 个对齐位姿和 accepted-edge 证据；
+  Ceres/GTSAM ATE RMSE 为 9.996/9.989 cm。最终轨迹事件恢复为 2/2，但实际非局部 accepted
+  loop 为 0，因此尚不能宣称前端回环成功。
+- 已用视觉联络表人工标注玻璃隔断与动态人员遮挡；画面不支持长走廊标签，已显式保留 negative
+  evidence。下一步做前端回环阈值消融，并扩展到更长的跨序列 lifelong/relocalization 实验。
 - 对动态障碍 current-only、常速度、Kalman/IMM 预测做相同场景消融。
 - 继续细分 Nav2 planner/controller/behavior tree 失败原因和恢复行为指标。
 

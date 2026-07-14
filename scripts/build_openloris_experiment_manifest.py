@@ -49,6 +49,9 @@ def build_manifest(
     degradation_path: Path,
     launch_log_path: Path,
     replay_rate: float,
+    constraint_log_path: Path | None = None,
+    loop_report_path: Path | None = None,
+    annotations_path: Path | None = None,
 ) -> dict[str, object]:
     """Validate evidence relationships and freeze configuration plus provenance."""
 
@@ -66,11 +69,26 @@ def build_manifest(
     ):
         if not path.is_file() or path.stat().st_size == 0:
             raise FileNotFoundError(path)
+    if (constraint_log_path is None) != (loop_report_path is None):
+        raise ValueError("constraint log and loop report must be provided together")
+    if constraint_log_path is not None and loop_report_path is not None:
+        for path in (constraint_log_path, loop_report_path):
+            if not path.is_file() or path.stat().st_size == 0:
+                raise FileNotFoundError(path)
+    if annotations_path is not None and (
+        not annotations_path.is_file() or annotations_path.stat().st_size == 0
+    ):
+        raise FileNotFoundError(annotations_path)
 
     source = json.loads(bag_source.read_text(encoding="utf-8"))
     contract = json.loads(contract_path.read_text(encoding="utf-8"))
     report = json.loads(report_path.read_text(encoding="utf-8"))
     degradation = json.loads(degradation_path.read_text(encoding="utf-8"))
+    loop_report = (
+        json.loads(loop_report_path.read_text(encoding="utf-8"))
+        if loop_report_path is not None
+        else None
+    )
     launch_log = launch_log_path.read_text(encoding="utf-8", errors="replace")
     params_text = params_path.read_text(encoding="utf-8")
     pose_count = sum(
@@ -108,6 +126,8 @@ def build_manifest(
         "source_verification_declared": source_verification
         in {"full_size_and_sha256", "pinned_https_range_not_full_hash"},
     }
+    if loop_report is not None:
+        checks["loop_constraint_report_passed"] = bool(loop_report.get("passed"))
     return {
         "schema_version": 1,
         "passed": all(checks.values()),
@@ -140,6 +160,10 @@ def build_manifest(
             "replay_rate": replay_rate,
             "params": _artifact(params_path),
             "evaluation": report["methodology"],
+            "accepted_loop_constraint_evaluation": loop_report is not None,
+            "semantic_annotations": (
+                _artifact(annotations_path) if annotations_path is not None else None
+            ),
         },
         "metrics": {
             "association": report["association"],
@@ -151,6 +175,14 @@ def build_manifest(
             "worst_segment": report["worst_segment"],
             "motion_classes": degradation["motion_classes"],
             "labelled_intervals": degradation["labelled_intervals"],
+            **(
+                {
+                    "accepted_loop_constraints": loop_report["accepted_constraints"],
+                    "loop_event_recovery": loop_report["event_recovery"],
+                }
+                if loop_report is not None
+                else {}
+            ),
         },
         "artifacts": {
             "bag_contract": _artifact(contract_path),
@@ -158,6 +190,14 @@ def build_manifest(
             "report": _artifact(report_path),
             "degradation_report": _artifact(degradation_path),
             "launch_log": _artifact(launch_log_path),
+            **(
+                {
+                    "accepted_constraint_log": _artifact(constraint_log_path),
+                    "loop_constraint_report": _artifact(loop_report_path),
+                }
+                if constraint_log_path is not None and loop_report_path is not None
+                else {}
+            ),
         },
     }
 
@@ -178,6 +218,9 @@ def main() -> int:
     parser.add_argument("--degradation", type=Path, required=True)
     parser.add_argument("--launch-log", type=Path, required=True)
     parser.add_argument("--replay-rate", type=float, required=True)
+    parser.add_argument("--constraint-log", type=Path)
+    parser.add_argument("--loop-report", type=Path)
+    parser.add_argument("--annotations", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     manifest = build_manifest(
@@ -193,6 +236,9 @@ def main() -> int:
         degradation_path=args.degradation,
         launch_log_path=args.launch_log,
         replay_rate=args.replay_rate,
+        constraint_log_path=args.constraint_log,
+        loop_report_path=args.loop_report,
+        annotations_path=args.annotations,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(

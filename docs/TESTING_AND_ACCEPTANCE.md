@@ -147,6 +147,9 @@ bash scripts/acceptance_test.sh openloris-replay-stage
 # 推荐先用约 1.25 GB 的首序列快速模式完成真实数据闭环。
 OPENLORIS_RANGE_ONLY=true bash scripts/acceptance_test.sh openloris-rosbag-setup
 
+# 回环证据使用含 2 次真值回访的 office1-7，Range 下载约 1.43 GB。
+bash scripts/acceptance_test.sh openloris-loop-evidence
+
 # 发布级来源审计再下载完整约 9.27 GB 归档。
 bash scripts/acceptance_test.sh openloris-rosbag-setup
 
@@ -160,6 +163,10 @@ bash scripts/acceptance_test.sh openloris-slam-ab
 最差窗口、终点漂移、回访恢复率、运动类别误差和两个 manifest 的哈希来源。验收报告必须保留
 `archive_verification`，不能把 Range 快速模式表述为完整归档 SHA256 已验证。方法见
 [REAL_WORLD_SLAM_EVALUATION.md](REAL_WORLD_SLAM_EVALUATION.md)。
+
+`openloris-loop-evidence` 还要求生成 `revisit_catalog.json`、GTSAM accepted constraint JSONL 和
+`gtsam_loop_constraints.json`。最终轨迹回访恢复率与 accepted-edge event recall 必须分开讲：前者
+可以在没有非局部图边时仍然很高，不能据此宣称回环前端成功。
 
 ### 动态障碍
 
@@ -300,5 +307,6 @@ CLEANUP_CONFIRM=true bash scripts/cleanup_simulation_processes.sh
 - 自动 mock、真实模型、Gazebo、真实麦克风和公开 rosbag 是五类不同证据，不能相互替代。
 - 当前真实硬件是 Adapter/mock；Gazebo PASS 不等于 UART/SPI 实机 PASS。
 - LoRA 流水线 dry-run 不等于已训练并达到准确率。
-- OpenLORIS 小 fixture 只验证接口；当前真实指标只覆盖 `office1-1`，不能外推到其他场景或回环能力。
+- OpenLORIS 小 fixture 只验证接口；真实指标目前覆盖 `office1-1` 与 `office1-7`，仍不能外推到
+  其他场景。`office1-7` 当前 accepted 非局部回环为 0，不能宣称已证明前端回环能力。
 - 完整功能完成后再 push/开 PR 触发 GitHub CI，避免为文档碎片频繁运行 CI。

@@ -40,20 +40,42 @@ def test_compare_rejects_different_replay_windows():
 
 def test_compare_reports_motion_class_deltas_without_preselecting_backend():
     degradation = {
+        "passed": True,
         "motion_classes": {
             "straight": {"samples": 20, "ate_rmse_m": 0.10},
             "turning": {"samples": 10, "ate_rmse_m": 0.20},
             "stationary": {"samples": 5, "ate_rmse_m": 0.05},
-        }
+        },
+        "labelled_intervals": [
+            {
+                "label": "dynamic_occlusion",
+                "start_s": 12.0,
+                "end_s": 16.0,
+                "samples": 4,
+                "ate_rmse_m": 0.30,
+            }
+        ],
     }
     gtsam_degradation = {
+        "passed": True,
         "motion_classes": {
             "straight": {"samples": 20, "ate_rmse_m": 0.08},
             "turning": {"samples": 10, "ate_rmse_m": 0.25},
             "stationary": {"samples": 5, "ate_rmse_m": 0.05},
-        }
+        },
+        "labelled_intervals": [
+            {
+                "label": "dynamic_occlusion",
+                "start_s": 12.0,
+                "end_s": 16.0,
+                "samples": 4,
+                "ate_rmse_m": 0.25,
+            }
+        ],
     }
     result = MODULE.compare(_report(), _report(), degradation, gtsam_degradation)
     assert result["passed"] is True
     assert result["motion_classes"]["straight"]["gtsam_minus_ceres_m"] == -0.02
     assert result["motion_classes"]["turning"]["gtsam_minus_ceres_m"] == 0.05
+    assert result["labelled_intervals"][0]["label"] == "dynamic_occlusion"
+    assert result["labelled_intervals"][0]["gtsam_minus_ceres_m"] == -0.05

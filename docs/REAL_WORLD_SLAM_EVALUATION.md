@@ -23,6 +23,9 @@ OpenLORIS ROS 1 bag (/odom + /scan + /tf_static)
 | `scripts/setup_openloris_groundtruth.py` | 下载、SHA256 校验、按序列安全解压真值 |
 | `scripts/setup_openloris_rosbag.py` | 断点续传、固定对象校验、只提取指定 bag、记录来源 |
 | `scripts/evaluate_slam_trajectory.py` | 时间同步、SE(2) 对齐、指标与报告 |
+| `scripts/analyze_openloris_revisits.py` | 从独立真值聚合回访事件，先验证序列是否适合回环实验 |
+| `scripts/evaluate_loop_constraints.py` | accepted 非局部图边的 precision、false-loop 与事件 recall |
+| `scripts/extract_openloris_review_frames.py` | 稀疏提取 RGB 联络表，辅助人工标注走廊/动态遮挡区间 |
 | `scripts/analyze_slam_degradation.py` | 共享同一对齐，按直行/转弯/静止及人工标注区间拆分误差 |
 | `scripts/build_openloris_experiment_manifest.py` | 绑定 bag/配置/commit/指标/日志哈希 |
 | `scripts/compare_openloris_backends.py` | 检查 A/B 输入可比性并描述指标差异 |
@@ -66,8 +69,12 @@ commit cbc03108723d08322b23d0338680bffa9404cce9
 ```
 
 ```bash
-# 快速取得 office1-1：只下载首个 tar 成员，约 1.25 GB。
+# 快速取得 office1-1：约 1.25 GB。
 OPENLORIS_RANGE_ONLY=true bash scripts/acceptance_test.sh openloris-rosbag-setup
+
+# 直接取得含回访事件的 office1-7：约 1.43 GB，不下载前六个成员。
+OPENLORIS_SEQUENCE=office1-7 OPENLORIS_RANGE_ONLY=true \
+  bash scripts/acceptance_test.sh openloris-rosbag-setup
 
 # 完整来源审计：下载并校验整个 9.27 GB 归档。
 bash scripts/acceptance_test.sh openloris-rosbag-setup
@@ -86,6 +93,8 @@ bash scripts/acceptance_test.sh openloris-rosbag-setup
 ```text
 office1-1 range sha256 c637329c32caa00561419cdce8d04bc7e659cf5edcdc3a6b8f220791210f3c52
 office1-1 bag   sha256 d18e335a34dc25b6f26df911886bdefbeeeacd41620c0ea525fe0314ea9f7a65
+office1-7 range sha256 da2abbacc4a4c200890c8128186b677d0c3b0a7de6a66a2d7095c656ff0e4b6b
+office1-7 bag   sha256 23f443c33353e4059b5d108ca099d452550954613b8af1b02e8159fb147af3ca
 ```
 
 ## 3. rosbag 回放 Adapter
@@ -138,6 +147,11 @@ Adapter 的关键处理：
 对应两帧是否也在恢复容差内。它是“真值回访恢复率”，不是 scan descriptor 的候选
 precision/recall；要评价前端候选质量，还需额外记录每个候选、匹配分数和人工真值标签。
 
+本项目进一步在 GTSAM `ScanSolver::AddConstraint` Adapter 记录前端已经接受的图边。ID 间隔小于
+阈值的局部链约束与非局部 loop 分开写入 JSONL，再用独立真值评价 accepted-edge precision、
+false-loop rate 和事件 recall。该 API 看不到 scan matcher 已拒绝的所有候选，因此报告明确限定为
+“accepted constraint 质量”，不声称完成了全候选阈值曲线。
+
 ## 5. 使用方法
 
 无外部数据的算法门禁：
@@ -159,6 +173,9 @@ OPENLORIS_BAG=/data/openloris/office1-1.bag \
 OPENLORIS_SEQUENCE=office1-1 \
 OPENLORIS_REPLAY_RATE=1.0 \
   bash scripts/acceptance_test.sh openloris-slam-ab
+
+# 推荐的回访证据入口：默认 office1-7。
+bash scripts/acceptance_test.sh openloris-loop-evidence
 ```
 
 若使用默认 `datasets/openloris`，完成 setup 后可省略 `OPENLORIS_BAG`。每个后端结束时还会生成
@@ -176,6 +193,9 @@ logs/openloris/office1-1/{ceres,gtsam}_degradation.{json,md}
 logs/openloris/office1-1/{ceres,gtsam}_replay.log
 logs/openloris/office1-1/{ceres,gtsam}_manifest.json
 logs/openloris/office1-1/backend_comparison.json
+logs/openloris/office1-7/revisit_catalog.json
+logs/openloris/office1-7/gtsam_constraints.jsonl
+logs/openloris/office1-7/gtsam_loop_constraints.json
 ```
 
 `compare_openloris_backends.py` 只在样本窗和时间覆盖可比时通过，不写死 GTSAM 或 Ceres 必须获胜。
@@ -184,6 +204,10 @@ logs/openloris/office1-1/backend_comparison.json
 退化报告的 `straight/turning/stationary` 来自真值运动学，只回答“哪种运动状态误差更大”，
 不能自动等同为“长走廊/玻璃/动态遮挡”。这些语义必须通过 `OPENLORIS_ANNOTATIONS` 提供人工
 复核的时间区间；没有标注时报告会明确令 `dynamic_occlusion_evidence.available=false`。
+
+原始 office bag 同时含高带宽 RGB/Depth。即使 `rosbags` 只反序列化 SLAM topic，也仍可能需要
+扫描和解压包含图像的数据块，所以 38 秒 bag 的墙钟回放可达数分钟。后续性能优化应先生成只含
+`/scan`、`/odom`、`/tf_static` 的派生轻量 bag，并在 manifest 中绑定原包与派生包哈希。
 
 ### 5.1 当前真实运行结果
 
@@ -202,6 +226,30 @@ ATE 差值只有 0.105 mm，按比较器预设 1% 容差判定为平局。该短
 回访机会，`loop.recall=null`；没有人工动态遮挡标注，相关证据也为 unavailable。因此可以讲
 “真实 bag 回放与精度评价已闭环”，不能讲“已在此序列证明回环或动态遮挡优化有效”。
 
+### 5.2 `office1-7` 回访与 accepted-edge 实测
+
+2026-07-14 使用固定 range/bag SHA256 对 `office1-7` 完成同前端 A/B：
+
+| 指标 | Ceres | GTSAM |
+| --- | ---: | ---: |
+| 匹配位姿 / 时间覆盖 | 449 / 99.753% | 449 / 99.753% |
+| ATE XY RMSE | 0.099962 m | 0.099885 m |
+| 1 s RPE 平移 RMSE | 0.055384 m | 0.055483 m |
+| 回访采样恢复 | 4 / 5 | 4 / 5 |
+| 回访事件恢复 | 2 / 2 | 2 / 2 |
+| glass partition 区间 ATE | 0.106098 m | 0.106386 m |
+| dynamic occlusion 区间 ATE | 0.097820 m | 0.097419 m |
+
+ATE 差值 0.077 mm，比较器仍判定平局。需要特别区分两层证据：最终估计轨迹在两次真值回访时
+都回到容差内，但 GTSAM Adapter 实际记录到的 46 条 accepted graph edges 全部为 ID 相邻边，
+非局部 accepted loop 数为 0，故 accepted-loop event recall 为 0。当前可以讲“轨迹在短路径内
+保持几何一致”，不能讲“回环前端检测成功”。下一轮应针对前端阈值/搜索半径做受控消融，并优先
+寻找时间跨度更大的跨序列回访。
+
+语义区间来自每 3 秒抽取的 D400 RGB 联络表人工复核：18–24 秒附近标为玻璃隔断，27–30 秒可见
+移动人员穿越并近距离遮挡，因此标为动态遮挡。画面没有足够证据支持“长走廊”，配置文件显式记录
+negative evidence，未为了凑指标虚构 corridor 标签；视觉标签也不等价于逐束 LiDAR 遮挡真值。
+
 ## 6. 面试讲法和事实边界
 
 可以讲：
@@ -217,6 +265,6 @@ ATE 差值只有 0.105 mm，按比较器预设 1% 容差判定为平局。该短
 - 把回访恢复率说成回环前端 precision/recall。
 - 在没有相同数据和阈值时，笼统宣称 GTSAM 优于 Ceres。
 
-当前仓库已经具备真实 office bag 的双后端回放与报告入口，但不随 Git 提交约 9 GB 的原始 bag。
-在发布精度结论前，仍需由开发者固定具体序列实际跑完，并保存配置、commit、bag SHA256 和报告；
-随后再围绕 `worst_segment` 对长走廊、急转和动态遮挡做参数消融。
+当前仓库已经具备真实 office bag 的双后端回放、来源 manifest、人工退化区间和 accepted-edge
+报告入口，但不随 Git 提交大型原始 bag。下一步应做回环前端阈值消融，并扩展到更长的跨序列
+lifelong/relocalization；动态障碍预测则另行比较 current-only、CV、Kalman 与 IMM。

@@ -101,6 +101,29 @@ def test_download_resumes_partial_file_only_after_http_206(tmp_path, monkeypatch
     assert not partial.exists()
 
 
+def test_parallel_range_download_translates_local_parts_to_remote_offset(
+    tmp_path, monkeypatch
+):
+    requested: list[tuple[int, int]] = []
+
+    def fake_part(_url, destination, *, start, end, **_kwargs):
+        requested.append((start, end))
+        destination.write_bytes(bytes(range(start, end + 1)))
+        return destination
+
+    monkeypatch.setattr(MODULE, "_download_range_part", fake_part)
+    destination = MODULE.download_range_parallel(
+        "https://example.invalid/archive.tar",
+        tmp_path / "member.range.tar",
+        expected_size=6,
+        connections=2,
+        remote_start=10,
+    )
+
+    assert sorted(requested) == [(10, 12), (13, 15)]
+    assert destination.read_bytes() == bytes(range(10, 16))
+
+
 def test_prepare_first_sequence_range_records_limited_verification(tmp_path, monkeypatch):
     payload = b"#ROSBAG V2.0\nrange fixture"
     output_root = tmp_path / "dataset"

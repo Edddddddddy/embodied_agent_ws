@@ -948,7 +948,36 @@ sidecar 输出实际相似度。多人准确率仍需另建注册/查询数据�
 - 只做文本注入 Nav2 验收：自动化更稳，但不能覆盖真实麦克风的 ASR/session/queue 体验；因此新增 `continuous-nav2-offline/online` 作为人工演示入口。
 - 只做字符串 topic：实现快，但难体现可取消、带反馈、可测试的 ROS 2 Action 能力。
 
-## 14. 面试讲法建议
+## 14. 真实 SLAM 回访、回环约束与后端 A/B
+
+关键代码：
+
+- `src/embodied_slam/src/gtsam_scan_solver.cpp`
+- `scripts/evaluate_slam_trajectory.py`
+- `scripts/analyze_openloris_revisits.py`
+- `scripts/evaluate_loop_constraints.py`
+- `scripts/analyze_slam_degradation.py`
+- `scripts/compare_openloris_backends.py`
+- `src/embodied_slam/config/openloris_office1_7_annotations.json`
+
+设计方式：先用独立 OptiTrack 真值定义“相隔足够久后再次进入同一位置/朝向容差”的回访采样点，
+再按时间间隔聚合为事件，避免提高采样率就虚增回环机会。轨迹层检查估计轨迹是否保持回访几何；
+图优化层则在 GTSAM `ScanSolver::AddConstraint` 记录前端已经接受的边，并把局部相邻边与非局部
+loop 分开。后者才能计算 accepted-edge precision、false-loop rate 和事件 recall。
+
+为什么分两层：机器人依靠较好的里程计和局部 scan matching，也可能在短路径上回到原处；最终
+ATE 较低或回访恢复率较高，并不证明前端真正检测并接受了回环。`office1-7` 就给出了反例：
+最终轨迹恢复 2/2 次真值事件，但 46 条 accepted graph edge 全是相邻边，非局部回环为 0。
+
+退化区间也不从速度阈值猜语义。工具按时间抽取 RGB 联络表，人工复核后才标注玻璃隔断和动态人员
+遮挡；没有长走廊证据就记录 negative evidence。Ceres/GTSAM A/B 固定 bag、前端参数、时间窗和
+评估器，只替换 `ScanSolver`，并检查匹配数、时间覆盖、运动类别及人工区间样本完全一致。
+
+方案对比：只报告 ATE/RPE 能评价最终轨迹，但解释不了回环前端行为；解析 INFO 日志容易受版本和
+文案影响；结构化 JSONL 图边可与真值重放关联。当前 Adapter 只能看到已接受边，看不到全部被拒绝
+候选，因此不能画完整阈值 PR 曲线，这一事实边界必须保留。
+
+## 15. 面试讲法建议
 
 可以用这条主线介绍项目：
 
