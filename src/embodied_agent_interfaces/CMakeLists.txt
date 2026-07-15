@@ -29,6 +29,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/SpeakerEnrollStatus.msg"
   "msg/ComponentHealth.msg"
   "msg/SystemReadiness.msg"
+  "msg/SlamSessionState.msg"
   "msg/AgentTurnMetrics.msg"
   "msg/RobotCommand.msg"
   "msg/RobotCommandFeedback.msg"
@@ -43,6 +44,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/LidarLoopConstraintResult.msg"
   "srv/SynthesizeSpeech.srv"
   "action/ExecuteRobotCommand.action"
+  "action/ManageSlamSession.action"
   DEPENDENCIES builtin_interfaces geometry_msgs std_msgs
 )
 

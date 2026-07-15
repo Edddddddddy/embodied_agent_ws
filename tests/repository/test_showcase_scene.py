@@ -129,7 +129,9 @@ def test_mapping_places_are_relative_to_slam_start_pose():
 def test_showcase_shell_exposes_mapping_save_and_navigation_stages():
     script = (ROOT / "scripts/voice_slam_nav_showcase.sh").read_text(encoding="utf-8")
     continuous = (ROOT / "scripts/continuous_nav2_voice_control.sh").read_text(encoding="utf-8")
-    for stage in ("mapping)", "save)", "navigation)", "navigation-static)", "audit)"):
+    for stage in (
+        "auto)", "mapping)", "save)", "navigation)", "navigation-static)", "audit)"
+    ):
         assert stage in script
     assert "map_saver_cli" in script
     assert 'NAV2_SLAM="${NAV2_SLAM:-false}"' in continuous
@@ -141,3 +143,13 @@ def test_showcase_shell_exposes_mapping_save_and_navigation_stages():
     assert 'NAV2_SPAWN_X="${NAV2_SPAWN_X:--4.15}"' in script
     assert 'add_launch_arg x_pose "$SPAWN_X"' in continuous
     assert '--x "$INITIAL_X" --y "$INITIAL_Y"' in continuous
+    assert "voice_slam_session_orchestrator" in script
+
+
+def test_session_orchestrator_uses_canonical_readiness_topic():
+    source = (
+        ROOT
+        / "src/embodied_slam_tools/embodied_slam_tools/showcase_session_node.py"
+    ).read_text(encoding="utf-8")
+    assert '"readiness_topic", "/system/readiness"' in source
+    assert '"/agent/system_readiness"' not in source

@@ -17,6 +17,7 @@ usage() {
 真实感语音 SLAM / Nav2 演示
 
 Terminal 1：
+  bash scripts/voice_slam_nav_showcase.sh auto offline
   bash scripts/voice_slam_nav_showcase.sh mapping offline
   bash scripts/voice_slam_nav_showcase.sh navigation offline
 
@@ -28,10 +29,11 @@ Terminal 2（mapping 仍运行时）：
   bash scripts/voice_slam_nav_showcase.sh navigation-static offline
 
 推荐演示顺序：
-  1. mapping：说“小智”，再用“前进两秒 / 左转九十度”等命令探索房间。
-  2. save：保存当前 SLAM 地图；成功后在 Terminal 1 按 Ctrl+C 停止 mapping。
-  3. navigation：加载刚保存的地图并启动 AMCL/Nav2。
-  4. 说“小智，去厨房”“去办公室”“依次去入口、会议区、充电区”。
+  1. 推荐 auto：说“小智”，用“前进两秒 / 左转九十度”等命令探索房间。
+  2. 说“保存地图并开始导航”，编排器自动存图、停止 mapping 并启动 AMCL/Nav2。
+  3. 说“小智，去厨房”“去办公室”“依次去入口、会议区、充电区”。
+
+mapping/save/navigation 仍保留为手工故障回退。
 
 navigation-static 使用项目自带确定性地图，适合作为现场演示的保底路径。
 EOF
@@ -70,6 +72,16 @@ run_voice_stage() {
 }
 
 case "$COMMAND" in
+  auto)
+    activate
+    echo "[showcase] 单终端自动编排：语音建图 -> 保存 -> AMCL/Nav2"
+    echo "[showcase] 探索完成后说：保存地图并开始导航"
+    exec ros2 run embodied_slam_tools voice_slam_session_orchestrator --ros-args \
+      -p "workspace:=$WORKSPACE" \
+      -p "mode:=$MODE" \
+      -p "map_prefix:=$SAVED_MAP_PREFIX" \
+      -p "dry_run:=${SHOWCASE_ORCHESTRATOR_DRY_RUN:-false}"
+    ;;
   mapping)
     echo "[showcase] 阶段 1/3：真实感室内场景 + SLAM Toolbox 在线建图"
     echo "[showcase] 另开终端运行 save 后，再 Ctrl+C 结束本阶段。"

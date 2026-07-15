@@ -11,10 +11,10 @@ bash tests/integration/test_acceptance_cli.sh
 bash tests/integration/test_voice_benchmark_cli.sh
 
 echo "[core] repository structure guards"
-pytest -q tests/repository
+python3 -m pytest -q tests/repository
 
 echo "[core] Python agent unit tests"
-pytest -q \
+python3 -m pytest -q \
   src/embodied_agent_core/test \
   src/embodied_voice_frontend/test \
   src/embodied_offline_agent/test \

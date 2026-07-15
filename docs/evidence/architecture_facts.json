@@ -1,6 +1,6 @@
 {
   "acceptance_cli": {
-    "advanced_help_mode_count": 128,
+    "advanced_help_mode_count": 130,
     "public_mode_count": 12,
     "public_modes": [
       "continuous-multi-command",
@@ -16,7 +16,7 @@
       "slam-evaluation-stage",
       "slam-nav-showcase-stage"
     ],
-    "router_mode_count": 128,
+    "router_mode_count": 130,
     "undocumented_router_modes": []
   },
   "ci": {
@@ -166,8 +166,8 @@
   "repository_scale": {
     "offline_agent_node_lines": 676,
     "online_agent_node_lines": 543,
-    "scripts_recursive_file_count": 191,
-    "scripts_top_level_file_count": 191
+    "scripts_recursive_file_count": 193,
+    "scripts_top_level_file_count": 193
   },
   "ros_packages": {
     "ci_count": 12,
@@ -205,13 +205,14 @@
   "source": "repository_deterministic_scan",
   "typed_interfaces": {
     "actions": {
-      "count": 1,
+      "count": 2,
       "files": [
-        "ExecuteRobotCommand.action"
+        "ExecuteRobotCommand.action",
+        "ManageSlamSession.action"
       ]
     },
     "messages": {
-      "count": 33,
+      "count": 34,
       "files": [
         "AgentTurnMetrics.msg",
         "AudioFrontendStatus.msg",
@@ -239,6 +240,7 @@
         "RobotCommandFeedback.msg",
         "RobotCommandResult.msg",
         "SimulationState.msg",
+        "SlamSessionState.msg",
         "SpeakerEnrollRequest.msg",
         "SpeakerEnrollStatus.msg",
         "SpeakerIdentity.msg",
@@ -254,6 +256,6 @@
         "SynthesizeSpeech.srv"
       ]
     },
-    "total": 35
+    "total": 37
   }
 }

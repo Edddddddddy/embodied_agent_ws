@@ -3,6 +3,9 @@ set -euo pipefail
 
 WORKSPACE="${WORKSPACE:-/home/ubuntu/embodied_agent_ws}"
 MODE="${1:-offline}"
+PROVIDER_MODE="${NAV2_PROVIDER_MODE:-$MODE}"
+MICROPHONE_ENABLED="${NAV2_MICROPHONE_ENABLED:-true}"
+CAPTURE_ENABLED="${NAV2_CAPTURE_ENABLED:-true}"
 VOICE_CONTROL_PROFILE="${VOICE_CONTROL_PROFILE:-normal}"
 # shellcheck source=voice_control_profile.sh
 source "$WORKSPACE/scripts/voice_control_profile.sh"
@@ -57,6 +60,7 @@ PREFLIGHT_ENABLED="${CONTINUOUS_PREFLIGHT_ENABLED:-true}"
 READINESS_ENABLED="${CONTINUOUS_READINESS_ENABLED:-true}"
 READINESS_DURATION="${CONTINUOUS_READINESS_DURATION:-3.0}"
 SYSTEM_READINESS_TIMEOUT="${SYSTEM_READINESS_TIMEOUT:-60.0}"
+SYSTEM_READINESS_STALE_TIMEOUT_S="${SYSTEM_READINESS_STALE_TIMEOUT_S:-30.0}"
 
 source "$WORKSPACE/scripts/activate.sh"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((140 + $$ % 80))}"
@@ -114,9 +118,9 @@ build_launch_args() {
   LAUNCH_ARGS=(embodied_simulation voice_nav2_turtlebot3.launch.py)
   add_launch_arg launch_agent true
   add_launch_arg agent_type "$MODE"
-  add_launch_arg provider_mode "$MODE"
-  add_launch_arg microphone_enabled true
-  add_launch_arg capture_enabled true
+  add_launch_arg provider_mode "$PROVIDER_MODE"
+  add_launch_arg microphone_enabled "$MICROPHONE_ENABLED"
+  add_launch_arg capture_enabled "$CAPTURE_ENABLED"
   add_launch_arg speaker_enabled "$SPEAKER_ENABLED"
   add_launch_arg wake_word_enabled "$WAKE_WORD_ENABLED"
   add_launch_arg continuous_control_enabled true
@@ -146,6 +150,7 @@ build_launch_args() {
   add_launch_arg use_rviz "$USE_RVIZ"
   add_launch_arg headless "$HEADLESS"
   add_launch_arg nav_action_timeout_s "$NAV_ACTION_TIMEOUT_S"
+  add_launch_arg readiness_stale_timeout_s "$SYSTEM_READINESS_STALE_TIMEOUT_S"
   add_launch_arg executor_plugin "$NAV2_EXECUTOR_PLUGIN"
   add_launch_arg slam "$NAV2_SLAM"
   add_optional_launch_arg world "$NAV2_WORLD"
@@ -159,6 +164,9 @@ print_configuration() {
   build_launch_args
   cat <<EOF
 ROS_DOMAIN_ID=$ROS_DOMAIN_ID，Nav2 连续语音导航模式=$MODE
+PROVIDER_MODE=$PROVIDER_MODE
+MICROPHONE_ENABLED=$MICROPHONE_ENABLED
+CAPTURE_ENABLED=$CAPTURE_ENABLED
 
 推荐话术：
   小智
@@ -190,6 +198,7 @@ SILERO_VAD_THRESHOLD=$SILERO_VAD_THRESHOLD
 ASR_COMMIT_DELAY_MS=$ASR_COMMIT_DELAY_MS
 AEC_ENABLED=$AEC_ENABLED
 NAV_ACTION_TIMEOUT_S=$NAV_ACTION_TIMEOUT_S
+SYSTEM_READINESS_STALE_TIMEOUT_S=$SYSTEM_READINESS_STALE_TIMEOUT_S
 NAV2_INITIAL_X=$INITIAL_X
 NAV2_INITIAL_Y=$INITIAL_Y
 NAV2_INITIAL_YAW=$INITIAL_YAW
@@ -224,7 +233,8 @@ if [[ "$PREFLIGHT_ENABLED" == "true" ]]; then
     --kws-provider "$KWS_PROVIDER"
 fi
 
-if ! pactl list short sources 2>/dev/null | grep -q .; then
+if [[ "$MICROPHONE_ENABLED" == "true" ]] && \
+  ! pactl list short sources 2>/dev/null | grep -q .; then
   echo "FAIL: WSL 中没有可用麦克风 source；请先检查 WSLg 音频权限。" >&2
   exit 1
 fi
@@ -240,7 +250,9 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-if [[ "$MODE" == "offline" ]] && \
+# offline Agent 只有真实 llama.cpp provider 才需要独立 server；自动化/CI 的 mock
+# provider 必须能在没有模型资产时启动同一 ROS/Nav2 拓扑。
+if [[ "$MODE" == "offline" && "$PROVIDER_MODE" != "mock" ]] && \
   ! curl -fsS http://127.0.0.1:8080/health >/dev/null 2>&1
 then
   bash "$WORKSPACE/scripts/start_llama_server.sh" &

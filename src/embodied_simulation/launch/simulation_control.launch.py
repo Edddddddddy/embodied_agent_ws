@@ -54,6 +54,7 @@ def generate_launch_description():
         DeclareLaunchArgument("use_composition", default_value="false"),
         DeclareLaunchArgument("namespace", default_value=""),
         DeclareLaunchArgument("readiness_profile", default_value="execution"),
+        DeclareLaunchArgument("readiness_stale_timeout_s", default_value="3.0"),
         DeclareLaunchArgument(
             "readiness_required_components",
             default_value="simulation_control,typed_action_bridge",
@@ -126,6 +127,10 @@ def generate_launch_description():
             parameters=[{
                 "profile": LaunchConfiguration("readiness_profile"),
                 "required_components_csv": readiness_required_components,
+                "stale_timeout_s": ParameterValue(
+                    LaunchConfiguration("readiness_stale_timeout_s"),
+                    value_type=float,
+                ),
             }],
             condition=IfCondition(use_typed_actions),
         ),

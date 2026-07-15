@@ -1384,7 +1384,40 @@ lethal cost、重规划、到达和最终零速，两层证据互不替代。
 当前 IMM 在长序列综合误差最低，但短序列启动偏保守，说明选择模型还要考虑观测窗口和业务风险，
 不能只看一个总 RMSE。
 
-## 16. 面试讲法建议
+## 16. SLAM 会话编排与进程生命周期
+
+关键代码：
+
+- `src/embodied_slam_tools/embodied_slam_tools/showcase_session.py`：不依赖 ROS 的状态机、合法迁移和
+  中文系统意图解析；
+- `src/embodied_slam_tools/embodied_slam_tools/showcase_session_node.py`：worker 队列、阶段子进程、
+  readiness generation、typed Action 和状态发布；
+- `src/embodied_agent_interfaces/msg/SlamSessionState.msg`：可观测阶段快照；
+- `src/embodied_agent_interfaces/action/ManageSlamSession.action`：可反馈的保存/切换控制面；
+- `scripts/voice_slam_nav_showcase.sh`：mapping/save/navigation 的稳定 stage Adapter；
+- `tests/integration/test_voice_slam_session_orchestrator.py`：状态顺序、typed 探索动作、幂等命令；
+- `scripts/smoke_test_voice_slam_session_orchestrator_gazebo.sh`：真实 Gazebo/SLAM/map_saver/AMCL/Nav2
+  的单进程重型证据。
+
+设计方式：领域状态机不知道 ROS 和 subprocess；节点只负责把 ASR/Action 转为 `SessionCommand`，
+worker 串行执行有副作用的阶段操作。地图保存成功前不停止 mapping，保存失败可回退重试；切换时先
+停止父脚本，再启动新阶段，并要求 `/system/readiness` 的 generation 增长且 ready，避免把旧阶段
+的 transient-local 快照误当成新阶段成功。语音重复 final 在三秒窗口内忽略，而 Action 仍返回
+结构化结果。导航动作本身继续经过 C++ ActionGuard，编排层只控制生命周期。
+
+为什么不把所有步骤写成一段 shell：shell 很适合稳定地组装 launch 参数和设置环境，却不适合表达
+可查询状态、Action feedback、幂等性和失败回退。为什么不用 Nav2 Behavior Tree 管建图进程：Nav2
+BT 的职责是一次导航任务，建图/保存/销毁整套 ROS graph 属于应用会话生命周期，放进去会把进程
+管理和运动行为耦合。为什么不用 ROS 2 Lifecycle 单独管理所有三方节点：Nav2/SLAM Toolbox 已有
+各自 lifecycle manager，但整套 Gazebo/Agent graph 的 world、map、executor 都要更换，进程级
+stage Adapter 更容易保证资源完全释放。
+
+中间件上的关键区别是“健康状态”和“心跳”不能混用。当前组件发布 transient-local 生命周期快照，
+不是周期心跳；如果仍用 3 秒 stale 窗口，重型冷启动会把早启动组件误判过期。因此普通执行保持
+3 秒，语音 Nav2 冷启动参数化为 30 秒。更产品化的方案是每个组件周期发布 heartbeat，再把冷启动
+deadline 与运行期 stale timeout 分离；本项目当前只证明阶段启动闭环，不宣称已有进程级故障自愈。
+
+## 17. 面试讲法建议
 
 可以用这条主线介绍项目：
 
