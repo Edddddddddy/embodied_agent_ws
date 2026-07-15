@@ -226,6 +226,17 @@ if(BUILD_TESTING)
     PROPERTIES PASS_REGULAR_EXPRESSION "\"scan_overlap_rejected_constraints\":1"
   )
   add_test(
+    NAME test_gtsam_graph_optimize_switchable_cli
+    COMMAND gtsam_graph_optimize
+      ${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures/synthetic_pose_graph_switchable.txt
+      ${CMAKE_CURRENT_BINARY_DIR}/synthetic_pose_graph_switchable.tum
+      none 0.0 true 5 50 false 2.0 0.785398 false 0.65 0.0 true 1.0 0.5
+  )
+  set_tests_properties(
+    test_gtsam_graph_optimize_switchable_cli
+    PROPERTIES PASS_REGULAR_EXPRESSION "\"switch_suppressed_constraints\":1"
+  )
+  add_test(
     NAME test_lidar_loop_candidates_cli
     COMMAND lidar_loop_candidates
       ${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures/lidar_scan_corpus.txt

@@ -47,8 +47,8 @@ TEST(GtsamPoseGraphOptimizer, SanitizesSingularScanMatchingCovariance)
   const std::unordered_map<int, Pose2d> initial = {
     {0, {0.0, 0.0, 0.0}}, {1, {1.1, 0.0, 0.0}}};
   EXPECT_NO_THROW({
-    const auto result = GtsamPoseGraphOptimizer().optimize(initial, {constraint});
-    EXPECT_NEAR(result.poses.at(1).x, 1.0, 1e-4);
+      const auto result = GtsamPoseGraphOptimizer().optimize(initial, {constraint});
+      EXPECT_NEAR(result.poses.at(1).x, 1.0, 1e-4);
   });
 }
 
@@ -206,6 +206,67 @@ TEST(GtsamPoseGraphOptimizer, RejectsInvalidScanOverlapGateThresholds)
   PoseGraphOptimizerConfig config;
   config.enable_scan_overlap_gate = true;
   config.minimum_scan_overlap_ratio = 1.1;
+  EXPECT_THROW(
+    {
+      const GtsamPoseGraphOptimizer optimizer(config);
+      (void)optimizer;
+    },
+    std::invalid_argument);
+}
+
+TEST(GtsamPoseGraphOptimizer, SwitchableConstraintSuppressesAFalseLoop)
+{
+  std::unordered_map<int, Pose2d> initial;
+  std::vector<PoseGraphConstraint> constraints;
+  for (int id = 0; id <= 10; ++id) {
+    initial[id] = {static_cast<double>(id), 0.0, 0.0};
+    if (id > 0) {
+      constraints.push_back(between(id - 1, id, 1.0));
+    }
+  }
+  auto false_loop = between(0, 10, 0.0);
+  false_loop.covariance = Eigen::Matrix3d::Identity() * 0.0001;
+  constraints.push_back(false_loop);
+
+  PoseGraphOptimizerConfig config;
+  config.robust_kernel = RobustKernel::kNone;
+  config.loop_constraint_min_id_separation = 5U;
+  config.enable_switchable_loop_constraints = true;
+  config.switch_prior_sigma = 1.0;
+  config.switch_suppression_threshold = 0.5;
+  const auto result = GtsamPoseGraphOptimizer(config).optimize(initial, constraints);
+
+  ASSERT_EQ(result.switch_estimates.size(), 1U);
+  EXPECT_EQ(result.switchable_constraints, 1U);
+  EXPECT_EQ(result.switch_suppressed_constraints, 1U);
+  EXPECT_LT(result.switch_estimates.front().value, 0.01);
+  EXPECT_NEAR(result.poses.at(10).x, 10.0, 0.01);
+}
+
+TEST(GtsamPoseGraphOptimizer, SwitchableConstraintKeepsAConsistentLoop)
+{
+  const std::unordered_map<int, Pose2d> initial = {
+    {0, {0.0, 0.0, 0.0}}, {5, {5.0, 0.0, 0.0}}, {10, {10.0, 0.0, 0.0}}};
+  const std::vector<PoseGraphConstraint> constraints = {
+    between(0, 5, 5.0), between(5, 10, 5.0), between(0, 10, 10.0)};
+  PoseGraphOptimizerConfig config;
+  config.robust_kernel = RobustKernel::kNone;
+  config.loop_constraint_min_id_separation = 10U;
+  config.enable_switchable_loop_constraints = true;
+  config.switch_prior_sigma = 0.5;
+  const auto result = GtsamPoseGraphOptimizer(config).optimize(initial, constraints);
+
+  ASSERT_EQ(result.switch_estimates.size(), 1U);
+  EXPECT_EQ(result.switch_suppressed_constraints, 0U);
+  EXPECT_GT(result.switch_estimates.front().value, 0.95);
+  EXPECT_NEAR(result.poses.at(10).x, 10.0, 1e-4);
+}
+
+TEST(GtsamPoseGraphOptimizer, RejectsInvalidSwitchableConstraintConfiguration)
+{
+  PoseGraphOptimizerConfig config;
+  config.enable_switchable_loop_constraints = true;
+  config.switch_prior_sigma = 0.0;
   EXPECT_THROW(
     {
       const GtsamPoseGraphOptimizer optimizer(config);

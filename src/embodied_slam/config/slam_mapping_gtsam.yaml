@@ -21,6 +21,10 @@ slam_toolbox:
     gtsam_scan_overlap_match_distance_m: 0.20
     gtsam_scan_overlap_point_stride: 2
     gtsam_scan_overlap_minimum_points: 30
+    # switch 是后端的软拒绝变量，只作用于非局部边；默认关闭以保持现有演示口径。
+    gtsam_enable_switchable_loop_constraints: false
+    gtsam_switch_prior_sigma: 1.0
+    gtsam_switch_suppression_threshold: 0.5
 
     odom_frame: slam_odom
     map_frame: map

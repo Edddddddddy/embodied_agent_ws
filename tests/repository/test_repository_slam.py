@@ -38,6 +38,8 @@ def test_slam_mapping_baseline_has_reproducible_inputs_and_evidence_entrypoints(
         ROOT / "scripts" / "evaluate_slam_trajectory.py",
         ROOT / "scripts" / "extract_rosbag_trajectory.py",
         ROOT / "scripts" / "setup_openloris_groundtruth.py",
+        ROOT / "scripts" / "compare_gtsam_switchable_sequences.py",
+        ROOT / "docs" / "evidence" / "gtsam_switchable_multisequence.json",
         ROOT / "tests" / "repository" / "test_slam_trajectory_evaluation.py",
     )
     assert all(path.is_file() for path in required)
@@ -125,6 +127,19 @@ def test_slam_baseline_exposes_drift_and_loop_closure_as_measurable_variables():
         assert parameter in drift_source
     for metric in ("raw_closure_error_m", "raw_ate_rmse_m", "known_area_m2"):
         assert metric in probe
+
+
+def test_gtsam_switchable_constraints_are_exposed_but_default_off():
+    package = ROOT / "src" / "embodied_slam"
+    for name in ("slam_mapping_gtsam.yaml", "openloris_mapping_gtsam.yaml"):
+        config = (package / "config" / name).read_text(encoding="utf-8")
+        assert "gtsam_enable_switchable_loop_constraints: false" in config
+        assert "gtsam_switch_prior_sigma: 1.0" in config
+        assert "gtsam_switch_suppression_threshold: 0.5" in config
+
+    optimizer = (package / "src" / "gtsam_pose_graph.cpp").read_text(encoding="utf-8")
+    assert "SwitchableBetweenFactor" in optimizer
+    assert "PriorFactor<double>" in optimizer
 
 
 def test_ci_builds_the_slam_package_without_running_the_heavy_gazebo_benchmark():

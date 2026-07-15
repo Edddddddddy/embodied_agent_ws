@@ -329,6 +329,8 @@ Python 的 `embodied_agent_core/ros_qos.py` 与 C++ 的
 
 - 装配 slam_toolbox/Ceres 与 GTSAM 后端、漂移注入、轨迹评估和真实 OpenLORIS 回放。
 - 以 shadow 链路实现 LiDAR 回环候选、局部子图几何验证、时序一致性和 guarded Karto Adapter。
+- GTSAM 后端支持可选逐回环 switch；错误边可由联合优化软关闭，局部链边保持普通 BetweenFactor，
+  线上默认关闭并由两序列固定图消融约束证据口径。
 
 核心文件：
 

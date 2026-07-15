@@ -36,6 +36,13 @@ if [[ "${GTSAM_INCLUDE_CONSISTENCY_GATE:-false}" == "true" ]]; then
     --max-consistency-yaw-rad "${GTSAM_MAX_CONSISTENCY_YAW_RAD:-0.7853981633974483}"
   )
 fi
+if [[ "${GTSAM_INCLUDE_SWITCHABLE_CONSTRAINTS:-false}" == "true" ]]; then
+  EXTRA_ARGS+=(
+    --include-switchable-constraints
+    --switch-prior-sigma "${GTSAM_SWITCH_PRIOR_SIGMA:-1.0}"
+    --switch-suppression-threshold "${GTSAM_SWITCH_SUPPRESSION_THRESHOLD:-0.5}"
+  )
+fi
 
 python3 scripts/run_gtsam_robust_kernel_ablation.py \
   --graph "$GRAPH" --reference "$REFERENCE" --optimizer "$OPTIMIZER" \

@@ -138,11 +138,12 @@ bool parse_bool(const std::string & value)
 
 int main(int argc, char ** argv)
 {
-  if (argc != 8 && argc != 11 && argc != 14) {
+  if (argc != 8 && argc != 11 && argc != 14 && argc != 17) {
     std::cerr << "Usage: gtsam_graph_optimize GRAPH OUTPUT_TUM KERNEL K "
               << "LOOP_ONLY LOOP_ID_SEPARATION MAX_ITERATIONS "
               << "[CONSISTENCY_GATE MAX_TRANSLATION_RESIDUAL_M MAX_YAW_RESIDUAL_RAD "
-              << "[SCAN_OVERLAP_GATE MIN_OVERLAP MIN_TRANSLATION_RESIDUAL_M]]\n";
+              << "[SCAN_OVERLAP_GATE MIN_OVERLAP MIN_TRANSLATION_RESIDUAL_M "
+              << "[SWITCHABLE_LOOPS SWITCH_PRIOR_SIGMA SWITCH_THRESHOLD]]]\n";
     return 2;
   }
   try {
@@ -158,10 +159,15 @@ int main(int argc, char ** argv)
       config.max_nonlocal_translation_residual_m = std::stod(argv[9]);
       config.max_nonlocal_yaw_residual_rad = std::stod(argv[10]);
     }
-    if (argc == 14) {
+    if (argc >= 14) {
       config.enable_scan_overlap_gate = parse_bool(argv[11]);
       config.minimum_scan_overlap_ratio = std::stod(argv[12]);
       config.scan_overlap_gate_min_translation_residual_m = std::stod(argv[13]);
+    }
+    if (argc == 17) {
+      config.enable_switchable_loop_constraints = parse_bool(argv[14]);
+      config.switch_prior_sigma = std::stod(argv[15]);
+      config.switch_suppression_threshold = std::stod(argv[16]);
     }
     const embodied_slam::PoseGraphResult result =
       embodied_slam::GtsamPoseGraphOptimizer(config).optimize(graph.poses, graph.constraints);
@@ -194,6 +200,16 @@ int main(int argc, char ** argv)
               << result.scan_overlap_rejected_constraints
               << ",\"scan_overlap_unavailable_constraints\":"
               << result.scan_overlap_unavailable_constraints
+              << ",\"switchable_loop_constraints\":"
+              << (config.enable_switchable_loop_constraints ? "true" : "false")
+              << ",\"switch_prior_sigma\":" << config.switch_prior_sigma
+              << ",\"switch_suppression_threshold\":"
+              << config.switch_suppression_threshold
+              << ",\"switchable_constraints\":" << result.switchable_constraints
+              << ",\"switch_suppressed_constraints\":"
+              << result.switch_suppressed_constraints
+              << ",\"minimum_switch_value\":" << result.minimum_switch_value
+              << ",\"mean_switch_value\":" << result.mean_switch_value
               << ",\"initial_error\":" << result.initial_error
               << ",\"final_error\":" << result.final_error
               << ",\"iterations\":" << result.iterations << "}\n";

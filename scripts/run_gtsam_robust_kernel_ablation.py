@@ -13,10 +13,10 @@ from typing import Any
 
 
 VARIANTS = (
-    ("gaussian", "none", 0.0, False, False),
-    ("huber_all", "huber", 1.345, False, False),
-    ("huber_loop", "huber", 1.345, True, False),
-    ("cauchy_loop", "cauchy", 1.0, True, False),
+    ("gaussian", "none", 0.0, False, False, False),
+    ("huber_all", "huber", 1.345, False, False, False),
+    ("huber_loop", "huber", 1.345, True, False, False),
+    ("cauchy_loop", "cauchy", 1.0, True, False, False),
 )
 
 
@@ -67,6 +67,23 @@ def build_comparison(variants: list[dict[str, Any]], graph_sha256: str) -> dict[
                 "consistency_rejected_constraints": item["optimizer"].get(
                     "consistency_rejected_constraints", 0
                 ),
+                "switchable_loop_constraints": item["optimizer"].get(
+                    "switchable_loop_constraints", False
+                ),
+                "switchable_constraints": item["optimizer"].get(
+                    "switchable_constraints", 0
+                ),
+                "switch_prior_sigma": item["optimizer"].get("switch_prior_sigma", 1.0),
+                "switch_suppression_threshold": item["optimizer"].get(
+                    "switch_suppression_threshold", 0.5
+                ),
+                "switch_suppressed_constraints": item["optimizer"].get(
+                    "switch_suppressed_constraints", 0
+                ),
+                "minimum_switch_value": item["optimizer"].get(
+                    "minimum_switch_value", 1.0
+                ),
+                "mean_switch_value": item["optimizer"].get("mean_switch_value", 1.0),
                 "ate_rmse_m": evaluation["ate_xy_m"]["rmse"],
                 "ate_p95_m": evaluation["ate_xy_m"]["p95"],
                 "rpe_translation_rmse_m": evaluation["rpe"]["translation_m"]["rmse"],
@@ -100,8 +117,10 @@ def build_comparison(variants: list[dict[str, Any]], graph_sha256: str) -> dict[
 
 def render_markdown(report: dict[str, Any], graph: Path) -> str:
     rows = "\n".join(
-        "| {name} | {kernel} | {loop_only} | {consistency_gate} | {constraints_used} | "
+        "| {name} | {kernel} | {loop_only} | {consistency_gate} | "
+        "{switchable_loop_constraints} | {constraints_used} | "
         "{robustified_constraints} | {consistency_rejected_constraints} | "
+        "{switch_suppressed_constraints} | {minimum_switch_value:.3f} | "
         "{ate_rmse_m:.4f} | {ate_p95_m:.4f} | {rpe_translation_rmse_m:.4f} | "
         "{final_pose_error_m:.4f} | {ate_change_vs_gaussian_pct:+.2f}% |".format(**item)
         for item in report["variants"]
@@ -115,8 +134,8 @@ def render_markdown(report: dict[str, Any], graph: Path) -> str:
 - ATE 最优组：**{report['best_ate_variant']}**
 - 公平性检查：**{'PASS' if report['passed'] else 'FAIL'}**
 
-| variant | kernel | loop only | gate | used edges | robust edges | rejected | ATE RMSE m | ATE P95 m | RPE RMSE m | final m | ATE vs Gaussian |
-| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| variant | kernel | loop only | gate | switchable | used edges | robust edges | hard rejected | switch off | min switch | ATE RMSE m | ATE P95 m | RPE RMSE m | final m | ATE vs Gaussian |
+| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 {rows}
 
 > 结论边界：所有变体复用同一份前端已接受的节点和约束。鲁棒核衡量后端对离群边的
@@ -153,6 +172,9 @@ def main() -> int:
     parser.add_argument("--include-consistency-gate", action="store_true")
     parser.add_argument("--max-consistency-translation", type=float, default=2.0)
     parser.add_argument("--max-consistency-yaw-rad", type=float, default=0.7853981633974483)
+    parser.add_argument("--include-switchable-constraints", action="store_true")
+    parser.add_argument("--switch-prior-sigma", type=float, default=1.0)
+    parser.add_argument("--switch-suppression-threshold", type=float, default=0.5)
     args = parser.parse_args()
 
     for path in (args.graph, args.reference, args.optimizer, args.evaluator):
@@ -163,24 +185,42 @@ def main() -> int:
     records: list[dict[str, Any]] = []
     variants = list(VARIANTS)
     if args.include_consistency_gate:
-        variants.append(("cauchy_loop_gated", "cauchy", 1.0, True, True))
-    for name, kernel, kernel_k, loop_only, consistency_gate in variants:
-        trajectory = args.output_dir / f"{name}.tum"
-        optimizer_result = _run(
-            [
-                str(args.optimizer),
-                str(args.graph),
-                str(trajectory),
-                kernel,
-                str(kernel_k),
-                str(loop_only).lower(),
-                str(args.loop_id_separation),
-                str(args.max_iterations),
-                str(consistency_gate).lower(),
-                str(args.max_consistency_translation),
-                str(args.max_consistency_yaw_rad),
-            ]
+        variants.append(("cauchy_loop_gated", "cauchy", 1.0, True, True, False))
+    if args.include_switchable_constraints:
+        variants.extend(
+            (
+                ("switchable_gaussian", "none", 0.0, True, False, True),
+                ("switchable_cauchy", "cauchy", 1.0, True, False, True),
+            )
         )
+    for name, kernel, kernel_k, loop_only, consistency_gate, switchable in variants:
+        trajectory = args.output_dir / f"{name}.tum"
+        command = [
+            str(args.optimizer),
+            str(args.graph),
+            str(trajectory),
+            kernel,
+            str(kernel_k),
+            str(loop_only).lower(),
+            str(args.loop_id_separation),
+            str(args.max_iterations),
+            str(consistency_gate).lower(),
+            str(args.max_consistency_translation),
+            str(args.max_consistency_yaw_rad),
+        ]
+        if switchable:
+            # CLI 的可选参数按层追加；显式传入关闭的 overlap gate，保持旧接口兼容。
+            command.extend(
+                [
+                    "false",
+                    "0.65",
+                    "1.0",
+                    "true",
+                    str(args.switch_prior_sigma),
+                    str(args.switch_suppression_threshold),
+                ]
+            )
+        optimizer_result = _run(command)
         optimizer_summary = json.loads(optimizer_result.stdout.strip().splitlines()[-1])
         optimizer_report_path = args.output_dir / f"{name}_optimizer.json"
         optimizer_report_path.write_text(

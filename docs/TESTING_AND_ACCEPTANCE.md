@@ -162,6 +162,19 @@ bash scripts/acceptance_test.sh openloris-robust-kernel-ablation
 bash scripts/acceptance_test.sh openloris-loop-consistency-ablation
 bash scripts/acceptance_test.sh openloris-scan-overlap-ablation
 
+# 可切换约束仍复用同一固定图；分别跑两条序列后做多序列来源与指标门禁。
+GTSAM_INCLUDE_SWITCHABLE_CONSTRAINTS=true \
+  GTSAM_ABLATION_OUTPUT_DIR=logs/openloris/corridor1-1/switchable_constraint_ablation \
+  bash scripts/run_gtsam_robust_kernel_ablation.sh
+OPENLORIS_SEQUENCE=corridor1-2 GTSAM_INCLUDE_SWITCHABLE_CONSTRAINTS=true \
+  GTSAM_ABLATION_OUTPUT_DIR=logs/openloris/corridor1-2/switchable_constraint_ablation \
+  bash scripts/run_gtsam_robust_kernel_ablation.sh
+python3 scripts/compare_gtsam_switchable_sequences.py \
+  --report corridor1-1 logs/openloris/corridor1-1/switchable_constraint_ablation/comparison.json \
+  --report corridor1-2 logs/openloris/corridor1-2/switchable_constraint_ablation/comparison.json \
+  --output-json logs/openloris/gtsam_switchable_multisequence.json \
+  --output-markdown logs/openloris/gtsam_switchable_multisequence.md
+
 # 发布级来源审计再下载完整约 9.27 GB 归档。
 bash scripts/acceptance_test.sh openloris-rosbag-setup
 
@@ -211,6 +224,12 @@ frontend trace 与 accepted-edge 报告均可解析。event recall 允许为 0�
 来自不同固定图、阈值一致、报告完整且扫描证据无缺失；是否启用由 `release_decision` 单独给出。
 当前第二序列四组 ATE/P95 完全相同，因此即使平均 ATE 改善，决策仍必须是
 `keep_disabled_collect_more_sequences`。
+
+可切换约束多序列 PASS 要求：至少两份不同 graph SHA、相同 switch prior/threshold、每份源报告
+通过、Switchable+Cauchy 逐序列不劣于 Cauchy，并且既观察到被压低的边，也观察到保持开启的边。
+当前加权 ATE 为 0.9196 m，较 Gaussian/Cauchy 下降 43.28%/15.57%，80/859 条边低于 0.5；
+PASS 只证明固定图后端消融成立。在线 `gtsam_enable_switchable_loop_constraints` 仍为 false，且不得
+把 switch 数量表述为前端 false-positive 数量。
 
 ### 动态障碍
 

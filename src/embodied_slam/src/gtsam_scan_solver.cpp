@@ -60,6 +60,12 @@ public:
       declare_or_get(*node, "gtsam_minimum_scan_overlap_ratio", 0.65);
     config.scan_overlap_gate_min_translation_residual_m = declare_or_get(
       *node, "gtsam_scan_overlap_gate_min_translation_residual_m", 1.0);
+    config.enable_switchable_loop_constraints =
+      declare_or_get(*node, "gtsam_enable_switchable_loop_constraints", false);
+    config.switch_prior_sigma =
+      declare_or_get(*node, "gtsam_switch_prior_sigma", 1.0);
+    config.switch_suppression_threshold =
+      declare_or_get(*node, "gtsam_switch_suppression_threshold", 0.5);
     compute_scan_overlap_ = config.enable_scan_overlap_gate ||
       declare_or_get(*node, "gtsam_compute_scan_overlap_evidence", false);
     scan_overlap_config_.match_distance_m =
@@ -110,14 +116,17 @@ public:
       node->get_logger(),
       "Configured GTSAM backend: kernel=%s k=%.3f loop_only=%s "
       "loop_id_separation=%zu gate=%s gate_translation=%.3f gate_yaw=%.3f "
-      "scan_overlap_gate=%s compute_overlap=%s min_overlap=%.3f",
+      "scan_overlap_gate=%s compute_overlap=%s min_overlap=%.3f "
+      "switchable_loops=%s switch_prior_sigma=%.3f switch_threshold=%.3f",
       robust_kernel_name(config.robust_kernel), config.robust_kernel_k,
       config.robustify_loop_constraints_only ? "true" : "false",
       config.loop_constraint_min_id_separation,
       config.enable_nonlocal_consistency_gate ? "true" : "false",
       config.max_nonlocal_translation_residual_m, config.max_nonlocal_yaw_residual_rad,
       config.enable_scan_overlap_gate ? "true" : "false",
-      compute_scan_overlap_ ? "true" : "false", config.minimum_scan_overlap_ratio);
+      compute_scan_overlap_ ? "true" : "false", config.minimum_scan_overlap_ratio,
+      config.enable_switchable_loop_constraints ? "true" : "false",
+      config.switch_prior_sigma, config.switch_suppression_threshold);
   }
 
   void AddNode(karto::Vertex<karto::LocalizedRangeScan> * vertex) override
@@ -219,11 +228,13 @@ public:
         RCLCPP_DEBUG(
           node->get_logger(),
           "GTSAM optimized %zu nodes/%zu constraints (%zu robust/%zu rejected): "
-          "%zu overlap rejected/%zu unavailable, %.6f -> %.6f (%zu iterations)",
+          "%zu overlap rejected/%zu unavailable, %zu/%zu switches suppressed, "
+          "%.6f -> %.6f (%zu iterations)",
           result.poses.size(), constraints_.size(), result.robustified_constraints,
           result.consistency_rejected_constraints,
           result.scan_overlap_rejected_constraints,
           result.scan_overlap_unavailable_constraints,
+          result.switch_suppressed_constraints, result.switchable_constraints,
           result.initial_error, result.final_error, result.iterations);
       }
     } catch (const std::exception & error) {
@@ -247,7 +258,7 @@ public:
         constraints_.begin(), constraints_.end(),
         [id](const auto & item) {return item.source_id == id || item.target_id == id;}),
       constraints_.end());
-    for (auto iterator = evidence_constraints_.begin(); iterator != evidence_constraints_.end();) {
+    for (auto iterator = evidence_constraints_.begin(); iterator != evidence_constraints_.end(); ) {
       if (iterator->second.source_id == id || iterator->second.target_id == id) {
         iterator = evidence_constraints_.erase(iterator);
       } else {
@@ -341,8 +352,8 @@ private:
       const double laser_x = range * std::cos(angle);
       const double laser_y = range * std::sin(angle);
       output.push_back({
-        offset.GetX() + cosine * laser_x - sine * laser_y,
-        offset.GetY() + sine * laser_x + cosine * laser_y});
+          offset.GetX() + cosine * laser_x - sine * laser_y,
+          offset.GetY() + sine * laser_x + cosine * laser_y});
     }
     return output;
   }
