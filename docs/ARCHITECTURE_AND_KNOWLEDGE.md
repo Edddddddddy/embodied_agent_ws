@@ -305,6 +305,46 @@ Python 的 `embodied_agent_core/ros_qos.py` 与 C++ 的
   `ActiveActionRuntime` 统一定时动作与 Nav2 外部 result 的进度、取消、超时和 BT 终态映射。
 - MOVE 支持 `linear_x + angular_z`，因此绕圈/画圆不需要新增接口字段。
 
+### `embodied_navigation`
+
+职责：
+
+- 将语音地点/巡航命令适配为 Nav2 goal，并实现动态障碍预测 costmap layer。
+- 保持规划、控制、恢复行为仍由 Nav2 标准 Action/BT 管理，Agent 不直接生成速度。
+
+核心文件：
+
+- `src/voice_nav2_bridge_node.cpp`
+- `src/dynamic_obstacle_tracker.cpp`
+- `src/predicted_obstacle_layer.cpp`
+- `src/dynamic_obstacle_model_benchmark.cpp`
+
+说明：地点名称只在 typed bridge 中映射为目标位姿；动态障碍的 CV/Kalman/IMM 状态估计隐藏在
+纯 C++ tracker 中，pluginlib layer 只把预测占据写入 Nav2 costmap。目标执行、取消、恢复与最终
+零速均由集成验收观察，不把“成功发布 goal”误当成导航完成。
+
+### `embodied_slam`
+
+职责：
+
+- 装配 slam_toolbox/Ceres 与 GTSAM 后端、漂移注入、轨迹评估和真实 OpenLORIS 回放。
+- 以 shadow 链路实现 LiDAR 回环候选、局部子图几何验证、时序一致性和 guarded Karto Adapter。
+
+核心文件：
+
+- `src/lidar_loop_runtime.cpp`
+- `src/lidar_loop_verifier.cpp`
+- `src/lidar_submap_builder.cpp`
+- `src/lidar_loop_constraint_gate.cpp`
+- `src/lidar_loop_temporal_consistency.cpp`
+- `src/instrumented_async_slam_toolbox_node.cpp`
+
+说明：在线数据流为 `/scan + /slam/odom → candidate → verification → constraint decision → Karto
+Adapter`。质量门先做单 query 择优和 pair 去重，时序门再要求 4 个候选的时间关系与 SE(2) 变化
+连续；所有诊断使用 typed msg。真实两序列 A/B 证明 precision 提升但 recall 明显下降，因此
+`commit_enabled=false` 仍是正式默认值，当前只证明安全接缝和可复现实验，不宣称地图已因新回环
+得到改善。
+
 ## 4. 关键 topic 与 action
 
 | 名称 | 方向 | 说明 |
@@ -338,6 +378,10 @@ Python 的 `embodied_agent_core/ros_qos.py` 与 C++ 的
 | `/system/component_health` | components → readiness | `ComponentHealth`：starting/ready/degraded/error/stopped 心跳 |
 | `/system/readiness` | readiness → scripts/UI | `SystemReadiness`：profile 必需组件、缺失项与 go/no-go 结论 |
 | `/diagnostics` | C++ scheduler → monitor | active command、pending 深度、取消和累计计数 |
+| `/slam/loop_candidates` | detector → verifier | `LidarLoopCandidateArray` Top-K 回环候选 |
+| `/slam/loop_verifications` | verifier → gate | `LidarLoopVerificationArray` 局部子图 ICP 证据 |
+| `/slam/loop_constraint_decisions` | gate → backend | 质量、4 帧确认及 commit 授权分离的 typed 决策 |
+| `/slam/loop_constraint_results` | backend → monitor | Karto 实际提交或 fail-closed 拒绝原因 |
 | `/cmd_vel` | executor → Gazebo | 机器人速度命令 |
 | `robot/execute_command` | bridge → executor | ROS 2 Action |
 
@@ -367,10 +411,12 @@ Python 的 `embodied_agent_core/ros_qos.py` 与 C++ 的
 - 自定义 msg/action 与 C++ 安全边界。
 - 连续语音、多命令队列、急停抢占。
 - Gazebo 仿真动作与 odom/cmd_vel 验收。
+- Nav2 地点导航/巡航、AMCL、地图保存与动态障碍插件链路。
+- Ceres/GTSAM、真实 bag 评测和 shadow-only LiDAR 回环前端。
 
 未作为当前完成项：
 
 - 真实实体机器人硬件验收。
 - LoRA/Q8 已完成合成 holdout 对照；待补真实语音分布评估与标签协议稳定性优化。
-- 复杂导航、建图、路径规划。
+- 满足安全精度门槛并真实写入 Karto 的新回环约束。
 - 真实声学 KWS/AEC 默认接入。

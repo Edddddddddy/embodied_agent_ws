@@ -38,12 +38,20 @@ LidarLoopConstraintInput eligible(
   return input;
 }
 
+LidarLoopConstraintGateConfig singleFrameConfig()
+{
+  LidarLoopConstraintGateConfig config;
+  config.temporal.minimum_confirmations = 1U;
+  return config;
+}
+
 TEST(LidarLoopConstraintGate, ShadowModeSelectsOneAuditableCandidate)
 {
   auto weaker = eligible(20, 2, 2000000000LL, 900000000LL);
   weaker.rank = 2U;
   weaker.overlap_ratio = 0.60;
-  const auto decisions = LidarLoopConstraintGate().evaluate({weaker, eligible()});
+  LidarLoopConstraintGate gate(singleFrameConfig());
+  const auto decisions = gate.evaluate({weaker, eligible()});
   ASSERT_EQ(decisions.size(), 2U);
   EXPECT_FALSE(decisions[0].policy_approved);
   EXPECT_EQ(decisions[0].reason, "lower_quality_candidate");
@@ -60,6 +68,7 @@ TEST(LidarLoopConstraintGate, CommitModeDeduplicatesAndRateLimits)
   LidarLoopConstraintGateConfig config;
   config.commit_enabled = true;
   config.minimum_commit_query_separation = 5;
+  config.temporal.minimum_confirmations = 1U;
   LidarLoopConstraintGate gate(config);
 
   auto first = gate.evaluate({eligible(20, 1, 2000000000LL, 1000000000LL)});
@@ -99,12 +108,34 @@ TEST(LidarLoopConstraintGate, ResetClearsHistorySequenceAndRateLimit)
 {
   LidarLoopConstraintGateConfig config;
   config.commit_enabled = true;
+  config.temporal.minimum_confirmations = 1U;
   LidarLoopConstraintGate gate(config);
   EXPECT_TRUE(gate.evaluate({eligible()})[0].commit_requested);
   gate.reset();
   const auto replay = gate.evaluate({eligible()});
   EXPECT_EQ(replay[0].sequence, 1U);
   EXPECT_TRUE(replay[0].commit_requested);
+}
+
+TEST(LidarLoopConstraintGate, DefaultPolicyRequiresTemporalConfirmation)
+{
+  LidarLoopConstraintGate gate;
+  const auto first = gate.evaluate({eligible(20, 1, 2000000000LL, 1000000000LL)});
+  EXPECT_FALSE(first[0].policy_approved);
+  EXPECT_EQ(first[0].temporal.confirmation_count, 1U);
+  EXPECT_EQ(first[0].reason, "temporal_confirmation_pending");
+
+  const auto second = gate.evaluate({eligible(21, 2, 2500000000LL, 1500000000LL)});
+  EXPECT_FALSE(second[0].policy_approved);
+  EXPECT_EQ(second[0].temporal.confirmation_count, 2U);
+
+  const auto third = gate.evaluate({eligible(22, 3, 3000000000LL, 2000000000LL)});
+  EXPECT_FALSE(third[0].policy_approved);
+  EXPECT_EQ(third[0].temporal.confirmation_count, 3U);
+  const auto fourth = gate.evaluate({eligible(23, 4, 3500000000LL, 2500000000LL)});
+  EXPECT_TRUE(fourth[0].policy_approved);
+  EXPECT_EQ(fourth[0].temporal.confirmation_count, 4U);
+  EXPECT_EQ(fourth[0].reason, "shadow_mode");
 }
 
 TEST(LidarLoopConstraintGate, RejectsInvalidConfiguration)

@@ -88,6 +88,50 @@
         "p95": null,
         "max": null
       }
+    },
+    "cpp_ranked_single": {
+      "accepted_pairs": 119,
+      "true_accepted_pairs": 11,
+      "false_accepted_pairs": 108,
+      "precision": 0.092437,
+      "conditional_pair_recall": 0.104762,
+      "eligible_query_recall": 0.171875,
+      "relative_translation_error_m": {
+        "count": 11,
+        "mean": 0.565183,
+        "median": 0.475314,
+        "p95": 1.057805,
+        "max": 1.253591
+      },
+      "relative_yaw_error_deg": {
+        "count": 11,
+        "mean": 1.153414,
+        "median": 0.989504,
+        "p95": 2.377435,
+        "max": 2.721571
+      }
+    },
+    "cpp_temporal": {
+      "accepted_pairs": 8,
+      "true_accepted_pairs": 1,
+      "false_accepted_pairs": 7,
+      "precision": 0.125,
+      "conditional_pair_recall": 0.009524,
+      "eligible_query_recall": 0.015625,
+      "relative_translation_error_m": {
+        "count": 1,
+        "mean": 1.253591,
+        "median": 1.253591,
+        "p95": 1.253591,
+        "max": 1.253591
+      },
+      "relative_yaw_error_deg": {
+        "count": 1,
+        "mean": 0.623996,
+        "median": 0.623996,
+        "p95": 0.623996,
+        "max": 0.623996
+      }
     }
   },
   "event_recovery": {
@@ -165,6 +209,24 @@
       "odometry_prior_inconsistent": 2551,
       "translation_limit": 713
     },
+    "temporal_consistency": {
+      "observations": 119,
+      "approved": 8,
+      "reason_counts": {
+        "temporal_confirmation_pending": 30,
+        "temporal_consistency_confirmed": 8,
+        "temporal_pair_age_reset": 55,
+        "temporal_query_gap_reset": 20,
+        "temporal_transform_reset": 6
+      },
+      "config": {
+        "minimum_confirmations": 4,
+        "maximum_query_gap_s": 2.0,
+        "maximum_pair_age_delta_s": 1.25,
+        "maximum_translation_delta_m": 0.55,
+        "maximum_yaw_delta_rad": 0.35
+      }
+    },
     "positive_inlier_ratio": {
       "count": 105,
       "mean": 0.516794,
@@ -203,12 +265,14 @@
     "runtime_input": "candidate scan/submap pair + descriptor yaw seed + optional odometry yaw prior",
     "matcher": "C++17 trimmed coarse-to-fine point-to-point ICP with multi-yaw seeds",
     "offline_label": "official OpenLORIS trajectory; never passed to C++ matcher",
-    "boundary": "Shadow results are scored but never inserted into the pose graph. Profile sweeps are evidence, not runtime GT-assisted selection."
+    "boundary": "Shadow results are scored but never inserted into the pose graph. Profile sweeps are evidence, not runtime GT-assisted selection.",
+    "temporal_policy": "C++ matcher-accepted candidates are ranked without ground truth, then replayed through the same pure C++ temporal module used by the ROS gate."
   },
   "source": {
     "matches_sha256": "b5a3f7bfdc39777a202d906aa292e2c2dad46a9e566e9f7f21d1b3e5675040ab",
     "groundtruth_sha256": "8bac84df6e0ec2ab1d08f0e3d5c47b1da067911ee9a814471b96ef13637a8e2d",
     "candidates_sha256": "5cbcb3136a3bed1b8bb69baa3f738170f0aeea317b54559bc8360bd92094a42f",
-    "corpus_metadata_sha256": "e6a44ff5b1fc4cb150925073fef75ed44631feb5a204913409990761ccb30d68"
+    "corpus_metadata_sha256": "e6a44ff5b1fc4cb150925073fef75ed44631feb5a204913409990761ccb30d68",
+    "temporal_replay_binary_sha256": "aa8e4b6c3610897c942f8cc578c6a9f8010d8b6afe8f5170d9be134fbda68174"
   }
 }

@@ -68,6 +68,26 @@ def generate_launch_description():
                 "yaw_variance": ParameterValue(
                     LaunchConfiguration("yaw_variance"), value_type=float
                 ),
+                "minimum_temporal_confirmations": ParameterValue(
+                    LaunchConfiguration("minimum_temporal_confirmations"),
+                    value_type=int,
+                ),
+                "maximum_temporal_query_gap_s": ParameterValue(
+                    LaunchConfiguration("maximum_temporal_query_gap_s"),
+                    value_type=float,
+                ),
+                "maximum_temporal_pair_age_delta_s": ParameterValue(
+                    LaunchConfiguration("maximum_temporal_pair_age_delta_s"),
+                    value_type=float,
+                ),
+                "maximum_temporal_translation_delta_m": ParameterValue(
+                    LaunchConfiguration("maximum_temporal_translation_delta_m"),
+                    value_type=float,
+                ),
+                "maximum_temporal_yaw_delta_rad": ParameterValue(
+                    LaunchConfiguration("maximum_temporal_yaw_delta_rad"),
+                    value_type=float,
+                ),
             }
         ],
     )
@@ -124,6 +144,17 @@ def generate_launch_description():
             DeclareLaunchArgument("maximum_history", default_value="4096"),
             DeclareLaunchArgument("translation_variance", default_value="0.04"),
             DeclareLaunchArgument("yaw_variance", default_value="0.04"),
+            DeclareLaunchArgument("minimum_temporal_confirmations", default_value="4"),
+            DeclareLaunchArgument("maximum_temporal_query_gap_s", default_value="2.0"),
+            DeclareLaunchArgument(
+                "maximum_temporal_pair_age_delta_s", default_value="1.25"
+            ),
+            DeclareLaunchArgument(
+                "maximum_temporal_translation_delta_m", default_value="0.55"
+            ),
+            DeclareLaunchArgument(
+                "maximum_temporal_yaw_delta_rad", default_value="0.35"
+            ),
             node,
             activate,
             configure,

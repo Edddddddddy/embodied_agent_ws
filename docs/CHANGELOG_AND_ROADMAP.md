@@ -99,6 +99,7 @@
 | LiDAR 在线几何验证组件 | 将在线 Top-K 候选继续送入真实几何门限，而不把相似度当作闭环 | 新增 typed verification msg、有界时间戳扫描缓存、粗到细 ICP Lifecycle/component 和跨 topic pending 关联；输出 RMSE/overlap/observability/拒绝原因，仍固定 shadow-only、不持有写图接口 |
 | LiDAR 在线局部子图验证 | 让运行时几何路径与已验证的离线子图消融一致，并处理多 topic 乱序 | 扫描/里程计双缓存、50 ms 时间关联、短窗口 scan-to-submap、贡献帧 typed 证据及扫描/里程计晚到恢复；继续 shadow-only |
 | LiDAR 回环约束两阶段门控 | 把“几何通过”与“允许写图”拆成可审计边界，避免上游抖动或弱匹配直接污染位姿图 | 新增纯 C++ 质量门、单 query 择优、pair 去重、限频、固定协方差及 typed decision/result；Karto Adapter 默认关闭，运行时验证 shadow 和无扫描 commit 均被拒绝 |
+| LiDAR 多帧时序一致性门 | 抑制重复走廊中单帧 ICP 偶然高分直接进入后端 | 新增纯 C++ 连续确认状态机与离线 replay；两序列同参数下聚合 precision 13.21%→31.25%、recall 12.57%→2.99%，因此保留 shadow-only 并明确精度/召回权衡 |
 
 ## 2. 当前完成度结论
 
@@ -246,12 +247,14 @@ bash scripts/acceptance_test.sh continuous-live-check offline
   掩盖无效序列，也不把“跨序列能运行”写成“阈值已泛化”。
 - 新增候选级 C++ LiDAR 检索：完整原始扫描流按 0.5 秒采样，不受异步图节点覆盖率影响；
   `corridor1-1/1-2` 环键 Recall@10 为 33.51%/62.75%，均恢复 2/2 事件。Top-K 已进入 C++ shadow
-  scan matcher；固定参数 accepted precision 为 8.41%/33.78%，4 个事件只恢复 1 个，所以下一步
-  是 scan-to-submap/多帧一致性，当前仍不允许影响生产图。
+  scan matcher；固定参数 accepted precision 为 8.41%/33.78%，4 个事件只恢复 1 个，当前仍不
+  允许影响生产图。
 - 已完成 scan-to-submap 固定 A/B：短时里程计聚合三帧局部几何，两序列 precision 平均提升
   2.32 个百分点且平移中位误差均下降，但 recall 平均下降 1.72 个百分点。由于逐序列绝对质量线
-  未通过，状态保持 `shadow_only_submap_quality_insufficient`，下一步转向多帧时序一致性而非
-  调低阈值或直接写图。
+  未通过，状态保持 `shadow_only_submap_quality_insufficient`。
+- 已完成 4 帧时序一致性固定 A/B：同一纯 C++ 状态机同时服务 ROS 门控和离线 replay，聚合
+  precision 从 13.21% 提高到 31.25%，但 recall 从 12.57% 降到 2.99%。下一步应增强地点判别
+  特征或可切换约束，而不是继续增加确认帧数换取表面精度；Karto commit 继续默认关闭。
 - 已完成动态障碍 current-only、常速度、Kalman、IMM 同场景消融：C++ 固定输入报告预测
   RMSE/遮挡/停车过冲，四轮 Gazebo/Nav2 报告验证 lethal cost、重规划、到达和最终零速；场景、
   地图栅格和 Nav2 参数已纳入 SHA256 一致性门禁。输入仍是合成 `PoseArray`，物理动态 actor 与

@@ -1225,6 +1225,37 @@ score 错当成统计概率。
 或 max-mixture 相比，当前方案更轻、容易审计，但不能在优化过程中自动降低错误回环权重。真实
 多序列 precision 仍低，所以本轮只证明安全边界和接口完整，不能宣称回环已经改善真实地图。
 
+### 14.11 多帧时序一致性为什么是独立深模块
+
+关键代码：
+
+- `src/embodied_slam/include/embodied_slam/lidar_loop_temporal_consistency.hpp`：最小 observation、
+  config 与 decision 接口。
+- `src/embodied_slam/src/lidar_loop_temporal_consistency.cpp`：连续确认、迟到隔离和轨迹重置状态机。
+- `src/embodied_slam/src/lidar_loop_constraint_gate.cpp`：质量择优后调用时序策略。
+- `src/embodied_slam/src/lidar_loop_temporal_replay.cpp`：真实数据离线 Adapter，不复制策略。
+- `scripts/evaluate_lidar_shadow_matches.py`：不读取真值地选择每个 query 的最高质量候选，再调用
+  C++ replay；真值只在 replay 完成后评分。
+- `scripts/compare_lidar_temporal_ablation.py`：校验两条序列使用同一参数，并汇总 precision/recall。
+- `src/embodied_slam/test/test_lidar_loop_temporal_consistency.cpp`：纯 C++ 状态机边界测试。
+
+单帧 ICP 的 inlier、overlap 和 RMSE 只描述“两个局部几何能否对齐”，无法区分外观相同的两段
+走廊。时序门要求相邻 query 单调前进，query 间隔不超过 2 秒，当前与历史候选的回访时间差变化
+不超过 1.25 秒，相对位姿平移/偏航变化不超过 0.55 m/0.35 rad，并连续 4 次成立。迟到消息不改变
+当前 track；任一突变都从 1 重新计数。typed decision 暴露确认计数和四项 delta，因此现场能区分
+“质量不够”“还在确认”和“时序突变”，而不是只看到一个 false。
+
+为什么不把逻辑写进 ROS callback：时序一致性既要服务在线 Lifecycle node，也要在 OpenLORIS
+固定结果上做参数消融。纯 C++ 深模块让两个 Adapter 复用同一实现；离线 Python 只负责数据格式和
+真值评分，避免出现“评测算法和运行时算法看起来相同、实际分叉”的问题。
+
+两序列统一参数下，单 query 择优基线聚合 precision/recall 为 13.21%/12.57%，4 帧门控后为
+31.25%/2.99%；`corridor1-1` precision 9.24%→12.50%，`corridor1-2` 为 25.00%→50.00%。这是一项
+明确的 precision-recall 权衡，不是全面胜出。与简单 debounce 相比，本策略检查候选时间关系和
+SE(2) 变化；与 HMM/学习式序列分类器相比，它数据需求小、可解释、容易 fail-closed，但不能解决
+长走廊中持续一致的感知混淆。后续更合理的方向是加入语义/视觉地点判别或 switchable
+constraints，而不是无限增加确认帧数。
+
 ## 15. 动态障碍运动模型与同场景消融
 
 关键代码：

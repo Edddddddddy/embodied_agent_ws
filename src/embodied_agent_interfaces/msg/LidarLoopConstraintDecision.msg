@@ -11,6 +11,12 @@ string matching_mode
 geometry_msgs/Pose2D target_to_source
 float64[9] covariance
 float64 quality_score
+uint32 temporal_confirmation_count
+uint32 temporal_confirmation_required
+float64 temporal_query_gap_s
+float64 temporal_pair_age_delta_s
+float64 temporal_translation_delta_m
+float64 temporal_yaw_delta_rad
 float64 descriptor_similarity
 float64 inlier_ratio
 float64 bidirectional_overlap_ratio
