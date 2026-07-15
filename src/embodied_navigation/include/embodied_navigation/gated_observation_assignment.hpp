@@ -16,8 +16,23 @@ enum class AssociationStrategy
   GlobalNearest,
 };
 
+enum class AssociationMetric
+{
+  Euclidean,
+  Mahalanobis,
+};
+
+struct AssociationPrediction
+{
+  Point2d position;
+  // 仅保存二维位置协方差的对角项；当前感知输入没有 xy 互协方差，避免伪造精度。
+  Point2d position_variance;
+};
+
 AssociationStrategy association_strategy_from_string(const std::string & value);
 const char * to_string(AssociationStrategy strategy) noexcept;
+AssociationMetric association_metric_from_string(const std::string & value);
+const char * to_string(AssociationMetric metric) noexcept;
 
 using ObservationAssignment = std::vector<std::optional<std::size_t>>;
 
@@ -28,5 +43,16 @@ ObservationAssignment assign_gated_observations(
   const std::vector<Point2d> & observations,
   double association_distance_m,
   AssociationStrategy strategy);
+
+// Mahalanobis 模式使用 S = P_prediction + R_measurement 计算二维 NIS。
+// 硬欧氏距离门仍然保留，防止协方差异常膨胀后把远处观测吸进旧轨迹。
+ObservationAssignment assign_gated_observations(
+  const std::vector<AssociationPrediction> & predictions,
+  const std::vector<Point2d> & observations,
+  double measurement_noise_variance,
+  double association_distance_m,
+  double association_nis_gate,
+  AssociationStrategy strategy,
+  AssociationMetric metric);
 
 }  // namespace embodied_navigation

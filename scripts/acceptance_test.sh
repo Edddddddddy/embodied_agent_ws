@@ -192,6 +192,11 @@ run_dynamic_obstacle_ablation() {
   python3 scripts/verify_dynamic_obstacle_association.py \
     logs/dynamic_obstacle_association_ablation.json \
     --markdown logs/dynamic_obstacle_association_ablation.md
+  ros2 run embodied_navigation dynamic_obstacle_uncertainty_benchmark \
+    --output logs/dynamic_obstacle_uncertainty_ablation.json
+  python3 scripts/verify_dynamic_obstacle_uncertainty.py \
+    logs/dynamic_obstacle_uncertainty_ablation.json \
+    --markdown logs/dynamic_obstacle_uncertainty_ablation.md
 }
 
 run_base() {

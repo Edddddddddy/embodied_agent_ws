@@ -39,6 +39,11 @@ add_executable(
   src/dynamic_obstacle_association_benchmark.cpp)
 target_link_libraries(dynamic_obstacle_association_benchmark dynamic_obstacle_tracker_core)
 
+add_executable(
+  dynamic_obstacle_uncertainty_benchmark
+  src/dynamic_obstacle_uncertainty_benchmark.cpp)
+target_link_libraries(dynamic_obstacle_uncertainty_benchmark dynamic_obstacle_tracker_core)
+
 add_library(predicted_obstacle_layer SHARED src/predicted_obstacle_layer.cpp)
 target_link_libraries(predicted_obstacle_layer constant_velocity_predictor)
 target_include_directories(predicted_obstacle_layer PUBLIC
@@ -50,7 +55,8 @@ pluginlib_export_plugin_description_file(nav2_costmap_2d costmap_plugins.xml)
 
 install(TARGETS constant_velocity_predictor dynamic_obstacle_tracker_core
   dynamic_obstacle_tracker_node dynamic_obstacle_model_benchmark
-  dynamic_obstacle_association_benchmark predicted_obstacle_layer
+  dynamic_obstacle_association_benchmark dynamic_obstacle_uncertainty_benchmark
+  predicted_obstacle_layer
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION lib/${PROJECT_NAME})

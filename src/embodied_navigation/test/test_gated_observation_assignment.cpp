@@ -40,12 +40,47 @@ TEST(GatedObservationAssignment, LeavesGatedTracksUnmatched)
   EXPECT_FALSE(assignment[1].has_value());
 }
 
+TEST(GatedObservationAssignment, MahalanobisCostUsesPerTrackUncertainty)
+{
+  const std::vector<AssociationPrediction> predictions{
+    {{0.0, 0.0}, {0.0025, 0.0025}},
+    {{0.4, 0.0}, {0.25, 0.25}}};
+  // track_1 很确定，应匹配 0.1；track_2 遮挡后不确定，可接受跨过预测均值的 -0.2。
+  const std::vector<Point2d> observations{{-0.2, 0.0}, {0.1, 0.0}};
+
+  const auto euclidean = assign_gated_observations(
+    predictions, observations, 0.0025, 1.0, 9.210,
+    AssociationStrategy::GlobalNearest, AssociationMetric::Euclidean);
+  const auto mahalanobis = assign_gated_observations(
+    predictions, observations, 0.0025, 1.0, 9.210,
+    AssociationStrategy::GlobalNearest, AssociationMetric::Mahalanobis);
+
+  ASSERT_EQ(euclidean.size(), 2U);
+  EXPECT_EQ(euclidean[0], 0U);
+  EXPECT_EQ(euclidean[1], 1U);
+  ASSERT_EQ(mahalanobis.size(), 2U);
+  EXPECT_EQ(mahalanobis[0], 1U);
+  EXPECT_EQ(mahalanobis[1], 0U);
+}
+
+TEST(GatedObservationAssignment, MahalanobisStillAppliesHardDistanceGate)
+{
+  const auto assignment = assign_gated_observations(
+    {{{0.0, 0.0}, {100.0, 100.0}}}, {{2.0, 0.0}}, 0.01, 0.8, 9.210,
+    AssociationStrategy::GlobalNearest, AssociationMetric::Mahalanobis);
+  ASSERT_EQ(assignment.size(), 1U);
+  EXPECT_FALSE(assignment[0].has_value());
+}
+
 TEST(GatedObservationAssignment, ValidatesStrategyAndFiniteInputs)
 {
   EXPECT_EQ(
     association_strategy_from_string("global_nearest"), AssociationStrategy::GlobalNearest);
   EXPECT_EQ(association_strategy_from_string("greedy"), AssociationStrategy::GreedyNearest);
+  EXPECT_EQ(association_metric_from_string("mahalanobis"), AssociationMetric::Mahalanobis);
+  EXPECT_EQ(association_metric_from_string("euclidean"), AssociationMetric::Euclidean);
   EXPECT_THROW(association_strategy_from_string("magic"), std::invalid_argument);
+  EXPECT_THROW(association_metric_from_string("magic"), std::invalid_argument);
   EXPECT_THROW(
     assign_gated_observations({}, {}, 0.0, AssociationStrategy::GlobalNearest),
     std::invalid_argument);
@@ -53,6 +88,11 @@ TEST(GatedObservationAssignment, ValidatesStrategyAndFiniteInputs)
     assign_gated_observations(
       {{std::numeric_limits<double>::infinity(), 0.0}}, {}, 1.0,
       AssociationStrategy::GlobalNearest),
+    std::invalid_argument);
+  EXPECT_THROW(
+    assign_gated_observations(
+      {{{0.0, 0.0}, {-1.0, 0.1}}}, {}, 0.01, 1.0, 9.210,
+      AssociationStrategy::GlobalNearest, AssociationMetric::Mahalanobis),
     std::invalid_argument);
 }
 

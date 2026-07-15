@@ -70,6 +70,8 @@ void write_report(std::ostream & output, const std::vector<AssociationMetrics> &
          << "  \"schema_version\": 1,\n"
          << "  \"scenario\": \"two_track_conflicting_gate_v1\",\n"
          << "  \"association_distance_m\": 0.5,\n"
+         << "  \"association_metric\": \"euclidean\",\n"
+         << "  \"association_nis_gate\": 9.210,\n"
          << "  \"motion_model\": \"current_only\",\n"
          << "  \"strategies\": [\n";
   for (std::size_t index = 0U; index < results.size(); ++index) {

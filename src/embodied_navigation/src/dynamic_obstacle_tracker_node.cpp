@@ -37,6 +37,9 @@ private:
     config.default_radius_m = declare_parameter("default_radius_m", 0.25);
     config.association_strategy = association_strategy_from_string(
       declare_parameter("association_strategy", std::string("global_nearest")));
+    config.association_metric = association_metric_from_string(
+      declare_parameter("association_metric", std::string("euclidean")));
+    config.association_nis_gate = declare_parameter("association_nis_gate", 9.210);
     config.motion_model = motion_model_from_string(
       declare_parameter("motion_model", std::string("constant_velocity")));
     config.measurement_noise_variance = declare_parameter(

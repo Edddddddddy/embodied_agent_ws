@@ -141,6 +141,8 @@ void write_report(std::ostream & output, const std::vector<Metrics> & results)
          << "  \"tracker_config\": {\n"
          << "    \"association_distance_m\": 1.2,\n"
          << "    \"association_strategy\": \"global_nearest\",\n"
+         << "    \"association_metric\": \"euclidean\",\n"
+         << "    \"association_nis_gate\": 9.210,\n"
          << "    \"track_timeout_s\": 1.0,\n"
          << "    \"velocity_smoothing\": 0.5,\n"
          << "    \"measurement_noise_variance\": 0.0016,\n"

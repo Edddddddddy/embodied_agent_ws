@@ -247,7 +247,11 @@ bash scripts/acceptance_test.sh dynamic-obstacle-navigation-ablation
 场景中的预测/遮挡误差和停车过冲。它还生成
 `logs/dynamic_obstacle_association_ablation.json/.md`：同一个双目标冲突输入分别运行
 `greedy_nearest` 与 `global_nearest`，要求全局门限分配更新 2/2 个既有身份、无碎片轨迹，且身份
-位置误差严格小于贪心基线。`dynamic-obstacle-navigation-ablation` 是本地重型证据：四轮
+位置误差严格小于贪心基线。第三份
+`logs/dynamic_obstacle_uncertainty_ablation.json/.md` 固定一条低协方差、一条高协方差轨迹，
+要求 Euclidean 基线暴露身份交换，而 Mahalanobis/NIS 恢复 2/2 身份、零未匹配，并验证米制硬门
+不因协方差增大而失效。这是实验模式证据；真实检测协方差未标定前，运行参数默认 Euclidean。
+`dynamic-obstacle-navigation-ablation` 是本地重型证据：四轮
 分别重新启动 Gazebo/Nav2，全部要求 future cell lethal、路径净空提升、导航成功和最终零速。
 它依赖 `slam-benchmark` 生成的地图，不进入 GitHub CI。四份报告必须携带一致的场景、地图栅格
 和 Nav2 参数 SHA256；任一哈希不同，汇总器判 FAIL。场景输入是确定性的 typed `PoseArray`，

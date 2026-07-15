@@ -19,6 +19,8 @@ def valid_report() -> dict:
         "schema_version": 1,
         "scenario": "two_track_conflicting_gate_v1",
         "association_distance_m": 0.5,
+        "association_metric": "euclidean",
+        "association_nis_gate": 9.21,
         "motion_model": "current_only",
         "strategies": [
             {
