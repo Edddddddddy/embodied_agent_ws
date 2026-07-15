@@ -1,9 +1,32 @@
 import json
+import os
 import subprocess
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_showcase_release_gate_uses_workspace_environment_default(tmp_path):
+    output = tmp_path / "workspace_acceptance_report.json"
+    completed = subprocess.run(
+        [
+            "python3",
+            str(ROOT / "scripts" / "showcase_release_gate.py"),
+            "--dry-run",
+            "--output",
+            str(output),
+        ],
+        env={**os.environ, "WORKSPACE": str(ROOT)},
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stdout
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["workspace"] == str(ROOT.resolve())
 
 
 def test_showcase_release_gate_dry_run_writes_report(tmp_path):
@@ -153,6 +176,7 @@ def test_showcase_release_gate_robotics_profile_covers_delivery_stack(tmp_path):
     assert report["command_count"] == 6
     commands = "\n".join(item["command"] for item in report["commands"])
     for required in (
+        "architecture-facts",
         "embodied_agent_bringup",
         "continuous-multi-command",
         "nav2-stage",

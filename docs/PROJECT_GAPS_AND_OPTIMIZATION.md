@@ -158,13 +158,15 @@
 
 现状：
 
-- online/offline Agent 主节点已从早期约 1100/1200 行降到当前 543/676 行；公共参数、
-  ASR-final 用例、记忆、动作发布和 turn pipeline 都已按组合式模块拆分。
+- online/offline Agent 主节点已较早期约 1100/1200 行明显缩减，当前精确行数由架构事实报告计算；
+  公共参数、ASR-final 用例、记忆、动作发布和 turn pipeline 都已按组合式模块拆分。
 - `AgentControlPlane` 已成为无 ROS 依赖的领域核心，`RosAgentEventPublisher` 单独承担
   typed topic、时间戳和 QoS；online/offline 只在 provider、latency 和 TTS pipeline 上分化。
 - `embodied_agent_cpp` 同时承载 audio、control、hardware、TTS 等多个变化方向。
-- `scripts/` 当前有 144 个文件，`acceptance_test.sh` 支持 100 余种内部模式；默认 `--help`
-  已收敛为 12 个公共验收入口，完整兼容列表放在 `--help-all`。
+- 规模事实由 `scripts/generate_architecture_facts.py` 确定性生成，不再手写易过期数字；当前脚本数、
+  router mode 和节点行数以 `docs/evidence/architecture_facts.md` 为准。默认 `--help` 固定保持 12 个
+  公共验收入口，完整兼容列表放在 `--help-all`。任何包、模式、CI 矩阵或节点规模变化都会触发
+  仓库测试要求刷新报告。
 
 优化：
 
@@ -174,6 +176,8 @@
   让节点只链接所需模块，避免增加部署复杂度。
 - 将验收入口按 `voice/`、`offline/`、`control/`、`navigation/` 分类，根脚本只做稳定命令路由；
   用 manifest 驱动帮助文本和门禁，逐步删除只包一层命令的重复 smoke 脚本。
+- 使用 `bash scripts/acceptance_test.sh architecture-facts` 审计 12 包 CI 矩阵、公开/高级模式可路由性、
+  robotics gate 覆盖和 Agent 节点规模；报告只证明静态结构，不把它当作运行链路成功率。
 
 ## 11. 下一阶段优先级
 
