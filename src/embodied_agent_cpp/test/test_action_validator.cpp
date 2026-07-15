@@ -136,6 +136,13 @@ TEST(ActionValidatorTest, ValidatesNavigationAndNormalizesRuntimeFields)
   EXPECT_FALSE(validator.validate(target, "nav-2", "agent").valid);
   target.target = "unreachable_zone";
   EXPECT_TRUE(validator.validate(target, "nav-3", "agent").valid);
+
+  // 展示场景新增地点仍必须经过 C++ 白名单，避免 LLM 任意字符串进入 Nav2。
+  for (const auto & showcase_target : {"entrance", "office", "meeting_room", "hallway"}) {
+    target.target = showcase_target;
+    const auto result = validator.validate(target, "showcase-nav", "agent");
+    EXPECT_TRUE(result.valid) << showcase_target << ": " << result.error;
+  }
 }
 
 TEST(ActionValidatorTest, CancelNavigationRejectsUnrelatedPayload)

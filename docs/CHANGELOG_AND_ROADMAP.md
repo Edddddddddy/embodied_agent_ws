@@ -40,6 +40,7 @@
 | 指令解析评测增强 | 把 deterministic parser 证据从 seed 样例扩展为代表集 | `robot_instruction_eval.jsonl` 扩展到 43 条，覆盖速度/距离/角度/时长/地点槽位及长动作分段，`instruction-parser-eval` 输出分 tag 指标与失败用例 |
 | 求职展示版收口 | 固定演示路径、汇报稿、代码走读地图和发布门禁 | 新增 `PROJECT_PRESENTATION_15MIN.md`，README 指向阶段发布 gate |
 | Nav2 演示资产本地化 | 减少对官方 `tb3_sandbox` map/world 入口的展示依赖 | 新增 `voice_demo.yaml`、`voice_demo.sdf.xacro`，`nav2-assets` 审计本地 map/world/RViz |
+| 真实感语音 SLAM/Nav2 主演示 | 把语音探索、在线建图、地图保存、重启定位和语义导航串成可观看闭环 | 新增四区域公寓/办公室场景、单清单资产生成、SLAM/world 双坐标地点、spawn/AMCL 位姿解耦及两条 Gazebo 重型门禁 |
 | 成熟 VAD 预检闭环 | 降低真实麦克风现场排障成本 | `provider-preflight` 输出 `recommendations`，连续语音启动时提示 WebRTC/Silero setup 命令 |
 | WebRTC VAD 运行时验收 | 让成熟 VAD 不只停留在 preflight | 新增 `webrtc-vad-sidecar`，验证 WebRTC VAD sidecar 可启动并接管 endpoint |
 | Sherpa KWS 部署闭环 | 让声学唤醒路径可复制验收 | `setup_voice_kws_runtime.sh sherpa` 生成 `logs/sherpa_kws.env`，`sherpa-kws-sidecar` 验证真实 KeywordSpotter 启动 |

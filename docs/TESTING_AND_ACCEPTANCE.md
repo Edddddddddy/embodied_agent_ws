@@ -116,6 +116,28 @@ ros2 launch embodied_offline_agent offline_agent.launch.py tts_provider:=summer_
 
 ## 4. Gazebo、Nav2、SLAM
 
+### 真实感语音建图与导航主演示
+
+```bash
+# 快速静态门禁
+bash scripts/acceptance_test.sh slam-nav-showcase-stage
+
+# 重型自动门禁：分别验证 SLAM 建图保存和文本模拟 ASR→Agent→Nav2 运动
+bash scripts/acceptance_test.sh slam-nav-showcase-mapping
+bash scripts/acceptance_test.sh slam-nav-showcase
+
+# 真实麦克风三阶段人工演示
+bash scripts/voice_slam_nav_showcase.sh mapping offline
+bash scripts/voice_slam_nav_showcase.sh save       # 另一个终端
+bash scripts/voice_slam_nav_showcase.sh navigation offline
+```
+
+人工验收必须看到：mapping 阶段 `/map` 持续更新且语音动作真实改变 `/odom`；save 生成非空
+YAML/PGM；navigation 阶段 AMCL 建立 `map→odom`、Nav2 生成路径、机器人到达至少两个语义地点，
+Action 成功后 `/cmd_vel` 归零。完整探索不足时只能使用 `navigation-static` 作为保底，不能把
+同源生成的静态地图表述成“本次语音建图结果”。见
+[VOICE_SLAM_NAV_SHOWCASE.md](VOICE_SLAM_NAV_SHOWCASE.md)。
+
 ### 动作与导航
 
 ```bash

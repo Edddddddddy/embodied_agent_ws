@@ -125,7 +125,9 @@ RobotCommand build_command(const std::vector<std::string> & args)
     }
     command.action_type = RobotCommand::NAVIGATE_TO;
     command.target = args[1];
-    command.duration_s = args.size() == 3 ? parse_double(args[2], "timeout_s") : 10.0;
+    // TIMEOUT_S 是客户端等待策略，不属于 RobotCommand 业务载荷；若写入
+    // duration_s 会被 ActionGuard 判定为导航命令夹带运动字段。
+    command.duration_s = 0.0;
     return command;
   }
   if (action == "follow_waypoints") {
@@ -134,7 +136,7 @@ RobotCommand build_command(const std::vector<std::string> & args)
     }
     command.action_type = RobotCommand::FOLLOW_WAYPOINTS;
     command.number_of_loops = 1;
-    command.duration_s = 10.0;
+    command.duration_s = 0.0;
     for (std::size_t index = 1; index < args.size(); ++index) {
       if (args[index] == "--loops") {
         if (index + 1 >= args.size()) {
@@ -145,7 +147,7 @@ RobotCommand build_command(const std::vector<std::string> & args)
         if (index + 1 >= args.size()) {
           throw std::invalid_argument("--timeout requires a value\n" + usage());
         }
-        command.duration_s = parse_double(args[++index], "timeout_s");
+        ++index;  // 由 cli_result_timeout_s() 解析，不写入 typed command。
       } else {
         command.waypoints.push_back(args[index]);
       }
@@ -166,6 +168,24 @@ RobotCommand build_command(const std::vector<std::string> & args)
   throw std::invalid_argument("unknown command: " + action + "\n" + usage());
 }
 
+double cli_result_timeout_s(const std::vector<std::string> & args)
+{
+  if (args.empty()) {
+    return 15.0;
+  }
+  if (args[0] == "navigate_to" && args.size() == 3) {
+    return parse_double(args[2], "timeout_s");
+  }
+  if (args[0] == "follow_waypoints") {
+    for (std::size_t index = 1; index + 1 < args.size(); ++index) {
+      if (args[index] == "--timeout") {
+        return parse_double(args[index + 1], "timeout_s");
+      }
+    }
+  }
+  return 15.0;
+}
+
 const char * result_code_name(rclcpp_action::ResultCode code)
 {
   switch (code) {
@@ -184,8 +204,9 @@ const char * result_code_name(rclcpp_action::ResultCode code)
 class TypedActionDemoClient : public rclcpp::Node
 {
 public:
-  explicit TypedActionDemoClient(const RobotCommand & command)
-  : Node("typed_action_demo_client"), command_(command)
+  TypedActionDemoClient(const RobotCommand & command, double default_result_timeout_s)
+  : Node("typed_action_demo_client"), command_(command),
+    default_result_timeout_s_(default_result_timeout_s)
   {
     client_ = rclcpp_action::create_client<ExecuteRobotCommand>(
       this, "robot/execute_command");
@@ -197,7 +218,8 @@ public:
     expected_outcome_ = declare_parameter<std::string>(
       "expected_outcome", "succeeded");
     cancel_after_s_ = declare_parameter<double>("cancel_after_s", -1.0);
-    result_timeout_s_ = declare_parameter<double>("result_timeout_s", 15.0);
+    result_timeout_s_ = declare_parameter<double>(
+      "result_timeout_s", default_result_timeout_s_);
     report_path_ = declare_parameter<std::string>("report_path", "");
     const auto server_timeout = std::chrono::seconds(
       declare_parameter<int>("server_timeout_s", 5));
@@ -358,6 +380,7 @@ private:
   std::string report_path_;
   double cancel_after_s_{-1.0};
   double result_timeout_s_{15.0};
+  double default_result_timeout_s_{15.0};
   int feedback_count_{0};
   double max_progress_{0.0};
   bool goal_accepted_{false};
@@ -374,7 +397,9 @@ int main(int argc, char ** argv)
     const auto arguments = rclcpp::remove_ros_arguments(argc, argv);
     std::vector<std::string> command_args(arguments.begin() + 1, arguments.end());
     const auto command = embodied_agent_cpp::build_command(command_args);
-    auto node = std::make_shared<embodied_agent_cpp::TypedActionDemoClient>(command);
+    const auto result_timeout_s = embodied_agent_cpp::cli_result_timeout_s(command_args);
+    auto node = std::make_shared<embodied_agent_cpp::TypedActionDemoClient>(
+      command, result_timeout_s);
     auto result = node->result_future();
     if (!node->run()) {
       rclcpp::shutdown();

@@ -40,6 +40,16 @@ NAV_ACTION_TIMEOUT_S="${NAV_ACTION_TIMEOUT_S:-240.0}"
 INITIAL_X="${NAV2_INITIAL_X:-${X_POSE:--2.0}}"
 INITIAL_Y="${NAV2_INITIAL_Y:-${Y_POSE:--0.5}}"
 INITIAL_YAW="${NAV2_INITIAL_YAW:-${YAW:-0.0}}"
+# Gazebo 出生位姿与 AMCL 初始位姿通常相同，但重载 SLAM 地图时两者属于
+# 不同坐标系：机器人仍在 world 出生点，AMCL 则要使用以建图起点为原点的 map 坐标。
+SPAWN_X="${NAV2_SPAWN_X:-$INITIAL_X}"
+SPAWN_Y="${NAV2_SPAWN_Y:-$INITIAL_Y}"
+SPAWN_YAW="${NAV2_SPAWN_YAW:-$INITIAL_YAW}"
+NAV2_SLAM="${NAV2_SLAM:-false}"
+NAV2_WORLD="${NAV2_WORLD:-}"
+NAV2_MAP="${NAV2_MAP:-}"
+NAV2_PLACES_FILE="${NAV2_PLACES_FILE:-}"
+NAV2_EXECUTOR_PLUGIN="${NAV2_EXECUTOR_PLUGIN:-embodied_simulation/Nav2RobotExecutor}"
 MONITOR_ENABLED="${CONTINUOUS_MONITOR_ENABLED:-true}"
 MONITOR_AUDIO_SAMPLE_LIMIT="${CONTINUOUS_MONITOR_AUDIO_SAMPLE_LIMIT:-600}"
 PRINT_CONFIG="${CONTINUOUS_PRINT_CONFIG:-false}"
@@ -136,9 +146,13 @@ build_launch_args() {
   add_launch_arg use_rviz "$USE_RVIZ"
   add_launch_arg headless "$HEADLESS"
   add_launch_arg nav_action_timeout_s "$NAV_ACTION_TIMEOUT_S"
-  add_launch_arg x_pose "$INITIAL_X"
-  add_launch_arg y_pose "$INITIAL_Y"
-  add_launch_arg yaw "$INITIAL_YAW"
+  add_launch_arg executor_plugin "$NAV2_EXECUTOR_PLUGIN"
+  add_launch_arg slam "$NAV2_SLAM"
+  add_optional_launch_arg world "$NAV2_WORLD"
+  add_optional_launch_arg map "$NAV2_MAP"
+  add_launch_arg x_pose "$SPAWN_X"
+  add_launch_arg y_pose "$SPAWN_Y"
+  add_launch_arg yaw "$SPAWN_YAW"
 }
 
 print_configuration() {
@@ -179,6 +193,14 @@ NAV_ACTION_TIMEOUT_S=$NAV_ACTION_TIMEOUT_S
 NAV2_INITIAL_X=$INITIAL_X
 NAV2_INITIAL_Y=$INITIAL_Y
 NAV2_INITIAL_YAW=$INITIAL_YAW
+NAV2_SPAWN_X=$SPAWN_X
+NAV2_SPAWN_Y=$SPAWN_Y
+NAV2_SPAWN_YAW=$SPAWN_YAW
+NAV2_SLAM=$NAV2_SLAM
+NAV2_WORLD=${NAV2_WORLD:-<default>}
+NAV2_MAP=${NAV2_MAP:-<default>}
+NAV2_PLACES_FILE=${NAV2_PLACES_FILE:-<default>}
+NAV2_EXECUTOR_PLUGIN=$NAV2_EXECUTOR_PLUGIN
 
 ros2 launch \\
 EOF
@@ -236,6 +258,9 @@ fi
 print_configuration
 
 build_launch_args
+if [[ -n "$NAV2_PLACES_FILE" ]]; then
+  export EMBODIED_NAV2_PLACES_FILE="$NAV2_PLACES_FILE"
+fi
 setsid ros2 launch "${LAUNCH_ARGS[@]}" &
 LAUNCH_PID=$!
 
@@ -245,10 +270,15 @@ if [[ "$MONITOR_ENABLED" == "true" ]]; then
   MONITOR_PID=$!
 fi
 
-echo
-echo "等待 Nav2/AMCL 订阅 /initialpose，并发布初始位姿..."
-python3 "$WORKSPACE/scripts/publish_nav2_initial_pose.py" \
-  --x "$INITIAL_X" --y "$INITIAL_Y" --yaw "$INITIAL_YAW"
+if [[ "$NAV2_SLAM" != "true" ]]; then
+  echo
+  echo "等待 Nav2/AMCL 订阅 /initialpose，并发布初始位姿..."
+  python3 "$WORKSPACE/scripts/publish_nav2_initial_pose.py" \
+    --x "$INITIAL_X" --y "$INITIAL_Y" --yaw "$INITIAL_YAW"
+else
+  echo
+  echo "SLAM mapping 模式由 slam_toolbox 发布 map->odom，不向 AMCL 发布 /initialpose。"
+fi
 
 echo
 echo "正在等待语音/Nav2 组件就绪（typed system readiness）..."

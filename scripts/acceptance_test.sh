@@ -15,7 +15,7 @@ Recommended public modes:
   continuous-online          Live microphone -> online Agent -> simulation
   gazebo                     Typed ROS 2 Action -> Gazebo physical-motion check
   nav2-stage                 Lightweight voice navigation/patrol stage gate
-  nav2-turtlebot3            Full TurtleBot3 Gazebo + Nav2 demonstration
+  slam-nav-showcase-stage    Realistic scene/NLU/stage-orchestration gate
   slam-evaluation-stage      Deterministic ATE/RPE/loop-correction evaluation
   openloris-replay-stage     Public-bag Ceres/GTSAM replay evidence
   dynamic-obstacle-stage     Tracker/predictor/costmap-plugin stage gate
@@ -63,6 +63,9 @@ Automated modes:
   nav2-turtlebot3     Heavy Gazebo/Nav2 run: voice text drives target navigation/patrol
   nav2-resilience     Heavy Gazebo/Nav2 run: dynamic replan + unreachable failure
   mapping-stage       Build/test/audit the controlled-drift SLAM mapping baseline
+  slam-nav-showcase-stage Audit realistic scene, semantic goals, and mapping/navigation stages
+  slam-nav-showcase   Heavy realistic apartment + AMCL + Nav2 motion gate
+  slam-nav-showcase-mapping Heavy realistic apartment + SLAM map-save gate
   slam-benchmark      Heavy Gazebo run: fixed loop, 5 cm map, and drift metrics report
   slam-gtsam-benchmark Heavy Gazebo run with the project GTSAM ScanSolver plugin
   slam-ab-benchmark   Run Ceres/GTSAM on the same scenario and compare evidence
@@ -460,6 +463,15 @@ case "$LEVEL" in
     colcon test --packages-select embodied_slam --event-handlers console_direct+
     colcon test-result --test-result-base build/embodied_slam --verbose
     ;;
+  slam-nav-showcase-stage)
+    python3 scripts/generate_showcase_scene.py --check
+    pytest -q tests/repository/test_showcase_scene.py
+    PYTHONPATH="$WORKSPACE/src/embodied_agent_core${PYTHONPATH:+:$PYTHONPATH}" \
+      pytest -q src/embodied_agent_core/test/test_command_nlu.py
+    WORKSPACE="$WORKSPACE" bash scripts/voice_slam_nav_showcase.sh audit
+    ;;
+  slam-nav-showcase) bash scripts/smoke_test_slam_nav_showcase.sh ;;
+  slam-nav-showcase-mapping) bash scripts/smoke_test_slam_nav_showcase_mapping.sh ;;
   slam-benchmark) bash scripts/smoke_test_slam_mapping_baseline.sh ;;
   slam-gtsam-benchmark) SLAM_SOLVER=gtsam bash scripts/smoke_test_slam_mapping_baseline.sh ;;
   slam-ab-benchmark)

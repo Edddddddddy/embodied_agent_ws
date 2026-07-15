@@ -15,6 +15,10 @@ PLACE_ALIASES: dict[str, tuple[str, ...]] = {
     "desk": ("桌子", "书桌", "桌子旁", "办公桌", "desk"),
     "living_room": ("客厅", "大厅", "livingroom"),
     "kitchen": ("厨房", "kitchen"),
+    "entrance": ("入口", "玄关", "entrance"),
+    "office": ("办公室", "办公区", "office"),
+    "meeting_room": ("会议区", "会议室", "meetingroom"),
+    "hallway": ("走廊", "过道", "hallway"),
     "charging_station": ("充电区", "充电桩", "充电站", "charger"),
     # 仅用于 Nav2 失败恢复验收：坐标故意配置在演示地图外，不能用于普通演示路线。
     "unreachable_zone": ("封闭区", "不可达区", "禁区", "unreachable"),

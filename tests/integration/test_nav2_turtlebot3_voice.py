@@ -430,6 +430,13 @@ def main():
     parser.add_argument("--initial-x", type=float, default=-2.0)
     parser.add_argument("--initial-y", type=float, default=-0.5)
     parser.add_argument("--initial-yaw", type=float, default=0.0)
+    parser.add_argument("--navigate-text", default="去门口")
+    parser.add_argument("--patrol-text", default="依次去门口、书桌、起点")
+    parser.add_argument(
+        "--output",
+        type=Path,
+        help="覆盖报告路径，便于多个场景复用同一条语音导航探针",
+    )
     args = parser.parse_args()
 
     rclpy.init()
@@ -473,7 +480,7 @@ def main():
             )
         else:
             navigate_candidate = run_command(
-                node, "去门口", "navigate_to", args.navigate_timeout
+                node, args.navigate_text, "navigate_to", args.navigate_timeout
             )
         distance_after_nav = traveled_distance(node.positions)
         if distance_after_nav < 0.05:
@@ -485,7 +492,7 @@ def main():
         patrol_candidate = None
         if not args.skip_patrol and not args.resilience:
             patrol_candidate = run_command(
-                node, "依次去门口、书桌、起点", "follow_waypoints", args.patrol_timeout
+                node, args.patrol_text, "follow_waypoints", args.patrol_timeout
             )
         if args.resilience:
             unreachable = run_unreachable_navigation(node, args.unreachable_timeout)
@@ -509,7 +516,7 @@ def main():
             },
             "status": "PASS",
         }
-        output_path = (
+        output_path = args.output or (
             Path(__file__).resolve().parents[2]
             / "logs"
             / (

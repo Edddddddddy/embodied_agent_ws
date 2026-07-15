@@ -162,6 +162,27 @@ bash scripts/acceptance_test.sh nav2-preflight
 bash scripts/acceptance_test.sh nav2-turtlebot3
 ```
 
+真实感语音 SLAM/Nav2 主演示（四区域公寓/办公室，不依赖在线模型资产）：
+
+```bash
+# 先验证场景、语义命令和三阶段编排；不启动 Gazebo
+bash scripts/acceptance_test.sh slam-nav-showcase-stage
+
+# Terminal 1：语音控制机器人探索并由 SLAM Toolbox 在线建图
+bash scripts/voice_slam_nav_showcase.sh mapping offline
+
+# Terminal 2：探索完成后保存地图；随后在 Terminal 1 按 Ctrl+C
+bash scripts/voice_slam_nav_showcase.sh save
+
+# Terminal 1：加载语音建成的地图，以 AMCL + Nav2 执行语义导航
+bash scripts/voice_slam_nav_showcase.sh navigation offline
+```
+
+导航阶段可说“去厨房”“去办公室”“依次去入口、会议区、充电区”；现场若来不及完整探索，使用
+`bash scripts/voice_slam_nav_showcase.sh navigation-static offline` 加载与场景同源生成的确定性地图。
+场景由一份 YAML 同时生成 Gazebo world、静态占据栅格和两套坐标对齐的语义地点，详细步骤与
+验收边界见 [真实感语音 SLAM/Nav2 演示](docs/VOICE_SLAM_NAV_SHOWCASE.md)。
+
 ## SLAM、定位和动态避障
 
 ### 仿真工程闭环
@@ -450,6 +471,7 @@ CONTINUOUS_SAMPLE_LOG=logs/asr_nlu_samples.jsonl \
 - [最终架构图与时序图](docs/FINAL_ARCHITECTURE_DIAGRAMS.md)
 - [架构与知识点](docs/ARCHITECTURE_AND_KNOWLEDGE.md)
 - [SLAM、GTSAM、定位导航](docs/SLAM_NAVIGATION_ENGINEERING.md)
+- [真实感语音 SLAM/Nav2 演示](docs/VOICE_SLAM_NAV_SHOWCASE.md)
 - [真实数据 SLAM 评估](docs/REAL_WORLD_SLAM_EVALUATION.md)
 - [学习笔记](docs/LEARNING_NOTES.md)
 - [测试与验收手册](docs/TESTING_AND_ACCEPTANCE.md)

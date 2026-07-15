@@ -98,6 +98,26 @@ def test_nlu_extracts_navigation_and_waypoint_patrol():
     assert unreachable.commands[0].slots == {"place": "unreachable_zone"}
 
 
+def test_nlu_extracts_showcase_room_names():
+    expected = {
+        "去入口": "entrance",
+        "去办公室": "office",
+        "前往会议区": "meeting_room",
+        "导航到走廊": "hallway",
+        "回充电区": "charging_station",
+    }
+    for text, target in expected.items():
+        result = CommandNLU().parse(text)
+        assert result.accepted, text
+        assert result.commands[0].actions[0].arguments == {"target": target}
+
+    patrol = CommandNLU().parse("依次去入口、办公室、会议区、充电区")
+    assert patrol.commands[0].actions[0].arguments == {
+        "waypoints": ["entrance", "office", "meeting_room", "charging_station"],
+        "number_of_loops": 1,
+    }
+
+
 def test_nlu_treats_natural_multi_target_navigation_as_waypoint_patrol():
     for text in (
         "先去门口再去书桌最后回起点",

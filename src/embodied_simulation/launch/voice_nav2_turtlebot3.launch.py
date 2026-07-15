@@ -80,6 +80,7 @@ def generate_launch_description():
     headless = LaunchConfiguration("headless")
     world = LaunchConfiguration("world")
     use_composition = LaunchConfiguration("use_composition")
+    executor_plugin = LaunchConfiguration("executor_plugin")
 
     online_condition = IfCondition(
         PythonExpression([
@@ -137,6 +138,14 @@ def generate_launch_description():
         DeclareLaunchArgument("rviz_config_file", default_value=default_rviz),
         DeclareLaunchArgument("world", default_value=default_world),
         DeclareLaunchArgument("use_composition", default_value="true"),
+        DeclareLaunchArgument(
+            "executor_plugin",
+            default_value="embodied_simulation/Nav2RobotExecutor",
+            description=(
+                "mapping 阶段使用 GazeboRobotExecutor 做语音遥控，"
+                "localization/navigation 阶段使用 Nav2RobotExecutor"
+            ),
+        ),
         DeclareLaunchArgument("nav_action_timeout_s", default_value="180.0"),
         DeclareLaunchArgument("x_pose", default_value="-2.0"),
         DeclareLaunchArgument("y_pose", default_value="-0.5"),
@@ -173,7 +182,7 @@ def generate_launch_description():
                 "use_sim_time": "true",
                 "use_typed_actions": "true",
                 "use_behavior_tree": "true",
-                "executor_plugin": "embodied_simulation/Nav2RobotExecutor",
+                "executor_plugin": executor_plugin,
                 "autostart": lifecycle_autostart,
                 "action_timeout_s": nav_action_timeout_s,
                 "readiness_profile": "voice_nav2",
