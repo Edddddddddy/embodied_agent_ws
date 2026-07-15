@@ -9,13 +9,13 @@
 | ROS 2 package | 12 |
 | GitHub Actions 构建 package | 12 |
 | 公开验收入口 | 12 |
-| 高级帮助入口 | 128 |
-| CLI router mode | 128 |
-| `scripts/` 顶层文件 | 191 |
-| `scripts/` 递归文件 | 191 |
+| 高级帮助入口 | 130 |
+| CLI router mode | 130 |
+| `scripts/` 顶层文件 | 193 |
+| `scripts/` 递归文件 | 193 |
 | online Agent 主节点行数 | 543 |
 | offline Agent 主节点行数 | 676 |
-| 自定义 msg/srv/action 总数 | 35 |
+| 自定义 msg/srv/action 总数 | 37 |
 
 ## ROS 2 package 与 CI 矩阵
 

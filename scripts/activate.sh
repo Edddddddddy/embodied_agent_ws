@@ -17,8 +17,10 @@ fi
 source /opt/ros/jazzy/setup.bash
 if [[ -f "$WORKSPACE/.venv/bin/activate" ]]; then
   source "$WORKSPACE/.venv/bin/activate"
-  # ROS console scripts are generated with the system-Python shebang. Export
-  # the venv packages so those child processes can still import model SDKs.
+fi
+if [[ -n "${VIRTUAL_ENV:-}" ]]; then
+  # ROS console script 固定使用系统 Python shebang；无论 venv 位于当前
+  # workspace 还是由 git worktree 复用，都要显式暴露依赖给子进程。
   VENV_SITE_PACKAGES="$(python -c 'import site; print(site.getsitepackages()[0])')"
   export PYTHONPATH="$VENV_SITE_PACKAGES${PYTHONPATH:+:$PYTHONPATH}"
 fi

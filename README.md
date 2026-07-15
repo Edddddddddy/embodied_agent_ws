@@ -165,21 +165,23 @@ bash scripts/acceptance_test.sh nav2-turtlebot3
 真实感语音 SLAM/Nav2 主演示（四区域公寓/办公室，不依赖在线模型资产）：
 
 ```bash
-# 先验证场景、语义命令和三阶段编排；不启动 Gazebo
+# 轻量门禁：状态机、typed Action、场景与语义地点契约
 bash scripts/acceptance_test.sh slam-nav-showcase-stage
 
-# Terminal 1：语音控制机器人探索并由 SLAM Toolbox 在线建图
-bash scripts/voice_slam_nav_showcase.sh mapping offline
+# 单终端主演示：启动后先语音探索，完成后说“保存地图并开始导航”
+HEADLESS=false USE_RVIZ=true \
+  bash scripts/voice_slam_nav_showcase.sh auto offline
 
-# Terminal 2：探索完成后保存地图；随后在 Terminal 1 按 Ctrl+C
-bash scripts/voice_slam_nav_showcase.sh save
-
-# Terminal 1：加载语音建成的地图，以 AMCL + Nav2 执行语义导航
-bash scripts/voice_slam_nav_showcase.sh navigation offline
+# 无麦克风的真实重型门禁：Gazebo 探索→存图→AMCL/Nav2→实际移动
+bash scripts/acceptance_test.sh slam-session-orchestrator
 ```
 
-导航阶段可说“去厨房”“去办公室”“依次去入口、会议区、充电区”；现场若来不及完整探索，使用
-`bash scripts/voice_slam_nav_showcase.sh navigation-static offline` 加载与场景同源生成的确定性地图。
+建图阶段可说“前进两秒”“左转九十度”；探索完成后说“保存地图并开始导航”，编排器会保存
+YAML/PGM、按序关闭建图进程并以保存地图启动 AMCL/Nav2。导航阶段可说“去厨房”“去办公室”
+“依次去入口、会议区、充电区”。`/slam/session_state` 和 `/slam/manage_session` 分别提供 typed
+状态与可反馈 Action。现场若来不及完整探索，使用
+`bash scripts/voice_slam_nav_showcase.sh navigation-static offline` 加载同源确定性地图；原来的
+`mapping/save/navigation` 命令保留为故障回退。
 场景由一份 YAML 同时生成 Gazebo world、静态占据栅格和两套坐标对齐的语义地点，详细步骤与
 验收边界见 [真实感语音 SLAM/Nav2 演示](docs/VOICE_SLAM_NAV_SHOWCASE.md)。
 

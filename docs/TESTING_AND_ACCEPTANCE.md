@@ -122,20 +122,26 @@ ros2 launch embodied_offline_agent offline_agent.launch.py tts_provider:=summer_
 # 快速静态门禁
 bash scripts/acceptance_test.sh slam-nav-showcase-stage
 
-# 重型自动门禁：分别验证 SLAM 建图保存和文本模拟 ASR→Agent→Nav2 运动
+# 会话编排轻量门禁：typed 状态机和 Action，不启动 Gazebo
+bash scripts/acceptance_test.sh slam-session-orchestrator-stage
+
+# 单进程重型门禁：真实 Gazebo/SLAM/map_saver/AMCL/Nav2，文本代替真人语音
+bash scripts/acceptance_test.sh slam-session-orchestrator
+
+# 原有分阶段重型回归
 bash scripts/acceptance_test.sh slam-nav-showcase-mapping
 bash scripts/acceptance_test.sh slam-nav-showcase
 
-# 真实麦克风三阶段人工演示
-bash scripts/voice_slam_nav_showcase.sh mapping offline
-bash scripts/voice_slam_nav_showcase.sh save       # 另一个终端
-bash scripts/voice_slam_nav_showcase.sh navigation offline
+# 真实麦克风单终端主演示
+HEADLESS=false USE_RVIZ=true \
+  bash scripts/voice_slam_nav_showcase.sh auto offline
 ```
 
-人工验收必须看到：mapping 阶段 `/map` 持续更新且语音动作真实改变 `/odom`；save 生成非空
-YAML/PGM；navigation 阶段 AMCL 建立 `map→odom`、Nav2 生成路径、机器人到达至少两个语义地点，
-Action 成功后 `/cmd_vel` 归零。完整探索不足时只能使用 `navigation-static` 作为保底，不能把
-同源生成的静态地图表述成“本次语音建图结果”。见
+人工验收必须看到：mapping 阶段 `/map` 持续更新且语音动作真实改变 `/odom`；说“保存地图并开始
+导航”后 `/slam/session_state` 依次进入保存、切换和 `NAVIGATING`；YAML/PGM 非空；AMCL 建立
+`map→odom`；机器人到达至少两个语义地点，Action 成功后 `/cmd_vel` 归零。自动重型报告必须有
+状态阶段 1～7、真实地图、探索成功和导航位移证据，但它的 ASR 输入仍是文本注入，不算麦克风证据。
+完整探索不足时只能使用 `navigation-static` 保底，不能把同源静态地图表述成“本次语音建图结果”。见
 [VOICE_SLAM_NAV_SHOWCASE.md](VOICE_SLAM_NAV_SHOWCASE.md)。
 
 ### 动作与导航

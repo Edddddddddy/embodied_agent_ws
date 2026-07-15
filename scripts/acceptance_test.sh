@@ -66,6 +66,8 @@ Automated modes:
   slam-nav-showcase-stage Audit realistic scene, semantic goals, and mapping/navigation stages
   slam-nav-showcase   Heavy realistic apartment + AMCL + Nav2 motion gate
   slam-nav-showcase-mapping Heavy realistic apartment + SLAM map-save gate
+  slam-session-orchestrator-stage Typed single-terminal mapping/save/navigation FSM gate
+  slam-session-orchestrator Heavy one-terminal Gazebo mapping/save/restart/navigation gate
   slam-benchmark      Heavy Gazebo run: fixed loop, 5 cm map, and drift metrics report
   slam-gtsam-benchmark Heavy Gazebo run with the project GTSAM ScanSolver plugin
   slam-ab-benchmark   Run Ceres/GTSAM on the same scenario and compare evidence
@@ -234,7 +236,7 @@ run_base() {
   bash scripts/smoke_test_livekit_wakeword_sidecar.sh
   bash scripts/smoke_test_kws_score_calibration.sh
   bash scripts/smoke_test_voice_readiness.sh
-  pytest -q tests/integration/test_voice_provider_preflight.py
+  python3 -m pytest -q tests/integration/test_voice_provider_preflight.py
   bash scripts/smoke_test_lifecycle.sh
   bash scripts/smoke_test_agent_lifecycle.sh online
   bash scripts/smoke_test_agent_lifecycle.sh offline
@@ -281,7 +283,7 @@ run_gazebo() {
 
 run_slam_evaluation_stage() {
   local fixture_dir="logs/slam_evaluation_fixture"
-  pytest -q \
+  python3 -m pytest -q \
     tests/repository/test_slam_trajectory_evaluation.py \
     tests/repository/test_slam_evaluation_comparison.py \
     tests/repository/test_openloris_groundtruth_setup.py \
@@ -465,13 +467,22 @@ case "$LEVEL" in
     ;;
   slam-nav-showcase-stage)
     python3 scripts/generate_showcase_scene.py --check
-    pytest -q tests/repository/test_showcase_scene.py
+    python3 -m pytest -q tests/repository/test_showcase_scene.py
     PYTHONPATH="$WORKSPACE/src/embodied_agent_core${PYTHONPATH:+:$PYTHONPATH}" \
-      pytest -q src/embodied_agent_core/test/test_command_nlu.py
+      python3 -m pytest -q src/embodied_agent_core/test/test_command_nlu.py
     WORKSPACE="$WORKSPACE" bash scripts/voice_slam_nav_showcase.sh audit
     ;;
   slam-nav-showcase) bash scripts/smoke_test_slam_nav_showcase.sh ;;
   slam-nav-showcase-mapping) bash scripts/smoke_test_slam_nav_showcase_mapping.sh ;;
+  slam-session-orchestrator-stage)
+    PYTHONPATH="$WORKSPACE/src/embodied_slam_tools${PYTHONPATH:+:$PYTHONPATH}" \
+      python3 -m pytest -q src/embodied_slam_tools/test/test_showcase_session.py
+    colcon build --symlink-install --packages-up-to embodied_slam_tools
+    WORKSPACE="$WORKSPACE" bash scripts/smoke_test_voice_slam_session_orchestrator.sh
+    ;;
+  slam-session-orchestrator)
+    bash scripts/smoke_test_voice_slam_session_orchestrator_gazebo.sh
+    ;;
   slam-benchmark) bash scripts/smoke_test_slam_mapping_baseline.sh ;;
   slam-gtsam-benchmark) SLAM_SOLVER=gtsam bash scripts/smoke_test_slam_mapping_baseline.sh ;;
   slam-ab-benchmark)
@@ -552,7 +563,7 @@ case "$LEVEL" in
     colcon test --packages-select embodied_slam embodied_slam_tools --event-handlers console_direct+
     colcon test-result --test-result-base build/embodied_slam --verbose
     colcon test-result --test-result-base build/embodied_slam_tools --verbose
-    pytest -q \
+    python3 -m pytest -q \
       tests/repository/test_openloris_backend_comparison.py \
       tests/repository/test_openloris_rosbag_setup.py \
       tests/repository/test_openloris_experiment_manifest.py \
@@ -700,7 +711,7 @@ case "$LEVEL" in
   kws-calibration) bash scripts/smoke_test_kws_score_calibration.sh ;;
   voice-readiness) bash scripts/smoke_test_voice_readiness.sh ;;
   provider-preflight)
-    pytest -q tests/integration/test_voice_provider_preflight.py
+    python3 -m pytest -q tests/integration/test_voice_provider_preflight.py
     python3 scripts/voice_provider_preflight.py \
       --mode "${PROVIDER_PREFLIGHT_MODE:-offline}" \
       --vad-provider "${VAD_PROVIDER:-auto}" \

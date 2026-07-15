@@ -81,6 +81,7 @@ def generate_launch_description():
     world = LaunchConfiguration("world")
     use_composition = LaunchConfiguration("use_composition")
     executor_plugin = LaunchConfiguration("executor_plugin")
+    readiness_stale_timeout_s = LaunchConfiguration("readiness_stale_timeout_s")
 
     online_condition = IfCondition(
         PythonExpression([
@@ -147,6 +148,9 @@ def generate_launch_description():
             ),
         ),
         DeclareLaunchArgument("nav_action_timeout_s", default_value="180.0"),
+        # Gazebo、AMCL/Nav2 与 Agent 并行冷启动时会跨越数秒。健康事件是
+        # transient-local 状态快照而非高频心跳，因此这里的窗口必须覆盖冷启动。
+        DeclareLaunchArgument("readiness_stale_timeout_s", default_value="30.0"),
         DeclareLaunchArgument("x_pose", default_value="-2.0"),
         DeclareLaunchArgument("y_pose", default_value="-0.5"),
         DeclareLaunchArgument("yaw", default_value="0.0"),
@@ -186,6 +190,7 @@ def generate_launch_description():
                 "autostart": lifecycle_autostart,
                 "action_timeout_s": nav_action_timeout_s,
                 "readiness_profile": "voice_nav2",
+                "readiness_stale_timeout_s": readiness_stale_timeout_s,
                 "readiness_required_components": (
                     "audio_frontend,agent,action_guard,"
                     "typed_action_bridge,simulation_control"
