@@ -267,6 +267,10 @@ bash scripts/acceptance_test.sh continuous-live-check offline
   RMSE/遮挡/停车过冲，四轮 Gazebo/Nav2 报告验证 lethal cost、重规划、到达和最终零速；场景、
   地图栅格和 Nav2 参数已纳入 SHA256 一致性门禁。输入仍是合成 `PoseArray`，物理动态 actor 与
   传感器遮挡属于后续增强。
+- 已将 Kalman/IMM 预测位置协方差接入可切换的全局数据关联：实验模式用 Mahalanobis/NIS 与二维卡方门限，
+  同时保留米制硬门。固定异方差交叉 A/B 中 Euclidean 的 0/2 正确身份提升为 2/2，身份 RMSE
+  0.3 m→0；由于合成 `PoseArray` 尚无真实检测协方差标定，默认仍为 Euclidean，该证据不表述为
+  真实人群感知准确率。
 - 继续细分 Nav2 planner/controller/behavior tree 失败原因和恢复行为指标。
 
 ### P3：可选增强

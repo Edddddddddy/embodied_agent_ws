@@ -1295,20 +1295,31 @@ A/B 也没有证明在线新增约束或最终栅格地图一定改善，所以�
 - `src/embodied_navigation/src/dynamic_obstacle_tracker.cpp`：先统一 predict，再一次关联，最后分别
   update 或按遮挡策略外推。
 - `src/embodied_navigation/src/dynamic_obstacle_association_benchmark.cpp`：固定冲突输入 A/B。
+- `src/embodied_navigation/src/dynamic_obstacle_uncertainty_benchmark.cpp`：固定异方差身份交叉 A/B。
 - `scripts/verify_dynamic_obstacle_association.py`：结构门禁、身份连续性和碎片轨迹判定。
+- `scripts/verify_dynamic_obstacle_uncertainty.py`：NIS 身份恢复与报告结构门禁。
 - `src/embodied_navigation/test/test_gated_observation_assignment.cpp`：门限、dummy 和全局最优回归。
 
 运动模型回答“每条轨迹下一刻在哪里”，数据关联回答“哪些观测属于哪些轨迹”。如果把最近邻循环
 写在 Kalman/IMM 内部，模型难以独立消融，也会让遍历顺序成为隐藏状态。这里先收集所有模型预测，
-构造欧氏距离平方代价；超过 `association_distance_m` 的边禁用，每条轨迹额外拥有一个私有 dummy
-表示合法遮挡/漏检。匈牙利算法在整批观测上求最小代价，复杂度为 O(n²m)，少量动态目标场景的
-开销远小于感知和 costmap。
+构造整批代价矩阵。Mahalanobis 实验模式用创新协方差
+`S = P_prediction + R_measurement` 归一化二维残差，NIS 超过二维卡方 99% 门限 `9.210` 的边禁用；
+同时保留 `association_distance_m` 米制硬门，防止长遮挡导致协方差膨胀后吸收远处观测。纯库接口
+和 ROS 参数都保留 Euclidean 默认：当前 `PoseArray` 没有逐目标检测协方差，直接启用 NIS 会把
+模型不匹配误当成离群点，必须先用真实检测残差标定 `R/Q`。每条轨迹另有私有 dummy 表示合法
+遮挡/漏检，匈牙利算法在
+整批观测上求最小代价，复杂度为 O(n²m)，少量动态目标场景的开销远小于感知和 costmap。
 
 与逐轨迹贪心相比，全局分配不会让前一条模糊轨迹抢走后一条轨迹唯一可用的观测；与 JPDA 相比，
 它仍是硬分配，工程简单、确定性强，但不能表达多个关联假设的概率；与 MHT 相比，它没有跨帧假设
 树，内存和调参成本低，但严重遮挡后的身份恢复能力有限。固定双目标冲突中，贪心只更新 1/2 条
 既有轨迹并生成 1 条碎片，全局策略更新 2/2、无碎片，身份位置 RMSE 0.2915 m→0。此证据只隔离
 关联算法，不代表真实检测器、Gazebo 物理行人或复杂人群场景已经验收。
+
+欧氏距离还隐含“所有轨迹同样确定”的假设。固定异方差交叉场景中，一条轨迹协方差为 0.0025，
+另一条为 0.25；欧氏全局分配发生 2/2 身份交换，身份位置 RMSE 为 0.3 m，而 NIS 全局分配恢复
+2/2 身份、RMSE 为 0。该 A/B 证明协方差确实进入了关联决策，但输入协方差和真值是确定性构造，
+不能替代真实检测器的标定、MOTA/HOTA 或行人数据集评测。
 
 ### 14.14 多假设序列门为什么优于单 query 贪心
 

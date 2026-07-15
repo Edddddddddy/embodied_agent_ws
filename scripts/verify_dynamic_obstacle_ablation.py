@@ -37,6 +37,8 @@ def validate_report(report: dict[str, Any]) -> list[str]:
     required_config = {
         "association_distance_m",
         "association_strategy",
+        "association_metric",
+        "association_nis_gate",
         "track_timeout_s",
         "velocity_smoothing",
         "measurement_noise_variance",
@@ -50,6 +52,8 @@ def validate_report(report: dict[str, Any]) -> list[str]:
         errors.append("tracker_config must record every ablation parameter")
     elif report["tracker_config"]["association_strategy"] != "global_nearest":
         errors.append("motion-model ablation must use global_nearest association")
+    elif report["tracker_config"]["association_metric"] != "euclidean":
+        errors.append("motion-model ablation must isolate models with euclidean association")
 
     rows = report.get("models")
     if not isinstance(rows, list):

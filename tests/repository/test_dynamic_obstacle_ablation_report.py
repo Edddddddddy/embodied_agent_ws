@@ -45,6 +45,8 @@ def valid_report() -> dict:
         "tracker_config": {
             "association_distance_m": 1.2,
             "association_strategy": "global_nearest",
+            "association_metric": "euclidean",
+            "association_nis_gate": 9.21,
             "track_timeout_s": 1.0,
             "velocity_smoothing": 0.5,
             "measurement_noise_variance": 0.0016,

@@ -20,6 +20,9 @@ dynamic_obstacle_tracker:
     motion_model: constant_velocity
     # 全局门限分配避免交叉目标因轨迹遍历顺序交换 ID；greedy_nearest 仅保留作消融基线。
     association_strategy: global_nearest
+    # 未标定真实检测噪声前保留 euclidean；实验时可切 mahalanobis，9.210 为二维 99% NIS 门限。
+    association_metric: euclidean
+    association_nis_gate: 9.210
     association_distance_m: 0.8
     velocity_smoothing: 0.65
     measurement_noise_variance: 0.01

@@ -40,6 +40,10 @@ struct TrackerConfig
   double track_timeout_s{1.0};
   double default_radius_m{0.25};
   AssociationStrategy association_strategy{AssociationStrategy::GlobalNearest};
+  // 纯库默认保留欧氏语义；ROS 运行时参数默认启用 Mahalanobis，兼容旧的直接调用方。
+  AssociationMetric association_metric{AssociationMetric::Euclidean};
+  // 9.210 是二维卡方分布 99% 分位点；低于它的创新才进入全局分配。
+  double association_nis_gate{9.210};
   MotionModel motion_model{MotionModel::ConstantVelocity};
   double measurement_noise_variance{0.01};
   double process_noise_variance{0.2};

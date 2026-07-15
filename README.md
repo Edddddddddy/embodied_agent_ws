@@ -27,7 +27,8 @@
 - 仿真与导航：直行、转向、弧线、组合动作、语义地点、巡航、Nav2 goal 取消和失败归零。
 - SLAM：可复现漂移注入、固定闭环、LiDAR 多假设序列回环门控、Ceres/GTSAM 后端 A/B、鲁棒核与
   可切换回环约束、地图保存、AMCL 定位、Nav2 规划控制和 ATE/RPE/回环定量评估。
-- 动态避障：C++ 全局门限数据关联、CV/Kalman/IMM 跟踪、未来占用预测和 Nav2 costmap
+- 动态避障：C++ 全局门限数据关联、可切换协方差感知 Mahalanobis/NIS 门控、CV/Kalman/IMM 跟踪、
+  未来占用预测和 Nav2 costmap
   plugin；固定输入消融验证身份连续性、预测误差、重规划和停车。
 - 用户上下文：声纹身份、注册流程、分用户偏好/行为记忆；身份快照随命令入队，动作仍受
   ActionGuard 约束。
@@ -182,6 +183,9 @@ bash scripts/acceptance_test.sh dynamic-obstacle-navigation-ablation  # 四模�
 
 `dynamic-obstacle-stage` 还会在完全相同的转向、停车、短遮挡输入上比较
 `current_only / constant_velocity / Kalman / IMM` 的位置、速度、0.75 s 预测和遮挡 RMSE；
+同一门禁还比较欧氏距离与协方差归一化 NIS，在固定异方差双目标交叉中验证身份交换恢复，并用
+米制硬门防止协方差膨胀吸收远处观测。由于当前 `PoseArray` 检测没有经过真实协方差标定，生产
+参数仍默认 Euclidean，Mahalanobis 作为可审计实验模式；
 重型 `dynamic-obstacle-navigation-ablation` 则让四种模型分别跑完整 Gazebo/Nav2 横穿场景。
 横穿检测由带 SHA256 的 `PoseArray` 场景契约确定，并校验地图和 Nav2 参数哈希；它验证完整
 规划控制闭环，但障碍物不是 Gazebo 物理 actor。两类报告分开保存，避免用跟踪器 benchmark

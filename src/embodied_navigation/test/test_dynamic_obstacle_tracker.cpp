@@ -70,6 +70,39 @@ TEST(DynamicObstacleTracker, GlobalAssociationPreservesTwoExistingIdentities)
   EXPECT_NEAR(tracks[1].position.x, 0.2, 1e-12);
 }
 
+TEST(DynamicObstacleTracker, KalmanPredictionCovarianceGuidesIdentityAssociation)
+{
+  const auto run = [](const AssociationMetric metric) {
+      TrackerConfig config;
+      config.motion_model = MotionModel::Kalman;
+      config.association_strategy = AssociationStrategy::GlobalNearest;
+      config.association_metric = metric;
+      config.association_distance_m = 1.5;
+      config.association_nis_gate = 9.210;
+      config.measurement_noise_variance = 0.0025;
+      config.process_noise_variance = 0.2;
+      config.track_timeout_s = 2.0;
+      DynamicObstacleTracker tracker(config);
+      tracker.update({Point2d{0.0, 0.0}, Point2d{0.4, 0.0}}, 0.0);
+      // 只持续观测 track_1，使 track_2 的预测协方差在遮挡期间自然增长。
+      for (int index = 1; index <= 9; ++index) {
+        tracker.update({Point2d{0.0, 0.0}}, 0.1 * static_cast<double>(index));
+      }
+      const auto & tracks = tracker.update(
+        {Point2d{-0.2, 0.0}, Point2d{0.1, 0.0}}, 1.0);
+      return std::vector<TrackedObstacle>(tracks.begin(), tracks.end());
+    };
+
+  const auto euclidean = run(AssociationMetric::Euclidean);
+  const auto mahalanobis = run(AssociationMetric::Mahalanobis);
+  ASSERT_EQ(euclidean.size(), 2U);
+  ASSERT_EQ(mahalanobis.size(), 2U);
+  EXPECT_LT(euclidean[0].position.x, 0.0);
+  EXPECT_GT(euclidean[1].position.x, 0.0);
+  EXPECT_GT(mahalanobis[0].position.x, 0.0);
+  EXPECT_LT(mahalanobis[1].position.x, 0.0);
+}
+
 TEST(DynamicObstacleTracker, CurrentOnlyDoesNotInventVelocityDuringOcclusion)
 {
   TrackerConfig config;

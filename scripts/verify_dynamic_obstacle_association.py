@@ -21,6 +21,10 @@ def validate_report(report: dict[str, Any]) -> list[str]:
         errors.append("unexpected association scenario")
     if report.get("association_distance_m") != 0.5:
         errors.append("association gate must remain fixed at 0.5 m")
+    if report.get("association_metric") != "euclidean":
+        errors.append("strategy benchmark must isolate assignment with euclidean cost")
+    if report.get("association_nis_gate") != 9.21:
+        errors.append("association benchmark must record the fixed NIS gate")
     rows = report.get("strategies")
     if not isinstance(rows, list):
         return errors + ["strategies must be a list"]

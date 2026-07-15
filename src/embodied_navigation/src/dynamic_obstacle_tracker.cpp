@@ -22,6 +22,7 @@ struct MotionEstimate
 {
   Point2d position;
   Point2d velocity;
+  Point2d position_variance;
 };
 
 class MotionEstimator
@@ -35,32 +36,37 @@ public:
 class CurrentOnlyEstimator final : public MotionEstimator
 {
 public:
-  CurrentOnlyEstimator(const Point2d & observation, double timestamp_s)
-  : position_(observation), timestamp_s_(timestamp_s) {}
+  CurrentOnlyEstimator(
+    const Point2d & observation, double timestamp_s, const double measurement_variance)
+  : position_(observation), timestamp_s_(timestamp_s),
+    position_variance_(std::max(measurement_variance, kMinimumVariance)) {}
 
   MotionEstimate update(const Point2d & observation, double timestamp_s) override
   {
     position_ = observation;
     timestamp_s_ = timestamp_s;
-    return {position_, {0.0, 0.0}};
+    return {position_, {0.0, 0.0}, {position_variance_, position_variance_}};
   }
 
   MotionEstimate predict(double) const override
   {
-    return {position_, {0.0, 0.0}};
+    return {position_, {0.0, 0.0}, {position_variance_, position_variance_}};
   }
 
 private:
   Point2d position_;
   double timestamp_s_{0.0};
+  double position_variance_{0.01};
 };
 
 class SmoothedConstantVelocityEstimator final : public MotionEstimator
 {
 public:
   SmoothedConstantVelocityEstimator(
-    const Point2d & observation, double timestamp_s, double smoothing)
-  : position_(observation), timestamp_s_(timestamp_s), smoothing_(std::clamp(smoothing, 0.0, 1.0))
+    const Point2d & observation, double timestamp_s, double smoothing,
+    const double measurement_variance)
+  : position_(observation), timestamp_s_(timestamp_s), smoothing_(std::clamp(smoothing, 0.0, 1.0)),
+    position_variance_(std::max(measurement_variance, kMinimumVariance))
   {
   }
 
@@ -76,14 +82,15 @@ public:
     }
     position_ = observation;
     timestamp_s_ = timestamp_s;
-    return {position_, velocity_};
+    return {position_, velocity_, {position_variance_, position_variance_}};
   }
 
   MotionEstimate predict(double timestamp_s) const override
   {
     const double delta_s = std::max(0.0, timestamp_s - timestamp_s_);
     return {
-      {position_.x + velocity_.x * delta_s, position_.y + velocity_.y * delta_s}, velocity_};
+      {position_.x + velocity_.x * delta_s, position_.y + velocity_.y * delta_s}, velocity_,
+      {position_variance_, position_variance_}};
   }
 
 private:
@@ -91,6 +98,7 @@ private:
   Point2d velocity_;
   double timestamp_s_{0.0};
   double smoothing_{0.65};
+  double position_variance_{0.01};
 };
 
 struct AxisState
@@ -203,7 +211,7 @@ public:
 private:
   static MotionEstimate estimate(const AxisState & x, const AxisState & y)
   {
-    return {{x.position, y.position}, {x.velocity, y.velocity}};
+    return {{x.position, y.position}, {x.velocity, y.velocity}, {x.p00, y.p00}};
   }
 
   AxisState x_;
@@ -309,6 +317,15 @@ private:
       result.velocity.x += probabilities[index] * models[index].x.velocity;
       result.velocity.y += probabilities[index] * models[index].y.velocity;
     }
+    // IMM 的总协方差还要加入各模型均值相对融合均值的离散项。
+    for (std::size_t index = 0; index < models.size(); ++index) {
+      const double delta_x = models[index].x.position - result.position.x;
+      const double delta_y = models[index].y.position - result.position.y;
+      result.position_variance.x += probabilities[index] *
+        (models[index].x.p00 + delta_x * delta_x);
+      result.position_variance.y += probabilities[index] *
+        (models[index].y.p00 + delta_y * delta_y);
+    }
     return result;
   }
 
@@ -326,10 +343,12 @@ std::unique_ptr<MotionEstimator> make_motion_estimator(
 {
   switch (config.motion_model) {
     case MotionModel::CurrentOnly:
-      return std::make_unique<CurrentOnlyEstimator>(observation, timestamp_s);
+      return std::make_unique<CurrentOnlyEstimator>(
+        observation, timestamp_s, config.measurement_noise_variance);
     case MotionModel::ConstantVelocity:
       return std::make_unique<SmoothedConstantVelocityEstimator>(
-        observation, timestamp_s, config.velocity_smoothing);
+        observation, timestamp_s, config.velocity_smoothing,
+        config.measurement_noise_variance);
     case MotionModel::Kalman:
       return std::make_unique<KalmanEstimator>(observation, timestamp_s, config);
     case MotionModel::Imm:
@@ -391,16 +410,18 @@ public:
       tracks_.end());
 
     std::vector<MotionEstimate> predictions;
-    std::vector<Point2d> predicted_positions;
+    std::vector<AssociationPrediction> association_predictions;
     predictions.reserve(tracks_.size());
-    predicted_positions.reserve(tracks_.size());
+    association_predictions.reserve(tracks_.size());
     for (const auto & track : tracks_) {
       predictions.push_back(track.estimator->predict(timestamp_s));
-      predicted_positions.push_back(predictions.back().position);
+      association_predictions.push_back(
+        {predictions.back().position, predictions.back().position_variance});
     }
     const auto assignments = assign_gated_observations(
-      predicted_positions, observations, config_.association_distance_m,
-      config_.association_strategy);
+      association_predictions, observations, config_.measurement_noise_variance,
+      config_.association_distance_m, config_.association_nis_gate,
+      config_.association_strategy, config_.association_metric);
     std::vector<bool> observation_used(observations.size(), false);
     for (std::size_t track_index = 0U; track_index < tracks_.size(); ++track_index) {
       auto & track = tracks_[track_index];
