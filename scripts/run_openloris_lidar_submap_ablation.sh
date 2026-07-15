@@ -10,14 +10,20 @@ ROOT="${OPENLORIS_ROOT:-$RUNTIME_WORKSPACE/datasets/openloris}"
 LOG_ROOT="${OPENLORIS_LOG_ROOT:-$RUNTIME_WORKSPACE/logs/openloris}"
 SEQUENCES="${OPENLORIS_LIDAR_SUBMAP_SEQUENCES:-corridor1-1,corridor1-2}"
 BINARY="${LIDAR_SHADOW_SCAN_MATCH_BINARY:-$RUNTIME_WORKSPACE/install/embodied_slam/lib/embodied_slam/lidar_shadow_scan_match}"
+TEMPORAL_BINARY="${LIDAR_LOOP_TEMPORAL_REPLAY_BINARY:-$RUNTIME_WORKSPACE/install/embodied_slam/lib/embodied_slam/lidar_loop_temporal_replay}"
 if [[ ! -x "$BINARY" ]]; then
   echo "Missing $BINARY; build embodied_slam or set LIDAR_SHADOW_SCAN_MATCH_BINARY" >&2
+  exit 2
+fi
+if [[ ! -x "$TEMPORAL_BINARY" ]]; then
+  echo "Missing $TEMPORAL_BINARY; build embodied_slam or set LIDAR_LOOP_TEMPORAL_REPLAY_BINARY" >&2
   exit 2
 fi
 
 IFS=',' read -r -a sequence_list <<< "$SEQUENCES"
 baseline_args=()
 submap_args=()
+temporal_args=()
 for sequence in "${sequence_list[@]}"; do
   suffix="${sequence//-/_}"
   output_dir="$LOG_ROOT/$sequence/lidar_shadow_matches"
@@ -74,9 +80,11 @@ for sequence in "${sequence_list[@]}"; do
     --corpus-metadata "$output_dir/scan_corpus.json" \
     --output "$submap" \
     --markdown "$submap_markdown" \
+    --temporal-replay-binary "$TEMPORAL_BINARY" \
     --minimum-pair-time-coverage 0.85
   baseline_args+=(--baseline "$sequence=$baseline")
   submap_args+=(--submap "$sequence=$submap")
+  temporal_args+=(--report "$sequence=$submap")
 done
 
 python3 scripts/compare_lidar_submap_ablation.py \
@@ -84,3 +92,8 @@ python3 scripts/compare_lidar_submap_ablation.py \
   "${submap_args[@]}" \
   --output "$PROJECT_ROOT/docs/evidence/lidar_submap_ablation_multisequence.json" \
   --markdown "$PROJECT_ROOT/docs/evidence/lidar_submap_ablation_multisequence.md"
+
+python3 scripts/compare_lidar_temporal_ablation.py \
+  "${temporal_args[@]}" \
+  --output "$PROJECT_ROOT/docs/evidence/lidar_temporal_ablation_multisequence.json" \
+  --markdown "$PROJECT_ROOT/docs/evidence/lidar_temporal_ablation_multisequence.md"

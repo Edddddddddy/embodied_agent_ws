@@ -56,6 +56,11 @@ public:
     declare_parameter<int>("maximum_history", 4096);
     declare_parameter<double>("translation_variance", 0.04);
     declare_parameter<double>("yaw_variance", 0.04);
+    declare_parameter<int>("minimum_temporal_confirmations", 4);
+    declare_parameter<double>("maximum_temporal_query_gap_s", 2.0);
+    declare_parameter<double>("maximum_temporal_pair_age_delta_s", 1.25);
+    declare_parameter<double>("maximum_temporal_translation_delta_m", 0.55);
+    declare_parameter<double>("maximum_temporal_yaw_delta_rad", 0.35);
     RCLCPP_INFO(get_logger(), "LiDAR loop constraint gate created (commit disabled by default)");
   }
 
@@ -84,6 +89,15 @@ protected:
       config.maximum_history = positiveSize("maximum_history");
       config.translation_variance = get_parameter("translation_variance").as_double();
       config.yaw_variance = get_parameter("yaw_variance").as_double();
+      config.temporal.minimum_confirmations = positiveSize("minimum_temporal_confirmations");
+      config.temporal.maximum_query_gap_s =
+        get_parameter("maximum_temporal_query_gap_s").as_double();
+      config.temporal.maximum_pair_age_delta_s =
+        get_parameter("maximum_temporal_pair_age_delta_s").as_double();
+      config.temporal.maximum_translation_delta_m =
+        get_parameter("maximum_temporal_translation_delta_m").as_double();
+      config.temporal.maximum_yaw_delta_rad =
+        get_parameter("maximum_temporal_yaw_delta_rad").as_double();
       gate_ = std::make_unique<LidarLoopConstraintGate>(config);
       commit_enabled_ = config.commit_enabled;
 
@@ -197,6 +211,12 @@ private:
       output.target_to_source.theta = decision.input.target_to_source.yaw;
       output.covariance = decision.covariance;
       output.quality_score = decision.quality_score;
+      output.temporal_confirmation_count = decision.temporal.confirmation_count;
+      output.temporal_confirmation_required = decision.temporal.confirmation_required;
+      output.temporal_query_gap_s = decision.temporal.query_gap_s;
+      output.temporal_pair_age_delta_s = decision.temporal.pair_age_delta_s;
+      output.temporal_translation_delta_m = decision.temporal.translation_delta_m;
+      output.temporal_yaw_delta_rad = decision.temporal.yaw_delta_rad;
       output.descriptor_similarity = decision.input.descriptor_similarity;
       output.inlier_ratio = decision.input.inlier_ratio;
       output.bidirectional_overlap_ratio = decision.input.overlap_ratio;

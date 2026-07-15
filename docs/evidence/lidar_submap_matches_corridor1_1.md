@@ -9,6 +9,8 @@
 | cpp_default | 203 | 10.34% | 20.00% | 25.00% | 0.424 m |
 | balanced_shadow | 32 | 3.12% | 0.95% | 1.56% | 0.250 m |
 | conservative_shadow | 1 | 0.00% | 0.00% | 0.00% | n/a |
+| cpp_ranked_single | 119 | 9.24% | 10.48% | 17.19% | 0.475 m |
+| cpp_temporal | 8 | 12.50% | 0.95% | 1.56% | 1.254 m |
 
 - balanced shadow 事件恢复：1/2
 

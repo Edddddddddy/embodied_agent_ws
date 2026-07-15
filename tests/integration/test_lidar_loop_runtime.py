@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import copy
 import math
 import time
 
@@ -269,15 +270,46 @@ def main() -> None:
             probe.spin_for(0.05)
         if not probe.decisions:
             raise AssertionError("accepted geometry did not reach the constraint gate")
+        pending = probe.decisions[-1]
+        if (
+            pending.policy_approved
+            or pending.commit_requested
+            or pending.reason != "temporal_confirmation_pending"
+            or pending.temporal_confirmation_count != 1
+        ):
+            raise AssertionError(
+                "default gate must wait for four coherent observations, "
+                f"got approved={pending.policy_approved} "
+                f"count={pending.temporal_confirmation_count} reason={pending.reason}"
+            )
+
+        # 几何通过一次仍可能是重复走廊中的偶然匹配；构造三次时间差和位姿均
+        # 连续的 typed verification，验证第 4 帧才形成可审计的 shadow 决策。
+        for offset in range(1, 4):
+            coherent = copy.deepcopy(verified)
+            coherent.query_id = verified.query_id + offset
+            query_stamp_s = 1_700_000_002.123456789 + 0.5 * offset
+            candidate_stamp_s = 1_700_000_001.123456789 + 0.5 * offset
+            probe.set_stamp(coherent.header.stamp, query_stamp_s)
+            coherent.verifications[0].candidate_id = (
+                verified.verifications[0].candidate_id + offset
+            )
+            probe.set_stamp(
+                coherent.verifications[0].candidate_stamp, candidate_stamp_s
+            )
+            probe.verification_input.publish(coherent)
+            probe.spin_for(0.2)
         selected = probe.decisions[-1]
         if (
             not selected.policy_approved
             or selected.commit_requested
             or selected.reason != "shadow_mode"
+            or selected.temporal_confirmation_count != 4
         ):
             raise AssertionError(
-                "default gate must approve only an auditable shadow decision, "
+                "four coherent observations must produce only an auditable shadow decision, "
                 f"got approved={selected.policy_approved} "
+                f"count={selected.temporal_confirmation_count} "
                 f"commit={selected.commit_requested} reason={selected.reason}"
             )
 

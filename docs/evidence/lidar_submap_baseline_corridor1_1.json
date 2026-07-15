@@ -167,6 +167,7 @@
       "odometry_prior_inconsistent": 2487,
       "translation_limit": 631
     },
+    "temporal_consistency": null,
     "positive_inlier_ratio": {
       "count": 105,
       "mean": 0.473062,
@@ -205,12 +206,14 @@
     "runtime_input": "candidate scan/submap pair + descriptor yaw seed + optional odometry yaw prior",
     "matcher": "C++17 trimmed coarse-to-fine point-to-point ICP with multi-yaw seeds",
     "offline_label": "official OpenLORIS trajectory; never passed to C++ matcher",
-    "boundary": "Shadow results are scored but never inserted into the pose graph. Profile sweeps are evidence, not runtime GT-assisted selection."
+    "boundary": "Shadow results are scored but never inserted into the pose graph. Profile sweeps are evidence, not runtime GT-assisted selection.",
+    "temporal_policy": "not evaluated"
   },
   "source": {
     "matches_sha256": "d5c0fdaf1b76e6a301d90fa8c93c0b22ef434ef970ef863d9a1b35cf19011f67",
     "groundtruth_sha256": "8bac84df6e0ec2ab1d08f0e3d5c47b1da067911ee9a814471b96ef13637a8e2d",
     "candidates_sha256": "5cbcb3136a3bed1b8bb69baa3f738170f0aeea317b54559bc8360bd92094a42f",
-    "corpus_metadata_sha256": "e6a44ff5b1fc4cb150925073fef75ed44631feb5a204913409990761ccb30d68"
+    "corpus_metadata_sha256": "e6a44ff5b1fc4cb150925073fef75ed44631feb5a204913409990761ccb30d68",
+    "temporal_replay_binary_sha256": null
   }
 }

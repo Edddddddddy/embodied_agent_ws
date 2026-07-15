@@ -10,6 +10,8 @@ import importlib.util
 import json
 import math
 import statistics
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import Callable, Sequence
 
@@ -122,6 +124,109 @@ def _profile_metrics(
     }
 
 
+def _quality_score(row: dict[str, object]) -> float:
+    """Mirror the runtime ranking without treating the heuristic as probability."""
+    rmse_score = max(0.0, min(1.0, 1.0 - float(row["rmse_m"]) / 0.18))
+    return (
+        0.30 * float(row["similarity"])
+        + 0.25 * float(row["inlier_ratio"])
+        + 0.30 * float(row["bidirectional_overlap_ratio"])
+        + 0.15 * rmse_score
+    )
+
+
+def _run_temporal_replay(
+    scored: list[dict[str, object]],
+    predicate: Callable[[dict[str, object]], bool],
+    binary: Path,
+    *,
+    minimum_confirmations: int,
+    maximum_query_gap_s: float,
+    maximum_pair_age_delta_s: float,
+    maximum_translation_delta_m: float,
+    maximum_yaw_delta_rad: float,
+) -> tuple[set[tuple[int, int]], set[tuple[int, int]], dict[str, object]]:
+    """Adapt scored rows to the authoritative C++ temporal policy."""
+    by_query: dict[int, list[dict[str, object]]] = collections.defaultdict(list)
+    for row in scored:
+        if predicate(row):
+            by_query[int(row["query_id"])].append(row)
+    selected = [
+        max(
+            candidates,
+            key=lambda row: (_quality_score(row), -int(row["candidate_rank"])),
+        )
+        for _, candidates in sorted(
+            by_query.items(),
+            key=lambda item: (float(item[1][0]["query_stamp_s"]), item[0]),
+        )
+    ]
+    if not selected:
+        return set(), set(), {"observations": 0, "reason_counts": {}}
+
+    with tempfile.TemporaryDirectory(prefix="lidar-temporal-") as directory:
+        input_path = Path(directory) / "observations.txt"
+        output_path = Path(directory) / "decisions.jsonl"
+        lines = []
+        for row in selected:
+            transform = row["target_to_source"]
+            lines.append(
+                "O "
+                f"{int(row['query_id'])} {int(row['candidate_id'])} "
+                f"{float(row['query_stamp_s']):.9f} "
+                f"{float(row['candidate_stamp_s']):.9f} "
+                f"{float(transform['x_m']):.12f} "
+                f"{float(transform['y_m']):.12f} "
+                f"{float(transform['yaw_rad']):.12f}"
+            )
+        input_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        command = [
+            str(binary),
+            str(input_path),
+            str(output_path),
+            "--minimum-confirmations",
+            str(minimum_confirmations),
+            "--maximum-query-gap",
+            str(maximum_query_gap_s),
+            "--maximum-pair-age-delta",
+            str(maximum_pair_age_delta_s),
+            "--maximum-translation-delta",
+            str(maximum_translation_delta_m),
+            "--maximum-yaw-delta",
+            str(maximum_yaw_delta_rad),
+        ]
+        subprocess.run(command, check=True, capture_output=True, text=True)
+        decisions = [
+            json.loads(line)
+            for line in output_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+
+    if len(decisions) != len(selected):
+        raise ValueError("temporal replay output count does not match selected inputs")
+    selected_keys = {
+        (int(row["query_id"]), int(row["candidate_id"])) for row in selected
+    }
+    approved = {
+        (int(row["query_id"]), int(row["candidate_id"]))
+        for row in decisions
+        if bool(row["approved"])
+    }
+    reasons = collections.Counter(str(row["reason"]) for row in decisions)
+    return selected_keys, approved, {
+        "observations": len(decisions),
+        "approved": len(approved),
+        "reason_counts": dict(sorted(reasons.items())),
+        "config": {
+            "minimum_confirmations": minimum_confirmations,
+            "maximum_query_gap_s": maximum_query_gap_s,
+            "maximum_pair_age_delta_s": maximum_pair_age_delta_s,
+            "maximum_translation_delta_m": maximum_translation_delta_m,
+            "maximum_yaw_delta_rad": maximum_yaw_delta_rad,
+        },
+    }
+
+
 def evaluate(
     rows: list[dict[str, object]],
     reference,
@@ -132,6 +237,12 @@ def evaluate(
     minimum_temporal_separation_s: float,
     event_gap_s: float,
     minimum_pair_time_coverage: float = 0.85,
+    temporal_replay_binary: Path | None = None,
+    temporal_minimum_confirmations: int = 4,
+    temporal_maximum_query_gap_s: float = 2.0,
+    temporal_maximum_pair_age_delta_s: float = 1.25,
+    temporal_maximum_translation_delta_m: float = 0.55,
+    temporal_maximum_yaw_delta_rad: float = 0.35,
 ) -> dict[str, object]:
     if not 0.0 < minimum_pair_time_coverage <= 1.0:
         raise ValueError("minimum pair time coverage must be in (0, 1]")
@@ -223,6 +334,30 @@ def evaluate(
         name: _profile_metrics(scored, true_candidate_queries, predicate)
         for name, predicate in profiles.items()
     }
+    temporal_diagnostics = None
+    if temporal_replay_binary is not None:
+        selected, approved, temporal_diagnostics = _run_temporal_replay(
+            scored,
+            profiles["cpp_default"],
+            temporal_replay_binary,
+            minimum_confirmations=temporal_minimum_confirmations,
+            maximum_query_gap_s=temporal_maximum_query_gap_s,
+            maximum_pair_age_delta_s=temporal_maximum_pair_age_delta_s,
+            maximum_translation_delta_m=temporal_maximum_translation_delta_m,
+            maximum_yaw_delta_rad=temporal_maximum_yaw_delta_rad,
+        )
+        profile_metrics["cpp_ranked_single"] = _profile_metrics(
+            scored,
+            true_candidate_queries,
+            lambda row: (int(row["query_id"]), int(row["candidate_id"]))
+            in selected,
+        )
+        profile_metrics["cpp_temporal"] = _profile_metrics(
+            scored,
+            true_candidate_queries,
+            lambda row: (int(row["query_id"]), int(row["candidate_id"]))
+            in approved,
+        )
 
     config = EVALUATOR.EvaluationConfig(
         loop_radius_m=revisit_radius_m,
@@ -349,6 +484,7 @@ def evaluate(
                     ]
                 ),
                 "cpp_rejection_reasons": dict(sorted(reason_counts.items())),
+                "temporal_consistency": temporal_diagnostics,
                 "positive_inlier_ratio": _summary(
                     [float(row["inlier_ratio"]) for row in scored if row["is_true_loop"]]
                 ),
@@ -386,6 +522,12 @@ def evaluate(
                 "boundary": (
                     "Shadow results are scored but never inserted into the pose graph. "
                     "Profile sweeps are evidence, not runtime GT-assisted selection."
+                ),
+                "temporal_policy": (
+                    "C++ matcher-accepted candidates are ranked without ground truth, then replayed "
+                    "through the same pure C++ temporal module used by the ROS gate."
+                    if temporal_replay_binary is not None
+                    else "not evaluated"
                 ),
             },
         }
@@ -438,6 +580,12 @@ def main() -> int:
     parser.add_argument("--minimum-temporal-separation", type=float, default=60.0)
     parser.add_argument("--event-gap", type=float, default=2.0)
     parser.add_argument("--minimum-pair-time-coverage", type=float, default=0.85)
+    parser.add_argument("--temporal-replay-binary", type=Path)
+    parser.add_argument("--temporal-minimum-confirmations", type=int, default=4)
+    parser.add_argument("--temporal-maximum-query-gap", type=float, default=2.0)
+    parser.add_argument("--temporal-maximum-pair-age-delta", type=float, default=1.25)
+    parser.add_argument("--temporal-maximum-translation-delta", type=float, default=0.55)
+    parser.add_argument("--temporal-maximum-yaw-delta", type=float, default=0.35)
     args = parser.parse_args()
     report = evaluate(
         load_rows(args.matches),
@@ -448,6 +596,12 @@ def main() -> int:
         minimum_temporal_separation_s=args.minimum_temporal_separation,
         event_gap_s=args.event_gap,
         minimum_pair_time_coverage=args.minimum_pair_time_coverage,
+        temporal_replay_binary=args.temporal_replay_binary,
+        temporal_minimum_confirmations=args.temporal_minimum_confirmations,
+        temporal_maximum_query_gap_s=args.temporal_maximum_query_gap,
+        temporal_maximum_pair_age_delta_s=args.temporal_maximum_pair_age_delta,
+        temporal_maximum_translation_delta_m=args.temporal_maximum_translation_delta,
+        temporal_maximum_yaw_delta_rad=args.temporal_maximum_yaw_delta,
     )
     report["source"] = {
         "matches_sha256": _sha256(args.matches),
@@ -455,6 +609,9 @@ def main() -> int:
         "candidates_sha256": _sha256(args.candidates) if args.candidates else None,
         "corpus_metadata_sha256": _sha256(args.corpus_metadata)
         if args.corpus_metadata
+        else None,
+        "temporal_replay_binary_sha256": _sha256(args.temporal_replay_binary)
+        if args.temporal_replay_binary
         else None,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)

@@ -407,6 +407,13 @@ bash scripts/acceptance_test.sh openloris-lidar-submap-ablation
 固定门槛要求每条序列同时达到 precision ≥ 80%、conditional recall ≥ 15%、平移中位误差
 ≤ 0.5 m。相对单帧有改善但未满足绝对门槛时，仍保持 shadow-only。
 
+该入口还会把每个 query 中不读取真值的最高质量候选送入
+`lidar_loop_temporal_replay`。它与 ROS 门控共用纯 C++
+`LidarLoopTemporalConsistency`，默认要求连续 4 帧满足查询间隔、回访时间差和相对位姿变化门限。
+验收同时读取 `docs/evidence/lidar_temporal_ablation_multisequence.json`：两条序列必须使用相同配置，
+且每条序列 precision 都不能下降。当前聚合 precision 为 13.21% → 31.25%，conditional recall 为
+12.57% → 2.99%。因此 `PASS` 只表示精度/召回消融与 fail-closed 策略成立，不授权写入位姿图。
+
 ## 11. LiDAR 在线回环候选、几何验证与约束门控
 
 ```bash
@@ -420,8 +427,9 @@ instrumented slam_toolbox 测试实例。探针驱动完整 Lifecycle：configur
 typed `LidarLoopCandidateArray`，以及 scan-to-submap ICP/重叠率门限结果。探针要求查询端和候选端
 都至少贡献两帧，并检查消息中的 `query_submap_scans/candidate_submap_scans`，防止只修改模式名称。
 它还会分别强制候选、查询扫描、查询里程计乱序到达，验证跨 topic pending 恢复；最后执行
-无后续输入的缺帧场景，确认 500 ms steady-clock 超时会冲刷 pending。约束门还必须把 accepted
-geometry 转成 `policy_approved=true, commit_requested=false, reason=shadow_mode`，拒绝重复 pair；
+无后续输入的缺帧场景，确认 500 ms steady-clock 超时会冲刷 pending。约束门先把单次 accepted
+geometry 标为 `temporal_confirmation_pending`，只有 4 组连续 typed verification 后才产生
+`policy_approved=true, commit_requested=false, reason=shadow_mode`，并拒绝重复 pair；
 后端 Adapter 必须拒绝 shadow 决策以及无法关联到 Karto processed scan 的伪造 commit。最后执行
 deactivate/cleanup/reactivate，确认描述子索引、扫描/里程计缓存、pending、门控历史和决策序号
 均被清空。

@@ -8,6 +8,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "embodied_slam/lidar_loop_temporal_consistency.hpp"
 #include "embodied_slam/pose2d.hpp"
 
 namespace embodied_slam
@@ -28,6 +29,7 @@ struct LidarLoopConstraintGateConfig
   std::size_t maximum_history{4096U};
   double translation_variance{0.04};
   double yaw_variance{0.04};
+  LidarLoopTemporalConsistencyConfig temporal;
 };
 
 struct LidarLoopConstraintInput
@@ -62,6 +64,7 @@ struct LidarLoopConstraintDecision
   bool commit_requested{false};
   std::array<double, 9U> covariance{};
   double quality_score{0.0};
+  LidarLoopTemporalDecision temporal;
   std::string reason;
 };
 
@@ -94,6 +97,7 @@ private:
   void remember(const PairKey & key);
 
   LidarLoopConstraintGateConfig config_;
+  LidarLoopTemporalConsistency temporal_consistency_;
   std::uint64_t next_sequence_{1U};
   std::int64_t last_commit_query_id_{-1};
   std::deque<PairKey> history_order_;

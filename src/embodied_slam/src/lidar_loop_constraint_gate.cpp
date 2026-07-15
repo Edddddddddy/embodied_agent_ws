@@ -45,7 +45,7 @@ void validateConfig(const LidarLoopConstraintGateConfig & config)
 
 LidarLoopConstraintGate::LidarLoopConstraintGate(
   const LidarLoopConstraintGateConfig & config)
-: config_(config)
+: config_(config), temporal_consistency_(config.temporal)
 {
   validateConfig(config_);
 }
@@ -174,6 +174,16 @@ std::vector<LidarLoopConstraintDecision> LidarLoopConstraintGate::evaluate(
     }
   }
   auto & selected = decisions[best_index];
+  selected.temporal = temporal_consistency_.observe({
+      selected.input.query_id,
+      selected.input.query_stamp_ns,
+      selected.input.candidate_id,
+      selected.input.candidate_stamp_ns,
+      selected.input.target_to_source});
+  if (!selected.temporal.approved) {
+    selected.reason = selected.temporal.reason;
+    return decisions;
+  }
   selected.policy_approved = true;
   if (!config_.commit_enabled) {
     selected.reason = "shadow_mode";
@@ -199,6 +209,7 @@ void LidarLoopConstraintGate::reset()
   last_commit_query_id_ = -1;
   history_order_.clear();
   history_.clear();
+  temporal_consistency_.reset();
 }
 
 }  // namespace embodied_slam

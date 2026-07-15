@@ -29,6 +29,7 @@ add_library(embodied_slam_core
   src/drift_model.cpp
   src/lidar_loop_descriptor.cpp
   src/lidar_loop_constraint_gate.cpp
+  src/lidar_loop_temporal_consistency.cpp
   src/lidar_loop_runtime.cpp
   src/lidar_loop_verifier.cpp
   src/lidar_scan_corpus.cpp
@@ -71,6 +72,9 @@ target_link_libraries(lidar_loop_candidates embodied_slam_core)
 
 add_executable(lidar_shadow_scan_match src/lidar_shadow_scan_match.cpp)
 target_link_libraries(lidar_shadow_scan_match embodied_slam_core)
+
+add_executable(lidar_loop_temporal_replay src/lidar_loop_temporal_replay.cpp)
+target_link_libraries(lidar_loop_temporal_replay embodied_slam_core)
 
 add_library(lidar_loop_candidate_component SHARED src/lidar_loop_candidate_node.cpp)
 target_link_libraries(lidar_loop_candidate_component embodied_slam_core)
@@ -148,6 +152,7 @@ install(TARGETS
   gtsam_graph_optimize
   lidar_loop_candidates
   lidar_shadow_scan_match
+  lidar_loop_temporal_replay
   lidar_loop_candidate_component
   lidar_loop_candidate_node
   lidar_loop_verifier_component
@@ -190,6 +195,9 @@ if(BUILD_TESTING)
   ament_add_gtest(test_lidar_loop_constraint_gate
     test/test_lidar_loop_constraint_gate.cpp)
   target_link_libraries(test_lidar_loop_constraint_gate embodied_slam_core)
+  ament_add_gtest(test_lidar_loop_temporal_consistency
+    test/test_lidar_loop_temporal_consistency.cpp)
+  target_link_libraries(test_lidar_loop_temporal_consistency embodied_slam_core)
   ament_add_gtest(test_loop_constraint_adapter
     test/test_loop_constraint_adapter.cpp)
   target_link_libraries(test_loop_constraint_adapter embodied_slam_core)
@@ -259,6 +267,16 @@ if(BUILD_TESTING)
   set_tests_properties(
     test_lidar_shadow_submap_match_cli
     PROPERTIES PASS_REGULAR_EXPRESSION "\"matching_mode\":\"scan_to_submap\""
+  )
+  add_test(
+    NAME test_lidar_loop_temporal_replay_cli
+    COMMAND lidar_loop_temporal_replay
+      ${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures/lidar_loop_temporal_observations.txt
+      ${CMAKE_CURRENT_BINARY_DIR}/lidar_loop_temporal_decisions.jsonl
+  )
+  set_tests_properties(
+    test_lidar_loop_temporal_replay_cli
+    PROPERTIES PASS_REGULAR_EXPRESSION "\"approved\":1"
   )
 endif()
 
