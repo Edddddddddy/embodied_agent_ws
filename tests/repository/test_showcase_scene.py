@@ -14,6 +14,7 @@ MAP = SIMULATION / "maps/showcase_apartment.pgm"
 SLAM_FRAME_MAP_YAML = SIMULATION / "maps/showcase_apartment_slam_frame.yaml"
 STATIC_PLACES = SIMULATION / "config/showcase_places.yaml"
 MAPPING_PLACES = SIMULATION / "config/showcase_mapping_places.yaml"
+WORKPLACE_MISSION = SIMULATION / "config/showcase_workplace_mission.yaml"
 
 
 def _read_compact_places(path: Path) -> dict[str, dict[str, float]]:
@@ -153,3 +154,22 @@ def test_session_orchestrator_uses_canonical_readiness_topic():
     ).read_text(encoding="utf-8")
     assert '"readiness_topic", "/system/readiness"' in source
     assert '"/agent/system_readiness"' not in source
+
+
+def test_workplace_mission_covers_mapping_and_multiple_semantic_targets():
+    mission = yaml.safe_load(WORKPLACE_MISSION.read_text(encoding="utf-8"))
+    places = _read_compact_places(MAPPING_PLACES)
+    route = mission["mapping_route"]
+    navigation = mission["navigation_mission"]
+    acceptance = mission["acceptance"]
+
+    assert mission["schema_version"] == 1
+    assert len(route) >= 12
+    assert {step["action"] for step in route} == {"move", "turn"}
+    assert all(step["label"] and step["text"] for step in route)
+    labels = " ".join(step["label"] for step in route)
+    assert all(room in labels for room in ("客厅", "厨房", "中央走廊", "办公室"))
+    assert len(navigation["expected_targets"]) >= 3
+    assert set(navigation["expected_targets"]).issubset(places)
+    assert acceptance["min_mapping_path_m"] >= 10.0
+    assert acceptance["min_navigation_targets"] >= 3

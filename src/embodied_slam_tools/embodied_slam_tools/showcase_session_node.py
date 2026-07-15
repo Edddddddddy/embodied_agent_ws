@@ -429,6 +429,9 @@ class SessionOrchestratorNode(Node):
             SessionPhase.STARTING_NAVIGATION,
             detail="starting saved-map AMCL/Nav2 stage",
         )
+        # 进程切换很快时 transient-local state topic 只保证新订阅者拿到“最新状态”，
+        # 不保证测试或 UI 一定调度到每个中间快照；Action feedback 因此同步承载阶段进度。
+        self._feedback(request, 0.8)
         self._manager.start("navigation")
         self._wait_for_new_ready(generation)
         self._transition(

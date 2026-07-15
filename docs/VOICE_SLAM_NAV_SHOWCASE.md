@@ -89,20 +89,33 @@ bash scripts/acceptance_test.sh wsl-microphone-preflight
 
 ```bash
 HEADLESS=false USE_RVIZ=true \
-  bash scripts/voice_slam_nav_showcase.sh auto offline
+  bash scripts/acceptance_test.sh voice-slam-workplace-demo offline
 ```
 
-先沿房间外圈和门洞探索，让雷达观察目标房间：
+脚本会从 `config/showcase_workplace_mission.yaml` 打印确定性办公巡检任务。每条动作完成后再说下一条：
 
 ```text
 小智
+前进三秒
+左转九十度
+前进十秒
+前进四秒
+右转九十度
+前进五秒
+左转九十度
+前进八秒
+后退八秒
+右转九十度
+前进十秒
+前进十秒
 前进两秒
 左转九十度
-前进三秒
-右转九十度
-停下
+前进五秒
 保存地图并开始导航
 ```
+
+路线让 3.5 m 激光分别观察客厅、厨房、走廊和办公室；门洞与办公桌附近的动作长度按 TurtleBot3
+膨胀半径留出余量，雷达安全层仍可对意外接近家具的动作触发 `front_emergency`。
 
 建图阶段选择 `GazeboRobotExecutor`，让 `move/turn/stop` 直接控制底盘；此时使用
 `Nav2RobotExecutor` 会形成“还没有完整地图，却要求 Nav2 先规划探索动作”的循环依赖。说出阶段
@@ -110,9 +123,8 @@ HEADLESS=false USE_RVIZ=true \
 `(0, 0, 0)` 初值启动 AMCL/Nav2。终端出现 `session phase=navigating` 后继续说：
 
 ```text
-小智，去厨房
-去办公室
-依次去入口、会议区、充电区
+小智，去入口
+依次去厨房、办公室
 取消导航
 ```
 
@@ -144,9 +156,15 @@ bash scripts/acceptance_test.sh slam-nav-showcase
 4. 至少两个语义目标产生规划并成功到达；
 5. 结束、失败和取消后 `/cmd_vel` 均归零。
 
-重型自动报告还必须包含状态阶段 1～7、`exploration_succeeded=true`、`map_saved=true`、Nav2 目标
-成功和不少于 0.05 m 的里程计位移。自动门禁用文本 topic 代替真人发声以保持回归可重复；
+重型自动报告还必须包含状态阶段 1～7、15 个成功建图步骤、至少 10 m 建图路径、至少 6,000 个
+已知栅格、至少 150 个占用栅格、入口导航和厨房/办公室巡检成功，并验证 `map→base` 定位。
+报告路径是 `logs/showcase/orchestrated_runtime/workplace_mission_report.json`。自动门禁用文本 topic
+代替真人发声以保持回归可重复；
 `auto offline` 人工验收才是麦克风证据。两者复用相同 Agent、typed Action、ActionGuard 和 executor。
+
+Agent 对 `move/turn` 保持 12 秒快速故障超时，对 `navigate_to/follow_waypoints` 单独使用 330 秒长任务
+超时；底层 Nav2 executor 仍有自己的 300 秒 Action 超时。这样 Nav2 可进行规划与恢复，又不会让
+普通短动作故障长期占住语音队列。
 
 ## 6. 手工回退、现场保底与事实边界
 

@@ -134,13 +134,15 @@ bash scripts/acceptance_test.sh slam-nav-showcase
 
 # 真实麦克风单终端主演示
 HEADLESS=false USE_RVIZ=true \
-  bash scripts/voice_slam_nav_showcase.sh auto offline
+  bash scripts/acceptance_test.sh voice-slam-workplace-demo offline
 ```
 
-人工验收必须看到：mapping 阶段 `/map` 持续更新且语音动作真实改变 `/odom`；说“保存地图并开始
+人工验收按终端打印的 15 步办公巡检话术执行，并且必须看到：mapping 阶段 `/map` 持续更新且
+语音动作真实改变 `/odom`；说“保存地图并开始
 导航”后 `/slam/session_state` 依次进入保存、切换和 `NAVIGATING`；YAML/PGM 非空；AMCL 建立
-`map→odom`；机器人到达至少两个语义地点，Action 成功后 `/cmd_vel` 归零。自动重型报告必须有
-状态阶段 1～7、真实地图、探索成功和导航位移证据，但它的 ASR 输入仍是文本注入，不算麦克风证据。
+`map→odom`；机器人先到入口，再依次到厨房和办公室，Action 成功后 `/cmd_vel` 归零。自动重型
+报告还要求建图路径 ≥10 m、已知栅格 ≥6,000、占用栅格 ≥150，但它的 ASR 输入仍是文本注入，
+不算麦克风证据。
 完整探索不足时只能使用 `navigation-static` 保底，不能把同源静态地图表述成“本次语音建图结果”。见
 [VOICE_SLAM_NAV_SHOWCASE.md](VOICE_SLAM_NAV_SHOWCASE.md)。
 

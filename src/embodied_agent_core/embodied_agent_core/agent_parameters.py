@@ -169,9 +169,16 @@ COMMON_PARAMETER_SPECS = (
     ParameterSpec(
         "action_sequence_wait_timeout_s",
         12.0,
-        "动作序列等待单步结果的超时。",
+        "普通短动作等待单步结果的超时。",
         0.1,
         600.0,
+    ),
+    ParameterSpec(
+        "long_action_result_timeout_s",
+        330.0,
+        "Nav2 导航与多航点等长任务等待结果的超时。",
+        1.0,
+        3600.0,
     ),
     ParameterSpec("continuous_control_enabled", False, "是否启用长会话命令队列。"),
     ParameterSpec("voice_session_timeout_s", 60.0, "连续语音会话空闲超时。", 0.1, 3600.0),

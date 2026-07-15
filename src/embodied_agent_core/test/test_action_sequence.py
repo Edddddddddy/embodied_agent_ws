@@ -1,3 +1,6 @@
+import threading
+import time
+
 from embodied_agent_core.action_sequence import SequentialActionPublisher
 from embodied_agent_core.types import ActionCommand
 
@@ -153,3 +156,48 @@ def test_sequence_publisher_does_not_continue_when_cancel_races_with_success():
     assert sent == ["move"]
     assert report.failed
     assert report.reason == "priority_stop"
+
+
+def test_navigation_uses_long_action_timeout_without_weakening_short_actions():
+    sequencer = SequentialActionPublisher(
+        result_timeout_s=0.01,
+        long_action_result_timeout_s=0.2,
+    )
+
+    def publish(command):
+        if command.name == "navigate_to":
+            threading.Timer(
+                0.04,
+                lambda: sequencer.notify_result(
+                    command.request_id, True, "nav2:succeeded"
+                ),
+            ).start()
+
+    started = time.monotonic()
+    report = sequencer.publish(
+        [ActionCommand("navigate_to", {"target": "entrance"})],
+        publish,
+        wait_for_results=True,
+    )
+
+    assert time.monotonic() - started >= 0.03
+    assert report.completed == 1
+    assert not report.failed
+
+
+def test_short_action_still_times_out_quickly_when_navigation_timeout_is_long():
+    sequencer = SequentialActionPublisher(
+        result_timeout_s=0.01,
+        long_action_result_timeout_s=1.0,
+    )
+    sent = []
+
+    report = sequencer.publish(
+        [ActionCommand("move", {"linear_x": 0.2, "duration_s": 1.0})],
+        sent.append,
+        wait_for_results=True,
+    )
+
+    assert [command.name for command in sent] == ["move", "stop"]
+    assert report.failed
+    assert report.reason == "action_result_timeout"

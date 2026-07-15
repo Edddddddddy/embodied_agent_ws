@@ -186,7 +186,7 @@ def build_facts(root: Path) -> dict[str, Any]:
     contracts = {
         "ci_matrix_matches_ros_packages": ci_packages == ros_packages,
         "ci_push_and_pr_only_dev_main": trigger_lines == 2,
-        "public_mode_count_is_12": len(public_modes) == 12,
+        "public_mode_count_is_13": len(public_modes) == 13,
         "public_modes_are_routable": set(public_modes) <= set(router_modes),
         "advanced_modes_are_routable": set(advanced_modes) <= set(router_modes),
         "release_gates_use_current_workspace": release_gate_workspace_is_explicit,
