@@ -27,7 +27,8 @@
 - 仿真与导航：直行、转向、弧线、组合动作、语义地点、巡航、Nav2 goal 取消和失败归零。
 - SLAM：可复现漂移注入、固定闭环、LiDAR 多假设序列回环门控、Ceres/GTSAM 后端 A/B、鲁棒核与
   可切换回环约束、地图保存、AMCL 定位、Nav2 规划控制和 ATE/RPE/回环定量评估。
-- 动态避障：C++ 最近邻跟踪、常速度预测和 Nav2 costmap plugin，验证预测占用、重规划和停车。
+- 动态避障：C++ 全局门限数据关联、CV/Kalman/IMM 跟踪、未来占用预测和 Nav2 costmap
+  plugin；固定输入消融验证身份连续性、预测误差、重规划和停车。
 - 用户上下文：声纹身份、注册流程、分用户偏好/行为记忆；身份快照随命令入队，动作仍受
   ActionGuard 约束。
 
@@ -62,7 +63,7 @@ flowchart LR
 | `embodied_offline_agent` | Sherpa、llama.cpp、双缓冲 TTS 与离线指标 Adapter |
 | `embodied_simulation` | Gazebo、BT、pluginlib Executor、Nav2 bridge |
 | `embodied_slam` | 漂移模型、闭环控制、GTSAM ScanSolver plugin |
-| `embodied_navigation` | 动态目标跟踪、运动预测、Nav2 costmap plugin |
+| `embodied_navigation` | 全局数据关联、动态目标跟踪/运动预测、Nav2 costmap plugin |
 
 完整文件/函数调用关系见
 [语音到仿真代码走读](docs/VOICE_TO_SIMULATION_CODE_WALKTHROUGH.md) 和

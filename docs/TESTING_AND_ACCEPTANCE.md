@@ -244,7 +244,10 @@ bash scripts/acceptance_test.sh dynamic-obstacle-navigation-ablation
 
 `dynamic-obstacle-stage` 自动生成 `logs/dynamic_obstacle_model_ablation.json/.md`，要求四种模型
 使用相同 91 帧输入、没有轨迹丢失，并验证 CV 相对 current-only 的预测收益、IMM 在该固定机动
-场景中的预测/遮挡误差和停车过冲。`dynamic-obstacle-navigation-ablation` 是本地重型证据：四轮
+场景中的预测/遮挡误差和停车过冲。它还生成
+`logs/dynamic_obstacle_association_ablation.json/.md`：同一个双目标冲突输入分别运行
+`greedy_nearest` 与 `global_nearest`，要求全局门限分配更新 2/2 个既有身份、无碎片轨迹，且身份
+位置误差严格小于贪心基线。`dynamic-obstacle-navigation-ablation` 是本地重型证据：四轮
 分别重新启动 Gazebo/Nav2，全部要求 future cell lethal、路径净空提升、导航成功和最终零速。
 它依赖 `slam-benchmark` 生成的地图，不进入 GitHub CI。四份报告必须携带一致的场景、地图栅格
 和 Nav2 参数 SHA256；任一哈希不同，汇总器判 FAIL。场景输入是确定性的 typed `PoseArray`，

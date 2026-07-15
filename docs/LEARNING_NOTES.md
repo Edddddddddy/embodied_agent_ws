@@ -1285,7 +1285,32 @@ Cauchy 1.0892 m 降至 Switchable+Cauchy 0.9196 m。第二序列唯一非局部�
 不是“关闭全部边”换指标。边界仍要讲清：switch 是后端潜变量，不是 closure 真值标签；固定图
 A/B 也没有证明在线新增约束或最终栅格地图一定改善，所以在线参数保持默认关闭。
 
-### 14.13 多假设序列门为什么优于单 query 贪心
+### 14.13 动态障碍为什么要把数据关联与运动模型分开
+
+关键代码：
+
+- `src/embodied_navigation/include/embodied_navigation/gated_observation_assignment.hpp`：稳定的策略、
+  输入输出和未匹配语义。
+- `src/embodied_navigation/src/gated_observation_assignment.cpp`：贪心基线与矩形匈牙利全局分配。
+- `src/embodied_navigation/src/dynamic_obstacle_tracker.cpp`：先统一 predict，再一次关联，最后分别
+  update 或按遮挡策略外推。
+- `src/embodied_navigation/src/dynamic_obstacle_association_benchmark.cpp`：固定冲突输入 A/B。
+- `scripts/verify_dynamic_obstacle_association.py`：结构门禁、身份连续性和碎片轨迹判定。
+- `src/embodied_navigation/test/test_gated_observation_assignment.cpp`：门限、dummy 和全局最优回归。
+
+运动模型回答“每条轨迹下一刻在哪里”，数据关联回答“哪些观测属于哪些轨迹”。如果把最近邻循环
+写在 Kalman/IMM 内部，模型难以独立消融，也会让遍历顺序成为隐藏状态。这里先收集所有模型预测，
+构造欧氏距离平方代价；超过 `association_distance_m` 的边禁用，每条轨迹额外拥有一个私有 dummy
+表示合法遮挡/漏检。匈牙利算法在整批观测上求最小代价，复杂度为 O(n²m)，少量动态目标场景的
+开销远小于感知和 costmap。
+
+与逐轨迹贪心相比，全局分配不会让前一条模糊轨迹抢走后一条轨迹唯一可用的观测；与 JPDA 相比，
+它仍是硬分配，工程简单、确定性强，但不能表达多个关联假设的概率；与 MHT 相比，它没有跨帧假设
+树，内存和调参成本低，但严重遮挡后的身份恢复能力有限。固定双目标冲突中，贪心只更新 1/2 条
+既有轨迹并生成 1 条碎片，全局策略更新 2/2、无碎片，身份位置 RMSE 0.2915 m→0。此证据只隔离
+关联算法，不代表真实检测器、Gazebo 物理行人或复杂人群场景已经验收。
+
+### 14.14 多假设序列门为什么优于单 query 贪心
 
 关键代码：
 

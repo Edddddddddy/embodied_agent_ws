@@ -140,6 +140,7 @@ void write_report(std::ostream & output, const std::vector<Metrics> & results)
          << "  \"occlusion_interval_s\": [5.5, 6.1],\n"
          << "  \"tracker_config\": {\n"
          << "    \"association_distance_m\": 1.2,\n"
+         << "    \"association_strategy\": \"global_nearest\",\n"
          << "    \"track_timeout_s\": 1.0,\n"
          << "    \"velocity_smoothing\": 0.5,\n"
          << "    \"measurement_noise_variance\": 0.0016,\n"

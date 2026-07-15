@@ -18,6 +18,8 @@ dynamic_obstacle_tracker:
   ros__parameters:
     # 运行时只切换这一项即可复现 current_only/CV/Kalman/IMM 同场景消融。
     motion_model: constant_velocity
+    # 全局门限分配避免交叉目标因轨迹遍历顺序交换 ID；greedy_nearest 仅保留作消融基线。
+    association_strategy: global_nearest
     association_distance_m: 0.8
     velocity_smoothing: 0.65
     measurement_noise_variance: 0.01

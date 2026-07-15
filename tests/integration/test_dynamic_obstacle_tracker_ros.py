@@ -60,7 +60,7 @@ def main() -> int:
         assert abs(track.velocity.y) < 0.05, track.velocity.y
         assert track.confidence >= 0.6, track.confidence
         print(
-            "PASS: PoseArray -> nearest-neighbor track -> typed velocity "
+            "PASS: PoseArray -> global gated association -> typed velocity "
             f"id={track.track_id} vx={track.velocity.x:.3f} confidence={track.confidence:.2f}"
         )
         return 0

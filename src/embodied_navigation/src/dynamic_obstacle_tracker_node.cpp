@@ -35,6 +35,8 @@ private:
     config.velocity_smoothing = declare_parameter("velocity_smoothing", 0.65);
     config.track_timeout_s = declare_parameter("track_timeout_s", 1.0);
     config.default_radius_m = declare_parameter("default_radius_m", 0.25);
+    config.association_strategy = association_strategy_from_string(
+      declare_parameter("association_strategy", std::string("global_nearest")));
     config.motion_model = motion_model_from_string(
       declare_parameter("motion_model", std::string("constant_velocity")));
     config.measurement_noise_variance = declare_parameter(

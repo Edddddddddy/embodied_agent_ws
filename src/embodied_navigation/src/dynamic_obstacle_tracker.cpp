@@ -390,24 +390,22 @@ public:
         }),
       tracks_.end());
 
+    std::vector<MotionEstimate> predictions;
+    std::vector<Point2d> predicted_positions;
+    predictions.reserve(tracks_.size());
+    predicted_positions.reserve(tracks_.size());
+    for (const auto & track : tracks_) {
+      predictions.push_back(track.estimator->predict(timestamp_s));
+      predicted_positions.push_back(predictions.back().position);
+    }
+    const auto assignments = assign_gated_observations(
+      predicted_positions, observations, config_.association_distance_m,
+      config_.association_strategy);
     std::vector<bool> observation_used(observations.size(), false);
-    for (auto & track : tracks_) {
-      const MotionEstimate predicted = track.estimator->predict(timestamp_s);
-      std::size_t best_index = observations.size();
-      double best_distance = config_.association_distance_m;
-      for (std::size_t index = 0; index < observations.size(); ++index) {
-        if (observation_used[index]) {
-          continue;
-        }
-        const double distance = std::hypot(
-          observations[index].x - predicted.position.x,
-          observations[index].y - predicted.position.y);
-        if (distance < best_distance) {
-          best_distance = distance;
-          best_index = index;
-        }
-      }
-      if (best_index == observations.size()) {
+    for (std::size_t track_index = 0U; track_index < tracks_.size(); ++track_index) {
+      auto & track = tracks_[track_index];
+      const auto & predicted = predictions[track_index];
+      if (!assignments[track_index]) {
         // 短时遮挡期间继续发布模型预测，但 last_seen 不前移，TTL 到期后仍会删除轨迹。
         track.output.position = predicted.position;
         track.output.velocity = predicted.velocity;
@@ -417,14 +415,16 @@ public:
         continue;
       }
 
-      const MotionEstimate estimate = track.estimator->update(observations[best_index], timestamp_s);
+      const std::size_t observation_index = *assignments[track_index];
+      const MotionEstimate estimate = track.estimator->update(
+        observations[observation_index], timestamp_s);
       track.output.position = estimate.position;
       track.output.velocity = estimate.velocity;
       track.output.last_seen_s = timestamp_s;
       ++track.output.observation_count;
       track.output.confidence = std::min(
         1.0, 0.45 + 0.12 * static_cast<double>(track.output.observation_count));
-      observation_used[best_index] = true;
+      observation_used[observation_index] = true;
     }
 
     for (std::size_t index = 0; index < observations.size(); ++index) {
@@ -481,7 +481,8 @@ DynamicObstacleTracker::DynamicObstacleTracker(TrackerConfig config)
 
 DynamicObstacleTracker::~DynamicObstacleTracker() = default;
 DynamicObstacleTracker::DynamicObstacleTracker(DynamicObstacleTracker &&) noexcept = default;
-DynamicObstacleTracker & DynamicObstacleTracker::operator=(DynamicObstacleTracker &&) noexcept = default;
+DynamicObstacleTracker & DynamicObstacleTracker::operator=(
+  DynamicObstacleTracker &&) noexcept = default;
 
 const std::vector<TrackedObstacle> & DynamicObstacleTracker::update(
   const std::vector<Point2d> & observations, double timestamp_s)

@@ -36,6 +36,7 @@ def validate_report(report: dict[str, Any]) -> list[str]:
         errors.append("fixed scenario timing contract is missing")
     required_config = {
         "association_distance_m",
+        "association_strategy",
         "track_timeout_s",
         "velocity_smoothing",
         "measurement_noise_variance",
@@ -47,6 +48,8 @@ def validate_report(report: dict[str, Any]) -> list[str]:
     }
     if set(report.get("tracker_config", {})) != required_config:
         errors.append("tracker_config must record every ablation parameter")
+    elif report["tracker_config"]["association_strategy"] != "global_nearest":
+        errors.append("motion-model ablation must use global_nearest association")
 
     rows = report.get("models")
     if not isinstance(rows, list):

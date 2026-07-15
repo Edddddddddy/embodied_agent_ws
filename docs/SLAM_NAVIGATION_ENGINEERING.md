@@ -205,6 +205,12 @@ PoseArray detections
 0.942/0.976/0.978/0.980 m。该证据的感知输入是确定性 `PoseArray`，不是 Gazebo 物理行人或
 真实检测器输出；报告位于 `logs/dynamic_obstacle_navigation_ablation.json/.md`。
 
+多目标数据关联不再按 track 遍历顺序贪心占用观测。`gated_observation_assignment.cpp` 先用运动
+模型得到全部预测位置，再把“轨迹—观测”构造成带 0.5 m 门限的矩形代价矩阵；每条轨迹有一个
+私有未匹配 dummy，最后用匈牙利算法求全局最小代价。固定冲突场景中，旧贪心策略只更新 1/2 条
+现有轨迹并产生 1 条碎片轨迹，身份位置 RMSE 为 0.2915 m；全局策略更新 2/2 条轨迹、无碎片，
+身份位置 RMSE 为 0。该结果只证明数据关联不依赖遍历顺序，不代表真实检测器准确率。
+
 ## 6. 验收命令
 
 ```bash
