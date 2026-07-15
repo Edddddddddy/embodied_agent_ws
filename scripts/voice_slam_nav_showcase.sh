@@ -9,6 +9,7 @@ WORLD="$WORKSPACE/src/embodied_simulation/worlds/showcase_apartment.sdf.xacro"
 STATIC_MAP="$WORKSPACE/src/embodied_simulation/maps/showcase_apartment.yaml"
 STATIC_PLACES="$WORKSPACE/src/embodied_simulation/config/showcase_places.yaml"
 MAPPING_PLACES="$WORKSPACE/src/embodied_simulation/config/showcase_mapping_places.yaml"
+MISSION_SPEC="$WORKSPACE/src/embodied_simulation/config/showcase_workplace_mission.yaml"
 SESSION_DIR="${SHOWCASE_SESSION_DIR:-$WORKSPACE/logs/showcase}"
 SAVED_MAP_PREFIX="${SHOWCASE_MAP_PREFIX:-$SESSION_DIR/voice_built_map}"
 
@@ -17,7 +18,7 @@ usage() {
 真实感语音 SLAM / Nav2 演示
 
 Terminal 1：
-  bash scripts/voice_slam_nav_showcase.sh auto offline
+  bash scripts/voice_slam_nav_showcase.sh auto offline   # 推荐：办公巡检完整任务
   bash scripts/voice_slam_nav_showcase.sh mapping offline
   bash scripts/voice_slam_nav_showcase.sh navigation offline
 
@@ -29,9 +30,9 @@ Terminal 2（mapping 仍运行时）：
   bash scripts/voice_slam_nav_showcase.sh navigation-static offline
 
 推荐演示顺序：
-  1. 推荐 auto：说“小智”，用“前进两秒 / 左转九十度”等命令探索房间。
+  1. 推荐 auto：按终端打印的办公巡检路线，用普通语音动作探索四个区域。
   2. 说“保存地图并开始导航”，编排器自动存图、停止 mapping 并启动 AMCL/Nav2。
-  3. 说“小智，去厨房”“去办公室”“依次去入口、会议区、充电区”。
+  3. 进入 NAVIGATING 后说“去入口”“依次去厨房、办公室”。
 
 mapping/save/navigation 仍保留为手工故障回退。
 
@@ -42,6 +43,26 @@ EOF
 activate() {
   # shellcheck source=activate.sh
   source "$WORKSPACE/scripts/activate.sh"
+}
+
+print_mission_plan() {
+  python3 - "$MISSION_SPEC" <<'PY'
+import sys
+from pathlib import Path
+
+import yaml
+
+mission = yaml.safe_load(Path(sys.argv[1]).read_text(encoding="utf-8"))
+print(f"[showcase] 任务：{mission['description']}")
+print("[showcase] 建图话术（每条执行完成后再说下一条）：")
+for index, step in enumerate(mission["mapping_route"], 1):
+    print(f"  {index:02d}. {step['text']}  # {step['label']}")
+print("  16. 保存地图并开始导航")
+print("[showcase] 进入 NAVIGATING 后继续说：")
+print(f"  17. {mission['navigation_mission']['navigate_text']}")
+print(f"  18. {mission['navigation_mission']['patrol_text']}")
+print("  19. 结束建图演示")
+PY
 }
 
 run_voice_stage() {
@@ -74,8 +95,8 @@ run_voice_stage() {
 case "$COMMAND" in
   auto)
     activate
-    echo "[showcase] 单终端自动编排：语音建图 -> 保存 -> AMCL/Nav2"
-    echo "[showcase] 探索完成后说：保存地图并开始导航"
+    print_mission_plan
+    echo "[showcase] 单终端自动编排：办公巡检建图 -> 保存 -> AMCL -> 多目标 Nav2"
     exec ros2 run embodied_slam_tools voice_slam_session_orchestrator --ros-args \
       -p "workspace:=$WORKSPACE" \
       -p "mode:=$MODE" \

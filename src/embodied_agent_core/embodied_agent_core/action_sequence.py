@@ -21,8 +21,22 @@ class SequentialActionPublisher:
     Agent 需要的批次完成语义，避免 Python 与 C++ 同时决定“下一条何时执行”。
     """
 
-    def __init__(self, result_timeout_s: float = 12.0):
+    _LONG_RUNNING_ACTIONS = frozenset({"navigate_to", "follow_waypoints"})
+
+    def __init__(
+        self,
+        result_timeout_s: float = 12.0,
+        long_action_result_timeout_s: float | None = None,
+    ):
         self.result_timeout_s = result_timeout_s
+        # move/turn 的终态通常在数秒内返回，而 Nav2 导航可能包含规划、恢复和多航点
+        # 执行。二者共用 12 秒会让 Agent 误判导航超时并发布 STOP；分层超时既保留
+        # 短动作故障的快速暴露，也允许长任务由底层 Action 正常返回终态。
+        self.long_action_result_timeout_s = (
+            result_timeout_s
+            if long_action_result_timeout_s is None
+            else long_action_result_timeout_s
+        )
         self._condition = threading.Condition()
         self._result_count = 0
         self._last_result: dict | None = None
@@ -98,7 +112,11 @@ class SequentialActionPublisher:
             return SequencePublishReport(published, completed, False)
 
         for command in commands:
-            success, reason = self._wait_for_result(command.request_id, generation)
+            success, reason = self._wait_for_result(
+                command.request_id,
+                generation,
+                self._result_timeout_for(command),
+            )
             if success:
                 completed += 1
                 continue
@@ -119,8 +137,18 @@ class SequentialActionPublisher:
             action.name, dict(action.arguments), request_id, priority=action.priority
         )
 
-    def _wait_for_result(self, request_id: str, generation: int) -> tuple[bool, str]:
-        deadline = time.monotonic() + max(0.0, self.result_timeout_s)
+    def _result_timeout_for(self, command: ActionCommand) -> float:
+        if command.name in self._LONG_RUNNING_ACTIONS:
+            return self.long_action_result_timeout_s
+        return self.result_timeout_s
+
+    def _wait_for_result(
+        self,
+        request_id: str,
+        generation: int,
+        timeout_s: float,
+    ) -> tuple[bool, str]:
+        deadline = time.monotonic() + max(0.0, timeout_s)
         with self._condition:
             while request_id not in self._results_by_id:
                 if self._cancel_generation != generation:

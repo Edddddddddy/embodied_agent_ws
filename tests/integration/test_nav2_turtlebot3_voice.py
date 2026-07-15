@@ -497,6 +497,20 @@ def main():
         if args.resilience:
             unreachable = run_unreachable_navigation(node, args.unreachable_timeout)
 
+        # Action 成功只说明 Nav2 行为树到达终态；主演示还要求控制输出真正归零，
+        # 防止 executor/速度平滑器在任务结束后遗留上一帧速度。
+        wait_until(
+            lambda: bool(node.velocities)
+            and abs(node.velocities[-1][0]) < 1e-6
+            and abs(node.velocities[-1][1]) < 1e-6,
+            10.0,
+            "cmd_vel did not return to zero after navigation mission",
+        )
+        final_cmd_vel = {
+            "linear_x": node.velocities[-1][0],
+            "angular_z": node.velocities[-1][1],
+        }
+
         report = {
             "navigate_to": navigate_candidate.get("arguments", {}),
             "follow_waypoints": (
@@ -506,6 +520,7 @@ def main():
             "distance_m": round(traveled_distance(node.positions), 3),
             "map": node.map_metadata,
             "scan_count": node.scan_count,
+            "final_cmd_vel": final_cmd_vel,
             "dynamic_obstacle": dynamic_obstacle,
             "unreachable_goal": unreachable,
             "localization": {

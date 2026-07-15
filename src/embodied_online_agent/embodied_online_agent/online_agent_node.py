@@ -65,7 +65,8 @@ class OnlineAgentNode(LifecycleNode):
             )
         )
         self.action_sequencer = SequentialActionPublisher(
-            self._param("action_sequence_wait_timeout_s")
+            self._param("action_sequence_wait_timeout_s"),
+            self._param("long_action_result_timeout_s"),
         )
         self.memory = ConversationMemory(
             self._param("memory_path"),

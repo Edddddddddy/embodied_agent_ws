@@ -79,7 +79,8 @@ class OfflineAgentNode(LifecycleNode):
             )
         )
         self._action_sequencer = SequentialActionPublisher(
-            self._param("action_sequence_wait_timeout_s")
+            self._param("action_sequence_wait_timeout_s"),
+            self._param("long_action_result_timeout_s"),
         )
         prompt_path = Path(
             get_package_share_directory("embodied_agent_core")

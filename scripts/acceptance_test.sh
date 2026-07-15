@@ -16,6 +16,7 @@ Recommended public modes:
   gazebo                     Typed ROS 2 Action -> Gazebo physical-motion check
   nav2-stage                 Lightweight voice navigation/patrol stage gate
   slam-nav-showcase-stage    Realistic scene/NLU/stage-orchestration gate
+  voice-slam-workplace-demo  Live voice workplace mapping and navigation demo
   slam-evaluation-stage      Deterministic ATE/RPE/loop-correction evaluation
   openloris-replay-stage     Public-bag Ceres/GTSAM replay evidence
   dynamic-obstacle-stage     Tracker/predictor/costmap-plugin stage gate
@@ -162,6 +163,7 @@ Interactive modes:
   continuous-live-report REPORT_FILE  Re-score a saved continuous live-check report
   voice-benchmark-report REPORT_FILE  Evaluate recognition/action/false-trigger/latency metrics
   continuous-nav2-live-report REPORT_FILE  Re-score a saved Nav2 live-check report
+  voice-slam-workplace-demo {offline|online}  Live office survey -> SLAM -> Nav2
 EOF
 }
 
@@ -876,6 +878,14 @@ case "$LEVEL" in
   continuous-online) bash scripts/continuous_voice_control.sh online ;;
   continuous-nav2-offline) bash scripts/continuous_nav2_voice_control.sh offline ;;
   continuous-nav2-online) bash scripts/continuous_nav2_voice_control.sh online ;;
+  voice-slam-workplace-demo)
+    CHECK_MODE="${2:-offline}"
+    if [[ "$CHECK_MODE" != "offline" && "$CHECK_MODE" != "online" ]]; then
+      echo "Usage: $0 voice-slam-workplace-demo {offline|online}" >&2
+      exit 2
+    fi
+    WORKSPACE="$WORKSPACE" bash scripts/voice_slam_nav_showcase.sh auto "$CHECK_MODE"
+    ;;
   continuous-nav2-evidence)
     CHECK_MODE="${2:-offline}"
     if [[ "$CHECK_MODE" != "offline" && "$CHECK_MODE" != "online" ]]; then

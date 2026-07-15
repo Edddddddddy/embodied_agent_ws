@@ -61,6 +61,11 @@ AGENT_CONTROL_ARGUMENTS = (
     LaunchArgumentSpec("asr_commit_delay_ms", int, "Delay final commit after speech endpoint."),
     LaunchArgumentSpec("asr_partial_merge_enabled", bool, "Recover missing slots from recent partial."),
     LaunchArgumentSpec("asr_partial_max_age_s", float, "Maximum partial age used during merge."),
+    LaunchArgumentSpec(
+        "long_action_result_timeout_s",
+        float,
+        "Timeout for Nav2 navigation and multi-waypoint action results.",
+    ),
 )
 
 # 上层 Gazebo/Nav2 launch 只透传会影响现场控制体验的参数；记忆路径等持久化配置
@@ -81,6 +86,7 @@ FORWARDED_AGENT_ARGUMENT_NAMES = (
     "asr_commit_delay_ms",
     "asr_partial_merge_enabled",
     "asr_partial_max_age_s",
+    "long_action_result_timeout_s",
 )
 
 

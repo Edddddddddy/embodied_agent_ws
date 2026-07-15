@@ -168,20 +168,24 @@ bash scripts/acceptance_test.sh nav2-turtlebot3
 # 轻量门禁：状态机、typed Action、场景与语义地点契约
 bash scripts/acceptance_test.sh slam-nav-showcase-stage
 
-# 单终端主演示：启动后先语音探索，完成后说“保存地图并开始导航”
+# 单终端主演示：终端会打印可复现的办公巡检话术
 HEADLESS=false USE_RVIZ=true \
-  bash scripts/voice_slam_nav_showcase.sh auto offline
+  bash scripts/acceptance_test.sh voice-slam-workplace-demo offline
 
 # 无麦克风的真实重型门禁：Gazebo 探索→存图→AMCL/Nav2→实际移动
 bash scripts/acceptance_test.sh slam-session-orchestrator
 ```
 
-建图阶段可说“前进两秒”“左转九十度”；探索完成后说“保存地图并开始导航”，编排器会保存
-YAML/PGM、按序关闭建图进程并以保存地图启动 AMCL/Nav2。导航阶段可说“去厨房”“去办公室”
-“依次去入口、会议区、充电区”。`/slam/session_state` 和 `/slam/manage_session` 分别提供 typed
+主演示不是两秒直行的冒烟测试：它按 15 个普通语音动作依次覆盖客厅、厨房、中央走廊和办公室，
+随后说“保存地图并开始导航”。编排器会保存 YAML/PGM、按序关闭建图进程并以保存地图启动
+AMCL/Nav2；进入导航后说“去入口”“依次去厨房、办公室”。`/slam/session_state` 和
+`/slam/manage_session` 分别提供 typed
 状态与可反馈 Action。现场若来不及完整探索，使用
 `bash scripts/voice_slam_nav_showcase.sh navigation-static offline` 加载同源确定性地图；原来的
 `mapping/save/navigation` 命令保留为故障回退。
+无麦克风重型门禁要求建图路径不少于 10 m、已知栅格不少于 6,000、占用栅格不少于 150，并验证
+入口单点导航与厨房/办公室多航点巡检；报告写入
+`logs/showcase/orchestrated_runtime/workplace_mission_report.json`。
 场景由一份 YAML 同时生成 Gazebo world、静态占据栅格和两套坐标对齐的语义地点，详细步骤与
 验收边界见 [真实感语音 SLAM/Nav2 演示](docs/VOICE_SLAM_NAV_SHOWCASE.md)。
 
