@@ -78,7 +78,7 @@ Automated modes:
   openloris-lidar-loop-candidates Evaluate C++ LiDAR loop retrieval on two real sequences
   openloris-lidar-shadow-matches Evaluate C++ shadow scan matching on two real sequences
   openloris-lidar-submap-ablation Compare scan-to-scan and local-submap shadow matching
-  lidar-loop-runtime  Lifecycle LaserScan -> typed candidate -> geometry verification smoke
+  lidar-loop-runtime  Lifecycle LaserScan+Odometry -> typed candidate -> shadow submap verification
   openloris-replay-stage Generate a tiny bag and replay it through Ceres/GTSAM SLAM
   openloris-bag-preflight Validate OPENLORIS_BAG topics, frames, and optional runtime
   openloris-slam-ceres Replay a real OpenLORIS bag through the Ceres backend

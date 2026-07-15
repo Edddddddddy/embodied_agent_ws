@@ -13,8 +13,10 @@ def test_slam_mapping_baseline_has_reproducible_inputs_and_evidence_entrypoints(
         package / "launch" / "lidar_loop_verifier.launch.py",
         package / "include" / "embodied_slam" / "lidar_loop_runtime.hpp",
         package / "include" / "embodied_slam" / "lidar_loop_verifier.hpp",
+        package / "include" / "embodied_slam" / "lidar_submap_builder.hpp",
         package / "src" / "lidar_loop_runtime.cpp",
         package / "src" / "lidar_loop_verifier.cpp",
+        package / "src" / "lidar_submap_builder.cpp",
         package / "src" / "lidar_loop_candidate_node.cpp",
         package / "src" / "lidar_loop_verifier_node.cpp",
         package / "src" / "odom_drift_injector_node.cpp",
@@ -69,8 +71,17 @@ def test_live_lidar_loop_frontend_is_typed_lifecycle_and_shadow_only():
     assert "RCLCPP_COMPONENTS_REGISTER_NODE" in verifier
     assert "output.shadow_only = true" in verifier
     assert "matchLidarScans" not in verifier  # 几何算法封装在可单测的领域对象中。
+    verification_contract = (
+        interfaces / "msg" / "LidarLoopVerification.msg"
+    ).read_text(encoding="utf-8")
+    assert "query_submap_scans" in verification_contract
+    assert "candidate_submap_scans" in verification_contract
+    assert "create_subscription<Odometry>" in verifier
+    assert "hasGeometry" in verifier
     assert "lidar_loop_verifier.launch.py" in launch
     assert "enable_loop_candidate_shadow" in launch
+    assert '"matching_mode": "scan_to_submap"' in launch
+    assert '"odometry_topic": "/slam/odom"' in launch
 
 
 def test_slam_baseline_exposes_drift_and_loop_closure_as_measurable_variables():

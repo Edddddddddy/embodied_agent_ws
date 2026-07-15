@@ -119,6 +119,9 @@ def generate_launch_description():
         launch_arguments={
             "use_sim_time": "true",
             "autostart": "true",
+            # 使用 SLAM 实际消费的漂移里程计，只借助短时相邻帧运动构建局部子图。
+            "odometry_topic": "/slam/odom",
+            "matching_mode": "scan_to_submap",
         }.items(),
         condition=IfCondition(LaunchConfiguration("enable_loop_candidate_shadow")),
     )

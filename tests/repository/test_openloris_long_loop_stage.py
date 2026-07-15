@@ -5,11 +5,21 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_long_loop_stage_is_pinned_and_preserves_evidence_boundaries():
-    stage = (ROOT / "scripts" / "run_openloris_long_loop_evidence.sh").read_text()
-    setup = (ROOT / "scripts" / "setup_openloris_rosbag.py").read_text()
-    replay = (ROOT / "scripts" / "run_openloris_slam_replay.sh").read_text()
-    review = (ROOT / "scripts" / "extract_openloris_review_frames.py").read_text()
-    compact = (ROOT / "scripts" / "compact_openloris_rosbag.py").read_text()
+    stage = (ROOT / "scripts" / "run_openloris_long_loop_evidence.sh").read_text(
+        encoding="utf-8"
+    )
+    setup = (ROOT / "scripts" / "setup_openloris_rosbag.py").read_text(
+        encoding="utf-8"
+    )
+    replay = (ROOT / "scripts" / "run_openloris_slam_replay.sh").read_text(
+        encoding="utf-8"
+    )
+    review = (ROOT / "scripts" / "extract_openloris_review_frames.py").read_text(
+        encoding="utf-8"
+    )
+    compact = (ROOT / "scripts" / "compact_openloris_rosbag.py").read_text(
+        encoding="utf-8"
+    )
 
     assert 'SEQUENCE="${OPENLORIS_SEQUENCE:-corridor1-1}"' in stage
     assert "corridor1-1|corridor1-2" in stage

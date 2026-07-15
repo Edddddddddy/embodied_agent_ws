@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <deque>
@@ -13,6 +14,7 @@
 
 #include <embodied_agent_interfaces/msg/lidar_loop_candidate_array.hpp>
 #include <embodied_agent_interfaces/msg/lidar_loop_verification_array.hpp>
+#include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_components/register_node_macro.hpp>
 #include <rclcpp_lifecycle/lifecycle_node.hpp>
@@ -49,6 +51,15 @@ std::vector<LidarPoint2D> laserPoints(const sensor_msgs::msg::LaserScan & scan)
   return points;
 }
 
+double quaternionYaw(const geometry_msgs::msg::Quaternion & orientation)
+{
+  const double sine = 2.0 *
+    (orientation.w * orientation.z + orientation.x * orientation.y);
+  const double cosine = 1.0 - 2.0 *
+    (orientation.y * orientation.y + orientation.z * orientation.z);
+  return std::atan2(sine, cosine);
+}
+
 }  // namespace
 
 class LidarLoopVerifierNode : public rclcpp_lifecycle::LifecycleNode
@@ -59,18 +70,29 @@ public:
   using CandidateArray = embodied_agent_interfaces::msg::LidarLoopCandidateArray;
   using VerificationArray = embodied_agent_interfaces::msg::LidarLoopVerificationArray;
   using LaserScan = sensor_msgs::msg::LaserScan;
+  using Odometry = nav_msgs::msg::Odometry;
 
   explicit LidarLoopVerifierNode(const rclcpp::NodeOptions & options)
   : LifecycleNode("lidar_loop_verifier", "", options)
   {
     declare_parameter<std::string>("scan_topic", "/scan");
+    declare_parameter<std::string>("odometry_topic", "/odom");
     declare_parameter<std::string>("candidate_topic", "/slam/loop_candidates");
     declare_parameter<std::string>("output_topic", "/slam/loop_verifications");
     declare_parameter<int>("maximum_cached_scans", 12000);
+    declare_parameter<int>("maximum_cached_odometry", 12000);
+    declare_parameter<double>("maximum_odometry_time_delta_ms", 50.0);
+    declare_parameter<std::string>("matching_mode", "scan_to_submap");
     declare_parameter<int>("maximum_pending_batches", 16);
     declare_parameter<int>("pending_scan_grace", 2);
+    declare_parameter<double>("pending_timeout_ms", 500.0);
     declare_parameter<int>("point_stride", 2);
     declare_parameter<int>("minimum_points", 30);
+    declare_parameter<int>("submap_half_window_scans", 1);
+    declare_parameter<double>("submap_maximum_time_delta_s", 0.75);
+    declare_parameter<int>("submap_point_stride", 2);
+    declare_parameter<int>("submap_minimum_contributing_scans", 2);
+    declare_parameter<int>("submap_minimum_points", 60);
     declare_parameter<double>("minimum_inlier_ratio", 0.35);
     declare_parameter<double>("maximum_rmse_m", 0.18);
     declare_parameter<double>("minimum_observability_ratio", 0.005);
@@ -85,8 +107,19 @@ protected:
     try {
       LiveLidarLoopVerifierConfig config;
       config.maximum_cached_scans = positiveSize("maximum_cached_scans");
+      config.maximum_cached_odometry = positiveSize("maximum_cached_odometry");
+      const double odometry_delta_ms =
+        get_parameter("maximum_odometry_time_delta_ms").as_double();
+      if (!std::isfinite(odometry_delta_ms) || odometry_delta_ms <= 0.0) {
+        throw std::invalid_argument("maximum_odometry_time_delta_ms must be positive");
+      }
+      config.maximum_odometry_time_delta_ns =
+        static_cast<std::int64_t>(odometry_delta_ms * 1.0e6);
+      config.matching_mode = liveLidarMatchingModeFromString(
+        get_parameter("matching_mode").as_string());
       maximum_pending_batches_ = positiveSize("maximum_pending_batches");
       pending_scan_grace_ = positiveSize("pending_scan_grace");
+      pending_timeout_ = positiveMilliseconds("pending_timeout_ms");
       config.matcher.point_stride = positiveSize("point_stride");
       config.matcher.minimum_points = positiveSize("minimum_points");
       config.matcher.minimum_inlier_ratio =
@@ -96,6 +129,13 @@ protected:
         get_parameter("minimum_observability_ratio").as_double();
       config.matcher.maximum_translation_m =
         get_parameter("maximum_translation_m").as_double();
+      config.submap.half_window_scans = positiveSize("submap_half_window_scans");
+      config.submap.maximum_time_delta_s =
+        get_parameter("submap_maximum_time_delta_s").as_double();
+      config.submap.point_stride = positiveSize("submap_point_stride");
+      config.submap.minimum_contributing_scans =
+        positiveSize("submap_minimum_contributing_scans");
+      config.submap.minimum_points = positiveSize("submap_minimum_points");
       verifier_ = std::make_unique<LiveLidarLoopVerifier>(config);
 
       callback_group_ = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
@@ -106,15 +146,25 @@ protected:
       scan_subscription_ = create_subscription<LaserScan>(
         get_parameter("scan_topic").as_string(), rclcpp::SensorDataQoS(),
         std::bind(&LidarLoopVerifierNode::onScan, this, std::placeholders::_1), options);
+      if (config.matching_mode == LiveLidarMatchingMode::ScanToSubmap) {
+        odometry_subscription_ = create_subscription<Odometry>(
+          get_parameter("odometry_topic").as_string(), rclcpp::SensorDataQoS(),
+          std::bind(&LidarLoopVerifierNode::onOdometry, this, std::placeholders::_1), options);
+      }
       candidate_subscription_ = create_subscription<CandidateArray>(
         get_parameter("candidate_topic").as_string(), embodied_agent_middleware::event_qos(),
         std::bind(&LidarLoopVerifierNode::onCandidates, this, std::placeholders::_1), options);
+      pending_timer_ = create_wall_timer(
+        std::chrono::milliseconds(100),
+        std::bind(&LidarLoopVerifierNode::onPendingTimer, this), callback_group_);
     } catch (const std::exception & error) {
       RCLCPP_ERROR(get_logger(), "configure failed: %s", error.what());
       resetRuntime();
       return CallbackReturn::FAILURE;
     }
-    RCLCPP_INFO(get_logger(), "configured; verified matches remain outside the pose graph");
+    RCLCPP_INFO(
+      get_logger(), "configured in %s mode; verified matches remain outside the pose graph",
+      toString(verifier_->matchingMode()).c_str());
     return CallbackReturn::SUCCESS;
   }
 
@@ -159,6 +209,7 @@ private:
   {
     CandidateArray message;
     std::size_t enqueue_scan_sequence{0U};
+    std::chrono::steady_clock::time_point enqueue_time;
   };
 
   std::size_t positiveSize(const std::string & name) const
@@ -168,6 +219,31 @@ private:
       throw std::invalid_argument(name + " must be positive");
     }
     return static_cast<std::size_t>(value);
+  }
+
+  std::chrono::steady_clock::duration positiveMilliseconds(const std::string & name) const
+  {
+    const auto value = get_parameter(name).as_double();
+    if (!std::isfinite(value) || value <= 0.0) {
+      throw std::invalid_argument(name + " must be positive");
+    }
+    return std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+      std::chrono::duration<double, std::milli>(value));
+  }
+
+  bool batchGeometryReady(const CandidateArray & batch) const
+  {
+    if (batch.candidates.empty()) {
+      return true;
+    }
+    if (!verifier_->hasGeometry(stampToNanoseconds(batch.header.stamp))) {
+      return false;
+    }
+    return std::all_of(
+      batch.candidates.begin(), batch.candidates.end(),
+      [this](const auto & candidate) {
+        return verifier_->hasGeometry(stampToNanoseconds(candidate.candidate_stamp));
+      });
   }
 
   void onScan(const LaserScan::SharedPtr scan)
@@ -186,14 +262,33 @@ private:
     }
   }
 
+  void onOdometry(const Odometry::SharedPtr odometry)
+  {
+    std::lock_guard<std::mutex> lock(runtime_mutex_);
+    if (!active_ || !verifier_) {
+      return;
+    }
+    try {
+      const auto & position = odometry->pose.pose.position;
+      verifier_->cacheOdometry(
+        stampToNanoseconds(odometry->header.stamp),
+        {position.x, position.y, quaternionYaw(odometry->pose.pose.orientation)});
+      // LaserScan 与 Odometry 也来自不同 topic；里程计后到时必须主动恢复 pending，
+      // 否则数据已齐全但队列仍会表现为“卡住”。
+      drainPendingBatches();
+    } catch (const std::exception & error) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 2000, "odometry cache rejected input: %s", error.what());
+    }
+  }
+
   void onCandidates(const CandidateArray::SharedPtr batch)
   {
     std::lock_guard<std::mutex> lock(runtime_mutex_);
     if (!active_ || !verifier_ || !publisher_ || !publisher_->is_activated()) {
       return;
     }
-    const auto query_stamp_ns = stampToNanoseconds(batch->header.stamp);
-    if (verifier_->hasScan(query_stamp_ns)) {
+    if (batchGeometryReady(*batch)) {
       publishVerification(*batch);
       return;
     }
@@ -204,17 +299,28 @@ private:
       publishVerification(pending_batches_.front().message);
       pending_batches_.pop_front();
     }
-    pending_batches_.push_back(PendingBatch{*batch, scan_sequence_});
+    pending_batches_.push_back(PendingBatch{
+      *batch, scan_sequence_, std::chrono::steady_clock::now()});
+  }
+
+  void onPendingTimer()
+  {
+    std::lock_guard<std::mutex> lock(runtime_mutex_);
+    if (active_ && verifier_) {
+      drainPendingBatches();
+    }
   }
 
   void drainPendingBatches()
   {
     auto current = pending_batches_.begin();
     while (current != pending_batches_.end()) {
-      const auto query_stamp_ns = stampToNanoseconds(current->message.header.stamp);
-      const bool ready = verifier_->hasScan(query_stamp_ns);
-      const bool expired = scan_sequence_ >=
+      const bool ready = batchGeometryReady(current->message);
+      const bool scan_expired = scan_sequence_ >=
         current->enqueue_scan_sequence + pending_scan_grace_;
+      const bool time_expired =
+        std::chrono::steady_clock::now() - current->enqueue_time >= pending_timeout_;
+      const bool expired = scan_expired || time_expired;
       if (ready || expired) {
         publishVerification(current->message);
         current = pending_batches_.erase(current);
@@ -242,7 +348,7 @@ private:
     output.indexed_scans = batch.indexed_scans;
     // 即使 ICP 通过，仍需后端一致性/鲁棒核评估；此节点不持有写图接口。
     output.shadow_only = true;
-    output.matching_mode = "scan_to_scan";
+    output.matching_mode = toString(verifier_->matchingMode());
     output.verifications.reserve(results.size());
     for (const auto & result : results) {
       auto & item = output.verifications.emplace_back();
@@ -260,6 +366,10 @@ private:
       item.target_to_source.x = result.match.target_to_source.x;
       item.target_to_source.y = result.match.target_to_source.y;
       item.target_to_source.theta = result.match.target_to_source.yaw;
+      item.query_submap_scans =
+        static_cast<std::uint32_t>(result.query_contributing_scans);
+      item.candidate_submap_scans =
+        static_cast<std::uint32_t>(result.candidate_contributing_scans);
       item.source_points = static_cast<std::uint32_t>(result.match.source_points);
       item.target_points = static_cast<std::uint32_t>(result.match.target_points);
       item.correspondences = static_cast<std::uint32_t>(result.match.correspondences);
@@ -275,7 +385,9 @@ private:
   void resetRuntime()
   {
     scan_subscription_.reset();
+    odometry_subscription_.reset();
     candidate_subscription_.reset();
+    pending_timer_.reset();
     publisher_.reset();
     verifier_.reset();
     callback_group_.reset();
@@ -287,12 +399,16 @@ private:
   bool active_{false};
   std::size_t maximum_pending_batches_{16U};
   std::size_t pending_scan_grace_{2U};
+  std::chrono::steady_clock::duration pending_timeout_{
+    std::chrono::milliseconds(500)};
   std::size_t scan_sequence_{0U};
   std::unique_ptr<LiveLidarLoopVerifier> verifier_;
   std::deque<PendingBatch> pending_batches_;
   rclcpp::CallbackGroup::SharedPtr callback_group_;
   rclcpp::Subscription<LaserScan>::SharedPtr scan_subscription_;
+  rclcpp::Subscription<Odometry>::SharedPtr odometry_subscription_;
   rclcpp::Subscription<CandidateArray>::SharedPtr candidate_subscription_;
+  rclcpp::TimerBase::SharedPtr pending_timer_;
   rclcpp_lifecycle::LifecyclePublisher<VerificationArray>::SharedPtr publisher_;
 };
 

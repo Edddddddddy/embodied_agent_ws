@@ -1157,24 +1157,38 @@ cleanup 明确删除内存历史，bag reset 或重复实验不会继承旧候�
 关键代码：
 
 - `src/embodied_slam/include/embodied_slam/lidar_loop_verifier.hpp`：无 ROS 依赖的缓存和验证接口。
-- `src/embodied_slam/src/lidar_loop_verifier.cpp`：有界缓存、缺失帧语义和 `matchLidarScans()` 调用。
-- `src/embodied_slam/src/lidar_loop_verifier_node.cpp`：双订阅、pending 关联和 typed 结果 Adapter。
+- `src/embodied_slam/src/lidar_loop_verifier.cpp`：有界扫描/里程计缓存、时间关联、子图与匹配模式。
+- `src/embodied_slam/src/lidar_submap_builder.cpp`：离线/在线共用的中心坐标系子图装配实现。
+- `src/embodied_slam/src/lidar_loop_verifier_node.cpp`：三订阅、pending 关联和 typed 结果 Adapter。
 - `src/embodied_agent_interfaces/msg/LidarLoopVerificationArray.msg`：批次级验证契约。
 - `src/embodied_slam/launch/lidar_loop_verifier.launch.py`：Lifecycle 自动编排。
 - `tests/integration/test_lidar_loop_runtime.py`：候选→验证及乱序到达的 DDS 探针。
 
 描述子相似只回答“外观像不像”，不能回答两帧是否存在稳定刚体变换。`LiveLidarLoopVerifier`
-缓存原始扫描，以候选消息的查询/历史时间戳取回两端几何，再复用粗到细 trimmed ICP、双向重叠率、
-RMSE、可观测性与半周歧义检测。算法放在纯 C++ 深模块中，ROS 节点不复制门限和匹配状态机。
+缓存原始扫描和短时里程计，以候选消息的精确时间戳取回两端局部上下文。每个中心帧从有序缓存
+选取前后邻帧，通过最大 50 ms 的最近里程计关联，将邻帧点云变换到中心坐标系，再复用粗到细
+trimmed ICP、双向重叠率、RMSE、可观测性与半周歧义检测。算法放在纯 C++ 深模块中，ROS 节点
+不复制门限、坐标变换和匹配状态机。
+
+离线 `LidarSubmapBuilder` 与在线 verifier 都调用 `assembleLidarSubmap()`。这是本轮深化后的关键
+seam：坐标变换、点抽样、最少贡献帧和最少点数只实现一次；离线语料按 scan ID 适配，在线缓存
+按纳秒时间戳适配。删除这个模块会迫使两条路径各自重写复杂规则，因此它不是透传式浅模块。
 
 为什么用时间戳而不是复制候选节点的 scan ID 采样逻辑：ID 只标识被描述子采样的帧，验证节点却
 订阅全部 `/scan`。若两边各自复刻采样规则，参数或无效帧处理稍有差异就会错配；消息中已有的
 精确时间戳是两条数据流共同的事实键。缓存有上限，历史帧被淘汰时返回
 `candidate_scan_not_cached`，不会悄悄拿最近帧代替。
 
-DDS 只保证单个 writer/topic 内的顺序，不保证 `/scan` 和 `/slam/loop_candidates` 跨 topic 全序。
-因此候选先到不能立即判为丢帧：节点把它放入有界 pending 队列，查询帧到达后恢复；超过扫描
-宽限仍缺失才发布 `query_scan_not_cached`。这比固定 sleep 更可测，也避免执行器线程被阻塞。
+DDS 只保证单个 writer/topic 内的顺序，不保证 `/scan`、`/odom` 和
+`/slam/loop_candidates` 跨 topic 全序。因此候选先到、查询扫描先到但里程计后到，都不能立即
+判为丢帧：节点把批次放入有界 pending，并在任一扫描或里程计回调后重新检查几何是否可用；
+超过扫描宽限仍缺失才发布明确拒绝原因。另有 steady-clock timer 处理“pending 后数据流停止”的
+情况，避免永远等待。这比固定 sleep 更可测，也避免执行器线程被阻塞。
+
+为什么只用短时里程计：局部邻帧之间的相对运动通常比长程累计位姿可靠，适合增加门框/拐角
+上下文；远距离查询端到候选端的变换仍由 ICP 独立估计。若直接用长程 odom 平移作为闭环初值，
+累计漂移会把真正回环拉向错误极值。当前默认 `scan_to_submap`，但保留 `scan_to_scan` 参数档用于
+同输入 A/B 和故障隔离；消息显式报告实际模式与两端贡献帧数。
 
 对比“候选节点内直接跑 ICP”，独立组件多一次 typed DDS 传输，但生命周期、CPU 负载和失败域可
 独立治理，未来可装入同一 component container 消除进程间序列化。对比直接写 GTSAM 因子，本层
