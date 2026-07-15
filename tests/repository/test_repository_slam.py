@@ -10,9 +10,13 @@ def test_slam_mapping_baseline_has_reproducible_inputs_and_evidence_entrypoints(
         package / "config" / "slam_mapping_ceres.yaml",
         package / "launch" / "mapping_baseline.launch.py",
         package / "launch" / "lidar_loop_candidate.launch.py",
+        package / "launch" / "lidar_loop_verifier.launch.py",
         package / "include" / "embodied_slam" / "lidar_loop_runtime.hpp",
+        package / "include" / "embodied_slam" / "lidar_loop_verifier.hpp",
         package / "src" / "lidar_loop_runtime.cpp",
+        package / "src" / "lidar_loop_verifier.cpp",
         package / "src" / "lidar_loop_candidate_node.cpp",
+        package / "src" / "lidar_loop_verifier_node.cpp",
         package / "src" / "odom_drift_injector_node.cpp",
         package / "src" / "closed_loop_driver_node.cpp",
         ROOT / "src" / "embodied_simulation" / "worlds" / "slam_loop_demo.sdf.xacro",
@@ -46,16 +50,26 @@ def test_live_lidar_loop_frontend_is_typed_lifecycle_and_shadow_only():
     node = (package / "src" / "lidar_loop_candidate_node.cpp").read_text(
         encoding="utf-8"
     )
+    verifier = (package / "src" / "lidar_loop_verifier_node.cpp").read_text(
+        encoding="utf-8"
+    )
     launch = (package / "launch" / "mapping_baseline.launch.py").read_text(
         encoding="utf-8"
     )
 
     assert (interfaces / "msg" / "LidarLoopCandidate.msg").is_file()
     assert (interfaces / "msg" / "LidarLoopCandidateArray.msg").is_file()
+    assert (interfaces / "msg" / "LidarLoopVerification.msg").is_file()
+    assert (interfaces / "msg" / "LidarLoopVerificationArray.msg").is_file()
     assert "rclcpp_lifecycle::LifecycleNode" in node
     assert "RCLCPP_COMPONENTS_REGISTER_NODE" in node
     assert "output.shadow_only = true" in node
     assert "pose_graph" not in node.lower()
+    assert "rclcpp_lifecycle::LifecycleNode" in verifier
+    assert "RCLCPP_COMPONENTS_REGISTER_NODE" in verifier
+    assert "output.shadow_only = true" in verifier
+    assert "matchLidarScans" not in verifier  # 几何算法封装在可单测的领域对象中。
+    assert "lidar_loop_verifier.launch.py" in launch
     assert "enable_loop_candidate_shadow" in launch
 
 

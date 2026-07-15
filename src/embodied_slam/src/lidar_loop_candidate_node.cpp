@@ -6,6 +6,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -157,6 +158,9 @@ private:
       output.header = scan->header;
       output.query_id = batch->query_id;
       output.indexed_scans = static_cast<std::uint32_t>(batch->indexed_scans);
+      // 描述子内部使用 double 秒做时间间隔计算，但跨节点关联必须保留 ROS 原始纳秒。
+      // epoch 级 bag 时间若先乘回 1e9 会产生舍入，导致验证器查不到同一帧。
+      scan_stamp_by_id_.emplace(batch->query_id, scan->header.stamp);
       // 该标志是接口契约而不只是日志：下游必须先做 scan matching/overlap 验证，
       // 当前组件绝不把外观相似度直接升级为后端图约束。
       output.shadow_only = true;
@@ -165,10 +169,11 @@ private:
         const auto & source = batch->candidates[rank];
         auto & candidate = output.candidates.emplace_back();
         candidate.candidate_id = source.scan_id;
-        const auto stamp_ns = static_cast<std::int64_t>(source.stamp_s * 1e9);
-        candidate.candidate_stamp.sec = static_cast<std::int32_t>(stamp_ns / 1000000000LL);
-        candidate.candidate_stamp.nanosec =
-          static_cast<std::uint32_t>(stamp_ns % 1000000000LL);
+        const auto stamp = scan_stamp_by_id_.find(source.scan_id);
+        if (stamp == scan_stamp_by_id_.end()) {
+          throw std::logic_error("candidate scan id has no exact ROS timestamp");
+        }
+        candidate.candidate_stamp = stamp->second;
         candidate.rank = static_cast<std::uint32_t>(rank + 1);
         candidate.similarity = source.similarity;
         candidate.sector_shift = static_cast<std::uint32_t>(source.sector_shift);
@@ -189,12 +194,14 @@ private:
     subscription_.reset();
     publisher_.reset();
     detector_.reset();
+    scan_stamp_by_id_.clear();
     callback_group_.reset();
   }
 
   std::mutex runtime_mutex_;
   bool active_{false};
   std::unique_ptr<LiveLidarLoopDetector> detector_;
+  std::unordered_map<int, builtin_interfaces::msg::Time> scan_stamp_by_id_;
   rclcpp::CallbackGroup::SharedPtr callback_group_;
   rclcpp::Subscription<LaserScan>::SharedPtr subscription_;
   rclcpp_lifecycle::LifecyclePublisher<CandidateArray>::SharedPtr publisher_;

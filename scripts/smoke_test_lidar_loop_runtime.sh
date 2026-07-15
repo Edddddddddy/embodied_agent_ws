@@ -12,21 +12,31 @@ fi
 set -u
 
 NODE_LOG="${LIDAR_LOOP_NODE_LOG:-/tmp/lidar_loop_runtime_node.log}"
+VERIFIER_LOG="${LIDAR_LOOP_VERIFIER_LOG:-/tmp/lidar_loop_verifier_node.log}"
 ros2 run embodied_slam lidar_loop_candidate_node --ros-args \
   -p minimum_points:=20 \
   -p minimum_temporal_separation_s:=1.0 \
   -p sample_interval_s:=0.5 \
   -p minimum_similarity:=0.5 >"$NODE_LOG" 2>&1 &
 NODE_PID=$!
+ros2 run embodied_slam lidar_loop_verifier_node --ros-args \
+  -p point_stride:=1 \
+  -p minimum_points:=20 \
+  -p maximum_cached_scans:=32 >"$VERIFIER_LOG" 2>&1 &
+VERIFIER_PID=$!
 
 cleanup() {
   kill "$NODE_PID" 2>/dev/null || true
+  kill "$VERIFIER_PID" 2>/dev/null || true
   wait "$NODE_PID" 2>/dev/null || true
+  wait "$VERIFIER_PID" 2>/dev/null || true
 }
 trap cleanup EXIT
 
 if ! python3 "$WORKSPACE/tests/integration/test_lidar_loop_runtime.py"; then
   echo "---- lidar_loop_candidate_node log ----" >&2
   tail -80 "$NODE_LOG" >&2 || true
+  echo "---- lidar_loop_verifier_node log ----" >&2
+  tail -80 "$VERIFIER_LOG" >&2 || true
   exit 1
 fi

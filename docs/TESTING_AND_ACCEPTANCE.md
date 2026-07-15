@@ -407,18 +407,21 @@ bash scripts/acceptance_test.sh openloris-lidar-submap-ablation
 固定门槛要求每条序列同时达到 precision ≥ 80%、conditional recall ≥ 15%、平移中位误差
 ≤ 0.5 m。相对单帧有改善但未满足绝对门槛时，仍保持 shadow-only。
 
-## 11. LiDAR 在线回环候选组件
+## 11. LiDAR 在线回环候选与几何验证组件
 
 ```bash
 bash scripts/acceptance_test.sh lidar-loop-runtime
 ```
 
-该入口不下载 bag、不启动 Gazebo。它启动 `lidar_loop_candidate_node`，由探针驱动完整 Lifecycle：
-configure 后在 inactive 状态发布扫描，确认不会产生输出；activate 后发布三帧合成 LaserScan，
-确认 0.5 秒采样间隔、1 秒历史隔离、确定性 query/candidate ID 和 typed
-`LidarLoopCandidateArray`；最后 deactivate/cleanup/reactivate，确认内存索引被清空。
+该入口不下载 bag、不启动 Gazebo。它同时启动 `lidar_loop_candidate_node` 和
+`lidar_loop_verifier_node`，由探针驱动完整 Lifecycle：configure 后在 inactive 状态发布扫描，
+确认不会产生输出；activate 后发布三帧合成 LaserScan，确认采样/历史隔离、确定性 ID、typed
+`LidarLoopCandidateArray`，以及 typed `LidarLoopVerificationArray` 中的 ICP/重叠率门限结果。
+探针还会强制让候选先于查询帧到达，验证跨 topic 调度下的 pending 关联；最后执行
+deactivate/cleanup/reactivate，确认描述子索引、扫描缓存和 pending 批次均被清空。
 
-PASS 只证明在线组件、DDS 接口和生命周期契约成立。`shadow_only=true` 是固定接口边界，结果不会
-直接写入位姿图；能否升级为正式回环约束仍由真实多序列 precision/recall、scan matching 与
-overlap 门禁决定。建图 launch 可用
+PASS 只证明在线候选到几何验证的组件、DDS 接口和生命周期契约成立。几何 `accepted=true`
+也只是候选证据，不等于后端已经接受图边；`shadow_only=true` 是固定接口边界，结果不会直接写入
+位姿图。能否升级为正式回环约束仍由真实多序列 precision/recall、时序一致性和后端消融决定。
+建图 launch 可用
 `enable_loop_candidate_shadow:=false` 关闭该旁路，而不影响原有 SLAM 基线。
