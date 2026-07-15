@@ -85,7 +85,7 @@ ament_target_dependencies(lidar_loop_candidate_node rclcpp rclcpp_lifecycle)
 add_library(lidar_loop_verifier_component SHARED src/lidar_loop_verifier_node.cpp)
 target_link_libraries(lidar_loop_verifier_component embodied_slam_core)
 ament_target_dependencies(lidar_loop_verifier_component
-  embodied_agent_interfaces embodied_agent_middleware geometry_msgs rclcpp
+  embodied_agent_interfaces embodied_agent_middleware geometry_msgs nav_msgs rclcpp
   rclcpp_components rclcpp_lifecycle sensor_msgs)
 rclcpp_components_register_nodes(
   lidar_loop_verifier_component "embodied_slam::LidarLoopVerifierNode")

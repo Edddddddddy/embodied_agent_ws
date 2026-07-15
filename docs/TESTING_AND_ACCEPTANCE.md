@@ -415,13 +415,18 @@ bash scripts/acceptance_test.sh lidar-loop-runtime
 
 该入口不下载 bag、不启动 Gazebo。它同时启动 `lidar_loop_candidate_node` 和
 `lidar_loop_verifier_node`，由探针驱动完整 Lifecycle：configure 后在 inactive 状态发布扫描，
-确认不会产生输出；activate 后发布三帧合成 LaserScan，确认采样/历史隔离、确定性 ID、typed
-`LidarLoopCandidateArray`，以及 typed `LidarLoopVerificationArray` 中的 ICP/重叠率门限结果。
-探针还会强制让候选先于查询帧到达，验证跨 topic 调度下的 pending 关联；最后执行
-deactivate/cleanup/reactivate，确认描述子索引、扫描缓存和 pending 批次均被清空。
+确认不会产生输出；activate 后发布合成 LaserScan/Odometry，确认采样/历史隔离、确定性 ID、
+typed `LidarLoopCandidateArray`，以及 scan-to-submap ICP/重叠率门限结果。探针要求查询端和候选端
+都至少贡献两帧，并检查消息中的 `query_submap_scans/candidate_submap_scans`，防止只修改模式名称。
+它还会分别强制候选、查询扫描、查询里程计乱序到达，验证跨 topic pending 恢复；最后执行
+无后续输入的缺帧场景，确认 500 ms steady-clock 超时会冲刷 pending；最后执行
+deactivate/cleanup/reactivate，确认描述子索引、扫描/里程计缓存和 pending 批次均被清空。
 
 PASS 只证明在线候选到几何验证的组件、DDS 接口和生命周期契约成立。几何 `accepted=true`
 也只是候选证据，不等于后端已经接受图边；`shadow_only=true` 是固定接口边界，结果不会直接写入
 位姿图。能否升级为正式回环约束仍由真实多序列 precision/recall、时序一致性和后端消融决定。
+局部子图只使用短时邻帧里程计做坐标变换，不用长程里程计平移猜测闭环位姿；默认关联容差为
+50 ms、子图时间窗为 0.75 s。Standalone launch 默认订阅 `/odom`，建图基线显式改为
+`/slam/odom`，因此不会借用真值轨迹。
 建图 launch 可用
 `enable_loop_candidate_shadow:=false` 关闭该旁路，而不影响原有 SLAM 基线。

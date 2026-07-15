@@ -7,6 +7,8 @@ bool converged
 bool accepted
 bool yaw_ambiguous
 geometry_msgs/Pose2D target_to_source
+uint32 query_submap_scans
+uint32 candidate_submap_scans
 uint32 source_points
 uint32 target_points
 uint32 correspondences

@@ -107,7 +107,7 @@ Nav2 executor seam。SLAM/动态避障不再现场启动重型流程，只展示
 | GTSAM 后端 | `src/embodied_slam/src/gtsam_pose_graph.cpp`、`gtsam_scan_solver.cpp` | `GtsamPoseGraphOptimizer::optimize()`、`Compute()` | Prior/Between factors、Huber、协方差正定化、karto ScanSolver Adapter |
 | LiDAR 回环候选 | `src/embodied_slam/src/lidar_loop_descriptor.cpp`、`lidar_loop_candidates.cpp` | `makePolarScanDescriptor()`、`LidarLoopCandidateIndex::query()` | 60 秒历史隔离、旋转不变环键 Top-K、循环偏航对齐、候选级 Recall/Precision |
 | LiDAR 在线候选组件 | `src/embodied_slam/src/lidar_loop_runtime.cpp`、`lidar_loop_candidate_node.cpp` | `LiveLidarLoopDetector::ingest()`、`LidarLoopCandidateNode::on_scan()` | typed msg、Lifecycle/component、先查询后入库、shadow-only 风险隔离 |
-| LiDAR 在线几何验证 | `src/embodied_slam/src/lidar_loop_verifier.cpp`、`lidar_loop_verifier_node.cpp` | `LiveLidarLoopVerifier::cacheScan()`、`verify()`、`LidarLoopVerifierNode::drainPendingBatches()` | 有界历史缓存、时间戳关联、trimmed ICP/overlap 门限、跨 topic pending、shadow-only |
+| LiDAR 在线局部子图验证 | `src/embodied_slam/src/lidar_loop_verifier.cpp`、`lidar_submap_builder.cpp`、`lidar_loop_verifier_node.cpp` | `cacheScan()`、`cacheOdometry()`、`assembleLidarSubmap()`、`verify()`、`drainPendingBatches()` | 扫描/里程计有界缓存、短时子图、trimmed ICP、三 topic pending、shadow-only |
 | SLAM 指标 | `tests/integration/test_slam_mapping_baseline.py` | `build_report()` | 优化前后 ATE、闭环误差、地图面积和保存产物 |
 | 动态跟踪 | `src/embodied_navigation/src/dynamic_obstacle_tracker.cpp` | `DynamicObstacleTracker::update()` | 最近邻关联、速度平滑、置信度和 track TTL |
 | 未来预测 | `src/embodied_navigation/src/constant_velocity_predictor.cpp` | `predict_constant_velocity()` | 无 ROS 纯函数、未来轨迹、不确定性半径增长 |
