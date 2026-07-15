@@ -1,7 +1,7 @@
 # Multi-sequence LiDAR temporal-consistency ablation
 
 - 数据与策略门禁：**PASS**
-- 固定参数：`{"minimum_confirmations": 4, "maximum_query_gap_s": 2.0, "maximum_pair_age_delta_s": 1.25, "maximum_translation_delta_m": 0.55, "maximum_yaw_delta_rad": 0.35}`
+- 固定参数：`{"mode": "single_track", "minimum_confirmations": 4, "maximum_query_gap_s": 2.0, "maximum_pair_age_delta_s": 1.25, "maximum_translation_delta_m": 0.55, "maximum_yaw_delta_rad": 0.35, "maximum_hypotheses": 64}`
 
 | Sequence | Ranked precision | Temporal precision | Precision delta | Recall delta |
 | --- | ---: | ---: | ---: | ---: |

@@ -4,18 +4,19 @@
   "checks": {
     "at_least_two_sequences": true,
     "fixed_configuration": true,
-    "precision_non_decreasing_each_sequence": true,
-    "micro_precision_improved": true,
-    "false_acceptances_reduced": true,
-    "retains_true_constraints": true
+    "precision_improved_vs_ranked_each_sequence": true,
+    "precision_improved_vs_single_track_each_sequence": true,
+    "micro_precision_improved_vs_single_track": true,
+    "false_acceptances_reduced_vs_single_track": true,
+    "true_constraints_not_reduced_vs_single_track": true
   },
   "config": {
-    "mode": "single_track",
-    "minimum_confirmations": 4,
+    "mode": "multi_hypothesis",
+    "minimum_confirmations": 3,
     "maximum_query_gap_s": 2.0,
-    "maximum_pair_age_delta_s": 1.25,
-    "maximum_translation_delta_m": 0.55,
-    "maximum_yaw_delta_rad": 0.35,
+    "maximum_pair_age_delta_s": 0.25,
+    "maximum_translation_delta_m": 0.35,
+    "maximum_yaw_delta_rad": 0.2,
     "maximum_hypotheses": 64
   },
   "aggregate": {
@@ -26,15 +27,21 @@
       "micro_precision": 0.1320754716981132,
       "conditional_pair_recall": 0.12574850299401197
     },
-    "temporal": {
+    "single_track": {
       "accepted_pairs": 16,
       "true_accepted_pairs": 5,
       "false_accepted_pairs": 11,
       "micro_precision": 0.3125,
       "conditional_pair_recall": 0.029940119760479042
     },
-    "precision_delta": 0.1804245283018868,
-    "pair_recall_delta": -0.09580838323353294
+    "multi_hypothesis": {
+      "accepted_pairs": 11,
+      "true_accepted_pairs": 5,
+      "false_accepted_pairs": 6,
+      "micro_precision": 0.45454545454545453,
+      "conditional_pair_recall": 0.029940119760479042
+    },
+    "precision_delta_vs_single_track": 0.14204545454545453
   },
   "sequences": [
     {
@@ -61,7 +68,7 @@
           "max": 2.721571
         }
       },
-      "temporal": {
+      "single_track": {
         "accepted_pairs": 8,
         "true_accepted_pairs": 1,
         "false_accepted_pairs": 7,
@@ -83,9 +90,30 @@
           "max": 0.623996
         }
       },
-      "precision_delta": 0.03256302521008403,
-      "pair_recall_delta": -0.09523799999999999,
-      "precision_non_decreasing": true
+      "multi_hypothesis": {
+        "accepted_pairs": 6,
+        "true_accepted_pairs": 2,
+        "false_accepted_pairs": 4,
+        "precision": 0.333333,
+        "conditional_pair_recall": 0.019048,
+        "eligible_query_recall": 0.03125,
+        "relative_translation_error_m": {
+          "count": 2,
+          "mean": 0.953817,
+          "median": 0.953817,
+          "p95": 1.223613,
+          "max": 1.253591
+        },
+        "relative_yaw_error_deg": {
+          "count": 2,
+          "mean": 0.441872,
+          "median": 0.441872,
+          "p95": 0.605783,
+          "max": 0.623996
+        }
+      },
+      "multi_precision_delta_vs_ranked": 0.24089635854341734,
+      "multi_precision_delta_vs_single_track": 0.20833333333333331
     },
     {
       "sequence": "corridor1-2",
@@ -111,7 +139,7 @@
           "max": 27.482378
         }
       },
-      "temporal": {
+      "single_track": {
         "accepted_pairs": 8,
         "true_accepted_pairs": 4,
         "false_accepted_pairs": 4,
@@ -133,9 +161,30 @@
           "max": 1.191552
         }
       },
-      "precision_delta": 0.25,
-      "pair_recall_delta": -0.09677399999999999,
-      "precision_non_decreasing": true
+      "multi_hypothesis": {
+        "accepted_pairs": 5,
+        "true_accepted_pairs": 3,
+        "false_accepted_pairs": 2,
+        "precision": 0.6,
+        "conditional_pair_recall": 0.048387,
+        "eligible_query_recall": 0.09375,
+        "relative_translation_error_m": {
+          "count": 3,
+          "mean": 1.645395,
+          "median": 1.609857,
+          "p95": 1.73754,
+          "max": 1.751727
+        },
+        "relative_yaw_error_deg": {
+          "count": 3,
+          "mean": 2.209425,
+          "median": 2.704767,
+          "p95": 3.747812,
+          "max": 3.863706
+        }
+      },
+      "multi_precision_delta_vs_ranked": 0.35,
+      "multi_precision_delta_vs_single_track": 0.09999999999999998
     }
   ],
   "sources": [
@@ -150,5 +199,10 @@
       "sha256": "ad53e472e36a85a90b953fd7e482850bbcd451ef2f40e6cc589fba5cf092032c"
     }
   ],
-  "boundary": "The temporal policy improves precision by rejecting constraints and therefore reduces recall. Results remain shadow-only; no constraint is inserted into Karto."
+  "release_decision": {
+    "direct_graph_edge_insertion_enabled": false,
+    "status": "shadow_only_precision_improved",
+    "reason": "Cross-sequence precision improved, but absolute recall remains too low for unattended pose-graph insertion."
+  },
+  "boundary": "The C++ multi-hypothesis gate consumes matcher outputs and timestamps only. OpenLORIS ground truth labels reports offline and never enters runtime decisions."
 }

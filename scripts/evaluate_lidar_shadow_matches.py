@@ -145,22 +145,36 @@ def _run_temporal_replay(
     maximum_pair_age_delta_s: float,
     maximum_translation_delta_m: float,
     maximum_yaw_delta_rad: float,
+    multi_hypothesis: bool = False,
+    maximum_hypotheses: int = 64,
 ) -> tuple[set[tuple[int, int]], set[tuple[int, int]], dict[str, object]]:
     """Adapt scored rows to the authoritative C++ temporal policy."""
-    by_query: dict[int, list[dict[str, object]]] = collections.defaultdict(list)
-    for row in scored:
-        if predicate(row):
+    eligible = [row for row in scored if predicate(row)]
+    if multi_hypothesis:
+        # Top-K 全部送入同一 query batch；C++ 状态机负责并行延伸，不在 Python
+        # 里根据真值或质量分提前挑赢家。
+        selected = sorted(
+            eligible,
+            key=lambda row: (
+                float(row["query_stamp_s"]),
+                int(row["candidate_rank"]),
+                int(row["candidate_id"]),
+            ),
+        )
+    else:
+        by_query: dict[int, list[dict[str, object]]] = collections.defaultdict(list)
+        for row in eligible:
             by_query[int(row["query_id"])].append(row)
-    selected = [
-        max(
-            candidates,
-            key=lambda row: (_quality_score(row), -int(row["candidate_rank"])),
-        )
-        for _, candidates in sorted(
-            by_query.items(),
-            key=lambda item: (float(item[1][0]["query_stamp_s"]), item[0]),
-        )
-    ]
+        selected = [
+            max(
+                candidates,
+                key=lambda row: (_quality_score(row), -int(row["candidate_rank"])),
+            )
+            for _, candidates in sorted(
+                by_query.items(),
+                key=lambda item: (float(item[1][0]["query_stamp_s"]), item[0]),
+            )
+        ]
     if not selected:
         return set(), set(), {"observations": 0, "reason_counts": {}}
 
@@ -195,6 +209,10 @@ def _run_temporal_replay(
             "--maximum-yaw-delta",
             str(maximum_yaw_delta_rad),
         ]
+        if multi_hypothesis:
+            command.extend(
+                ["--multi-hypothesis", "--maximum-hypotheses", str(maximum_hypotheses)]
+            )
         subprocess.run(command, check=True, capture_output=True, text=True)
         decisions = [
             json.loads(line)
@@ -218,11 +236,13 @@ def _run_temporal_replay(
         "approved": len(approved),
         "reason_counts": dict(sorted(reasons.items())),
         "config": {
+            "mode": "multi_hypothesis" if multi_hypothesis else "single_track",
             "minimum_confirmations": minimum_confirmations,
             "maximum_query_gap_s": maximum_query_gap_s,
             "maximum_pair_age_delta_s": maximum_pair_age_delta_s,
             "maximum_translation_delta_m": maximum_translation_delta_m,
             "maximum_yaw_delta_rad": maximum_yaw_delta_rad,
+            "maximum_hypotheses": maximum_hypotheses,
         },
     }
 
@@ -243,6 +263,12 @@ def evaluate(
     temporal_maximum_pair_age_delta_s: float = 1.25,
     temporal_maximum_translation_delta_m: float = 0.55,
     temporal_maximum_yaw_delta_rad: float = 0.35,
+    sequence_minimum_confirmations: int = 3,
+    sequence_maximum_query_gap_s: float = 2.0,
+    sequence_maximum_pair_age_delta_s: float = 0.25,
+    sequence_maximum_translation_delta_m: float = 0.35,
+    sequence_maximum_yaw_delta_rad: float = 0.20,
+    sequence_maximum_hypotheses: int = 64,
 ) -> dict[str, object]:
     if not 0.0 < minimum_pair_time_coverage <= 1.0:
         raise ValueError("minimum pair time coverage must be in (0, 1]")
@@ -335,6 +361,7 @@ def evaluate(
         for name, predicate in profiles.items()
     }
     temporal_diagnostics = None
+    sequence_diagnostics = None
     if temporal_replay_binary is not None:
         selected, approved, temporal_diagnostics = _run_temporal_replay(
             scored,
@@ -357,6 +384,24 @@ def evaluate(
             true_candidate_queries,
             lambda row: (int(row["query_id"]), int(row["candidate_id"]))
             in approved,
+        )
+        _, sequence_approved, sequence_diagnostics = _run_temporal_replay(
+            scored,
+            profiles["cpp_default"],
+            temporal_replay_binary,
+            minimum_confirmations=sequence_minimum_confirmations,
+            maximum_query_gap_s=sequence_maximum_query_gap_s,
+            maximum_pair_age_delta_s=sequence_maximum_pair_age_delta_s,
+            maximum_translation_delta_m=sequence_maximum_translation_delta_m,
+            maximum_yaw_delta_rad=sequence_maximum_yaw_delta_rad,
+            multi_hypothesis=True,
+            maximum_hypotheses=sequence_maximum_hypotheses,
+        )
+        profile_metrics["cpp_sequence_multi_hypothesis"] = _profile_metrics(
+            scored,
+            true_candidate_queries,
+            lambda row: (int(row["query_id"]), int(row["candidate_id"]))
+            in sequence_approved,
         )
 
     config = EVALUATOR.EvaluationConfig(
@@ -485,6 +530,7 @@ def evaluate(
                 ),
                 "cpp_rejection_reasons": dict(sorted(reason_counts.items())),
                 "temporal_consistency": temporal_diagnostics,
+                "sequence_consistency": sequence_diagnostics,
                 "positive_inlier_ratio": _summary(
                     [float(row["inlier_ratio"]) for row in scored if row["is_true_loop"]]
                 ),
@@ -524,8 +570,9 @@ def evaluate(
                     "Profile sweeps are evidence, not runtime GT-assisted selection."
                 ),
                 "temporal_policy": (
-                    "C++ matcher-accepted candidates are ranked without ground truth, then replayed "
-                    "through the same pure C++ temporal module used by the ROS gate."
+                    "C++ matcher-accepted candidates are replayed through both the greedy "
+                    "single-track baseline and the same Top-K multi-hypothesis sequence module "
+                    "used by the ROS gate; neither policy receives ground truth."
                     if temporal_replay_binary is not None
                     else "not evaluated"
                 ),
@@ -586,6 +633,12 @@ def main() -> int:
     parser.add_argument("--temporal-maximum-pair-age-delta", type=float, default=1.25)
     parser.add_argument("--temporal-maximum-translation-delta", type=float, default=0.55)
     parser.add_argument("--temporal-maximum-yaw-delta", type=float, default=0.35)
+    parser.add_argument("--sequence-minimum-confirmations", type=int, default=3)
+    parser.add_argument("--sequence-maximum-query-gap", type=float, default=2.0)
+    parser.add_argument("--sequence-maximum-pair-age-delta", type=float, default=0.25)
+    parser.add_argument("--sequence-maximum-translation-delta", type=float, default=0.35)
+    parser.add_argument("--sequence-maximum-yaw-delta", type=float, default=0.20)
+    parser.add_argument("--sequence-maximum-hypotheses", type=int, default=64)
     args = parser.parse_args()
     report = evaluate(
         load_rows(args.matches),
@@ -602,6 +655,12 @@ def main() -> int:
         temporal_maximum_pair_age_delta_s=args.temporal_maximum_pair_age_delta,
         temporal_maximum_translation_delta_m=args.temporal_maximum_translation_delta,
         temporal_maximum_yaw_delta_rad=args.temporal_maximum_yaw_delta,
+        sequence_minimum_confirmations=args.sequence_minimum_confirmations,
+        sequence_maximum_query_gap_s=args.sequence_maximum_query_gap,
+        sequence_maximum_pair_age_delta_s=args.sequence_maximum_pair_age_delta,
+        sequence_maximum_translation_delta_m=args.sequence_maximum_translation_delta,
+        sequence_maximum_yaw_delta_rad=args.sequence_maximum_yaw_delta,
+        sequence_maximum_hypotheses=args.sequence_maximum_hypotheses,
     )
     report["source"] = {
         "matches_sha256": _sha256(args.matches),

@@ -45,7 +45,8 @@ void validateConfig(const LidarLoopConstraintGateConfig & config)
 
 LidarLoopConstraintGate::LidarLoopConstraintGate(
   const LidarLoopConstraintGateConfig & config)
-: config_(config), temporal_consistency_(config.temporal)
+: config_(config), temporal_consistency_(config.temporal),
+  sequence_consistency_(config.sequence)
 {
   validateConfig(config_);
 }
@@ -133,8 +134,8 @@ std::vector<LidarLoopConstraintDecision> LidarLoopConstraintGate::evaluate(
 {
   std::vector<LidarLoopConstraintDecision> decisions;
   decisions.reserve(inputs.size());
-  std::size_t best_index = std::numeric_limits<std::size_t>::max();
-  double best_score = -1.0;
+  std::vector<std::size_t> eligible_indices;
+  eligible_indices.reserve(inputs.size());
 
   for (const auto & input : inputs) {
     LidarLoopConstraintDecision decision;
@@ -152,38 +153,85 @@ std::vector<LidarLoopConstraintDecision> LidarLoopConstraintGate::evaluate(
       } else {
         decision.quality_score = qualityScore(input);
         remember(key);
-        if (decision.quality_score > best_score ||
-          (decision.quality_score == best_score &&
-          (best_index == std::numeric_limits<std::size_t>::max() ||
-          input.rank < decisions[best_index].input.rank)))
-        {
-          best_score = decision.quality_score;
-          best_index = decisions.size();
-        }
+        eligible_indices.push_back(decisions.size());
       }
     }
     decisions.push_back(std::move(decision));
   }
 
-  if (best_index == std::numeric_limits<std::size_t>::max()) {
+  if (eligible_indices.empty()) {
     return decisions;
   }
-  for (std::size_t index = 0U; index < decisions.size(); ++index) {
-    if (index != best_index && decisions[index].reason == "eligible") {
+
+  std::size_t best_index = std::numeric_limits<std::size_t>::max();
+  double best_score = -1.0;
+  if (config_.enable_multi_hypothesis_sequence) {
+    std::vector<LidarLoopTemporalObservation> observations;
+    observations.reserve(eligible_indices.size());
+    for (const auto index : eligible_indices) {
+      const auto & input = decisions[index].input;
+      observations.push_back({
+          input.query_id, input.query_stamp_ns, input.candidate_id,
+          input.candidate_stamp_ns, input.target_to_source});
+    }
+    const auto temporal_decisions = sequence_consistency_.observeBatch(observations);
+    for (std::size_t offset = 0U; offset < eligible_indices.size(); ++offset) {
+      const auto index = eligible_indices[offset];
+      auto & decision = decisions[index];
+      decision.temporal = temporal_decisions[offset];
+      if (!decision.temporal.approved) {
+        decision.reason = decision.temporal.reason;
+        continue;
+      }
+      if (decision.quality_score > best_score ||
+        (decision.quality_score == best_score &&
+        (best_index == std::numeric_limits<std::size_t>::max() ||
+        decision.input.rank < decisions[best_index].input.rank)))
+      {
+        best_score = decision.quality_score;
+        best_index = index;
+      }
+    }
+  } else {
+    for (const auto index : eligible_indices) {
+      const auto & decision = decisions[index];
+      if (decision.quality_score > best_score ||
+        (decision.quality_score == best_score &&
+        (best_index == std::numeric_limits<std::size_t>::max() ||
+        decision.input.rank < decisions[best_index].input.rank)))
+      {
+        best_score = decision.quality_score;
+        best_index = index;
+      }
+    }
+    auto & selected = decisions[best_index];
+    selected.temporal = temporal_consistency_.observe({
+        selected.input.query_id,
+        selected.input.query_stamp_ns,
+        selected.input.candidate_id,
+        selected.input.candidate_stamp_ns,
+        selected.input.target_to_source});
+    if (!selected.temporal.approved) {
+      selected.reason = selected.temporal.reason;
+      best_index = std::numeric_limits<std::size_t>::max();
+    }
+  }
+
+  for (const auto index : eligible_indices) {
+    const bool competed_for_selection = config_.enable_multi_hypothesis_sequence ?
+      decisions[index].temporal.approved : true;
+    // 时序门控尚未确认时 best_index 会被清空，此时必须保留 pending/reset 原因；
+    // 只有本批已经选出胜者，其他候选才属于真正的“质量排序落选”。
+    if (best_index != std::numeric_limits<std::size_t>::max() &&
+      index != best_index && competed_for_selection)
+    {
       decisions[index].reason = "lower_quality_candidate";
     }
   }
-  auto & selected = decisions[best_index];
-  selected.temporal = temporal_consistency_.observe({
-      selected.input.query_id,
-      selected.input.query_stamp_ns,
-      selected.input.candidate_id,
-      selected.input.candidate_stamp_ns,
-      selected.input.target_to_source});
-  if (!selected.temporal.approved) {
-    selected.reason = selected.temporal.reason;
+  if (best_index == std::numeric_limits<std::size_t>::max()) {
     return decisions;
   }
+  auto & selected = decisions[best_index];
   selected.policy_approved = true;
   if (!config_.commit_enabled) {
     selected.reason = "shadow_mode";
@@ -210,6 +258,7 @@ void LidarLoopConstraintGate::reset()
   history_order_.clear();
   history_.clear();
   temporal_consistency_.reset();
+  sequence_consistency_.reset();
 }
 
 }  // namespace embodied_slam

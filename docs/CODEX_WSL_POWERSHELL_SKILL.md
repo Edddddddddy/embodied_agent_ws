@@ -42,6 +42,17 @@ wsl.exe -d Ubuntu-24.04 --cd /home/ubuntu/embodied_agent_ws bash -lc 'source scr
 - 带复杂正则的搜索优先拆成多次固定字符串 `git grep`，不要让 PowerShell、WSL Bash、
   grep 三层同时解释引号。
 - 多个互不依赖的简单检查由工具层分别调用；不要为省一行把 `&&` 拼到 PowerShell 命令中。
+- 不在 Codex 的 PowerShell 命令字符串里临时写依赖 `$mode`、`$file` 等 Bash 变量的
+  `for` 循环。变量可能在 PowerShell、`wsl.exe` 和 `bash -lc` 三层传递中丢失，最终把空参数
+  交给脚本。验收模式应使用独立的固定命令；确实需要循环时，把循环写进仓库中的 `.sh`
+  文件并直接执行该文件。
+
+例如，下列固定调用比跨 Shell 动态循环更容易审计退出码：
+
+```powershell
+wsl.exe -d Ubuntu-24.04 --cd /home/ubuntu/embodied_agent_ws bash scripts/acceptance_test.sh continuous-multi-command
+wsl.exe -d Ubuntu-24.04 --cd /home/ubuntu/embodied_agent_ws bash scripts/acceptance_test.sh navigation-demo
+```
 
 ## 2. 搜索文件
 

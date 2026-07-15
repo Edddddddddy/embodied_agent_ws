@@ -97,3 +97,8 @@ python3 scripts/compare_lidar_temporal_ablation.py \
   "${temporal_args[@]}" \
   --output "$PROJECT_ROOT/docs/evidence/lidar_temporal_ablation_multisequence.json" \
   --markdown "$PROJECT_ROOT/docs/evidence/lidar_temporal_ablation_multisequence.md"
+
+python3 scripts/compare_lidar_sequence_ablation.py \
+  "${temporal_args[@]}" \
+  --output "$PROJECT_ROOT/docs/evidence/lidar_sequence_ablation_multisequence.json" \
+  --markdown "$PROJECT_ROOT/docs/evidence/lidar_sequence_ablation_multisequence.md"

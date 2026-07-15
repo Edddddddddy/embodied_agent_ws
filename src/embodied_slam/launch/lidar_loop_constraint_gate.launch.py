@@ -68,6 +68,34 @@ def generate_launch_description():
                 "yaw_variance": ParameterValue(
                     LaunchConfiguration("yaw_variance"), value_type=float
                 ),
+                "enable_multi_hypothesis_sequence": ParameterValue(
+                    LaunchConfiguration("enable_multi_hypothesis_sequence"),
+                    value_type=bool,
+                ),
+                "maximum_sequence_hypotheses": ParameterValue(
+                    LaunchConfiguration("maximum_sequence_hypotheses"),
+                    value_type=int,
+                ),
+                "minimum_sequence_confirmations": ParameterValue(
+                    LaunchConfiguration("minimum_sequence_confirmations"),
+                    value_type=int,
+                ),
+                "maximum_sequence_query_gap_s": ParameterValue(
+                    LaunchConfiguration("maximum_sequence_query_gap_s"),
+                    value_type=float,
+                ),
+                "maximum_sequence_pair_age_delta_s": ParameterValue(
+                    LaunchConfiguration("maximum_sequence_pair_age_delta_s"),
+                    value_type=float,
+                ),
+                "maximum_sequence_translation_delta_m": ParameterValue(
+                    LaunchConfiguration("maximum_sequence_translation_delta_m"),
+                    value_type=float,
+                ),
+                "maximum_sequence_yaw_delta_rad": ParameterValue(
+                    LaunchConfiguration("maximum_sequence_yaw_delta_rad"),
+                    value_type=float,
+                ),
                 "minimum_temporal_confirmations": ParameterValue(
                     LaunchConfiguration("minimum_temporal_confirmations"),
                     value_type=int,
@@ -144,6 +172,21 @@ def generate_launch_description():
             DeclareLaunchArgument("maximum_history", default_value="4096"),
             DeclareLaunchArgument("translation_variance", default_value="0.04"),
             DeclareLaunchArgument("yaw_variance", default_value="0.04"),
+            DeclareLaunchArgument(
+                "enable_multi_hypothesis_sequence", default_value="true"
+            ),
+            DeclareLaunchArgument("maximum_sequence_hypotheses", default_value="64"),
+            DeclareLaunchArgument("minimum_sequence_confirmations", default_value="3"),
+            DeclareLaunchArgument("maximum_sequence_query_gap_s", default_value="2.0"),
+            DeclareLaunchArgument(
+                "maximum_sequence_pair_age_delta_s", default_value="0.25"
+            ),
+            DeclareLaunchArgument(
+                "maximum_sequence_translation_delta_m", default_value="0.35"
+            ),
+            DeclareLaunchArgument(
+                "maximum_sequence_yaw_delta_rad", default_value="0.20"
+            ),
             DeclareLaunchArgument("minimum_temporal_confirmations", default_value="4"),
             DeclareLaunchArgument("maximum_temporal_query_gap_s", default_value="2.0"),
             DeclareLaunchArgument(

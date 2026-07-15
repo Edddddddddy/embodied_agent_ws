@@ -339,11 +339,13 @@ Python 的 `embodied_agent_core/ros_qos.py` 与 C++ 的
 - `src/lidar_submap_builder.cpp`
 - `src/lidar_loop_constraint_gate.cpp`
 - `src/lidar_loop_temporal_consistency.cpp`
+- `src/lidar_loop_sequence_consistency.cpp`
 - `src/instrumented_async_slam_toolbox_node.cpp`
 
 说明：在线数据流为 `/scan + /slam/odom → candidate → verification → constraint decision → Karto
-Adapter`。质量门先做单 query 择优和 pair 去重，时序门再要求 4 个候选的时间关系与 SE(2) 变化
-连续；所有诊断使用 typed msg。真实两序列 A/B 证明 precision 提升但 recall 明显下降，因此
+Adapter`。质量门先做 pair 去重，多假设序列门并行维护 Top-K 轨迹，三次连续后才在同 query
+内部择优；所有诊断使用 typed msg。真实两序列 A/B 的聚合 precision 从单轨 31.25% 提升到
+45.45%，但 conditional recall 仍只有 2.99%，因此
 `commit_enabled=false` 仍是正式默认值，当前只证明安全接缝和可复现实验，不宣称地图已因新回环
 得到改善。
 

@@ -118,6 +118,22 @@ ATE 与闭环误差，避免只凭 RViz 截图判断。OpenLORIS `corridor1-1` �
 precision/event recall，并暴露了错误 closure；但它不是逐个 rejected candidate 的完整标注集，
 因此不能声称已得到全候选 PR 曲线。
 
+### 3.4 为什么回环前端要保留 Top-K 多假设
+
+重复走廊中，单帧最高质量候选未必是真地点。旧策略先为每个 query 贪心选一个候选，再维护唯一
+时序轨迹；一旦误候选得分更高，正确的第二/第三名会在积累跨帧证据前被丢弃。新
+`LidarLoopSequenceConsistency::observeBatch` 同时接收一个 query 的 Top-K：只有 query/candidate
+时间都向前、两侧时间增量近似一致、ICP 相对位姿变化连续时才延伸假设；确认长度优先保留，状态
+上限 64 条。它接近 SeqSLAM 的序列判别思想，但输入是几何验证后的 typed 候选，不依赖图像或
+训练模型。
+
+两条 OpenLORIS 走廊序列使用同一组 `3 confirmations / 2.0 s query gap / 0.25 s pair-age /`
+`0.35 m / 0.20 rad` 参数：相对单轨门，逐序列 precision 从 12.50%/50.00% 提高到
+33.33%/60.00%，聚合假接受 11→6，真接受保持 5。它证明多假设优于“先贪心、再时序”，但聚合
+conditional recall 仍仅 2.99%，所以 `commit_enabled=false` 不变。与 PCM 最大团相比，本实现
+计算和在线状态更轻，但只检查局部序列连续性，无法验证任意两条远距闭环的全局环路一致性；与
+学习式地点识别相比，它可解释且无需训练集，但对整段结构重复仍缺少语义判别力。
+
 ## 4. 预测动态障碍如何进入 Nav2
 
 ```text
