@@ -15,6 +15,7 @@ const std::set<std::string> & supported_navigation_places()
 {
   static const std::set<std::string> places{
     "home", "door", "desk", "living_room", "kitchen", "charging_station",
+    "entrance", "office", "meeting_room", "hallway",
     "waypoint_a", "waypoint_b", "waypoint_c", "unreachable_zone"};
   return places;
 }

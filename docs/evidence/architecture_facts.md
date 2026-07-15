@@ -9,10 +9,10 @@
 | ROS 2 package | 12 |
 | GitHub Actions 构建 package | 12 |
 | 公开验收入口 | 12 |
-| 高级帮助入口 | 125 |
-| CLI router mode | 125 |
-| `scripts/` 顶层文件 | 187 |
-| `scripts/` 递归文件 | 187 |
+| 高级帮助入口 | 128 |
+| CLI router mode | 128 |
+| `scripts/` 顶层文件 | 191 |
+| `scripts/` 递归文件 | 191 |
 | online Agent 主节点行数 | 543 |
 | offline Agent 主节点行数 | 676 |
 | 自定义 msg/srv/action 总数 | 35 |
@@ -23,7 +23,7 @@
 
 ## 公开验收入口
 
-`continuous-multi-command`, `continuous-offline`, `continuous-online`, `core`, `dynamic-obstacle-navigation`, `dynamic-obstacle-stage`, `gazebo`, `nav2-stage`, `nav2-turtlebot3`, `openloris-replay-stage`, `robotics-gate`, `slam-evaluation-stage`
+`continuous-multi-command`, `continuous-offline`, `continuous-online`, `core`, `dynamic-obstacle-navigation`, `dynamic-obstacle-stage`, `gazebo`, `nav2-stage`, `openloris-replay-stage`, `robotics-gate`, `slam-evaluation-stage`, `slam-nav-showcase-stage`
 
 ## 静态契约
 

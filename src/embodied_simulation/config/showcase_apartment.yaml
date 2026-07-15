@@ -1,0 +1,61 @@
+schema_version: 1
+world:
+  name: voice_slam_nav_showcase
+  bounds: {min_x: -5.0, max_x: 5.0, min_y: -4.0, max_y: 4.0}
+  resolution: 0.05
+  background: [0.93, 0.93, 0.90, 1.0]
+  spawn: {x: -4.15, y: -3.15, yaw: 0.0}
+
+# 语义地点同时生成 Nav2 places.yaml；坐标必须位于无碰撞区域并留出底盘膨胀余量。
+places:
+  home: {label: 起点, x: -4.15, y: -3.15, yaw: 0.0}
+  entrance: {label: 入口, x: -4.15, y: -0.20, yaw: 1.57}
+  door: {label: 门口兼容点, x: -4.15, y: -0.20, yaw: 1.57}
+  living_room: {label: 客厅, x: -2.80, y: -2.75, yaw: 1.57}
+  kitchen: {label: 厨房, x: -2.70, y: 1.55, yaw: 1.57}
+  hallway: {label: 走廊, x: 0.00, y: 0.00, yaw: 0.0}
+  office: {label: 办公室, x: 2.50, y: 1.55, yaw: 1.57}
+  desk: {label: 书桌兼容点, x: 2.50, y: 1.55, yaw: 1.57}
+  meeting_room: {label: 会议区, x: 3.00, y: -3.10, yaw: 0.0}
+  charging_station: {label: 充电区, x: -4.15, y: -3.45, yaw: 3.14}
+
+# floor 只参与视觉渲染；wall/furniture/landmark 同时生成 Gazebo collision 与占据栅格。
+objects:
+  - {name: living_floor, category: floor, shape: box, x: -2.50, y: -1.50, size: [4.88, 4.88, 0.01], color: [0.72, 0.58, 0.42, 1.0], collision: false}
+  - {name: kitchen_floor, category: floor, shape: box, x: -2.50, y: 2.50, size: [4.88, 2.88, 0.01], color: [0.78, 0.78, 0.74, 1.0], collision: false}
+  - {name: meeting_floor, category: floor, shape: box, x: 2.50, y: -1.50, size: [4.88, 4.88, 0.01], color: [0.46, 0.48, 0.52, 1.0], collision: false}
+  - {name: office_floor, category: floor, shape: box, x: 2.50, y: 2.50, size: [4.88, 2.88, 0.01], color: [0.62, 0.69, 0.72, 1.0], collision: false}
+
+  - {name: north_wall, category: wall, shape: box, x: 0.00, y: 3.94, size: [10.0, 0.12, 1.60], color: [0.84, 0.84, 0.82, 1.0]}
+  - {name: south_wall, category: wall, shape: box, x: 0.00, y: -3.94, size: [10.0, 0.12, 1.60], color: [0.84, 0.84, 0.82, 1.0]}
+  - {name: west_wall, category: wall, shape: box, x: -4.94, y: 0.00, size: [0.12, 8.0, 1.60], color: [0.84, 0.84, 0.82, 1.0]}
+  - {name: east_wall, category: wall, shape: box, x: 4.94, y: 0.00, size: [0.12, 8.0, 1.60], color: [0.84, 0.84, 0.82, 1.0]}
+  - {name: center_wall_south, category: wall, shape: box, x: 0.00, y: -2.50, size: [0.12, 3.0, 1.45], color: [0.88, 0.88, 0.86, 1.0]}
+  - {name: center_wall_north, category: wall, shape: box, x: 0.00, y: 2.50, size: [0.12, 3.0, 1.45], color: [0.88, 0.88, 0.86, 1.0]}
+  - {name: kitchen_wall_west, category: wall, shape: box, x: -4.00, y: 1.00, size: [2.0, 0.12, 1.45], color: [0.88, 0.88, 0.86, 1.0]}
+  - {name: kitchen_wall_east, category: wall, shape: box, x: -1.00, y: 1.00, size: [2.0, 0.12, 1.45], color: [0.88, 0.88, 0.86, 1.0]}
+  - {name: office_wall_west, category: wall, shape: box, x: 1.00, y: 1.00, size: [2.0, 0.12, 1.45], color: [0.88, 0.88, 0.86, 1.0]}
+  - {name: office_wall_east, category: wall, shape: box, x: 4.00, y: 1.00, size: [2.0, 0.12, 1.45], color: [0.88, 0.88, 0.86, 1.0]}
+
+  - {name: sofa, category: furniture, shape: box, x: -4.15, y: -1.85, size: [0.65, 1.65, 0.72], color: [0.15, 0.38, 0.58, 1.0]}
+  - {name: coffee_table, category: furniture, shape: box, x: -2.75, y: -1.75, size: [1.00, 0.60, 0.42], color: [0.43, 0.24, 0.12, 1.0]}
+  - {name: tv_console, category: furniture, shape: box, x: -1.15, y: -2.35, size: [0.35, 1.45, 0.65], color: [0.14, 0.14, 0.16, 1.0]}
+  - {name: living_plant, category: landmark, shape: cylinder, x: -1.00, y: -3.25, radius: 0.28, height: 0.85, color: [0.12, 0.52, 0.22, 1.0]}
+
+  - {name: kitchen_counter_west, category: furniture, shape: box, x: -4.35, y: 2.45, size: [0.50, 2.15, 0.90], color: [0.76, 0.72, 0.64, 1.0]}
+  - {name: kitchen_counter_north, category: furniture, shape: box, x: -3.35, y: 3.45, size: [1.55, 0.50, 0.90], color: [0.76, 0.72, 0.64, 1.0]}
+  - {name: kitchen_island, category: furniture, shape: box, x: -2.25, y: 2.50, size: [1.30, 0.72, 0.92], color: [0.66, 0.62, 0.54, 1.0]}
+  - {name: refrigerator, category: landmark, shape: box, x: -1.10, y: 3.35, size: [0.65, 0.65, 1.55], color: [0.70, 0.76, 0.78, 1.0]}
+
+  - {name: office_desk_a, category: furniture, shape: box, x: 1.25, y: 2.75, size: [1.45, 0.70, 0.74], color: [0.55, 0.36, 0.20, 1.0]}
+  - {name: office_desk_b, category: furniture, shape: box, x: 3.55, y: 2.75, size: [1.45, 0.70, 0.74], color: [0.55, 0.36, 0.20, 1.0]}
+  - {name: office_bookcase, category: landmark, shape: box, x: 4.48, y: 1.75, size: [0.42, 1.05, 1.35], color: [0.36, 0.20, 0.10, 1.0]}
+  - {name: office_plant, category: landmark, shape: cylinder, x: 0.65, y: 3.35, radius: 0.25, height: 0.80, color: [0.10, 0.48, 0.20, 1.0]}
+
+  - {name: meeting_table, category: furniture, shape: box, x: 3.05, y: -1.75, size: [1.85, 0.90, 0.74], color: [0.48, 0.31, 0.18, 1.0]}
+  - {name: chair_north, category: furniture, shape: box, x: 3.05, y: -0.95, size: [0.42, 0.42, 0.52], color: [0.18, 0.18, 0.20, 1.0]}
+  - {name: chair_south, category: furniture, shape: box, x: 3.05, y: -2.55, size: [0.42, 0.42, 0.52], color: [0.18, 0.18, 0.20, 1.0]}
+  - {name: chair_west, category: furniture, shape: box, x: 1.85, y: -1.75, size: [0.42, 0.42, 0.52], color: [0.18, 0.18, 0.20, 1.0]}
+  - {name: chair_east, category: furniture, shape: box, x: 4.25, y: -1.75, size: [0.42, 0.42, 0.52], color: [0.18, 0.18, 0.20, 1.0]}
+  - {name: reception_console, category: furniture, shape: box, x: 1.10, y: -3.20, size: [1.35, 0.48, 0.82], color: [0.58, 0.40, 0.24, 1.0]}
+  - {name: charging_dock, category: landmark, shape: box, x: -4.65, y: -3.48, size: [0.18, 0.58, 0.18], color: [0.10, 0.65, 0.85, 1.0]}

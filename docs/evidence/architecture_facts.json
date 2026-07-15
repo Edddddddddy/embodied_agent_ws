@@ -1,6 +1,6 @@
 {
   "acceptance_cli": {
-    "advanced_help_mode_count": 125,
+    "advanced_help_mode_count": 128,
     "public_mode_count": 12,
     "public_modes": [
       "continuous-multi-command",
@@ -11,12 +11,12 @@
       "dynamic-obstacle-stage",
       "gazebo",
       "nav2-stage",
-      "nav2-turtlebot3",
       "openloris-replay-stage",
       "robotics-gate",
-      "slam-evaluation-stage"
+      "slam-evaluation-stage",
+      "slam-nav-showcase-stage"
     ],
-    "router_mode_count": 125,
+    "router_mode_count": 128,
     "undocumented_router_modes": []
   },
   "ci": {
@@ -166,8 +166,8 @@
   "repository_scale": {
     "offline_agent_node_lines": 676,
     "online_agent_node_lines": 543,
-    "scripts_recursive_file_count": 187,
-    "scripts_top_level_file_count": 187
+    "scripts_recursive_file_count": 191,
+    "scripts_top_level_file_count": 191
   },
   "ros_packages": {
     "ci_count": 12,

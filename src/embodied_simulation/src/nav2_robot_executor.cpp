@@ -8,6 +8,7 @@
 #include <memory>
 #include <mutex>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <thread>
 
@@ -159,7 +160,16 @@ private:
       ActionExecutionState::kRunning,
       "nav2:navigate_to_pose:sending target=" + target);
     NavigateToPose::Goal goal;
-    goal.pose = places_.to_pose_stamped(target);
+    try {
+      goal.pose = places_.to_pose_stamped(target);
+    } catch (const std::out_of_range &) {
+      // ActionGuard 白名单与部署现场 places 文件可能发生配置漂移；执行器必须
+      // 返回可观测的 blocked 结果，不能让 plugin 异常杀死组件容器。
+      set_external_state(
+        ActionExecutionState::kBlocked,
+        "nav2:navigate_to_pose:unknown_target target=" + target);
+      return false;
+    }
     goal.pose.header.stamp = node_->now();
     std::uint64_t generation = 0;
     {
@@ -239,10 +249,17 @@ private:
       "nav2:follow_waypoints:sending waypoints=" + join(waypoints, ","));
     FollowWaypoints::Goal goal;
     goal.number_of_loops = std::max<std::uint32_t>(1U, loops);
-    for (const auto & waypoint : waypoints) {
-      auto pose = places_.to_pose_stamped(waypoint);
-      pose.header.stamp = node_->now();
-      goal.poses.push_back(pose);
+    try {
+      for (const auto & waypoint : waypoints) {
+        auto pose = places_.to_pose_stamped(waypoint);
+        pose.header.stamp = node_->now();
+        goal.poses.push_back(pose);
+      }
+    } catch (const std::out_of_range &) {
+      set_external_state(
+        ActionExecutionState::kBlocked,
+        "nav2:follow_waypoints:unknown_waypoint waypoints=" + join(waypoints, ","));
+      return false;
     }
     std::uint64_t generation = 0;
     {
