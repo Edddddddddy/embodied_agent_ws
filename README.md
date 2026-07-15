@@ -25,7 +25,7 @@
 - ROS 2 工程化：自定义 msg/srv/action、Lifecycle、统一 QoS、diagnostics、C++ ActionGuard、
   ActionScheduler、BehaviorTree.CPP、pluginlib Executor 和统一 launch contract。
 - 仿真与导航：直行、转向、弧线、组合动作、语义地点、巡航、Nav2 goal 取消和失败归零。
-- SLAM：可复现漂移注入、固定闭环、slam_toolbox 激光前端、Ceres/GTSAM 后端 A/B、鲁棒核与
+- SLAM：可复现漂移注入、固定闭环、LiDAR 多假设序列回环门控、Ceres/GTSAM 后端 A/B、鲁棒核与
   可切换回环约束、地图保存、AMCL 定位、Nav2 规划控制和 ATE/RPE/回环定量评估。
 - 动态避障：C++ 最近邻跟踪、常速度预测和 Nav2 costmap plugin，验证预测占用、重规划和停车。
 - 用户上下文：声纹身份、注册流程、分用户偏好/行为记忆；身份快照随命令入队，动作仍受
@@ -326,6 +326,13 @@ bash scripts/acceptance_test.sh openloris-lidar-shadow-matches
 `openloris-lidar-submap-ablation` 入口会同时生成
 `docs/evidence/lidar_temporal_ablation_multisequence.json`。
 
+单轨策略会让某个误匹配抢占唯一状态，因此 constraint gate 进一步升级为 SeqSLAM 风格的 Top-K
+多假设序列门：同一 query 的候选并行延伸，只按查询/候选时间推进和 SE(2) 连续性累计三次确认，
+状态最多保留 64 条。两序列固定配置下，逐序列 precision 从单轨的 12.50%/50.00% 提升到
+33.33%/60.00%；聚合 precision 为 31.25%→45.45%，假接受 11→6，保留真约束均为 5。结果见
+[多假设序列证据](docs/evidence/lidar_sequence_ablation_multisequence.md)。由于聚合 conditional recall
+仍只有 2.99%，决策继续是 shadow-only，不能开放无人值守图边写入。
+
 离线评测算法现已通过三个 C++ Lifecycle component 接到实时 `/scan + /slam/odom`：
 `LiveLidarLoopDetector::ingest()` 在纯领域层执行采样、先查询后入库和 Top-K 检索，
 `LidarLoopCandidateNode::on_scan()` 只负责 LaserScan 转点、生命周期与 typed message 发布。
@@ -333,8 +340,8 @@ bash scripts/acceptance_test.sh openloris-lidar-shadow-matches
 scan-to-submap 几何，再调用粗到细 trimmed ICP、双向重叠率、可观测性和歧义门限；结果中的
 `query_submap_scans/candidate_submap_scans` 可证明实际贡献帧数。跨 topic 没有全序保证，因此
 候选、查询扫描或里程计晚到都会进入有界 pending，数据齐全后恢复。第三层
-`LidarLoopConstraintGate` 对 accepted geometry 再做质量门、单 query 择优、pair 去重、4 帧
-时序一致性和 commit 限频，typed 决策会携带确认计数及时间差/位姿变化诊断。默认
+`LidarLoopConstraintGate` 对 accepted geometry 再做质量门、pair 去重、Top-K 多假设三帧
+序列一致性、同 query 质量择优和 commit 限频，typed 决策会携带确认计数及时间差/位姿变化诊断。默认
 `commit_enabled=false`，因此
 `mapping_baseline.launch.py` 只运行可审计 shadow 链路，不会改变 slam_toolbox/Ceres/GTSAM 基线。
 实验性 Karto Adapter 还会校验生命周期、时间戳、协方差和已处理扫描关联；只有同时显式设置

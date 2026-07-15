@@ -16,11 +16,13 @@ def test_slam_mapping_baseline_has_reproducible_inputs_and_evidence_entrypoints(
         package / "include" / "embodied_slam" / "lidar_loop_verifier.hpp",
         package / "include" / "embodied_slam" / "lidar_submap_builder.hpp",
         package / "include" / "embodied_slam" / "lidar_loop_constraint_gate.hpp",
+        package / "include" / "embodied_slam" / "lidar_loop_sequence_consistency.hpp",
         package / "include" / "embodied_slam" / "loop_constraint_adapter.hpp",
         package / "src" / "lidar_loop_runtime.cpp",
         package / "src" / "lidar_loop_verifier.cpp",
         package / "src" / "lidar_submap_builder.cpp",
         package / "src" / "lidar_loop_constraint_gate.cpp",
+        package / "src" / "lidar_loop_sequence_consistency.cpp",
         package / "src" / "loop_constraint_adapter.cpp",
         package / "src" / "lidar_loop_candidate_node.cpp",
         package / "src" / "lidar_loop_verifier_node.cpp",
@@ -39,7 +41,9 @@ def test_slam_mapping_baseline_has_reproducible_inputs_and_evidence_entrypoints(
         ROOT / "scripts" / "extract_rosbag_trajectory.py",
         ROOT / "scripts" / "setup_openloris_groundtruth.py",
         ROOT / "scripts" / "compare_gtsam_switchable_sequences.py",
+        ROOT / "scripts" / "compare_lidar_sequence_ablation.py",
         ROOT / "docs" / "evidence" / "gtsam_switchable_multisequence.json",
+        ROOT / "docs" / "evidence" / "lidar_sequence_ablation_multisequence.json",
         ROOT / "tests" / "repository" / "test_slam_trajectory_evaluation.py",
     )
     assert all(path.is_file() for path in required)
@@ -89,6 +93,8 @@ def test_live_lidar_loop_frontend_is_typed_lifecycle_and_commit_is_default_off()
     assert "rclcpp_lifecycle::LifecycleNode" in gate
     assert "RCLCPP_COMPONENTS_REGISTER_NODE" in gate
     assert 'declare_parameter<bool>("commit_enabled", false)' in gate
+    assert 'declare_parameter<bool>("enable_multi_hypothesis_sequence", true)' in gate
+    assert 'declare_parameter<int>("minimum_sequence_confirmations", 3)' in gate
     assert "policy_approved" in gate and "commit_requested" in gate
     assert 'declare_parameter<bool>("external_loop_constraint_enabled", false)' in backend
     assert "commit_not_requested" in backend

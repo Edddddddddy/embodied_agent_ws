@@ -256,6 +256,9 @@ bash scripts/acceptance_test.sh continuous-live-check offline
 - 已完成 4 帧时序一致性固定 A/B：同一纯 C++ 状态机同时服务 ROS 门控和离线 replay，聚合
   precision 从 13.21% 提高到 31.25%，但 recall 从 12.57% 降到 2.99%。下一步应增强地点判别
   特征而不是继续增加确认帧数换取表面精度；Karto commit 继续默认关闭。
+- 已完成 Top-K 多假设序列门：不再让单帧最高分候选抢占唯一状态，最多并行维护 64 条轨迹并在
+  三次连续后择优。两序列 precision 从单轨 12.50%/50.00% 提升到 33.33%/60.00%，聚合假接受
+  11→6、真接受保持 5；conditional recall 仍为 2.99%，因此只发布 shadow 证据，不开放图边写入。
 - 已完成 GTSAM 可切换回环约束：`corridor1-1/1-2` 共 859 条非局部边，80 条被压到 0.5 以下；
   Switchable+Cauchy 加权 ATE 0.9196 m，第二序列正常边保持 0.9976。该结果只覆盖固定的前端已接受
   图，不代表新回环前端或 occupancy map 已上线，在线参数继续默认关闭。

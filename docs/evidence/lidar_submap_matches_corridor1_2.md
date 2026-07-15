@@ -11,6 +11,7 @@
 | conservative_shadow | 0 | 0.00% | 0.00% | 0.00% | n/a |
 | cpp_ranked_single | 40 | 25.00% | 16.13% | 31.25% | 0.459 m |
 | cpp_temporal | 8 | 50.00% | 6.45% | 12.50% | 0.437 m |
+| cpp_sequence_multi_hypothesis | 5 | 60.00% | 4.84% | 9.38% | 1.610 m |
 
 - balanced shadow 事件恢复：1/2
 

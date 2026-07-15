@@ -274,18 +274,18 @@ def main() -> None:
         if (
             pending.policy_approved
             or pending.commit_requested
-            or pending.reason != "temporal_confirmation_pending"
+            or pending.reason != "sequence_hypothesis_started"
             or pending.temporal_confirmation_count != 1
         ):
             raise AssertionError(
-                "default gate must wait for four coherent observations, "
+                "default multi-hypothesis gate must wait for three coherent observations, "
                 f"got approved={pending.policy_approved} "
                 f"count={pending.temporal_confirmation_count} reason={pending.reason}"
             )
 
-        # 几何通过一次仍可能是重复走廊中的偶然匹配；构造三次时间差和位姿均
-        # 连续的 typed verification，验证第 4 帧才形成可审计的 shadow 决策。
-        for offset in range(1, 4):
+        # 同一 query 的 Top-K 不能先贪心丢弃；这里继续构造两批连贯候选，验证
+        # 第三次确认才形成可审计 shadow 决策。
+        for offset in range(1, 3):
             coherent = copy.deepcopy(verified)
             coherent.query_id = verified.query_id + offset
             query_stamp_s = 1_700_000_002.123456789 + 0.5 * offset
@@ -304,10 +304,10 @@ def main() -> None:
             not selected.policy_approved
             or selected.commit_requested
             or selected.reason != "shadow_mode"
-            or selected.temporal_confirmation_count != 4
+            or selected.temporal_confirmation_count != 3
         ):
             raise AssertionError(
-                "four coherent observations must produce only an auditable shadow decision, "
+                "three coherent observations must produce only an auditable shadow decision, "
                 f"got approved={selected.policy_approved} "
                 f"count={selected.temporal_confirmation_count} "
                 f"commit={selected.commit_requested} reason={selected.reason}"

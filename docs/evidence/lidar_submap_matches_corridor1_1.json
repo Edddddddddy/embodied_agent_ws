@@ -132,6 +132,28 @@
         "p95": 0.623996,
         "max": 0.623996
       }
+    },
+    "cpp_sequence_multi_hypothesis": {
+      "accepted_pairs": 6,
+      "true_accepted_pairs": 2,
+      "false_accepted_pairs": 4,
+      "precision": 0.333333,
+      "conditional_pair_recall": 0.019048,
+      "eligible_query_recall": 0.03125,
+      "relative_translation_error_m": {
+        "count": 2,
+        "mean": 0.953817,
+        "median": 0.953817,
+        "p95": 1.223613,
+        "max": 1.253591
+      },
+      "relative_yaw_error_deg": {
+        "count": 2,
+        "mean": 0.441872,
+        "median": 0.441872,
+        "p95": 0.605783,
+        "max": 0.623996
+      }
     }
   },
   "event_recovery": {
@@ -220,11 +242,31 @@
         "temporal_transform_reset": 6
       },
       "config": {
+        "mode": "single_track",
         "minimum_confirmations": 4,
         "maximum_query_gap_s": 2.0,
         "maximum_pair_age_delta_s": 1.25,
         "maximum_translation_delta_m": 0.55,
-        "maximum_yaw_delta_rad": 0.35
+        "maximum_yaw_delta_rad": 0.35,
+        "maximum_hypotheses": 64
+      }
+    },
+    "sequence_consistency": {
+      "observations": 203,
+      "approved": 6,
+      "reason_counts": {
+        "sequence_confirmation_pending": 12,
+        "sequence_consistency_confirmed": 6,
+        "sequence_hypothesis_started": 185
+      },
+      "config": {
+        "mode": "multi_hypothesis",
+        "minimum_confirmations": 3,
+        "maximum_query_gap_s": 2.0,
+        "maximum_pair_age_delta_s": 0.25,
+        "maximum_translation_delta_m": 0.35,
+        "maximum_yaw_delta_rad": 0.2,
+        "maximum_hypotheses": 64
       }
     },
     "positive_inlier_ratio": {
@@ -266,13 +308,13 @@
     "matcher": "C++17 trimmed coarse-to-fine point-to-point ICP with multi-yaw seeds",
     "offline_label": "official OpenLORIS trajectory; never passed to C++ matcher",
     "boundary": "Shadow results are scored but never inserted into the pose graph. Profile sweeps are evidence, not runtime GT-assisted selection.",
-    "temporal_policy": "C++ matcher-accepted candidates are ranked without ground truth, then replayed through the same pure C++ temporal module used by the ROS gate."
+    "temporal_policy": "C++ matcher-accepted candidates are replayed through both the greedy single-track baseline and the same Top-K multi-hypothesis sequence module used by the ROS gate; neither policy receives ground truth."
   },
   "source": {
     "matches_sha256": "b5a3f7bfdc39777a202d906aa292e2c2dad46a9e566e9f7f21d1b3e5675040ab",
     "groundtruth_sha256": "8bac84df6e0ec2ab1d08f0e3d5c47b1da067911ee9a814471b96ef13637a8e2d",
     "candidates_sha256": "5cbcb3136a3bed1b8bb69baa3f738170f0aeea317b54559bc8360bd92094a42f",
     "corpus_metadata_sha256": "e6a44ff5b1fc4cb150925073fef75ed44631feb5a204913409990761ccb30d68",
-    "temporal_replay_binary_sha256": "aa8e4b6c3610897c942f8cc578c6a9f8010d8b6afe8f5170d9be134fbda68174"
+    "temporal_replay_binary_sha256": "ea3df834e5ea37763aba65e69bb49b49e6ea3c2fb313ea93766b29326cd4f452"
   }
 }

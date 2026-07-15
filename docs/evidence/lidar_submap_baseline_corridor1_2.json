@@ -166,6 +166,7 @@
       "translation_limit": 384
     },
     "temporal_consistency": null,
+    "sequence_consistency": null,
     "positive_inlier_ratio": {
       "count": 62,
       "mean": 0.379946,

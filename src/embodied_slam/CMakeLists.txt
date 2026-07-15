@@ -29,6 +29,7 @@ add_library(embodied_slam_core
   src/drift_model.cpp
   src/lidar_loop_descriptor.cpp
   src/lidar_loop_constraint_gate.cpp
+  src/lidar_loop_sequence_consistency.cpp
   src/lidar_loop_temporal_consistency.cpp
   src/lidar_loop_runtime.cpp
   src/lidar_loop_verifier.cpp
@@ -195,6 +196,9 @@ if(BUILD_TESTING)
   ament_add_gtest(test_lidar_loop_constraint_gate
     test/test_lidar_loop_constraint_gate.cpp)
   target_link_libraries(test_lidar_loop_constraint_gate embodied_slam_core)
+  ament_add_gtest(test_lidar_loop_sequence_consistency
+    test/test_lidar_loop_sequence_consistency.cpp)
+  target_link_libraries(test_lidar_loop_sequence_consistency embodied_slam_core)
   ament_add_gtest(test_lidar_loop_temporal_consistency
     test/test_lidar_loop_temporal_consistency.cpp)
   target_link_libraries(test_lidar_loop_temporal_consistency embodied_slam_core)
@@ -288,6 +292,21 @@ if(BUILD_TESTING)
   set_tests_properties(
     test_lidar_loop_temporal_replay_cli
     PROPERTIES PASS_REGULAR_EXPRESSION "\"approved\":1"
+  )
+  add_test(
+    NAME test_lidar_loop_sequence_replay_cli
+    COMMAND lidar_loop_temporal_replay
+      ${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures/lidar_loop_sequence_observations.txt
+      ${CMAKE_CURRENT_BINARY_DIR}/lidar_loop_sequence_decisions.jsonl
+      --multi-hypothesis
+      --minimum-confirmations 3
+      --maximum-pair-age-delta 0.25
+      --maximum-translation-delta 0.35
+      --maximum-yaw-delta 0.20
+  )
+  set_tests_properties(
+    test_lidar_loop_sequence_replay_cli
+    PROPERTIES PASS_REGULAR_EXPRESSION "\"mode\":\"multi_hypothesis\".*\"approved\":1"
   )
 endif()
 

@@ -56,6 +56,13 @@ public:
     declare_parameter<int>("maximum_history", 4096);
     declare_parameter<double>("translation_variance", 0.04);
     declare_parameter<double>("yaw_variance", 0.04);
+    declare_parameter<bool>("enable_multi_hypothesis_sequence", true);
+    declare_parameter<int>("maximum_sequence_hypotheses", 64);
+    declare_parameter<int>("minimum_sequence_confirmations", 3);
+    declare_parameter<double>("maximum_sequence_query_gap_s", 2.0);
+    declare_parameter<double>("maximum_sequence_pair_age_delta_s", 0.25);
+    declare_parameter<double>("maximum_sequence_translation_delta_m", 0.35);
+    declare_parameter<double>("maximum_sequence_yaw_delta_rad", 0.20);
     declare_parameter<int>("minimum_temporal_confirmations", 4);
     declare_parameter<double>("maximum_temporal_query_gap_s", 2.0);
     declare_parameter<double>("maximum_temporal_pair_age_delta_s", 1.25);
@@ -89,6 +96,18 @@ protected:
       config.maximum_history = positiveSize("maximum_history");
       config.translation_variance = get_parameter("translation_variance").as_double();
       config.yaw_variance = get_parameter("yaw_variance").as_double();
+      config.enable_multi_hypothesis_sequence =
+        get_parameter("enable_multi_hypothesis_sequence").as_bool();
+      config.sequence.maximum_hypotheses = positiveSize("maximum_sequence_hypotheses");
+      config.sequence.minimum_confirmations = positiveSize("minimum_sequence_confirmations");
+      config.sequence.maximum_query_gap_s =
+        get_parameter("maximum_sequence_query_gap_s").as_double();
+      config.sequence.maximum_pair_age_delta_s =
+        get_parameter("maximum_sequence_pair_age_delta_s").as_double();
+      config.sequence.maximum_translation_delta_m =
+        get_parameter("maximum_sequence_translation_delta_m").as_double();
+      config.sequence.maximum_yaw_delta_rad =
+        get_parameter("maximum_sequence_yaw_delta_rad").as_double();
       config.temporal.minimum_confirmations = positiveSize("minimum_temporal_confirmations");
       config.temporal.maximum_query_gap_s =
         get_parameter("maximum_temporal_query_gap_s").as_double();
@@ -112,8 +131,9 @@ protected:
       return CallbackReturn::FAILURE;
     }
     RCLCPP_INFO(
-      get_logger(), "configured; commit_enabled=%s",
-      commit_enabled_ ? "true" : "false");
+      get_logger(), "configured; commit_enabled=%s, multi_hypothesis_sequence=%s",
+      commit_enabled_ ? "true" : "false",
+      get_parameter("enable_multi_hypothesis_sequence").as_bool() ? "true" : "false");
     return CallbackReturn::SUCCESS;
   }
 
@@ -169,26 +189,26 @@ private:
     inputs.reserve(batch.verifications.size());
     for (const auto & item : batch.verifications) {
       inputs.push_back({
-        batch.query_id,
-        stampToNanoseconds(batch.header.stamp),
-        item.candidate_id,
-        stampToNanoseconds(item.candidate_stamp),
-        item.rank,
-        batch.shadow_only,
-        batch.matching_mode,
-        item.available,
-        item.converged,
-        item.accepted,
-        item.yaw_ambiguous,
-        {item.target_to_source.x, item.target_to_source.y, item.target_to_source.theta},
-        item.query_submap_scans,
-        item.candidate_submap_scans,
-        item.correspondences,
-        item.descriptor_similarity,
-        item.inlier_ratio,
-        item.bidirectional_overlap_ratio,
-        item.rmse_m,
-        item.observability_ratio});
+          batch.query_id,
+          stampToNanoseconds(batch.header.stamp),
+          item.candidate_id,
+          stampToNanoseconds(item.candidate_stamp),
+          item.rank,
+          batch.shadow_only,
+          batch.matching_mode,
+          item.available,
+          item.converged,
+          item.accepted,
+          item.yaw_ambiguous,
+          {item.target_to_source.x, item.target_to_source.y, item.target_to_source.theta},
+          item.query_submap_scans,
+          item.candidate_submap_scans,
+          item.correspondences,
+          item.descriptor_similarity,
+          item.inlier_ratio,
+          item.bidirectional_overlap_ratio,
+          item.rmse_m,
+          item.observability_ratio});
     }
     const auto decisions = gate_->evaluate(inputs);
     for (const auto & decision : decisions) {

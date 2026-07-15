@@ -433,6 +433,12 @@ bash scripts/acceptance_test.sh openloris-lidar-submap-ablation
 且每条序列 precision 都不能下降。当前聚合 precision 为 13.21% → 31.25%，conditional recall 为
 12.57% → 2.99%。因此 `PASS` 只表示精度/召回消融与 fail-closed 策略成立，不授权写入位姿图。
 
+同一入口还会生成 `docs/evidence/lidar_sequence_ablation_multisequence.json`。多假设模式不会先贪心
+丢弃 Top-K，而是并行维护最多 64 条轨迹，固定要求 3 次连续。验收要求两条序列相对单轨都提升
+precision，聚合假接受减少且保留真约束不下降；当前聚合 precision 31.25%→45.45%、假接受
+11→6、真约束 5→5。由于 conditional recall 仍为 2.99%，发布状态只能是
+`shadow_only_precision_improved`。
+
 ## 11. LiDAR 在线回环候选、几何验证与约束门控
 
 ```bash
@@ -447,7 +453,7 @@ typed `LidarLoopCandidateArray`，以及 scan-to-submap ICP/重叠率门限结�
 都至少贡献两帧，并检查消息中的 `query_submap_scans/candidate_submap_scans`，防止只修改模式名称。
 它还会分别强制候选、查询扫描、查询里程计乱序到达，验证跨 topic pending 恢复；最后执行
 无后续输入的缺帧场景，确认 500 ms steady-clock 超时会冲刷 pending。约束门先把单次 accepted
-geometry 标为 `temporal_confirmation_pending`，只有 4 组连续 typed verification 后才产生
+geometry 标为 `sequence_hypothesis_started`，只有 3 组连续 typed verification 后才产生
 `policy_approved=true, commit_requested=false, reason=shadow_mode`，并拒绝重复 pair；
 后端 Adapter 必须拒绝 shadow 决策以及无法关联到 Karto processed scan 的伪造 commit。最后执行
 deactivate/cleanup/reactivate，确认描述子索引、扫描/里程计缓存、pending、门控历史和决策序号

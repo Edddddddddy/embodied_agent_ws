@@ -1285,6 +1285,35 @@ Cauchy 1.0892 m 降至 Switchable+Cauchy 0.9196 m。第二序列唯一非局部�
 不是“关闭全部边”换指标。边界仍要讲清：switch 是后端潜变量，不是 closure 真值标签；固定图
 A/B 也没有证明在线新增约束或最终栅格地图一定改善，所以在线参数保持默认关闭。
 
+### 14.13 多假设序列门为什么优于单 query 贪心
+
+关键代码：
+
+- `src/embodied_slam/include/embodied_slam/lidar_loop_sequence_consistency.hpp`：固定容量的多假设接口与
+  独立参数，默认三次确认、最多 64 条轨迹。
+- `src/embodied_slam/src/lidar_loop_sequence_consistency.cpp`：Top-K 分支延伸、迟到隔离、连续性残差
+  和有界裁剪。
+- `src/embodied_slam/src/lidar_loop_constraint_gate.cpp`：先让所有合格候选积累序列证据，再从已确认
+  候选中按质量选一个；不是先选赢家再确认。
+- `src/embodied_slam/src/lidar_loop_temporal_replay.cpp`：`--multi-hypothesis` 按相同 query 时间戳
+  组成 batch，复用运行时 C++ 状态机。
+- `scripts/evaluate_lidar_shadow_matches.py`、`compare_lidar_sequence_ablation.py`：真值只在状态机输出后
+  打标签，并要求两条序列逐条提升。
+- `src/embodied_slam/test/test_lidar_loop_sequence_consistency.cpp`：验证第二名连贯假设不会被第一名误候选
+  抢占，以及乱序 batch 不污染状态。
+
+旧单轨门的问题不是“没有连续确认”，而是确认前发生了信息丢失：每个 query 只留下一个最高质量
+候选。重复走廊的假匹配同样可能有高 overlap/低 RMSE，正确地点可能排在 Top-K 后部。多假设门把
+每个候选看作一条可延伸轨迹，只使用时间推进和相对位姿连续性；轨迹过期或状态超过 64 条时按确认
+长度和新鲜度裁剪，避免内存无界增长。ROS callback 只转换 typed message，状态机不知道 ROS、
+OpenLORIS 或真值。
+
+固定两序列结果：单轨聚合 accepted/true/false 为 `16/5/11`，多假设为 `11/5/6`，precision
+`31.25%→45.45%`；逐序列为 `12.50%→33.33%`、`50.00%→60.00%`。它保留了与单轨相同数量的真
+约束，但总体 conditional recall 仍只有 2.99%。因此面试时应表述为“减少前端假阳性的可审计
+改进”，不能说“真实回环问题已解决”或“地图精度已经因此提升”。下一步需要语义/学习式地点判别
+或带人工真值的更长多场景验证，而不是继续增加确认帧数。
+
 ## 15. 动态障碍运动模型与同场景消融
 
 关键代码：
