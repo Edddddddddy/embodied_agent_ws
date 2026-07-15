@@ -1,0 +1,9 @@
+std_msgs/Header header
+uint64 decision_sequence
+int64 query_id
+int64 candidate_id
+int64 resolved_query_unique_id
+int64 resolved_candidate_unique_id
+bool committed
+string backend
+string reason

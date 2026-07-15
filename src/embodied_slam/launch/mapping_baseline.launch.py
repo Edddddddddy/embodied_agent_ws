@@ -13,7 +13,7 @@ from launch.actions import (
 from launch.conditions import IfCondition
 from launch.event_handlers import OnShutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, NotSubstitution, OrSubstitution
 from launch_ros.actions import Node
 
 
@@ -99,9 +99,24 @@ def generate_launch_description():
             "autostart": "true",
             "slam_params_file": params_file,
         }.items(),
+        condition=IfCondition(
+            NotSubstitution(LaunchConfiguration("enable_loop_constraint_commit"))
+        ),
     )
-    # 候选检索与几何验证都作为 shadow 旁路运行；即使 ICP 通过也不直接修改
-    # Ceres/GTSAM 位姿图，因此不会改变现有建图基线或污染基准实验。
+    instrumented_slam_toolbox = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(slam_share, "launch", "instrumented_online_async.launch.py")
+        ),
+        launch_arguments={
+            "use_sim_time": "true",
+            "autostart": "true",
+            "slam_params_file": params_file,
+            "external_loop_constraint_enabled": "true",
+        }.items(),
+        condition=IfCondition(LaunchConfiguration("enable_loop_constraint_commit")),
+    )
+    # 默认链路只产生 shadow 决策，不修改位姿图；只有显式开启实验 flag 时，
+    # gate 才请求 instrumented slam_toolbox 写入，避免低 precision 前端污染基线。
     lidar_loop_candidates = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(slam_share, "launch", "lidar_loop_candidate.launch.py")
@@ -110,7 +125,12 @@ def generate_launch_description():
             "use_sim_time": "true",
             "autostart": "true",
         }.items(),
-        condition=IfCondition(LaunchConfiguration("enable_loop_candidate_shadow")),
+        condition=IfCondition(
+            OrSubstitution(
+                LaunchConfiguration("enable_loop_candidate_shadow"),
+                LaunchConfiguration("enable_loop_constraint_commit"),
+            )
+        ),
     )
     lidar_loop_verifier = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -123,7 +143,28 @@ def generate_launch_description():
             "odometry_topic": "/slam/odom",
             "matching_mode": "scan_to_submap",
         }.items(),
-        condition=IfCondition(LaunchConfiguration("enable_loop_candidate_shadow")),
+        condition=IfCondition(
+            OrSubstitution(
+                LaunchConfiguration("enable_loop_candidate_shadow"),
+                LaunchConfiguration("enable_loop_constraint_commit"),
+            )
+        ),
+    )
+    lidar_loop_constraint_gate = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(slam_share, "launch", "lidar_loop_constraint_gate.launch.py")
+        ),
+        launch_arguments={
+            "use_sim_time": "true",
+            "autostart": "true",
+            "commit_enabled": LaunchConfiguration("enable_loop_constraint_commit"),
+        }.items(),
+        condition=IfCondition(
+            OrSubstitution(
+                LaunchConfiguration("enable_loop_candidate_shadow"),
+                LaunchConfiguration("enable_loop_constraint_commit"),
+            )
+        ),
     )
     rviz = Node(
         package="rviz2",
@@ -144,6 +185,10 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 "enable_loop_candidate_shadow", default_value="true"
             ),
+            # 实验写图必须显式开启；默认只运行 typed shadow 审计链路。
+            DeclareLaunchArgument(
+                "enable_loop_constraint_commit", default_value="false"
+            ),
             DeclareLaunchArgument("robot_name", default_value="turtlebot3_waffle"),
             DeclareLaunchArgument(
                 "robot_sdf",
@@ -159,8 +204,10 @@ def generate_launch_description():
             robot_state_publisher,
             drift_injector,
             slam_toolbox,
+            instrumented_slam_toolbox,
             lidar_loop_candidates,
             lidar_loop_verifier,
+            lidar_loop_constraint_gate,
             closed_loop_driver,
             rviz,
         ]

@@ -407,26 +407,30 @@ bash scripts/acceptance_test.sh openloris-lidar-submap-ablation
 固定门槛要求每条序列同时达到 precision ≥ 80%、conditional recall ≥ 15%、平移中位误差
 ≤ 0.5 m。相对单帧有改善但未满足绝对门槛时，仍保持 shadow-only。
 
-## 11. LiDAR 在线回环候选与几何验证组件
+## 11. LiDAR 在线回环候选、几何验证与约束门控
 
 ```bash
 bash scripts/acceptance_test.sh lidar-loop-runtime
 ```
 
-该入口不下载 bag、不启动 Gazebo。它同时启动 `lidar_loop_candidate_node` 和
-`lidar_loop_verifier_node`，由探针驱动完整 Lifecycle：configure 后在 inactive 状态发布扫描，
+该入口不下载 bag、不启动 Gazebo。它启动 `lidar_loop_candidate_node`、
+`lidar_loop_verifier_node`、`lidar_loop_constraint_gate_node`，以及显式开启写入接口但没有扫描图的
+instrumented slam_toolbox 测试实例。探针驱动完整 Lifecycle：configure 后在 inactive 状态发布扫描，
 确认不会产生输出；activate 后发布合成 LaserScan/Odometry，确认采样/历史隔离、确定性 ID、
 typed `LidarLoopCandidateArray`，以及 scan-to-submap ICP/重叠率门限结果。探针要求查询端和候选端
 都至少贡献两帧，并检查消息中的 `query_submap_scans/candidate_submap_scans`，防止只修改模式名称。
 它还会分别强制候选、查询扫描、查询里程计乱序到达，验证跨 topic pending 恢复；最后执行
-无后续输入的缺帧场景，确认 500 ms steady-clock 超时会冲刷 pending；最后执行
-deactivate/cleanup/reactivate，确认描述子索引、扫描/里程计缓存和 pending 批次均被清空。
+无后续输入的缺帧场景，确认 500 ms steady-clock 超时会冲刷 pending。约束门还必须把 accepted
+geometry 转成 `policy_approved=true, commit_requested=false, reason=shadow_mode`，拒绝重复 pair；
+后端 Adapter 必须拒绝 shadow 决策以及无法关联到 Karto processed scan 的伪造 commit。最后执行
+deactivate/cleanup/reactivate，确认描述子索引、扫描/里程计缓存、pending、门控历史和决策序号
+均被清空。
 
-PASS 只证明在线候选到几何验证的组件、DDS 接口和生命周期契约成立。几何 `accepted=true`
-也只是候选证据，不等于后端已经接受图边；`shadow_only=true` 是固定接口边界，结果不会直接写入
-位姿图。能否升级为正式回环约束仍由真实多序列 precision/recall、时序一致性和后端消融决定。
+PASS 证明在线候选、几何验证、两阶段门控、DDS 接口和生命周期契约成立，也证明默认 shadow
+决策不能越过后端 commit 边界；它不证明真实图边写入能改善地图。几何 `accepted=true` 仍只是
+候选证据，正式开启实验写图仍由真实多序列 precision/recall、时序一致性和后端消融决定。
 局部子图只使用短时邻帧里程计做坐标变换，不用长程里程计平移猜测闭环位姿；默认关联容差为
 50 ms、子图时间窗为 0.75 s。Standalone launch 默认订阅 `/odom`，建图基线显式改为
 `/slam/odom`，因此不会借用真值轨迹。
-建图 launch 可用
-`enable_loop_candidate_shadow:=false` 关闭该旁路，而不影响原有 SLAM 基线。
+建图 launch 可用 `enable_loop_candidate_shadow:=false` 关闭旁路而不影响原有 SLAM 基线。
+`enable_loop_constraint_commit:=true` 仅为实验接口，默认 false；当前发布门结论要求保持关闭。

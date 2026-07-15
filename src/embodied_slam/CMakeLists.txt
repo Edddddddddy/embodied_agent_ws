@@ -28,12 +28,14 @@ add_library(embodied_slam_core
   src/closed_loop_controller.cpp
   src/drift_model.cpp
   src/lidar_loop_descriptor.cpp
+  src/lidar_loop_constraint_gate.cpp
   src/lidar_loop_runtime.cpp
   src/lidar_loop_verifier.cpp
   src/lidar_scan_corpus.cpp
   src/lidar_scan_matcher.cpp
   src/lidar_submap_builder.cpp
   src/loop_frontend_diagnostics.cpp
+  src/loop_constraint_adapter.cpp
   src/scan_overlap_validator.cpp
   src/trajectory_metrics.cpp
 )
@@ -94,6 +96,21 @@ add_executable(lidar_loop_verifier_node src/lidar_loop_verifier_main.cpp)
 target_link_libraries(lidar_loop_verifier_node lidar_loop_verifier_component)
 ament_target_dependencies(lidar_loop_verifier_node rclcpp rclcpp_lifecycle)
 
+add_library(lidar_loop_constraint_gate_component SHARED
+  src/lidar_loop_constraint_gate_node.cpp)
+target_link_libraries(lidar_loop_constraint_gate_component embodied_slam_core)
+ament_target_dependencies(lidar_loop_constraint_gate_component
+  embodied_agent_interfaces embodied_agent_middleware rclcpp rclcpp_components
+  rclcpp_lifecycle)
+rclcpp_components_register_nodes(
+  lidar_loop_constraint_gate_component "embodied_slam::LidarLoopConstraintGateNode")
+
+add_executable(lidar_loop_constraint_gate_node
+  src/lidar_loop_constraint_gate_main.cpp)
+target_link_libraries(lidar_loop_constraint_gate_node
+  lidar_loop_constraint_gate_component)
+ament_target_dependencies(lidar_loop_constraint_gate_node rclcpp rclcpp_lifecycle)
+
 add_executable(odom_drift_injector_node src/odom_drift_injector_node.cpp)
 target_link_libraries(odom_drift_injector_node embodied_slam_core)
 ament_target_dependencies(odom_drift_injector_node
@@ -121,7 +138,8 @@ target_link_libraries(instrumented_async_slam_toolbox_node
   ${SLAM_TOOLBOX_KARTO_LIBRARY}
   Boost::serialization Boost::thread TBB::tbb)
 ament_target_dependencies(instrumented_async_slam_toolbox_node
-  rclcpp rclcpp_lifecycle sensor_msgs slam_toolbox)
+  embodied_agent_interfaces embodied_agent_middleware rclcpp rclcpp_lifecycle
+  sensor_msgs slam_toolbox)
 
 install(TARGETS
   embodied_slam_core
@@ -134,6 +152,8 @@ install(TARGETS
   lidar_loop_candidate_node
   lidar_loop_verifier_component
   lidar_loop_verifier_node
+  lidar_loop_constraint_gate_component
+  lidar_loop_constraint_gate_node
   odom_drift_injector_node
   closed_loop_driver_node
   instrumented_async_slam_toolbox_node
@@ -167,6 +187,12 @@ if(BUILD_TESTING)
   target_link_libraries(test_lidar_loop_runtime embodied_slam_core)
   ament_add_gtest(test_lidar_loop_verifier test/test_lidar_loop_verifier.cpp)
   target_link_libraries(test_lidar_loop_verifier embodied_slam_core)
+  ament_add_gtest(test_lidar_loop_constraint_gate
+    test/test_lidar_loop_constraint_gate.cpp)
+  target_link_libraries(test_lidar_loop_constraint_gate embodied_slam_core)
+  ament_add_gtest(test_loop_constraint_adapter
+    test/test_loop_constraint_adapter.cpp)
+  target_link_libraries(test_loop_constraint_adapter embodied_slam_core)
   ament_add_gtest(test_lidar_scan_matcher test/test_lidar_scan_matcher.cpp)
   target_link_libraries(test_lidar_scan_matcher embodied_slam_core)
   ament_add_gtest(test_lidar_submap_builder test/test_lidar_submap_builder.cpp)
