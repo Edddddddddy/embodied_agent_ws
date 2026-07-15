@@ -100,11 +100,21 @@ def generate_launch_description():
             "slam_params_file": params_file,
         }.items(),
     )
-    # 回环候选组件与 slam_toolbox 并行旁路运行；输出仅用于诊断和后续几何验证，
-    # 不直接修改 Ceres/GTSAM 位姿图，因此不会改变现有建图基线。
+    # 候选检索与几何验证都作为 shadow 旁路运行；即使 ICP 通过也不直接修改
+    # Ceres/GTSAM 位姿图，因此不会改变现有建图基线或污染基准实验。
     lidar_loop_candidates = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(slam_share, "launch", "lidar_loop_candidate.launch.py")
+        ),
+        launch_arguments={
+            "use_sim_time": "true",
+            "autostart": "true",
+        }.items(),
+        condition=IfCondition(LaunchConfiguration("enable_loop_candidate_shadow")),
+    )
+    lidar_loop_verifier = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(slam_share, "launch", "lidar_loop_verifier.launch.py")
         ),
         launch_arguments={
             "use_sim_time": "true",
@@ -147,6 +157,7 @@ def generate_launch_description():
             drift_injector,
             slam_toolbox,
             lidar_loop_candidates,
+            lidar_loop_verifier,
             closed_loop_driver,
             rviz,
         ]

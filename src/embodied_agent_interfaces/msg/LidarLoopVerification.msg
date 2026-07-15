@@ -1,0 +1,17 @@
+int64 candidate_id
+builtin_interfaces/Time candidate_stamp
+uint32 rank
+float64 descriptor_similarity
+bool available
+bool converged
+bool accepted
+bool yaw_ambiguous
+geometry_msgs/Pose2D target_to_source
+uint32 source_points
+uint32 target_points
+uint32 correspondences
+float64 inlier_ratio
+float64 bidirectional_overlap_ratio
+float64 rmse_m
+float64 observability_ratio
+string rejection_reason

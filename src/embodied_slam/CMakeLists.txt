@@ -29,6 +29,7 @@ add_library(embodied_slam_core
   src/drift_model.cpp
   src/lidar_loop_descriptor.cpp
   src/lidar_loop_runtime.cpp
+  src/lidar_loop_verifier.cpp
   src/lidar_scan_corpus.cpp
   src/lidar_scan_matcher.cpp
   src/lidar_submap_builder.cpp
@@ -81,6 +82,18 @@ add_executable(lidar_loop_candidate_node src/lidar_loop_candidate_main.cpp)
 target_link_libraries(lidar_loop_candidate_node lidar_loop_candidate_component)
 ament_target_dependencies(lidar_loop_candidate_node rclcpp rclcpp_lifecycle)
 
+add_library(lidar_loop_verifier_component SHARED src/lidar_loop_verifier_node.cpp)
+target_link_libraries(lidar_loop_verifier_component embodied_slam_core)
+ament_target_dependencies(lidar_loop_verifier_component
+  embodied_agent_interfaces embodied_agent_middleware geometry_msgs rclcpp
+  rclcpp_components rclcpp_lifecycle sensor_msgs)
+rclcpp_components_register_nodes(
+  lidar_loop_verifier_component "embodied_slam::LidarLoopVerifierNode")
+
+add_executable(lidar_loop_verifier_node src/lidar_loop_verifier_main.cpp)
+target_link_libraries(lidar_loop_verifier_node lidar_loop_verifier_component)
+ament_target_dependencies(lidar_loop_verifier_node rclcpp rclcpp_lifecycle)
+
 add_executable(odom_drift_injector_node src/odom_drift_injector_node.cpp)
 target_link_libraries(odom_drift_injector_node embodied_slam_core)
 ament_target_dependencies(odom_drift_injector_node
@@ -119,6 +132,8 @@ install(TARGETS
   lidar_shadow_scan_match
   lidar_loop_candidate_component
   lidar_loop_candidate_node
+  lidar_loop_verifier_component
+  lidar_loop_verifier_node
   odom_drift_injector_node
   closed_loop_driver_node
   instrumented_async_slam_toolbox_node
@@ -150,6 +165,8 @@ if(BUILD_TESTING)
   target_link_libraries(test_lidar_loop_descriptor embodied_slam_core)
   ament_add_gtest(test_lidar_loop_runtime test/test_lidar_loop_runtime.cpp)
   target_link_libraries(test_lidar_loop_runtime embodied_slam_core)
+  ament_add_gtest(test_lidar_loop_verifier test/test_lidar_loop_verifier.cpp)
+  target_link_libraries(test_lidar_loop_verifier embodied_slam_core)
   ament_add_gtest(test_lidar_scan_matcher test/test_lidar_scan_matcher.cpp)
   target_link_libraries(test_lidar_scan_matcher embodied_slam_core)
   ament_add_gtest(test_lidar_submap_builder test/test_lidar_submap_builder.cpp)

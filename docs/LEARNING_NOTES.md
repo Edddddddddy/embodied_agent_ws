@@ -1148,9 +1148,38 @@ cleanup 明确删除内存历史，bag reset 或重复实验不会继承旧候�
 `rclcpp_components`，既能独立运行，也能后续装入组合容器减少进程与 DDS 序列化开销。
 
 与直接修改 slam_toolbox 回环代码相比，shadow component 不影响现有建图基线、可独立 A/B，失败
-也不会污染位姿图；代价是当前只产出候选，后续仍需 scan-to-submap、时序/语义验证和后端门控。
+也不会污染位姿图；代价是候选还必须经过独立几何验证，且通过后仍不能绕过后端一致性评估。
 与 ROS 字符串/JSON topic 相比，typed message 在编译期固定 ID、时间戳、排序和相似度字段，下游
 不会靠字符串键名猜测含义。`shadow_only` 作为消息字段而非日志文本，使安全边界可被自动测试。
+
+### 14.9 在线候选为何还需要独立几何验证组件
+
+关键代码：
+
+- `src/embodied_slam/include/embodied_slam/lidar_loop_verifier.hpp`：无 ROS 依赖的缓存和验证接口。
+- `src/embodied_slam/src/lidar_loop_verifier.cpp`：有界缓存、缺失帧语义和 `matchLidarScans()` 调用。
+- `src/embodied_slam/src/lidar_loop_verifier_node.cpp`：双订阅、pending 关联和 typed 结果 Adapter。
+- `src/embodied_agent_interfaces/msg/LidarLoopVerificationArray.msg`：批次级验证契约。
+- `src/embodied_slam/launch/lidar_loop_verifier.launch.py`：Lifecycle 自动编排。
+- `tests/integration/test_lidar_loop_runtime.py`：候选→验证及乱序到达的 DDS 探针。
+
+描述子相似只回答“外观像不像”，不能回答两帧是否存在稳定刚体变换。`LiveLidarLoopVerifier`
+缓存原始扫描，以候选消息的查询/历史时间戳取回两端几何，再复用粗到细 trimmed ICP、双向重叠率、
+RMSE、可观测性与半周歧义检测。算法放在纯 C++ 深模块中，ROS 节点不复制门限和匹配状态机。
+
+为什么用时间戳而不是复制候选节点的 scan ID 采样逻辑：ID 只标识被描述子采样的帧，验证节点却
+订阅全部 `/scan`。若两边各自复刻采样规则，参数或无效帧处理稍有差异就会错配；消息中已有的
+精确时间戳是两条数据流共同的事实键。缓存有上限，历史帧被淘汰时返回
+`candidate_scan_not_cached`，不会悄悄拿最近帧代替。
+
+DDS 只保证单个 writer/topic 内的顺序，不保证 `/scan` 和 `/slam/loop_candidates` 跨 topic 全序。
+因此候选先到不能立即判为丢帧：节点把它放入有界 pending 队列，查询帧到达后恢复；超过扫描
+宽限仍缺失才发布 `query_scan_not_cached`。这比固定 sleep 更可测，也避免执行器线程被阻塞。
+
+对比“候选节点内直接跑 ICP”，独立组件多一次 typed DDS 传输，但生命周期、CPU 负载和失败域可
+独立治理，未来可装入同一 component container 消除进程间序列化。对比直接写 GTSAM 因子，本层
+固定 `shadow_only=true` 且没有写图接口：几何 accepted 仍只是证据，真实多序列 precision 和
+后端一致性未达门槛前不会污染地图。
 
 ## 15. 动态障碍运动模型与同场景消融
 
