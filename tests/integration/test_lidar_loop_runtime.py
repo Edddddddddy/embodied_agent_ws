@@ -10,6 +10,8 @@ import rclpy
 from embodied_agent_interfaces.msg import (
     LidarLoopCandidate,
     LidarLoopCandidateArray,
+    LidarLoopConstraintDecision,
+    LidarLoopConstraintResult,
     LidarLoopVerificationArray,
 )
 from lifecycle_msgs.msg import Transition
@@ -43,14 +45,37 @@ class Probe(Node):
             self.verifications.append,
             10,
         )
+        self.decisions: list[LidarLoopConstraintDecision] = []
+        self.create_subscription(
+            LidarLoopConstraintDecision,
+            "/slam/loop_constraint_decisions",
+            self.decisions.append,
+            10,
+        )
+        self.constraint_results: list[LidarLoopConstraintResult] = []
+        self.create_subscription(
+            LidarLoopConstraintResult,
+            "/slam/loop_constraint_results",
+            self.constraint_results.append,
+            10,
+        )
+        self.decision_input = self.create_publisher(
+            LidarLoopConstraintDecision, "/slam/loop_constraint_decisions", 10
+        )
         self.candidates = self.create_publisher(
             LidarLoopCandidateArray, "/slam/loop_candidates", 10
+        )
+        self.verification_input = self.create_publisher(
+            LidarLoopVerificationArray, "/slam/loop_verifications", 10
         )
         self.candidate_change_state = self.create_client(
             ChangeState, "/lidar_loop_candidate/change_state"
         )
         self.verifier_change_state = self.create_client(
             ChangeState, "/lidar_loop_verifier/change_state"
+        )
+        self.gate_change_state = self.create_client(
+            ChangeState, "/lidar_loop_constraint_gate/change_state"
         )
 
     def transition(self, client, transition_id: int) -> None:
@@ -138,6 +163,23 @@ class Probe(Node):
         while time.monotonic() < deadline:
             rclpy.spin_once(self, timeout_sec=0.05)
 
+    def publish_unresolved_commit(self) -> None:
+        decision = LidarLoopConstraintDecision()
+        decision.header.frame_id = "laser"
+        self.set_stamp(decision.header.stamp, 1_700_000_020.0)
+        decision.decision_sequence = 999
+        decision.query_id = 200
+        decision.candidate_id = 100
+        self.set_stamp(decision.candidate_stamp, 1_700_000_010.0)
+        decision.policy_approved = True
+        decision.commit_requested = True
+        decision.matching_mode = "scan_to_submap"
+        decision.target_to_source.x = 0.1
+        decision.covariance[0] = 0.04
+        decision.covariance[4] = 0.04
+        decision.covariance[8] = 0.04
+        self.decision_input.publish(decision)
+
 
 def main() -> None:
     rclpy.init()
@@ -145,6 +187,15 @@ def main() -> None:
     try:
         probe.transition(probe.candidate_change_state, Transition.TRANSITION_CONFIGURE)
         probe.transition(probe.verifier_change_state, Transition.TRANSITION_CONFIGURE)
+        probe.transition(probe.gate_change_state, Transition.TRANSITION_CONFIGURE)
+        adapter_deadline = time.monotonic() + 5.0
+        while (
+            probe.decision_input.get_subscription_count() < 1
+            and time.monotonic() < adapter_deadline
+        ):
+            probe.spin_for(0.05)
+        if probe.decision_input.get_subscription_count() < 1:
+            raise TimeoutError("instrumented slam_toolbox constraint adapter not discovered")
         deadline = time.monotonic() + 3.0
         while (
             probe.scans.get_subscription_count() < 2
@@ -160,9 +211,10 @@ def main() -> None:
         # configure 后仍是 inactive：输入不能偷偷改变索引或产生候选证据。
         probe.publish_observation(1_700_000_000, 111_111_111)
         probe.spin_for(0.4)
-        if probe.batches or probe.verifications:
+        if probe.batches or probe.verifications or probe.decisions:
             raise AssertionError("inactive components published loop evidence")
 
+        probe.transition(probe.gate_change_state, Transition.TRANSITION_ACTIVATE)
         probe.transition(probe.verifier_change_state, Transition.TRANSITION_ACTIVATE)
         probe.transition(probe.candidate_change_state, Transition.TRANSITION_ACTIVATE)
         scan_stamps = (
@@ -197,6 +249,7 @@ def main() -> None:
             raise AssertionError(
                 f"expected 2 verification batches, got {len(probe.verifications)}"
             )
+
         verified = probe.verifications[-1]
         if verified.query_id != 1 or not verified.shadow_only:
             raise AssertionError("verification batch lost query correlation/safety flag")
@@ -211,6 +264,63 @@ def main() -> None:
             raise AssertionError(
                 f"identical revisit should pass geometry: {match.rejection_reason}"
             )
+        decision_deadline = time.monotonic() + 2.0
+        while not probe.decisions and time.monotonic() < decision_deadline:
+            probe.spin_for(0.05)
+        if not probe.decisions:
+            raise AssertionError("accepted geometry did not reach the constraint gate")
+        selected = probe.decisions[-1]
+        if (
+            not selected.policy_approved
+            or selected.commit_requested
+            or selected.reason != "shadow_mode"
+        ):
+            raise AssertionError(
+                "default gate must approve only an auditable shadow decision, "
+                f"got approved={selected.policy_approved} "
+                f"commit={selected.commit_requested} reason={selected.reason}"
+            )
+
+        result_deadline = time.monotonic() + 2.0
+        while not probe.constraint_results and time.monotonic() < result_deadline:
+            probe.spin_for(0.05)
+        if (
+            not probe.constraint_results
+            or probe.constraint_results[-1].reason != "commit_not_requested"
+            or probe.constraint_results[-1].committed
+        ):
+            raise AssertionError("shadow decision crossed the backend commit boundary")
+
+        # 显式 commit 即使绕过 gate，也必须先关联到 Karto 已处理扫描；本测试没有
+        # 向 slam_toolbox 输入扫描，因此 adapter 应给出可观察拒绝而不是异常退出。
+        probe.publish_unresolved_commit()
+        commit_result_deadline = time.monotonic() + 2.0
+        while (
+            not any(item.decision_sequence == 999 for item in probe.constraint_results)
+            and time.monotonic() < commit_result_deadline
+        ):
+            probe.spin_for(0.05)
+        unresolved = next(
+            (item for item in probe.constraint_results if item.decision_sequence == 999),
+            None,
+        )
+        if unresolved is None or unresolved.reason not in {
+            "slam_backend_not_ready",
+            "query_scan_not_resolved",
+        }:
+            reason = None if unresolved is None else unresolved.reason
+            raise AssertionError(
+                f"backend adapter did not reject an unresolved commit: {reason}"
+            )
+
+        # 同一 query/candidate 不得因 DDS 重投或上游抖动重复进入位姿图。
+        previous_decisions = len(probe.decisions)
+        probe.verification_input.publish(verified)
+        probe.spin_for(0.3)
+        if len(probe.decisions) != previous_decisions + 1:
+            raise AssertionError("duplicate verification did not receive an auditable decision")
+        if probe.decisions[-1].reason != "duplicate_pair":
+            raise AssertionError("duplicate constraint pair was not rejected")
 
         # 强制候选先于同时间戳查询帧到达，验证跨 topic 无全序时的 pending 逻辑。
         # 给即将到来的查询帧准备一个短时邻帧，使 pending 恢复后验证的仍是子图而非单帧。
@@ -278,12 +388,23 @@ def main() -> None:
 
         probe.transition(probe.candidate_change_state, Transition.TRANSITION_DEACTIVATE)
         probe.transition(probe.verifier_change_state, Transition.TRANSITION_DEACTIVATE)
+        probe.transition(probe.gate_change_state, Transition.TRANSITION_DEACTIVATE)
         probe.transition(probe.candidate_change_state, Transition.TRANSITION_CLEANUP)
         probe.transition(probe.verifier_change_state, Transition.TRANSITION_CLEANUP)
+        probe.transition(probe.gate_change_state, Transition.TRANSITION_CLEANUP)
         probe.transition(probe.candidate_change_state, Transition.TRANSITION_CONFIGURE)
         probe.transition(probe.verifier_change_state, Transition.TRANSITION_CONFIGURE)
+        probe.transition(probe.gate_change_state, Transition.TRANSITION_CONFIGURE)
+        probe.transition(probe.gate_change_state, Transition.TRANSITION_ACTIVATE)
         probe.transition(probe.verifier_change_state, Transition.TRANSITION_ACTIVATE)
         probe.transition(probe.candidate_change_state, Transition.TRANSITION_ACTIVATE)
+        previous_decisions = len(probe.decisions)
+        probe.verification_input.publish(verified)
+        probe.spin_for(0.3)
+        if len(probe.decisions) != previous_decisions + 1:
+            raise AssertionError("reactivated constraint gate did not publish")
+        if probe.decisions[-1].decision_sequence != 1:
+            raise AssertionError("cleanup must reset constraint history and decision sequence")
         previous_count = len(probe.batches)
         probe.publish_observation(1_700_000_010, 101_010_101)
         probe.spin_for(0.4)
@@ -294,8 +415,8 @@ def main() -> None:
             raise AssertionError("cleanup must clear the in-memory descriptor index")
 
         print(
-            "PASS: Lifecycle LaserScan+Odometry -> typed candidates -> shadow submap geometry; "
-            "sampling, timestamp association, pending correlation, ICP gates and cleanup verified"
+            "PASS: Lifecycle LaserScan+Odometry -> typed candidates -> shadow submap geometry "
+            "-> constraint gate -> guarded Karto adapter; duplicate, shadow and cleanup verified"
         )
     finally:
         probe.destroy_node()

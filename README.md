@@ -306,16 +306,20 @@ bash scripts/acceptance_test.sh openloris-lidar-shadow-matches
 局部几何上下文有价值，却仍不满足安全写图条件；发布状态为
 `shadow_only_submap_quality_insufficient`，直接图边写入继续关闭。
 
-离线评测算法现已通过两个 C++ Lifecycle component 接到实时 `/scan + /slam/odom`：
+离线评测算法现已通过三个 C++ Lifecycle component 接到实时 `/scan + /slam/odom`：
 `LiveLidarLoopDetector::ingest()` 在纯领域层执行采样、先查询后入库和 Top-K 检索，
 `LidarLoopCandidateNode::on_scan()` 只负责 LaserScan 转点、生命周期与 typed message 发布。
 `LiveLidarLoopVerifier` 以精确时间戳维护有界扫描/里程计缓存，用中心帧前后短时邻帧构建
 scan-to-submap 几何，再调用粗到细 trimmed ICP、双向重叠率、可观测性和歧义门限；结果中的
 `query_submap_scans/candidate_submap_scans` 可证明实际贡献帧数。跨 topic 没有全序保证，因此
-候选、查询扫描或里程计晚到都会进入有界 pending，数据齐全后恢复。`mapping_baseline.launch.py`
-默认并行启动两条 shadow 旁路，并使用 SLAM 实际消费的 `/slam/odom`；所有结果仍固定
-`shadow_only=true`，不会改变 slam_toolbox/Ceres/GTSAM 基线。若数据流停止且输入仍不完整，
-steady-clock 超时会发布明确拒绝原因，不会无限 pending。运行时契约验收：
+候选、查询扫描或里程计晚到都会进入有界 pending，数据齐全后恢复。第三层
+`LidarLoopConstraintGate` 对 accepted geometry 再做质量门、单 query 择优、pair 去重和 commit
+限频，发布 typed `policy_approved/commit_requested` 决策。默认 `commit_enabled=false`，因此
+`mapping_baseline.launch.py` 只运行可审计 shadow 链路，不会改变 slam_toolbox/Ceres/GTSAM 基线。
+实验性 Karto Adapter 还会校验生命周期、时间戳、协方差和已处理扫描关联；只有同时显式设置
+`enable_loop_constraint_commit:=true` 才可能写图。当前真实多序列 precision 门未达标，正式基线
+不得开启该 flag。若数据流停止且输入仍不完整，steady-clock 超时会发布明确拒绝原因，不会无限
+pending。运行时契约验收：
 
 ```bash
 bash scripts/acceptance_test.sh lidar-loop-runtime
@@ -359,7 +363,7 @@ slam_toolbox 回环候选生成/几何验证之前，而不是 GTSAM 后端。�
 | OpenLORIS 回放适配器 | `bash scripts/acceptance_test.sh openloris-replay-stage` | ROS 2 + rosbags |
 | LiDAR 回环候选多序列评测 | `bash scripts/acceptance_test.sh openloris-lidar-loop-candidates` | 已准备的两条真实 bag + GTSAM 图 |
 | LiDAR 影子扫描匹配评测 | `bash scripts/acceptance_test.sh openloris-lidar-shadow-matches` | 上述候选证据 + C++ matcher |
-| LiDAR 在线候选+局部子图验证 | `bash scripts/acceptance_test.sh lidar-loop-runtime` | ROS 2；合成 LaserScan/Odometry，无 Gazebo |
+| LiDAR 在线候选+子图验证+约束门控 | `bash scripts/acceptance_test.sh lidar-loop-runtime` | ROS 2；合成 LaserScan/Odometry，无 Gazebo |
 | 机器人能力统一门禁 | `bash scripts/acceptance_test.sh robotics-gate` | ROS 2 + 本地构建 |
 | 发布聚合报告 | `bash scripts/acceptance_test.sh release-gate` | 本地运行时 |
 | 演示聚合报告 | `bash scripts/acceptance_test.sh demo-gate` | 本地运行时 |

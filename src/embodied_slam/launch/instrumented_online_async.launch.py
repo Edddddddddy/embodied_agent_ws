@@ -9,6 +9,7 @@ from launch.substitutions import AndSubstitution, LaunchConfiguration, NotSubsti
 from launch_ros.actions import LifecycleNode
 from launch_ros.event_handlers import OnStateTransition
 from launch_ros.events.lifecycle import ChangeState
+from launch_ros.parameter_descriptions import ParameterValue
 from lifecycle_msgs.msg import Transition
 
 
@@ -35,6 +36,20 @@ def generate_launch_description():
             {
                 "use_lifecycle_manager": use_lifecycle_manager,
                 "use_sim_time": use_sim_time,
+                "external_loop_constraint_enabled": ParameterValue(
+                    LaunchConfiguration("external_loop_constraint_enabled"),
+                    value_type=bool,
+                ),
+                "external_loop_constraint_topic": LaunchConfiguration(
+                    "external_loop_constraint_topic"
+                ),
+                "external_loop_constraint_result_topic": LaunchConfiguration(
+                    "external_loop_constraint_result_topic"
+                ),
+                "external_loop_constraint_max_stamp_delta_ms": ParameterValue(
+                    LaunchConfiguration("external_loop_constraint_max_stamp_delta_ms"),
+                    value_type=float,
+                ),
             },
         ],
     )
@@ -73,6 +88,21 @@ def generate_launch_description():
             DeclareLaunchArgument("autostart", default_value="true"),
             DeclareLaunchArgument("use_lifecycle_manager", default_value="false"),
             DeclareLaunchArgument("use_sim_time", default_value="true"),
+            DeclareLaunchArgument(
+                "external_loop_constraint_enabled", default_value="false"
+            ),
+            DeclareLaunchArgument(
+                "external_loop_constraint_topic",
+                default_value="/slam/loop_constraint_decisions",
+            ),
+            DeclareLaunchArgument(
+                "external_loop_constraint_result_topic",
+                default_value="/slam/loop_constraint_results",
+            ),
+            DeclareLaunchArgument(
+                "external_loop_constraint_max_stamp_delta_ms",
+                default_value="25.0",
+            ),
             DeclareLaunchArgument("slam_params_file", default_value=default_params),
             slam_node,
             configure,

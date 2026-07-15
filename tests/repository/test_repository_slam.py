@@ -11,12 +11,17 @@ def test_slam_mapping_baseline_has_reproducible_inputs_and_evidence_entrypoints(
         package / "launch" / "mapping_baseline.launch.py",
         package / "launch" / "lidar_loop_candidate.launch.py",
         package / "launch" / "lidar_loop_verifier.launch.py",
+        package / "launch" / "lidar_loop_constraint_gate.launch.py",
         package / "include" / "embodied_slam" / "lidar_loop_runtime.hpp",
         package / "include" / "embodied_slam" / "lidar_loop_verifier.hpp",
         package / "include" / "embodied_slam" / "lidar_submap_builder.hpp",
+        package / "include" / "embodied_slam" / "lidar_loop_constraint_gate.hpp",
+        package / "include" / "embodied_slam" / "loop_constraint_adapter.hpp",
         package / "src" / "lidar_loop_runtime.cpp",
         package / "src" / "lidar_loop_verifier.cpp",
         package / "src" / "lidar_submap_builder.cpp",
+        package / "src" / "lidar_loop_constraint_gate.cpp",
+        package / "src" / "loop_constraint_adapter.cpp",
         package / "src" / "lidar_loop_candidate_node.cpp",
         package / "src" / "lidar_loop_verifier_node.cpp",
         package / "src" / "odom_drift_injector_node.cpp",
@@ -46,7 +51,7 @@ def test_slam_mapping_baseline_has_reproducible_inputs_and_evidence_entrypoints(
     assert "lidar-loop-runtime" in acceptance
 
 
-def test_live_lidar_loop_frontend_is_typed_lifecycle_and_shadow_only():
+def test_live_lidar_loop_frontend_is_typed_lifecycle_and_commit_is_default_off():
     interfaces = ROOT / "src" / "embodied_agent_interfaces"
     package = ROOT / "src" / "embodied_slam"
     node = (package / "src" / "lidar_loop_candidate_node.cpp").read_text(
@@ -55,6 +60,12 @@ def test_live_lidar_loop_frontend_is_typed_lifecycle_and_shadow_only():
     verifier = (package / "src" / "lidar_loop_verifier_node.cpp").read_text(
         encoding="utf-8"
     )
+    gate = (package / "src" / "lidar_loop_constraint_gate_node.cpp").read_text(
+        encoding="utf-8"
+    )
+    backend = (
+        package / "src" / "instrumented_async_slam_toolbox_node.cpp"
+    ).read_text(encoding="utf-8")
     launch = (package / "launch" / "mapping_baseline.launch.py").read_text(
         encoding="utf-8"
     )
@@ -63,6 +74,8 @@ def test_live_lidar_loop_frontend_is_typed_lifecycle_and_shadow_only():
     assert (interfaces / "msg" / "LidarLoopCandidateArray.msg").is_file()
     assert (interfaces / "msg" / "LidarLoopVerification.msg").is_file()
     assert (interfaces / "msg" / "LidarLoopVerificationArray.msg").is_file()
+    assert (interfaces / "msg" / "LidarLoopConstraintDecision.msg").is_file()
+    assert (interfaces / "msg" / "LidarLoopConstraintResult.msg").is_file()
     assert "rclcpp_lifecycle::LifecycleNode" in node
     assert "RCLCPP_COMPONENTS_REGISTER_NODE" in node
     assert "output.shadow_only = true" in node
@@ -71,6 +84,13 @@ def test_live_lidar_loop_frontend_is_typed_lifecycle_and_shadow_only():
     assert "RCLCPP_COMPONENTS_REGISTER_NODE" in verifier
     assert "output.shadow_only = true" in verifier
     assert "matchLidarScans" not in verifier  # 几何算法封装在可单测的领域对象中。
+    assert "rclcpp_lifecycle::LifecycleNode" in gate
+    assert "RCLCPP_COMPONENTS_REGISTER_NODE" in gate
+    assert 'declare_parameter<bool>("commit_enabled", false)' in gate
+    assert "policy_approved" in gate and "commit_requested" in gate
+    assert 'declare_parameter<bool>("external_loop_constraint_enabled", false)' in backend
+    assert "commit_not_requested" in backend
+    assert "query_scan_not_resolved" not in backend  # 原因由纯 C++ adapter 统一生成。
     verification_contract = (
         interfaces / "msg" / "LidarLoopVerification.msg"
     ).read_text(encoding="utf-8")
@@ -79,7 +99,9 @@ def test_live_lidar_loop_frontend_is_typed_lifecycle_and_shadow_only():
     assert "create_subscription<Odometry>" in verifier
     assert "hasGeometry" in verifier
     assert "lidar_loop_verifier.launch.py" in launch
+    assert "lidar_loop_constraint_gate.launch.py" in launch
     assert "enable_loop_candidate_shadow" in launch
+    assert '"enable_loop_constraint_commit", default_value="false"' in launch
     assert '"matching_mode": "scan_to_submap"' in launch
     assert '"odometry_topic": "/slam/odom"' in launch
 

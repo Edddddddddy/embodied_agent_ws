@@ -1195,6 +1195,36 @@ DDS 只保证单个 writer/topic 内的顺序，不保证 `/scan`、`/odom` 和
 固定 `shadow_only=true` 且没有写图接口：几何 accepted 仍只是证据，真实多序列 precision 和
 后端一致性未达门槛前不会污染地图。
 
+### 14.10 为什么在几何验证与位姿图之间增加两阶段约束门
+
+关键代码：
+
+- `src/embodied_slam/include/embodied_slam/lidar_loop_constraint_gate.hpp`：纯 C++ 门控接口。
+- `src/embodied_slam/src/lidar_loop_constraint_gate.cpp`：质量门、择优、去重、限频与协方差策略。
+- `src/embodied_slam/src/lidar_loop_constraint_gate_node.cpp`：Lifecycle 与 typed message Adapter。
+- `src/embodied_slam/src/loop_constraint_adapter.cpp`：时间戳关联及 ICP/Karto 坐标语义转换。
+- `src/embodied_slam/src/instrumented_async_slam_toolbox_node.cpp`：实验性 Karto 写入边界。
+- `src/embodied_agent_interfaces/msg/LidarLoopConstraintDecision.msg`：策略批准与 commit 请求分离。
+- `src/embodied_agent_interfaces/msg/LidarLoopConstraintResult.msg`：后端实际提交/拒绝证据。
+- `tests/integration/test_lidar_loop_runtime.py`：shadow、重复 pair、Lifecycle reset 和后端拒绝探针。
+
+`accepted geometry` 只说明单次 ICP 满足门限，不代表它应立即成为图优化因子。门控领域对象先检查
+scan-to-submap、子图贡献帧、对应点、descriptor、inlier、双向 overlap、RMSE 和 observability，
+再在同一个 query 内只选择质量最高的候选。历史 pair 去重防止 DDS 重投生成重复边，query 间隔
+限制防止短时间大量相关约束过度影响优化器。协方差由保守配置固定，而不是把启发式 quality
+score 错当成统计概率。
+
+第一阶段输出 `policy_approved`，第二阶段才输出 `commit_requested`。默认 commit 关闭，因此可以
+长期采集决策分布而不污染地图；只有显式开启实验 flag，instrumented slam_toolbox 才订阅 commit。
+后端仍独立校验 Lifecycle active、时间顺序、协方差和 Karto processed scan 关联，并用 typed result
+报告 `commit_not_requested/backend_not_ready/...`。这形成 fail-closed 的双重授权，而不是相信
+任意 topic publisher。
+
+与“验证节点直接调用 Karto”相比，策略和后端生命周期解耦，纯 C++ 门可以无 ROS 单测，后端也可
+替换为 GTSAM Adapter；代价是增加一个 DDS hop 和更多状态。与完整 switchable constraints、DCS
+或 max-mixture 相比，当前方案更轻、容易审计，但不能在优化过程中自动降低错误回环权重。真实
+多序列 precision 仍低，所以本轮只证明安全边界和接口完整，不能宣称回环已经改善真实地图。
+
 ## 15. 动态障碍运动模型与同场景消融
 
 关键代码：

@@ -98,6 +98,7 @@
 | LiDAR 在线候选组件 | 将离线候选算法接入实际建图数据流，同时隔离低精度算法风险 | 新增 typed candidate msg、C++ 深模块、Lifecycle/component、`/scan` Adapter 与 DDS 烟测；默认随建图旁路运行，固定 `shadow_only=true`，不写位姿图 |
 | LiDAR 在线几何验证组件 | 将在线 Top-K 候选继续送入真实几何门限，而不把相似度当作闭环 | 新增 typed verification msg、有界时间戳扫描缓存、粗到细 ICP Lifecycle/component 和跨 topic pending 关联；输出 RMSE/overlap/observability/拒绝原因，仍固定 shadow-only、不持有写图接口 |
 | LiDAR 在线局部子图验证 | 让运行时几何路径与已验证的离线子图消融一致，并处理多 topic 乱序 | 扫描/里程计双缓存、50 ms 时间关联、短窗口 scan-to-submap、贡献帧 typed 证据及扫描/里程计晚到恢复；继续 shadow-only |
+| LiDAR 回环约束两阶段门控 | 把“几何通过”与“允许写图”拆成可审计边界，避免上游抖动或弱匹配直接污染位姿图 | 新增纯 C++ 质量门、单 query 择优、pair 去重、限频、固定协方差及 typed decision/result；Karto Adapter 默认关闭，运行时验证 shadow 和无扫描 commit 均被拒绝 |
 
 ## 2. 当前完成度结论
 
