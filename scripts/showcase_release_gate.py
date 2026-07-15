@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shlex
 import subprocess
 import time
@@ -101,6 +102,7 @@ DEMO_COMMANDS: tuple[tuple[str, str], ...] = (
 ROBOTICS_COMMANDS: tuple[tuple[str, str], ...] = (
     (
         "robotics_repository_and_agent_units",
+        "bash scripts/acceptance_test.sh architecture-facts && "
         "pytest -q tests/repository src/embodied_online_agent/test "
         "src/embodied_offline_agent/test",
     ),
@@ -282,7 +284,10 @@ def _default_report_path(root: Path, profile: str) -> Path:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--workspace", default="/home/ubuntu/embodied_agent_ws")
+    parser.add_argument(
+        "--workspace",
+        default=os.environ.get("WORKSPACE", "/home/ubuntu/embodied_agent_ws"),
+    )
     parser.add_argument("--output", default="")
     parser.add_argument("--timeout-s", type=float, default=900.0)
     parser.add_argument("--tail-lines", type=int, default=80)

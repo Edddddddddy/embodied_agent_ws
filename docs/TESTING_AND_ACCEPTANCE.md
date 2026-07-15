@@ -23,9 +23,14 @@
 
 ```bash
 source scripts/activate.sh
+bash scripts/acceptance_test.sh architecture-facts
 bash scripts/acceptance_test.sh core
 bash tests/integration/test_acceptance_cli.sh
 ```
+
+`architecture-facts` 校验 `docs/evidence/architecture_facts.{json,md}` 是否仍与当前 package、CI 矩阵、
+CLI 路由、release-gate 和 Agent 节点源码一致。需要刷新时运行
+`python3 scripts/generate_architecture_facts.py`，不要手工修改生成报告。
 
 语音/队列修改追加：
 
@@ -61,7 +66,7 @@ bash scripts/acceptance_test.sh robotics-gate
 
 聚合报告中的 `evidence_kind` 会区分 CI、mock、C++ ROS、本机真实模型、Gazebo 和公开 bag
 证据。`robotics-gate` 固定覆盖连续多命令、Nav2 stage、SLAM 指标、OpenLORIS fixture 和动态
-障碍 stage；自动 gate 通过后仍要按修改范围运行下面的重型/人工验收。
+障碍 stage，并在第一步校验架构事实；自动 gate 通过后仍要按修改范围运行下面的重型/人工验收。
 
 默认帮助只列出 12 个推荐公共入口；高级、诊断和兼容模式使用：
 

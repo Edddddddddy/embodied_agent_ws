@@ -31,6 +31,7 @@ Usage: acceptance_test.sh MODE
 
 Automated modes:
   core                Typical developer gate: repository, Python unit, C++ unit tests
+  architecture-facts  Verify generated package/CI/CLI/release-gate architecture evidence
   agent-lifecycle     Online/offline configure -> activate -> deactivate -> reactivate
   preflight           Check offline model/runtime files
   mock                Build, unit tests, and dependency-free ROS smokes
@@ -166,6 +167,13 @@ fi
 
 if [[ "$LEVEL" == "--help-all" || "$LEVEL" == "help-all" ]]; then
   usage_all
+  exit 0
+fi
+
+# 架构事实只读取仓库文件；把它放在 ROS 环境激活之前，保证全新 clone/worktree 也能先做契约审计。
+if [[ "$LEVEL" == "architecture-facts" ]]; then
+  cd "$WORKSPACE"
+  python3 scripts/generate_architecture_facts.py --workspace "$WORKSPACE" --check
   exit 0
 fi
 
@@ -342,6 +350,7 @@ run_isolated_ros_smoke() {
 
 case "$LEVEL" in
   core) bash scripts/run_core_tests.sh ;;
+  architecture-facts) python3 scripts/generate_architecture_facts.py --workspace "$WORKSPACE" --check ;;
   agent-lifecycle) bash scripts/smoke_test_agent_lifecycle.sh online; bash scripts/smoke_test_agent_lifecycle.sh offline ;;
   preflight) check_offline_runtime ;;
   mock) run_base ;;
@@ -806,9 +815,9 @@ case "$LEVEL" in
       --output "${ASR_NLU_CANDIDATE_REPORT:-logs/asr_nlu_candidate_eval_report.json}" \
       --minimum "${ASR_NLU_CANDIDATE_MINIMUM:-1.0}"
     ;;
-  release-gate) python3 scripts/showcase_release_gate.py ;;
-  robotics-gate) python3 scripts/showcase_release_gate.py --profile robotics ;;
-  demo-gate) python3 scripts/showcase_release_gate.py --profile demo ;;
+  release-gate) python3 scripts/showcase_release_gate.py --workspace "$WORKSPACE" ;;
+  robotics-gate) python3 scripts/showcase_release_gate.py --workspace "$WORKSPACE" --profile robotics ;;
+  demo-gate) python3 scripts/showcase_release_gate.py --workspace "$WORKSPACE" --profile demo ;;
   demo-evidence-checklist)
     CHECKLIST_ARGS=(
       --output "${DEMO_EVIDENCE_REPORT:-logs/demo_evidence_checklist.json}"

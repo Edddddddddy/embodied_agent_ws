@@ -102,6 +102,7 @@
 | LiDAR 回环约束两阶段门控 | 把“几何通过”与“允许写图”拆成可审计边界，避免上游抖动或弱匹配直接污染位姿图 | 新增纯 C++ 质量门、单 query 择优、pair 去重、限频、固定协方差及 typed decision/result；Karto Adapter 默认关闭，运行时验证 shadow 和无扫描 commit 均被拒绝 |
 | LiDAR 多帧时序一致性门 | 抑制重复走廊中单帧 ICP 偶然高分直接进入后端 | 新增纯 C++ 连续确认状态机与离线 replay；两序列同参数下聚合 precision 13.21%→31.25%、recall 12.57%→2.99%，因此保留 shadow-only 并明确精度/召回权衡 |
 | GTSAM 可切换回环约束 | 避免硬阈值在累计漂移时直接误拒真回环，让每条已接受非局部边由后端联合估计可信度 | 新增三变量 SwitchableBetweenFactor、ROS/CLI 参数和两序列固定图门禁；加权 ATE 0.9196 m，较 Gaussian/Cauchy 下降 43.28%/15.57%，在线仍默认关闭 |
+| 架构事实与发布门禁防漂移 | 避免包数量、脚本/模式规模、节点行数和 CI/release-gate 覆盖随迭代再次失真 | 新增确定性 JSON/Markdown 架构报告和 repository contract；12 包 CI 矩阵、12 个公开入口、125 个高级/router mode、typed interface 与 robotics gate 覆盖由源码计算并在 CI 校验 |
 
 ## 2. 当前完成度结论
 

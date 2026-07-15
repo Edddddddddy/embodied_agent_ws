@@ -25,6 +25,7 @@ fi
 # 完整模式仍然可发现，但不会淹没首次使用者的主验收入口。
 OUTPUT="$(bash "$WORKSPACE/scripts/acceptance_test.sh" --help-all 2>&1)"
 grep -q "all" <<<"$OUTPUT"
+grep -q "architecture-facts" <<<"$OUTPUT"
 grep -q "offline-showcase-report" <<<"$OUTPUT"
 grep -q "offline-voice-e2e-report" <<<"$OUTPUT"
 grep -q "microphone-offline" <<<"$OUTPUT"

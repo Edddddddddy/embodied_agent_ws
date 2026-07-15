@@ -398,6 +398,7 @@ slam_toolbox 回环候选生成/几何验证之前，而不是 GTSAM 后端。�
 | LiDAR 影子扫描匹配评测 | `bash scripts/acceptance_test.sh openloris-lidar-shadow-matches` | 上述候选证据 + C++ matcher |
 | LiDAR 在线候选+子图验证+约束门控 | `bash scripts/acceptance_test.sh lidar-loop-runtime` | ROS 2；合成 LaserScan/Odometry，无 Gazebo |
 | 机器人能力统一门禁 | `bash scripts/acceptance_test.sh robotics-gate` | ROS 2 + 本地构建 |
+| 架构事实防漂移 | `bash scripts/acceptance_test.sh architecture-facts` | Python |
 | 发布聚合报告 | `bash scripts/acceptance_test.sh release-gate` | 本地运行时 |
 | 演示聚合报告 | `bash scripts/acceptance_test.sh demo-gate` | 本地运行时 |
 
@@ -405,6 +406,11 @@ slam_toolbox 回环候选生成/几何验证之前，而不是 GTSAM 后端。�
 `logs/robotics_acceptance_report.json`，`demo-gate` 输出
 `logs/demo_acceptance_report.json`。自动 gate 会标注 `ci_compatible/mock_ros/local_runtime` 等
 证据类型，并区分公开 bag、真实模型和 Gazebo 证据，不把 mock 结果包装成现场实测。
+
+仓库规模和架构契约不再靠文档手写数字维护。`architecture-facts` 会从 `package.xml`、CI workflow、
+验收路由、release-gate、自定义接口和 Agent 源码重新计算，并校验提交的
+[架构事实报告](docs/evidence/architecture_facts.md)。它证明静态结构一致性，不替代真实麦克风、
+Gazebo 或公开 bag 运行证据。
 
 全部可用模式：
 
