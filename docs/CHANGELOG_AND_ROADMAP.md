@@ -64,6 +64,7 @@
 | GTSAM 后端插件 | 自己实现可替换的位姿图后端并接入真实建图流程 | 新增纯 Pose2 optimizer、协方差正定防护及 `karto::ScanSolver` pluginlib Adapter |
 | 地图复用定位导航 | 证明建图产物能在新进程中用于任务执行 | 保存 5 cm 地图，完成 AMCL `map->odom`、Nav2 plan、NavigateToPose 和零速收尾 |
 | 预测动态避障 | 从“检测当前障碍”升级为“估计速度并占用未来轨迹” | 新增 typed track、常速度预测深模块、Nav2 costmap layer；实测路径净空由约 0.011 m 提升到约 0.976 m |
+| 动态目标全局数据关联 | 消除逐轨迹贪心匹配对遍历顺序的依赖，降低交叉/冲突观测导致的 ID 碎片 | 新增带私有 dummy 的门限矩形匈牙利分配；固定冲突中由 1/2 既有轨迹更新、1 个碎片改进为 2/2 更新、0 碎片，默认 `global_nearest`，保留贪心作消融 |
 | bringup 包分层 | 修正共享 launch contract 放在领域 core 中造成的部署依赖反向污染 | 新增 `embodied_agent_bringup`，依赖方向统一为 bringup → core/voice/C++；core 移除 launch/launch_ros 依赖 |
 | 控制命令启动可靠性 | 修复 DDS discovery 完成前 Guard 发布的 volatile 动作静默丢失 | 新增有界 TTL `GuardedCommandOutbox`；scheduler 匹配后 FIFO 转发，超时/满载明确拒绝，不回放陈旧动作 |
 | C++ 中间件契约收敛 | 清理跨节点散落的 QoS depth 与不一致策略 | 新增独立 `embodied_agent_middleware` 包，统一 command/event/state/sensor/audio/diagnostics QoS，并迁移控制主链路 |

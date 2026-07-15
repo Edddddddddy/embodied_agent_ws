@@ -5,14 +5,11 @@
 #include <string>
 #include <vector>
 
+#include "embodied_navigation/gated_observation_assignment.hpp"
+#include "embodied_navigation/obstacle_types.hpp"
+
 namespace embodied_navigation
 {
-
-struct Point2d
-{
-  double x{0.0};
-  double y{0.0};
-};
 
 struct TrackedObstacle
 {
@@ -42,6 +39,7 @@ struct TrackerConfig
   double velocity_smoothing{0.65};
   double track_timeout_s{1.0};
   double default_radius_m{0.25};
+  AssociationStrategy association_strategy{AssociationStrategy::GlobalNearest};
   MotionModel motion_model{MotionModel::ConstantVelocity};
   double measurement_noise_variance{0.01};
   double process_noise_variance{0.2};

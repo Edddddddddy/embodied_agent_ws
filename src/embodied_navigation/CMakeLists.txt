@@ -14,7 +14,9 @@ find_package(rclcpp REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 
-add_library(dynamic_obstacle_tracker_core src/dynamic_obstacle_tracker.cpp)
+add_library(dynamic_obstacle_tracker_core
+  src/dynamic_obstacle_tracker.cpp
+  src/gated_observation_assignment.cpp)
 target_include_directories(dynamic_obstacle_tracker_core PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
@@ -32,6 +34,11 @@ ament_target_dependencies(dynamic_obstacle_tracker_node
 add_executable(dynamic_obstacle_model_benchmark src/dynamic_obstacle_model_benchmark.cpp)
 target_link_libraries(dynamic_obstacle_model_benchmark dynamic_obstacle_tracker_core)
 
+add_executable(
+  dynamic_obstacle_association_benchmark
+  src/dynamic_obstacle_association_benchmark.cpp)
+target_link_libraries(dynamic_obstacle_association_benchmark dynamic_obstacle_tracker_core)
+
 add_library(predicted_obstacle_layer SHARED src/predicted_obstacle_layer.cpp)
 target_link_libraries(predicted_obstacle_layer constant_velocity_predictor)
 target_include_directories(predicted_obstacle_layer PUBLIC
@@ -42,7 +49,8 @@ ament_target_dependencies(predicted_obstacle_layer
 pluginlib_export_plugin_description_file(nav2_costmap_2d costmap_plugins.xml)
 
 install(TARGETS constant_velocity_predictor dynamic_obstacle_tracker_core
-  dynamic_obstacle_tracker_node dynamic_obstacle_model_benchmark predicted_obstacle_layer
+  dynamic_obstacle_tracker_node dynamic_obstacle_model_benchmark
+  dynamic_obstacle_association_benchmark predicted_obstacle_layer
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION lib/${PROJECT_NAME})
@@ -57,6 +65,9 @@ if(BUILD_TESTING)
   ament_xmllint()
   ament_add_gtest(test_dynamic_obstacle_tracker test/test_dynamic_obstacle_tracker.cpp)
   target_link_libraries(test_dynamic_obstacle_tracker dynamic_obstacle_tracker_core)
+  ament_add_gtest(
+    test_gated_observation_assignment test/test_gated_observation_assignment.cpp)
+  target_link_libraries(test_gated_observation_assignment dynamic_obstacle_tracker_core)
   ament_add_gtest(test_constant_velocity_predictor test/test_constant_velocity_predictor.cpp)
   target_link_libraries(test_constant_velocity_predictor constant_velocity_predictor)
 endif()

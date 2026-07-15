@@ -52,6 +52,24 @@ TEST(DynamicObstacleTracker, ParsesAllSupportedMotionModels)
   EXPECT_THROW(motion_model_from_string("magic"), std::invalid_argument);
 }
 
+TEST(DynamicObstacleTracker, GlobalAssociationPreservesTwoExistingIdentities)
+{
+  TrackerConfig config;
+  config.motion_model = MotionModel::CurrentOnly;
+  config.association_distance_m = 0.5;
+  config.association_strategy = AssociationStrategy::GlobalNearest;
+  DynamicObstacleTracker tracker(config);
+  tracker.update({Point2d{0.0, 0.0}, Point2d{0.3, 0.0}}, 0.0);
+
+  const auto & tracks = tracker.update({Point2d{0.2, 0.0}, Point2d{-0.2, 0.0}}, 0.1);
+
+  ASSERT_EQ(tracks.size(), 2U);
+  EXPECT_EQ(tracks[0].id, "track_1");
+  EXPECT_NEAR(tracks[0].position.x, -0.2, 1e-12);
+  EXPECT_EQ(tracks[1].id, "track_2");
+  EXPECT_NEAR(tracks[1].position.x, 0.2, 1e-12);
+}
+
 TEST(DynamicObstacleTracker, CurrentOnlyDoesNotInventVelocityDuringOcclusion)
 {
   TrackerConfig config;
