@@ -81,6 +81,27 @@ def test_comparison_allows_gate_to_use_fewer_edges_from_the_same_input_graph():
     assert report["variants"][1]["constraints_used"] == 80
 
 
+def test_comparison_reports_switchable_constraint_state_without_changing_graph_size():
+    variants = [_variant("gaussian", 1.2), _variant("switchable_gaussian", 0.7)]
+    variants[1]["optimizer"].update(
+        {
+            "switchable_loop_constraints": True,
+            "switchable_constraints": 12,
+            "switch_suppressed_constraints": 3,
+            "minimum_switch_value": 0.02,
+            "mean_switch_value": 0.76,
+        }
+    )
+
+    report = MODULE.build_comparison(variants, "fixed-graph")
+
+    assert report["passed"] is True
+    switchable = report["variants"][1]
+    assert switchable["switchable_loop_constraints"] is True
+    assert switchable["switch_suppressed_constraints"] == 3
+    assert switchable["minimum_switch_value"] == 0.02
+
+
 def test_published_real_data_evidence_preserves_fairness_and_claim_boundary():
     evidence = json.loads(
         (ROOT / "docs" / "evidence" / "gtsam_robust_kernel_ablation.json").read_text(

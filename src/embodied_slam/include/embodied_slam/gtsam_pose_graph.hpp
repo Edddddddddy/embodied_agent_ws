@@ -46,7 +46,17 @@ struct PoseGraphOptimizerConfig
   bool enable_scan_overlap_gate{false};
   double minimum_scan_overlap_ratio{0.65};
   double scan_overlap_gate_min_translation_residual_m{1.0};
+  bool enable_switchable_loop_constraints{false};
+  double switch_prior_sigma{1.0};
+  double switch_suppression_threshold{0.5};
   double minimum_covariance_eigenvalue{1e-8};
+};
+
+struct SwitchableConstraintEstimate
+{
+  int source_id{0};
+  int target_id{0};
+  double value{1.0};
 };
 
 struct PoseGraphResult
@@ -61,6 +71,11 @@ struct PoseGraphResult
   std::size_t scan_overlap_evaluated_constraints{0U};
   std::size_t scan_overlap_rejected_constraints{0U};
   std::size_t scan_overlap_unavailable_constraints{0U};
+  std::size_t switchable_constraints{0U};
+  std::size_t switch_suppressed_constraints{0U};
+  double minimum_switch_value{1.0};
+  double mean_switch_value{1.0};
+  std::vector<SwitchableConstraintEstimate> switch_estimates;
 };
 
 class GtsamPoseGraphOptimizer

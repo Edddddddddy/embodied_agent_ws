@@ -25,8 +25,8 @@
 - ROS 2 工程化：自定义 msg/srv/action、Lifecycle、统一 QoS、diagnostics、C++ ActionGuard、
   ActionScheduler、BehaviorTree.CPP、pluginlib Executor 和统一 launch contract。
 - 仿真与导航：直行、转向、弧线、组合动作、语义地点、巡航、Nav2 goal 取消和失败归零。
-- SLAM：可复现漂移注入、固定闭环、slam_toolbox 激光前端、Ceres/GTSAM 后端 A/B、地图保存、
-  AMCL 定位、Nav2 规划控制和 ATE/RPE/回环定量评估。
+- SLAM：可复现漂移注入、固定闭环、slam_toolbox 激光前端、Ceres/GTSAM 后端 A/B、鲁棒核与
+  可切换回环约束、地图保存、AMCL 定位、Nav2 规划控制和 ATE/RPE/回环定量评估。
 - 动态避障：C++ 最近邻跟踪、常速度预测和 Nav2 costmap plugin，验证预测占用、重规划和停车。
 - 用户上下文：声纹身份、注册流程、分用户偏好/行为记忆；身份快照随命令入队，动作仍受
   ActionGuard 约束。
@@ -242,6 +242,11 @@ bash scripts/acceptance_test.sh openloris-robust-kernel-ablation
 # 在同一固定图上增加无真值运行时依赖的非局部边几何一致性门控。
 bash scripts/acceptance_test.sh openloris-loop-consistency-ablation
 
+# 固定图增加每条回环独立 switch；默认不改变在线配置。
+GTSAM_INCLUDE_SWITCHABLE_CONSTRAINTS=true \
+  GTSAM_ABLATION_OUTPUT_DIR=logs/openloris/corridor1-1/switchable_constraint_ablation \
+  bash scripts/run_gtsam_robust_kernel_ablation.sh
+
 # 用原始 LaserScan + 静态 TF 为已接受约束补充重叠证据，并做双证据消融。
 bash scripts/acceptance_test.sh openloris-scan-overlap-ablation
 
@@ -273,6 +278,13 @@ Karto 前端 precision 提升。
 `Cauchy + gate` 的 ATE 为 1.1713 m，相比 Gaussian 下降 35.77%，相比单独 Cauchy 下降 4.28%。
 门控只比较候选约束与优化前图估计，不读取真值，但严重累计漂移可能使真回环也不一致，因此
 默认关闭，当前只作为可复现消融能力，不宣称前端回环 precision 已改善。
+
+可切换约束进一步给每条非局部边增加由 GTSAM 联合优化的标量权重和 `s=1` 先验。两条独立固定图
+使用相同 `prior sigma=1.0 / suppression threshold=0.5`：总计 2316 个匹配位姿、859 条非局部边，
+80 条被压到阈值以下；`Switchable+Cauchy` 加权 ATE RMSE 为 0.9196 m，相比 Gaussian/Cauchy
+分别下降 43.28%/15.57%。`corridor1-2` 唯一非局部边保持 `s=0.9976`，机制并非简单删除所有回环。
+结果见 [多序列固定图证据](docs/evidence/gtsam_switchable_multisequence.md)。switch 仍是已接受边的
+后端潜变量，不是前端真值标签；在线配置默认关闭，也不据此宣称新前端已改善地图。
 
 进一步的扫描重叠实验将 11381 帧原始 `/scan` 按时间戳关联到固定图节点，并通过 `/tf_static`
 统一到 `base_link`。858 条非局部边均得到无真值重叠证据。0.65 阈值下，仅按重叠率会删除

@@ -31,10 +31,12 @@ Gazebo LaserScan + 参考里程计
 | 漂移 TF/传感器隔离 | `odom_drift_injector_node.cpp`：`on_odometry/on_scan` | 创建 `slam_odom -> slam_base_link -> slam_laser` 独立 TF 树，不污染 Gazebo 参考 `/odom` |
 | 固定闭环路线 | `closed_loop_controller.cpp`、`closed_loop_driver_node.cpp`：`update/step` | 同一四边形路线用于 Ceres/GTSAM A/B；雷达近障停车仍保留 |
 | Ceres 基线 | `config/slam_mapping_ceres.yaml` | 使用 slam_toolbox 官方默认支持的 Ceres + Huber，作为稳定参照 |
-| GTSAM 深模块 | `gtsam_pose_graph.cpp`：`GtsamPoseGraphOptimizer::optimize` | 用纯 Pose2/constraint 接口隔离 GTSAM，支持 none/Huber/Cauchy 和全边/非局部边策略 |
+| GTSAM 深模块 | `gtsam_pose_graph.cpp`：`GtsamPoseGraphOptimizer::optimize` | 用纯 Pose2/constraint 接口隔离 GTSAM，支持 none/Huber/Cauchy、硬门控和逐回环 switch |
 | ScanSolver Adapter | `gtsam_scan_solver.cpp`：`AddNode/AddConstraint/Compute` | 将 karto 节点、相对位姿和协方差适配为 GTSAM Prior/Between factors，通过 pluginlib 注入 slam_toolbox |
 | 固定图后端消融 | `gtsam_graph_optimize.cpp`、`run_gtsam_robust_kernel_ablation.py` | 累计去重的前端图只生成一次，四种后端复用相同 SHA256 输入，隔离异步前端波动 |
 | 非局部边一致性门控 | `gtsam_pose_graph.cpp`：`violates_consistency_gate` | 不用真值，比较候选约束与优化前图预测；硬拒绝明显异常边，中等残差仍交给鲁棒核 |
+| 可切换回环约束 | `gtsam_pose_graph.cpp`：`SwitchableBetweenFactor/evaluateError` | 为每条非局部边联合优化独立可信度；错误边可软关闭，正确边保留，不修改前端图输入 |
+| 多序列 switch 消融 | `compare_gtsam_switchable_sequences.py`：`compare` | 要求两份独立 graph SHA、同一先验/阈值，并同时观察“压低错误边”和“保留正常边” |
 | 协方差防护 | `make_positive_definite` | 对称化协方差并钳制特征值，防止走廊等退化几何给出奇异矩阵导致求解器崩溃 |
 | 地图/轨迹报告 | `tests/integration/test_slam_mapping_baseline.py`：`build_report` | 同时统计原始 ATE、闭环误差、`map->odom` 校正轨迹和已知地图面积 |
 | 后端 A/B | `scripts/compare_slam_backends.py`：`compare` | 检查两次路线与漂移尺度一致，再比较校正 ATE、闭环误差、覆盖面积和时间 |
@@ -79,6 +81,23 @@ argmin Σ ρ( || Log( z_ij^-1 * (x_i^-1 * x_j) ) ||²_Ωij )
 优化前计算候选边测量和当前图预测的 SE(2) 创新量，只拒绝超过平移/偏航阈值的明显异常非局部边。
 它不读取真值，能够在线运行，但当前图已经严重漂移时也可能误拒绝真正纠偏的回环。因此项目配置
 默认关闭门控，只在固定图消融中展示收益与风险，不以单条序列自动选择生产阈值。
+
+可切换约束在回环残差前乘一个标量 `s_ij`，并用先验把它拉向 1：
+
+```text
+argmin Σlocal ||r_ij(x)||² + Σloop ||s_ij r_ij(x)||² + ||1 - s_ij||² / σ_s²
+```
+
+`SwitchableBetweenFactor::evaluateError` 同时提供 source pose、target pose 和 switch 的 Jacobian；
+`PriorFactor<double>` 防止所有 switch 无条件归零。硬门控是在优化前做离散拒绝，Huber/Cauchy 是
+按残差统一定义的 M-estimator，而 switch 是“每条回环一项”的联合潜变量：它能让明显错误边接近
+0，也能让一致边保持接近 1。代价是增加变量/因子和非凸性，先验过弱会误关真回环，先验过强则
+退化成普通 BetweenFactor。因此项目默认关闭，仅在固定图上使用相同参数做 A/B。
+
+真实两序列结果：`corridor1-1` 中 80/858 条 switch 低于 0.5，Cauchy ATE 由 1.2236 m 降至
+1.0323 m；`corridor1-2` 只有一条非局部边，switch 为 0.9976，ATE 无实质变化。按 2316 个匹配
+位姿加权后，Switchable+Cauchy 为 0.9196 m，相比 Gaussian/Cauchy 分别下降 43.28%/15.57%。
+这些数字说明后端对“已接受边”更稳，不说明前端 closure precision/recall 变好。
 
 ### 3.2 GTSAM、Ceres、g2o 的差异
 
@@ -223,5 +242,7 @@ bash scripts/acceptance_test.sh openloris-slam-ab
 - 已完成：`corridor1-1` 1834 节点/2751 约束固定图的 none/Huber/Cauchy 后端消融；Cauchy
   非局部边配置 ATE 1.2236 m，较 Gaussian 下降 32.90%。该结果只证明后端离群抑制，不代表
   回环前端 precision 或 recall 改善。
-- 下一步：针对错误 closure 做感知混淆抑制，扩展跨序列 lifelong/relocalization，并评估带时间维
+- 已完成：GTSAM 逐回环 switch 与两序列固定图消融；错误边可软关闭，独立序列中的正常边保持
+  接近 1。在线默认关闭，尚未证明新的 Karto 约束写入可改善最终 occupancy map。
+- 下一步：针对错误 closure 做可学习地点判别，扩展跨序列 lifelong/relocalization，并评估带时间维
   的局部动态障碍控制器。

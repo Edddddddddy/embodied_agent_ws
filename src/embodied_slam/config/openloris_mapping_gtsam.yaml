@@ -27,6 +27,10 @@ slam_toolbox:
     gtsam_scan_overlap_match_distance_m: 0.20
     gtsam_scan_overlap_point_stride: 2
     gtsam_scan_overlap_minimum_points: 30
+    # 可切换约束默认关闭；固定图消融通过后再用于在线 GTSAM，避免未经验证改变基线。
+    gtsam_enable_switchable_loop_constraints: false
+    gtsam_switch_prior_sigma: 1.0
+    gtsam_switch_suppression_threshold: 0.5
 
     odom_frame: dataset_odom
     map_frame: map

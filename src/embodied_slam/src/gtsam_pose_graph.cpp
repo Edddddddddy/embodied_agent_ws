@@ -11,9 +11,11 @@
 #include <gtsam/geometry/Pose2.h>
 #include <gtsam/nonlinear/LevenbergMarquardtOptimizer.h>
 #include <gtsam/nonlinear/NonlinearFactorGraph.h>
+#include <gtsam/nonlinear/NonlinearFactor.h>
 #include <gtsam/nonlinear/Values.h>
 #include <gtsam/slam/BetweenFactor.h>
 #include <gtsam/slam/PriorFactor.h>
+#include <gtsam/inference/Symbol.h>
 
 namespace embodied_slam
 {
@@ -118,6 +120,59 @@ ConstraintResidual constraint_residual(
   const double yaw_residual = std::abs(std::atan2(std::sin(yaw_delta), std::cos(yaw_delta)));
   return {translation_residual, yaw_residual};
 }
+
+class SwitchableBetweenFactor final
+  : public gtsam::NoiseModelFactorN<gtsam::Pose2, gtsam::Pose2, double>
+{
+public:
+  using Base = gtsam::NoiseModelFactorN<gtsam::Pose2, gtsam::Pose2, double>;
+
+  SwitchableBetweenFactor(
+    gtsam::Key source_key, gtsam::Key target_key, gtsam::Key switch_key,
+    gtsam::Pose2 measured, const gtsam::SharedNoiseModel & noise)
+  : Base(noise, source_key, target_key, switch_key), measured_(std::move(measured))
+  {
+  }
+
+  gtsam::NonlinearFactor::shared_ptr clone() const override
+  {
+    return boost::static_pointer_cast<gtsam::NonlinearFactor>(
+      gtsam::NonlinearFactor::shared_ptr(new SwitchableBetweenFactor(*this)));
+  }
+
+  gtsam::Vector evaluateError(
+    const gtsam::Pose2 & source, const gtsam::Pose2 & target, const double & switch_value,
+    boost::optional<gtsam::Matrix &> source_jacobian = boost::none,
+    boost::optional<gtsam::Matrix &> target_jacobian = boost::none,
+    boost::optional<gtsam::Matrix &> switch_jacobian = boost::none) const override
+  {
+    gtsam::Matrix source_between_jacobian;
+    gtsam::Matrix target_between_jacobian;
+    const gtsam::Pose2 predicted = source.between(
+      target,
+      source_jacobian ? boost::optional<gtsam::Matrix &>(source_between_jacobian) : boost::none,
+      target_jacobian ? boost::optional<gtsam::Matrix &>(target_between_jacobian) : boost::none);
+    gtsam::Matrix prediction_jacobian;
+    const gtsam::Vector residual = measured_.localCoordinates(
+      predicted, boost::none,
+      (source_jacobian || target_jacobian) ?
+      boost::optional<gtsam::Matrix &>(prediction_jacobian) : boost::none);
+
+    if (source_jacobian) {
+      *source_jacobian = switch_value * prediction_jacobian * source_between_jacobian;
+    }
+    if (target_jacobian) {
+      *target_jacobian = switch_value * prediction_jacobian * target_between_jacobian;
+    }
+    if (switch_jacobian) {
+      *switch_jacobian = residual;
+    }
+    return switch_value * residual;
+  }
+
+private:
+  gtsam::Pose2 measured_;
+};
 }  // namespace
 
 GtsamPoseGraphOptimizer::GtsamPoseGraphOptimizer(PoseGraphOptimizerConfig config)
@@ -139,6 +194,15 @@ GtsamPoseGraphOptimizer::GtsamPoseGraphOptimizer(PoseGraphOptimizerConfig config
   {
     throw std::invalid_argument(
             "scan-overlap gate thresholds must be finite, with overlap in [0, 1]");
+  }
+  if (config_.enable_switchable_loop_constraints &&
+    ((!std::isfinite(config_.switch_prior_sigma)) || !(config_.switch_prior_sigma > 0.0) ||
+    (!std::isfinite(config_.switch_suppression_threshold)) ||
+    config_.switch_suppression_threshold < 0.0 ||
+    config_.switch_suppression_threshold > 1.0))
+  {
+    throw std::invalid_argument(
+            "switchable-constraint prior sigma must be positive and threshold in [0, 1]");
   }
 }
 
@@ -165,6 +229,8 @@ PoseGraphResult GtsamPoseGraphOptimizer::optimize(
     gtsam::noiseModel::Diagonal::Sigmas(
       (gtsam::Vector(3) << 1e-6, 1e-6, 1e-6).finished()));
 
+  std::vector<std::pair<gtsam::Key, SwitchableConstraintEstimate>> switch_variables;
+  std::size_t switch_index = 0U;
   for (const auto & constraint : constraints) {
     if (!initial_poses.count(constraint.source_id) || !initial_poses.count(constraint.target_id)) {
       continue;
@@ -215,10 +281,27 @@ PoseGraphResult GtsamPoseGraphOptimizer::optimize(
       noise = robust_noise(config_.robust_kernel, config_.robust_kernel_k, gaussian);
       ++output.robustified_constraints;
     }
-    graph.emplace_shared<gtsam::BetweenFactor<gtsam::Pose2>>(
-      static_cast<gtsam::Key>(constraint.source_id),
-      static_cast<gtsam::Key>(constraint.target_id),
-      to_gtsam(constraint.relative_pose), noise);
+    if (is_loop && config_.enable_switchable_loop_constraints) {
+      const gtsam::Key switch_key = gtsam::Symbol('s', switch_index++);
+      initial.insert(switch_key, 1.0);
+      // 每条非局部边拥有独立 switch：正确回环受 s=1 先验保护，残差很大的错误边会把
+      // 自己的 s 压向 0，而不是把整张位姿图拉坏。它仍然不能替代前端地点识别证据。
+      graph.emplace_shared<SwitchableBetweenFactor>(
+        static_cast<gtsam::Key>(constraint.source_id),
+        static_cast<gtsam::Key>(constraint.target_id), switch_key,
+        to_gtsam(constraint.relative_pose), noise);
+      graph.emplace_shared<gtsam::PriorFactor<double>>(
+        switch_key, 1.0,
+        gtsam::noiseModel::Isotropic::Sigma(1U, config_.switch_prior_sigma));
+      switch_variables.push_back(
+        {switch_key, {constraint.source_id, constraint.target_id, 1.0}});
+      ++output.switchable_constraints;
+    } else {
+      graph.emplace_shared<gtsam::BetweenFactor<gtsam::Pose2>>(
+        static_cast<gtsam::Key>(constraint.source_id),
+        static_cast<gtsam::Key>(constraint.target_id),
+        to_gtsam(constraint.relative_pose), noise);
+    }
     ++output.constraints_used;
   }
 
@@ -230,6 +313,20 @@ PoseGraphResult GtsamPoseGraphOptimizer::optimize(
   const gtsam::Values result = optimizer.optimize();
   output.final_error = graph.error(result);
   output.iterations = optimizer.iterations();
+  double switch_sum = 0.0;
+  for (const auto & [key, metadata] : switch_variables) {
+    SwitchableConstraintEstimate estimate = metadata;
+    estimate.value = result.at<double>(key);
+    output.minimum_switch_value = std::min(output.minimum_switch_value, estimate.value);
+    switch_sum += estimate.value;
+    if (estimate.value < config_.switch_suppression_threshold) {
+      ++output.switch_suppressed_constraints;
+    }
+    output.switch_estimates.push_back(estimate);
+  }
+  if (!switch_variables.empty()) {
+    output.mean_switch_value = switch_sum / static_cast<double>(switch_variables.size());
+  }
   for (const auto & item : initial_poses) {
     const int id = item.first;
     output.poses.emplace(

@@ -1256,6 +1256,35 @@ SE(2) 变化；与 HMM/学习式序列分类器相比，它数据需求小、可
 长走廊中持续一致的感知混淆。后续更合理的方向是加入语义/视觉地点判别或 switchable
 constraints，而不是无限增加确认帧数。
 
+### 14.12 GTSAM 可切换回环约束如何软关闭错误边
+
+关键代码：
+
+- `src/embodied_slam/src/gtsam_pose_graph.cpp`：`SwitchableBetweenFactor::evaluateError`、
+  `GtsamPoseGraphOptimizer::optimize`；前者定义三变量因子，后者只为非局部边创建 switch 与先验。
+- `src/embodied_slam/include/embodied_slam/gtsam_pose_graph.hpp`：配置、switch 估计和审计统计接口。
+- `src/embodied_slam/src/gtsam_scan_solver.cpp`：把 slam_toolbox 参数适配进深模块，在线默认关闭。
+- `src/embodied_slam/src/gtsam_graph_optimize.cpp`：固定图 CLI，输出 switch 数量、最小值和均值。
+- `scripts/run_gtsam_robust_kernel_ablation.py`：同图运行 Gaussian/Huber/Cauchy/switchable 变体。
+- `scripts/compare_gtsam_switchable_sequences.py`：验证独立图 SHA、相同参数和逐序列不回退。
+- `src/embodied_slam/test/test_gtsam_pose_graph.cpp`：错误回环关闭、正确回环保留和非法配置测试。
+
+普通 BetweenFactor 默认相信每条已接受边。鲁棒核根据统一损失函数连续降权，但无法显式回答
+“哪一条回环被关掉”；硬一致性门能审计拒绝原因，却可能在累计漂移很大时拒掉最有价值的真回环。
+本实现给每条非局部边增加 `s_ij`，优化 `s_ij r_ij(x)`，并用 `PriorFactor<double>(s=1)` 防止所有边
+一起归零。错误边承担巨大残差时更愿意牺牲自己的 switch，正常边则由先验保持开启。局部链边不加
+switch，避免削弱短时运动连续性。
+
+与 DCS 相比，switchable constraints 把权重作为显式变量联合求解，统计和可视化更直接，但变量
+更多、非凸性更强；与 max-mixture 相比，它没有离散多模态假设，结构更轻，但无法表达两个都合理的
+地点假设；与 Cauchy 相比，它提供逐边状态，却更依赖先验强度。当前标量没有硬边界，二次先验与
+残差在实测中得到 `[0,1]` 内解；如后续出现越界，再升级为 sigmoid 参数化而不是在输出端伪造钳制。
+
+两条 OpenLORIS 固定图共 859 条非局部边，80 条低于 0.5；加权 ATE 从 Gaussian 1.6214 m、
+Cauchy 1.0892 m 降至 Switchable+Cauchy 0.9196 m。第二序列唯一非局部边保持 0.9976，证明门禁
+不是“关闭全部边”换指标。边界仍要讲清：switch 是后端潜变量，不是 closure 真值标签；固定图
+A/B 也没有证明在线新增约束或最终栅格地图一定改善，所以在线参数保持默认关闭。
+
 ## 15. 动态障碍运动模型与同场景消融
 
 关键代码：
