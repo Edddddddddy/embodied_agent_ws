@@ -189,11 +189,8 @@ HEADLESS=false USE_RVIZ=true \
 # 若现场 ASR 长句被截断，在主演示仍运行时从 Terminal 2 发送 typed Action
 bash scripts/voice_slam_nav_showcase.sh trigger-auto
 
-# 无麦克风的真实重型门禁：frontier 探索→存图→AMCL/Nav2→语义巡检
-bash scripts/acceptance_test.sh slam-autonomous-mission
-
-# 旧的确定性路线回归仍保留，用于区分探索算法与控制链故障
-bash scripts/acceptance_test.sh slam-session-orchestrator
+# 无麦克风的唯一完整门禁：新地图→AMCL/Nav2→语义巡检→动态重规划
+bash scripts/acceptance_test.sh slam-nav-e2e
 ```
 
 主演示会自动复用 `logs/voice_calibration.env`，并在 WSLg 可用时优先由 Pulse bridge 从
@@ -206,22 +203,24 @@ AMCL/Nav2 和动作安全链，不能用它冒充真人语音识别证据。
 
 主演示不是整图固定路线回放：机器人先通过同一 Agent→ActionGuard→Action 链执行一段可审计的
 自动脱离充电角路线，到中央门洞后由 Explore Lite 从在线占据栅格提取 frontier，以信息增益和
-路径代价选点，再通过 Nav2 `NavigateToPose` 自主探索；无可达 frontier 后，编排器自动保存 YAML/PGM、按序关闭
-建图进程、以保存地图启动 AMCL/Nav2，并自动执行“去入口”和“依次去厨房、办公室”。
+路径代价选点，再通过 Nav2 `NavigateToPose` 自主探索；地图覆盖、稳定性和 10 m 建图里程同时达标后，
+编排器自动保存本次会话的 YAML/PGM、完整回收建图阶段 Gazebo 进程、以该地图启动 AMCL/Nav2，
+并自动执行“去入口”和“依次去厨房、办公室”。
 若 300 秒时间预算到期但地图仍在增长，只有已知/占用栅格阈值均达标时才以
 `time_budget_coverage` 保存当前地图；覆盖不足仍失败，不会把超时本身当成功。
 `/slam/session_state` 和
 `/slam/manage_session` 分别提供 typed
-状态与可反馈 Action；说“停下/急停/取消自动任务”会终止探索或导航并停车。现场若来不及完整探索，使用
-`bash scripts/voice_slam_nav_showcase.sh navigation-static offline` 加载同源确定性地图；原来的
-`mapping/save/navigation` 命令保留为故障回退。
+状态与可反馈 Action；说“停下/急停/取消自动任务”会终止探索或导航并停车。
+`mapping/save/navigation` 只保留为分阶段故障定位，并且 `navigation` 必须加载本次保存的地图；项目不再
+提供静态地图导航入口冒充 SLAM 验收。
 自动任务要求已知栅格不少于 6,000、占用栅格不少于 150，并验证入口单点导航、厨房/办公室
-多航点巡检和最终 `/cmd_vel=0`。多航点只有在 Nav2 Action 成功、`error_code=0` 且
+多航点巡检、动态障碍预测重规划和最终 `/cmd_vel=0`。动态障碍位置基于本次 Nav2 基准路径生成，
+必须同时看到 typed track、预测代价 254、路径净空提升和至少两条唯一规划。多航点只有在 Nav2 Action 成功、`error_code=0` 且
 `missed_waypoints=0` 时才通过，避免把部分到达误报为完成。项目通过 launch-time `RewrittenYaml`
 将 WSL/Gazebo 进度检查调整为 0.10 m/30 s，不修改 `/opt/ros`；报告写入
-`logs/showcase/autonomous_runtime/automatic_mission_report.json`。旧路线门禁继续额外验证 10 m 路程。
-最近一次本地重型回归生成 12,348 个已知栅格、799 个占用栅格，入口/厨房/办公室均成功，
-多航点 `missed_waypoints=0`；数值会随仿真时序略有变化，应以报告门槛而非固定数值判定。
+`logs/acceptance/slam_nav/<session-id>/slam_nav_e2e_report.json`，同目录保存新地图、哈希和运行日志。
+最近一次本地重型回归生成 16,319 个已知栅格、1,169 个占用栅格、14.67 m 建图轨迹，
+入口/厨房/办公室与动态避障均成功；数值会随仿真时序略有变化，应以报告 checks 全部为 true 判定。
 场景由一份 YAML 同时生成 Gazebo world、静态占据栅格和两套坐标对齐的语义地点，详细步骤与
 验收边界见 [真实感语音 SLAM/Nav2 演示](docs/VOICE_SLAM_NAV_SHOWCASE.md)。
 

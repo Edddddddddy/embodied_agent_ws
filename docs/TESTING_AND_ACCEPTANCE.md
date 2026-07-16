@@ -266,8 +266,8 @@ VOICE_CALIBRATION_COLLECT=true \
 bash scripts/voice_slam_nav_showcase.sh trigger-auto
 ```
 
-此入口通过 typed `/slam/manage_session` Action 发送 `RUN_AUTOMATIC_MISSION`，不是文本 topic 或
-旧 JSON 命令。它只绕过声学触发，不能计为真人语音 PASS；后续 Explore Lite、SLAM、map_saver、
+此入口通过 typed `/slam/manage_session` Action 发送 `RUN_AUTOMATIC_MISSION`。它只绕过声学触发，
+不能计为真人语音 PASS；后续 Explore Lite、SLAM、map_saver、
 AMCL/Nav2 和语义巡检仍是同一真实运行时。
 
 核心函数链：
@@ -292,7 +292,8 @@ SessionOrchestratorNode._on_asr_final()
 4. 生成非空 YAML/PGM；
 5. SLAM 阶段退出后，map_server/AMCL/Nav2 就绪，`map→odom` 存在；
 6. 入口单点导航与厨房/办公室多航点巡检收到成功 result；
-7. 最终 `/cmd_vel=0`。
+7. 红色动态障碍在 Gazebo 中进入本次规划路径，typed track 与预测代价层生效；
+8. 新规划相对基准路径提升障碍净空，导航完成后 `/cmd_vel=0`。
 
 任一步失败，任务应停止并给出阶段/原因；不能在 map 未保存时假装进入导航。
 探索结束日志还应给出 `no_frontiers`、`coverage_plateau` 或 `time_budget_coverage`；后者必须
@@ -301,18 +302,22 @@ SessionOrchestratorNode._on_asr_final()
 ### 6.3 无麦克风重型门禁
 
 ```bash
-bash scripts/acceptance_test.sh slam-autonomous-mission
+bash scripts/acceptance_test.sh slam-nav-e2e
 ```
 
 它用确定性文本触发同一真实 Gazebo、frontier、SLAM、map_saver、AMCL 和 Nav2 运行时，隔离云
-服务和声学波动。报告：
+服务和声学波动。每次运行创建唯一会话目录，报告和本次地图不会覆盖历史证据：
 
 ```text
-logs/showcase/autonomous_runtime/automatic_mission_report.json
+logs/acceptance/slam_nav/<session-id>/slam_nav_e2e_report.json
+logs/acceptance/slam_nav/<session-id>/voice_built_map.yaml
+logs/acceptance/slam_nav/<session-id>/voice_built_map.pgm
+logs/acceptance/slam_nav/<session-id>/runtime.log
 ```
 
-PASS 至少要求 `automatic_mission=true`、`map_saved=true`、final phase COMPLETED、已知/占用栅格
-达到脚本阈值、导航/巡检成功、最终速度为零。多航点结果还必须同时满足
+PASS 要求 `checks` 全部为 `true`：地图文件时间晚于本次会话、至少观察到一个 frontier goal、
+建图里程不少于 10 m、已知/占用栅格达到阈值、探索结束原因可审计、AMCL 与 `map→odom` 有证据、
+Nav2 Lifecycle 全部 ACTIVE、语义导航成功、动态预测重规划成功、最终速度为零。多航点结果还必须同时满足
 `ResultCode=SUCCEEDED`、`error_code=0`、`missed_waypoints=0`；Nav2 仅返回协议 `SUCCEEDED`
 但存在漏点时按失败处理，不能把“尝试完全部目标”误报为“到达全部目标”。
 
@@ -320,11 +325,10 @@ PASS 至少要求 `automatic_mission=true`、`map_saved=true`、final phase COMP
 
 - `bash scripts/voice_slam_nav_showcase.sh mapping offline`：只定位建图问题；
 - 另一个终端 `bash scripts/voice_slam_nav_showcase.sh save`：只定位 map_saver；
-- `bash scripts/voice_slam_nav_showcase.sh navigation offline`：加载本次地图定位导航；
-- `bash scripts/voice_slam_nav_showcase.sh navigation-static offline`：加载同源静态地图。
+- `bash scripts/voice_slam_nav_showcase.sh navigation offline`：只加载本次保存的地图定位导航。
 
-这些入口是故障隔离或现场保底。`navigation-static` 成功不能算自动建图成功，固定 mapping route 也
-不能算 frontier 自主探索成功。
+这些入口只用于故障隔离，不能替代 `slam-nav-e2e`。项目不提供静态地图保底入口，固定 mapping route
+也不能算 frontier 自主探索成功。
 
 ## 7. C++/ROS 2 专项验收
 

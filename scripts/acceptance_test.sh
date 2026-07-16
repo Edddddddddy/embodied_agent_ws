@@ -19,6 +19,7 @@ Recommended public modes:
   gazebo                     Typed ROS 2 Action -> Gazebo physical-motion check
   nav2-stage                 Lightweight voice navigation/patrol stage gate
   slam-nav-showcase-stage    Realistic scene/NLU/stage-orchestration gate
+  slam-nav-e2e               Fresh-map SLAM -> AMCL/Nav2 -> dynamic replan gate
   voice-slam-workplace-demo  Live voice workplace mapping and navigation demo
   slam-evaluation-stage      Deterministic ATE/RPE/loop-correction evaluation
   openloris-replay-stage     Public-bag Ceres/GTSAM replay evidence
@@ -73,6 +74,7 @@ Automated modes:
   slam-session-orchestrator-stage Typed single-terminal mapping/save/navigation FSM gate
   slam-autonomous-mission-stage One intent -> exploration/save/localization/navigation FSM gate
   slam-autonomous-mission Heavy one-intent frontier SLAM -> AMCL/Nav2 mission
+  slam-nav-e2e       Canonical fresh-map frontier SLAM -> AMCL/Nav2 -> dynamic replan gate
   slam-session-orchestrator Heavy one-terminal Gazebo mapping/save/restart/navigation gate
   slam-benchmark      Heavy Gazebo run: fixed loop, 5 cm map, and drift metrics report
   slam-gtsam-benchmark Heavy Gazebo run with the project GTSAM ScanSolver plugin
@@ -502,6 +504,10 @@ case "$LEVEL" in
     WORKSPACE="$WORKSPACE" bash scripts/smoke_test_voice_slam_automatic_cancel.sh
     ;;
   slam-autonomous-mission)
+    embodied_workspace_doctor true
+    WORKSPACE="$WORKSPACE" bash scripts/smoke_test_voice_slam_automatic_mission_gazebo.sh
+    ;;
+  slam-nav-e2e)
     embodied_workspace_doctor true
     WORKSPACE="$WORKSPACE" bash scripts/smoke_test_voice_slam_automatic_mission_gazebo.sh
     ;;

@@ -79,6 +79,8 @@ def test_exploration_can_finish_by_native_status_or_coverage_plateau():
         "occupied_cells": 200,
         "min_known_cells": 6000,
         "min_occupied_cells": 150,
+        "mapping_path_m": 10.5,
+        "min_mapping_path_m": 10.0,
         "stable_map_s": 20.0,
     }
     assert exploration_completion_reason(
@@ -96,6 +98,11 @@ def test_exploration_can_finish_by_native_status_or_coverage_plateau():
         seconds_since_map_growth=2.0,
         **values,
     ) is None
+    assert exploration_completion_reason(
+        status="exploration_in_progress",
+        seconds_since_map_growth=21.0,
+        **{**values, "mapping_path_m": 9.99},
+    ) is None
 
 
 def test_exploration_time_budget_accepts_only_threshold_complete_map():
@@ -107,6 +114,8 @@ def test_exploration_time_budget_accepts_only_threshold_complete_map():
         "occupied_cells": 200,
         "min_known_cells": 6000,
         "min_occupied_cells": 150,
+        "mapping_path_m": 10.5,
+        "min_mapping_path_m": 10.0,
         "seconds_since_map_growth": 0.0,
         "stable_map_s": 20.0,
         "time_budget_reached": True,

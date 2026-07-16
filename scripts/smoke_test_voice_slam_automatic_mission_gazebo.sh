@@ -6,6 +6,8 @@ source "$WORKSPACE/scripts/activate.sh"
 source "$WORKSPACE/scripts/ros_dds_env.sh"
 cd "$WORKSPACE"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((210 + $$ % 18))}"
+export GZ_PARTITION="${GZ_PARTITION:-embodied_agent_$ROS_DOMAIN_ID}"
+export IGN_PARTITION="${IGN_PARTITION:-$GZ_PARTITION}"
 
 # 自动门禁用 mock Agent 的确定性 NLU，探索、SLAM、Gazebo、map_saver、AMCL 和
 # Nav2 均为真实运行时。这样可以把语音云服务波动与机器人自治能力分开验收。
@@ -20,12 +22,17 @@ export VAD_PROVIDER=energy
 export HEADLESS="${HEADLESS:-true}"
 export USE_RVIZ="${USE_RVIZ:-false}"
 export SYSTEM_READINESS_TIMEOUT=120
+export SHOWCASE_DYNAMIC_OBSTACLE_ENABLED=true
 
-SESSION_DIR="${SHOWCASE_SESSION_DIR:-$WORKSPACE/logs/showcase/autonomous_runtime}"
+SESSION_ID="${SLAM_NAV_SESSION_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
+SESSION_START_NS="$(date +%s%N)"
+SESSION_DIR="${SHOWCASE_SESSION_DIR:-$WORKSPACE/logs/acceptance/slam_nav/$SESSION_ID}"
 MAP_PREFIX="$SESSION_DIR/voice_built_map"
-REPORT="$SESSION_DIR/automatic_mission_report.json"
+REPORT="$SESSION_DIR/slam_nav_e2e_report.json"
 MISSION_PLAN="$WORKSPACE/src/embodied_simulation/config/showcase_workplace_mission.yaml"
-NODE_LOG="$(mktemp)"
+WORLD_FILE="$WORKSPACE/src/embodied_simulation/worlds/showcase_apartment.sdf.xacro"
+DYNAMIC_SCENARIO="$WORKSPACE/src/embodied_navigation/config/showcase_dynamic_obstacle_scenario.json"
+NODE_LOG="$SESSION_DIR/runtime.log"
 mkdir -p "$SESSION_DIR"
 rm -f "$MAP_PREFIX.yaml" "$MAP_PREFIX.pgm" "$REPORT"
 
@@ -50,14 +57,18 @@ cleanup() {
   done
   kill -TERM -- "-$NODE_PID" 2>/dev/null || true
   wait "$NODE_PID" 2>/dev/null || true
-  rm -f "$NODE_LOG"
 }
 trap cleanup EXIT INT TERM
 
-if ! timeout 780 python3 tests/integration/test_voice_slam_session_orchestrator.py \
+if ! timeout 900 python3 tests/integration/test_voice_slam_session_orchestrator.py \
   --output "$REPORT" \
-  --transition-timeout 750 \
-  --evidence-kind gazebo_frontier_slam_map_saver_amcl_nav2 \
+  --transition-timeout 860 \
+  --evidence-kind gazebo_frontier_slam_map_saver_amcl_nav2_dynamic_replan \
+  --session-id "$SESSION_ID" \
+  --session-start-ns "$SESSION_START_NS" \
+  --world-file "$WORLD_FILE" \
+  --mission-plan "$MISSION_PLAN" \
+  --dynamic-scenario "$DYNAMIC_SCENARIO" \
   --automatic-mission; then
   echo "---- automatic orchestrator log (last 400 lines) ----" >&2
   tail -n 400 "$NODE_LOG" >&2
@@ -73,10 +84,22 @@ import sys
 
 report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 assert report["passed"] is True
+assert report["schema_version"] == 3
+assert report["session_id"]
 assert report["automatic_mission"] is True
 assert report["map_saved"] is True
 assert report["final_phase"] == 12
-assert report["map"] and report["map"]["known_cells"] > 0
+assert report["map"]["known_cells"] >= 6000
+assert report["map"]["occupied_cells"] >= 150
+assert report["mapping_path_m"] >= 10.0
+assert report["frontier_goal_count"] >= 1
+assert report["exploration_completion_reason"] in {
+    "no_frontiers", "coverage_plateau", "time_budget_coverage"
+}
+assert report["map_provenance"]["yaml_mtime_ns"] >= report["session_start_ns"]
+assert report["map_provenance"]["image_mtime_ns"] >= report["session_start_ns"]
+assert report["dynamic_navigation"]["passed"] is True
+assert all(report["checks"].values()), report["checks"]
 follow_results = [
     item for item in report["action_results"]
     if str(item.get("message", "")).startswith("nav2:follow_waypoints:")
@@ -90,3 +113,4 @@ PY
 
 echo "PASS: one intent -> autonomous frontier SLAM -> saved map -> AMCL/Nav2 patrol"
 echo "Evidence: $REPORT"
+echo "Runtime log: $NODE_LOG"

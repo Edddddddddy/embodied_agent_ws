@@ -82,6 +82,26 @@ def render_world(spec: dict) -> str:
     lines.extend(
         [
             '    </link></model>',
+        ]
+    )
+    # 动态障碍必须是独立 Gazebo entity，验收探针才能用 set_pose 移动它。
+    # 它不进入静态 PGM：SLAM 阶段停在场景外，导航阶段才作为可见碰撞体横穿。
+    for item in spec.get("dynamic_obstacles", []):
+        geometry = _geometry_xml(item)
+        z = _height(item) / 2.0
+        lines.extend(
+            [
+                f'    <model name="{item["name"]}"><static>true</static>',
+                f'      <pose>{item["x"]:.4f} {item["y"]:.4f} {z:.4f} 0 0 0</pose>',
+                '      <link name="body">',
+                f'        <collision name="collision"><geometry>{geometry}</geometry></collision>',
+                f'        <visual name="visual"><geometry>{geometry}</geometry><material><ambient>{_fmt(item["color"])}</ambient><diffuse>{_fmt(item["color"])}</diffuse></material></visual>',
+                '      </link>',
+                '    </model>',
+            ]
+        )
+    lines.extend(
+        [
             '    <physics name="1ms" type="ode"><max_step_size>0.002</max_step_size><real_time_factor>1</real_time_factor></physics>',
             '  </world>',
             '</sdf>',
@@ -171,6 +191,7 @@ def render_places(spec: dict, *, relative_to_spawn: bool = False) -> str:
 
 def _validate(spec: dict) -> None:
     names = [item["name"] for item in spec["objects"]]
+    names.extend(item["name"] for item in spec.get("dynamic_obstacles", []))
     if len(names) != len(set(names)):
         raise ValueError("scene object names must be unique")
     for name, place in spec["places"].items():

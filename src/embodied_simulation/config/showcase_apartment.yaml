@@ -6,6 +6,11 @@ world:
   background: [0.93, 0.93, 0.90, 1.0]
   spawn: {x: -4.15, y: -3.15, yaw: 0.0}
 
+# 可视动态障碍在建图时停在场景外，不写入静态地图。完整验收会在导航阶段
+# 通过 Gazebo set_pose 将它移入路径，并同步发布 typed perception detections。
+dynamic_obstacles:
+  - {name: crossing_cart, shape: cylinder, x: -15.0, y: -15.0, radius: 0.28, height: 0.80, color: [0.92, 0.18, 0.12, 1.0]}
+
 # 语义地点同时生成 Nav2 places.yaml；坐标必须位于无碰撞区域并留出底盘膨胀余量。
 places:
   home: {label: 起点, x: -4.15, y: -3.15, yaw: 0.0}

@@ -364,9 +364,8 @@ StageProcessManager.save_map()
 关键技术：map saver、AMCL `map→odom`、Lifecycle readiness、语义地点解析、NavigateToPose、
 FollowWaypoints、command ID 与 result 关联。
 
-失败时保底：地图保存失败应保留 mapping 供重试；Nav2 未 ACTIVE 时展示明确超时/失败状态。现场只想
-展示导航时可使用 `bash scripts/voice_slam_nav_showcase.sh navigation-static offline`，但必须说明
-它加载同源静态地图，不是本次探索生成的地图。
+失败时诊断：地图保存失败应保留 mapping 供重试；Nav2 未 ACTIVE 时展示明确超时/失败状态。
+导航演示必须加载本次保存地图，不使用预生成静态地图作为保底证据。
 
 ### 页面 9：SLAM 后端、回环和动态障碍深度（11:15–12:45）
 

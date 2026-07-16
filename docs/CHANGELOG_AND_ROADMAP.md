@@ -43,6 +43,9 @@
 | 真实感语音 SLAM/Nav2 主演示 | 把语音探索、在线建图、地图保存、重启定位和语义导航串成可观看闭环 | 新增四区域公寓/办公室场景、单清单资产生成、SLAM/world 双坐标地点、spawn/AMCL 位姿解耦及两条 Gazebo 重型门禁 |
 | 单终端 SLAM 会话编排 | 删除主演示对第二终端和人工重启的依赖 | 新增 `SlamSessionState`、`ManageSlamSession`、显式状态机和进程 Adapter；办公巡检任务以 15 个语音语义动作完成 10 m 以上建图路径，真实存图并重启 AMCL/Nav2，随后验证入口单点导航和厨房/办公室多航点巡检 |
 | 自动建图与导航任务 | 用一句语音替代人工逐步驾驶和阶段命令 | 固定 Explore Lite 提交完成 frontier 探索；覆盖平台期处理不可达边界，自动存图、等待 Nav2 Lifecycle ACTIVE、执行入口与厨房/办公室巡检；重型报告保留地图、Action 和最终零速证据 |
+| SLAM/Nav2 唯一完整门禁 | 防止预生成地图或旧报告被误计为本次验收 | 新增 `slam-nav-e2e`：唯一会话目录、新地图 YAML/PGM 与哈希、frontier/里程/覆盖门槛、AMCL/Lifecycle/语义导航及最终零速统一报告；删除静态地图导航入口 |
+| 可视动态障碍重规划 | 证明感知预测真正影响本次 Nav2 规划，而不只运行算法 fixture | Gazebo 红色碰撞实体、typed track、预测 costmap layer 和路径相对运动场景串联；要求预测代价、净空增益、唯一规划数、导航成功和停车全部达标 |
+| SLAM→导航进程所有权 | 消除建图 Gazebo 残留导致导航阶段无 world/odom 的竞态 | `StageProcessManager` 在父脚本退出前快照 `/proc` 子树，以 PID starttime 防复用误杀，并回收脱离父进程组的 Gazebo server；增加 `setsid` 回归测试 |
 | 自动导航严格终态 | 消除 FollowWaypoints 协议成功但漏点的验收假阳性 | `evaluate_follow_waypoints_result()` 要求 error_code=0 且 missed_waypoints=0；输出漏点 index/error code，monitor 同步分类；项目级 Nav2 progress checker 使用 0.10 m/30 s 适配 WSL/Gazebo 低实时率；重型回归得到 12,348/799 已知/占用栅格、厨房与办公室零漏点、最终零速 |
 | 自动探索角落脱困 | 避免充电角外墙 frontier 长期占用探索预算 | 增加 move/turn-only bootstrap route，经 Agent→ActionGuard→Action 自动驶入中央门洞，再由 Explore Lite 决定未知区域目标；预算终态只有覆盖达标才允许存图 |
 | 成熟 VAD 预检闭环 | 降低真实麦克风现场排障成本 | `provider-preflight` 输出 `recommendations`，连续语音启动时提示 WebRTC/Silero setup 命令 |

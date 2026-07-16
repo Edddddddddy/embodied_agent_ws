@@ -97,6 +97,8 @@ def exploration_completion_reason(
     occupied_cells: int,
     min_known_cells: int,
     min_occupied_cells: int,
+    mapping_path_m: float,
+    min_mapping_path_m: float,
     seconds_since_map_growth: float,
     stable_map_s: float,
     time_budget_reached: bool = False,
@@ -105,16 +107,18 @@ def exploration_completion_reason(
 
     if elapsed_s < min_runtime_s:
         return None
-    coverage_ready = (
-        known_cells >= min_known_cells and occupied_cells >= min_occupied_cells
+    acceptance_ready = (
+        known_cells >= min_known_cells
+        and occupied_cells >= min_occupied_cells
+        and mapping_path_m >= min_mapping_path_m
     )
-    if status == completion_status and coverage_ready:
+    if status == completion_status and acceptance_ready:
         return "no_frontiers"
-    if coverage_ready and seconds_since_map_growth >= stable_map_s:
+    if acceptance_ready and seconds_since_map_growth >= stable_map_s:
         return "coverage_plateau"
     # 探索时间预算不是“必须清空所有 frontier”。当可验收覆盖已经达成时，
     # 保存仍在增长的当前地图比无限追逐家具背后的边界更符合任务语义。
-    if coverage_ready and time_budget_reached:
+    if acceptance_ready and time_budget_reached:
         return "time_budget_coverage"
     return None
 

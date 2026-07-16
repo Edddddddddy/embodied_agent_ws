@@ -22,6 +22,10 @@ automatic_exploration:
     - {label: 转向中央门洞, text: 右转九十度, action: turn}
     - {label: 穿过客厅一, text: 前进十秒, action: move}
     - {label: 穿过客厅二, text: 前进七秒, action: move}
+    # 在中央通道做一次可逆往返，使自动建图自身稳定达到 10 m 里程门槛；
+    # 随后仍由 Explore Lite 根据实时未知边界选点，不把固定路线伪装成 SLAM。
+    - {label: 探索会议区通道, text: 前进十秒, action: move}
+    - {label: 返回中央门洞, text: 后退十秒, action: move}
 
 # 路线从 Gazebo 出生点 (-4.15, -3.15) 出发，沿门洞访问客厅、厨房、中央走廊和办公室。
 # 每一步都是用户可以直接说出的普通动作命令；自动门禁只把 ASR 换成文本注入，后续

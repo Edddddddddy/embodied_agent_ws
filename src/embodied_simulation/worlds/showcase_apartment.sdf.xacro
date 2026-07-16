@@ -81,6 +81,13 @@
       <collision name="charging_dock_collision"><pose>-4.6500 -3.4800 0.0900 0 0 0</pose><geometry><box><size>0.1800 0.5800 0.1800</size></box></geometry></collision>
       <visual name="charging_dock_visual"><pose>-4.6500 -3.4800 0.0900 0 0 0</pose><geometry><box><size>0.1800 0.5800 0.1800</size></box></geometry><material><ambient>0.1000 0.6500 0.8500 1.0000</ambient><diffuse>0.1000 0.6500 0.8500 1.0000</diffuse><specular>0.18 0.18 0.18 1</specular></material></visual>
     </link></model>
+    <model name="crossing_cart"><static>true</static>
+      <pose>-15.0000 -15.0000 0.4000 0 0 0</pose>
+      <link name="body">
+        <collision name="collision"><geometry><cylinder><radius>0.2800</radius><length>0.8000</length></cylinder></geometry></collision>
+        <visual name="visual"><geometry><cylinder><radius>0.2800</radius><length>0.8000</length></cylinder></geometry><material><ambient>0.9200 0.1800 0.1200 1.0000</ambient><diffuse>0.9200 0.1800 0.1200 1.0000</diffuse></material></visual>
+      </link>
+    </model>
     <physics name="1ms" type="ode"><max_step_size>0.002</max_step_size><real_time_factor>1</real_time_factor></physics>
   </world>
 </sdf>
