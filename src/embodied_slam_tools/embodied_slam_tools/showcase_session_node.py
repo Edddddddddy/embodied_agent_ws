@@ -531,7 +531,10 @@ def main() -> None:
         node.close()
         executor.shutdown()
         node.destroy_node()
-        rclpy.shutdown()
+        # SIGINT/SIGTERM 可能已由 rclpy 的全局 signal handler 关闭 context；
+        # 再次 shutdown 会让正常 Ctrl+C 退出以 RCLError 堆栈结束。
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":
