@@ -18,8 +18,10 @@ setsid ros2 run embodied_slam_tools voice_slam_session_orchestrator --ros-args \
 NODE_PID=$!
 
 cleanup() {
-  kill -TERM -- "-$NODE_PID" 2>/dev/null || true
-  wait "$NODE_PID" 2>/dev/null || true
+  if [[ -n "${NODE_PID:-}" ]]; then
+    kill -TERM -- "-$NODE_PID" 2>/dev/null || true
+    wait "$NODE_PID" 2>/dev/null || true
+  fi
   rm -f "$NODE_LOG"
 }
 trap cleanup EXIT INT TERM
@@ -27,6 +29,17 @@ trap cleanup EXIT INT TERM
 if ! timeout 30 python3 tests/integration/test_voice_slam_session_orchestrator.py \
   --output "$REPORT"; then
   echo "---- orchestrator log ----" >&2
+  cat "$NODE_LOG" >&2
+  exit 1
+fi
+
+# Ctrl+C 是人工主演示的正常退出路径。显式验证节点只能关闭 rclpy context 一次，
+# 防止终端最后出现 RCLError，让成功演示看起来像进程崩溃。
+kill -INT -- "-$NODE_PID" 2>/dev/null || true
+wait "$NODE_PID" 2>/dev/null || true
+NODE_PID=""
+if grep -q "rcl_shutdown already called" "$NODE_LOG"; then
+  echo "FAIL: orchestrator performs duplicate rclpy shutdown on SIGINT" >&2
   cat "$NODE_LOG" >&2
   exit 1
 fi
