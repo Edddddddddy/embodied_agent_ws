@@ -51,6 +51,7 @@ SPAWN_YAW="${NAV2_SPAWN_YAW:-$INITIAL_YAW}"
 NAV2_SLAM="${NAV2_SLAM:-false}"
 NAV2_WORLD="${NAV2_WORLD:-}"
 NAV2_MAP="${NAV2_MAP:-}"
+NAV2_PARAMS_FILE="${NAV2_PARAMS_FILE:-}"
 NAV2_PLACES_FILE="${NAV2_PLACES_FILE:-}"
 NAV2_EXECUTOR_PLUGIN="${NAV2_EXECUTOR_PLUGIN:-embodied_simulation/Nav2RobotExecutor}"
 MONITOR_ENABLED="${CONTINUOUS_MONITOR_ENABLED:-true}"
@@ -155,6 +156,7 @@ build_launch_args() {
   add_launch_arg slam "$NAV2_SLAM"
   add_optional_launch_arg world "$NAV2_WORLD"
   add_optional_launch_arg map "$NAV2_MAP"
+  add_optional_launch_arg params_file "$NAV2_PARAMS_FILE"
   add_launch_arg x_pose "$SPAWN_X"
   add_launch_arg y_pose "$SPAWN_Y"
   add_launch_arg yaw "$SPAWN_YAW"
@@ -208,6 +210,7 @@ NAV2_SPAWN_YAW=$SPAWN_YAW
 NAV2_SLAM=$NAV2_SLAM
 NAV2_WORLD=${NAV2_WORLD:-<default>}
 NAV2_MAP=${NAV2_MAP:-<default>}
+NAV2_PARAMS_FILE=${NAV2_PARAMS_FILE:-<default>}
 NAV2_PLACES_FILE=${NAV2_PLACES_FILE:-<default>}
 NAV2_EXECUTOR_PLUGIN=$NAV2_EXECUTOR_PLUGIN
 

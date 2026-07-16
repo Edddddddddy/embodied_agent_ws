@@ -42,6 +42,7 @@
 | Nav2 演示资产本地化 | 减少对官方 `tb3_sandbox` map/world 入口的展示依赖 | 新增 `voice_demo.yaml`、`voice_demo.sdf.xacro`，`nav2-assets` 审计本地 map/world/RViz |
 | 真实感语音 SLAM/Nav2 主演示 | 把语音探索、在线建图、地图保存、重启定位和语义导航串成可观看闭环 | 新增四区域公寓/办公室场景、单清单资产生成、SLAM/world 双坐标地点、spawn/AMCL 位姿解耦及两条 Gazebo 重型门禁 |
 | 单终端 SLAM 会话编排 | 删除主演示对第二终端和人工重启的依赖 | 新增 `SlamSessionState`、`ManageSlamSession`、显式状态机和进程 Adapter；办公巡检任务以 15 个语音语义动作完成 10 m 以上建图路径，真实存图并重启 AMCL/Nav2，随后验证入口单点导航和厨房/办公室多航点巡检 |
+| 自动建图与导航任务 | 用一句语音替代人工逐步驾驶和阶段命令 | 固定 Explore Lite 提交完成 frontier 探索；覆盖平台期处理不可达边界，自动存图、等待 Nav2 Lifecycle ACTIVE、执行入口与厨房/办公室巡检；重型报告验证 18,310 个已知栅格、1,425 个占用栅格、两个 Action success 和最终零速 |
 | 成熟 VAD 预检闭环 | 降低真实麦克风现场排障成本 | `provider-preflight` 输出 `recommendations`，连续语音启动时提示 WebRTC/Silero setup 命令 |
 | WebRTC VAD 运行时验收 | 让成熟 VAD 不只停留在 preflight | 新增 `webrtc-vad-sidecar`，验证 WebRTC VAD sidecar 可启动并接管 endpoint |
 | Sherpa KWS 部署闭环 | 让声学唤醒路径可复制验收 | `setup_voice_kws_runtime.sh sherpa` 生成 `logs/sherpa_kws.env`，`sherpa-kws-sidecar` 验证真实 KeywordSpotter 启动 |

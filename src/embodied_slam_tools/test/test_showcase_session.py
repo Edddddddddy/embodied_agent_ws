@@ -2,11 +2,21 @@ from embodied_slam_tools.showcase_session import (
     SessionCommand,
     SessionPhase,
     ShowcaseSessionStateMachine,
+    exploration_completion_reason,
+    is_automatic_mission_cancel_text,
     parse_session_command,
 )
 
 
 def test_parser_recognizes_only_explicit_slam_session_intents():
+    assert (
+        parse_session_command("开始自动巡检建图")
+        == SessionCommand.RUN_AUTOMATIC_MISSION
+    )
+    assert (
+        parse_session_command("自动建图并导航")
+        == SessionCommand.RUN_AUTOMATIC_MISSION
+    )
     assert parse_session_command("保存地图") == SessionCommand.SAVE_MAP
     assert (
         parse_session_command("保存地图，然后开始导航")
@@ -16,6 +26,63 @@ def test_parser_recognizes_only_explicit_slam_session_intents():
     assert parse_session_command("结束建图演示") == SessionCommand.STOP_SESSION
     assert parse_session_command("向前走一秒") is None
     assert parse_session_command("你能介绍一下地图吗") is None
+
+
+def test_automatic_mission_only_starts_from_ready_mapping_phase():
+    machine = ShowcaseSessionStateMachine()
+    accepted, reason = machine.validate(SessionCommand.RUN_AUTOMATIC_MISSION)
+    assert not accepted
+    assert "mapping" in reason
+
+    machine.transition(SessionPhase.STARTING_MAPPING, detail="starting")
+    machine.transition(SessionPhase.MAPPING, detail="ready")
+    assert machine.validate(SessionCommand.RUN_AUTOMATIC_MISSION)[0]
+
+    machine.transition(SessionPhase.AUTOMATIC_MAPPING, detail="exploring")
+    accepted, reason = machine.validate(SessionCommand.RUN_AUTOMATIC_MISSION)
+    assert not accepted
+    assert "busy" in reason
+
+    machine.transition(SessionPhase.MISSION_COMPLETED, detail="done", map_saved=True)
+    assert machine.validate(SessionCommand.START_NAVIGATION) == (
+        True,
+        "navigation already active",
+    )
+
+
+def test_automatic_mission_cancel_phrases_bypass_normal_intent_parsing():
+    assert is_automatic_mission_cancel_text("急停！")
+    assert is_automatic_mission_cancel_text("请停止自动任务")
+    assert is_automatic_mission_cancel_text("取消自动任务")
+    assert not is_automatic_mission_cancel_text("保存地图")
+
+
+def test_exploration_can_finish_by_native_status_or_coverage_plateau():
+    values = {
+        "completion_status": "exploration_complete",
+        "elapsed_s": 60.0,
+        "min_runtime_s": 45.0,
+        "known_cells": 7000,
+        "occupied_cells": 200,
+        "min_known_cells": 6000,
+        "min_occupied_cells": 150,
+        "stable_map_s": 20.0,
+    }
+    assert exploration_completion_reason(
+        status="exploration_complete",
+        seconds_since_map_growth=1.0,
+        **values,
+    ) == "no_frontiers"
+    assert exploration_completion_reason(
+        status="exploration_in_progress",
+        seconds_since_map_growth=21.0,
+        **values,
+    ) == "coverage_plateau"
+    assert exploration_completion_reason(
+        status="exploration_in_progress",
+        seconds_since_map_growth=2.0,
+        **values,
+    ) is None
 
 
 def test_state_machine_requires_mapping_then_save_before_navigation():

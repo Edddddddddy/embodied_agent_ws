@@ -1,6 +1,93 @@
 """SLAM 基线的仓库级结构护栏。"""
 
+import importlib.util
+import yaml
+
 from repository_test_support import ROOT
+
+
+def test_frontier_nav2_params_only_narrow_the_mapping_goal_tolerance():
+    script = ROOT / "scripts" / "prepare_frontier_nav2_params.py"
+    spec = importlib.util.spec_from_file_location("frontier_nav2_params", script)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    source = {
+        "controller_server": {
+            "ros__parameters": {
+                "general_goal_checker": {"xy_goal_tolerance": 0.25},
+                "FollowPath": {"plugin": "nav2_mppi_controller::MPPIController"},
+            }
+        },
+        "planner_server": {"ros__parameters": {"expected_planner_frequency": 20.0}},
+    }
+
+    adjusted = module.with_frontier_goal_tolerance(source, 0.08)
+
+    assert source["controller_server"]["ros__parameters"][
+        "general_goal_checker"
+    ]["xy_goal_tolerance"] == 0.25
+    assert adjusted["controller_server"]["ros__parameters"][
+        "general_goal_checker"
+    ]["xy_goal_tolerance"] == 0.08
+    assert adjusted["planner_server"] == source["planner_server"]
+
+
+def test_autonomous_frontier_mission_has_pinned_runtime_and_typed_contracts():
+    repos_path = ROOT / "config" / "frontier_exploration.repos"
+    setup_script = ROOT / "scripts" / "setup_frontier_exploration.sh"
+    exploration_config = (
+        ROOT
+        / "src"
+        / "embodied_simulation"
+        / "config"
+        / "frontier_exploration.yaml"
+    )
+    mission_plan = (
+        ROOT
+        / "src"
+        / "embodied_simulation"
+        / "config"
+        / "showcase_workplace_mission.yaml"
+    )
+    smoke = ROOT / "scripts" / "smoke_test_voice_slam_automatic_mission.sh"
+    assert all(
+        path.is_file()
+        for path in (repos_path, setup_script, exploration_config, mission_plan, smoke)
+    )
+
+    repos = yaml.safe_load(repos_path.read_text(encoding="utf-8"))
+    dependency = repos["repositories"]["third_party/m-explore-ros2"]
+    assert dependency["type"] == "git"
+    assert dependency["url"] == "https://github.com/robo-friends/m-explore-ros2.git"
+    assert len(dependency["version"]) == 40  # 固定提交，避免上游变化破坏演示。
+
+    action_contract = (
+        ROOT
+        / "src"
+        / "embodied_agent_interfaces"
+        / "action"
+        / "ManageSlamSession.action"
+    ).read_text(encoding="utf-8")
+    state_contract = (
+        ROOT
+        / "src"
+        / "embodied_agent_interfaces"
+        / "msg"
+        / "SlamSessionState.msg"
+    ).read_text(encoding="utf-8")
+    assert "RUN_AUTOMATIC_MISSION=5" in action_contract
+    for phase in ("AUTOMATIC_MAPPING=10", "AUTOMATIC_NAVIGATING=11", "MISSION_COMPLETED=12"):
+        assert phase in state_contract
+
+    plan = yaml.safe_load(mission_plan.read_text(encoding="utf-8"))
+    assert plan["automatic_exploration"]["provider"] == "explore_lite"
+    assert plan["automatic_exploration"]["timeout_s"] > 0
+    assert plan["navigation_mission"]["expected_targets"] == [
+        "entrance",
+        "kitchen",
+        "office",
+    ]
 
 
 def test_slam_mapping_baseline_has_reproducible_inputs_and_evidence_entrypoints():

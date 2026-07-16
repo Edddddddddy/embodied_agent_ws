@@ -2,6 +2,16 @@ schema_version: 1
 name: office_inspection_mapping_and_delivery
 description: 语音巡检建图后，为入口、厨房和办公室执行物资配送导航。
 
+automatic_exploration:
+  provider: explore_lite
+  config: frontier_exploration.yaml
+  timeout_s: 300.0
+  navigation_timeout_s: 330.0
+  completion_status: exploration_complete
+  min_runtime_s: 45.0
+  stable_map_s: 20.0
+  min_growth_cells: 40
+
 # 路线从 Gazebo 出生点 (-4.15, -3.15) 出发，沿门洞访问客厅、厨房、中央走廊和办公室。
 # 每一步都是用户可以直接说出的普通动作命令；自动门禁只把 ASR 换成文本注入，后续
 # NLU、ActionGuard、ROS 2 Action、Gazebo executor 与真实语音演示完全相同。

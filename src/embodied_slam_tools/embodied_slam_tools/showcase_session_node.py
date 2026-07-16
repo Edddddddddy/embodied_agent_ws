@@ -10,23 +10,50 @@ import signal
 import subprocess
 import threading
 import time
+from typing import Any
 
 from embodied_agent_interfaces.action import ManageSlamSession
-from embodied_agent_interfaces.msg import SlamSessionState, SystemReadiness
+from embodied_agent_interfaces.msg import (
+    RobotCommand,
+    RobotCommandResult,
+    SlamSessionState,
+    SystemReadiness,
+)
+from lifecycle_msgs.msg import State
+from lifecycle_msgs.srv import GetState
+from nav_msgs.msg import OccupancyGrid
+from nav2_msgs.action import FollowWaypoints, NavigateToPose
 import rclpy
-from rclpy.action import ActionServer, CancelResponse, GoalResponse
+from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String
+import yaml
+
+try:
+    from explore_lite_msgs.msg import ExploreStatus
+except ImportError:  # 可选运行时由 setup_frontier_exploration.sh 安装。
+    ExploreStatus = None
 
 from .showcase_session import (
     SessionCommand,
     SessionPhase,
     ShowcaseSessionStateMachine,
+    exploration_completion_reason,
+    is_automatic_mission_cancel_text,
     parse_session_command,
 )
+
+
+_ACTION_TYPES = {
+    "stop": RobotCommand.STOP,
+    "move": RobotCommand.MOVE,
+    "turn": RobotCommand.TURN,
+    "navigate_to": RobotCommand.NAVIGATE_TO,
+    "follow_waypoints": RobotCommand.FOLLOW_WAYPOINTS,
+}
 
 
 @dataclass
@@ -38,6 +65,10 @@ class CommandRequest:
     success: bool = False
     message: str = ""
     canceled: bool = False
+
+
+class AutomaticMissionCancelled(RuntimeError):
+    """用户急停或取消高层任务，不应被误报成系统故障。"""
 
 
 class StageProcessManager:
@@ -58,6 +89,7 @@ class StageProcessManager:
         self.stop_timeout_s = stop_timeout_s
         self.dry_run = dry_run
         self.process: subprocess.Popen | None = None
+        self.explorer_process: subprocess.Popen | None = None
         self.stage = ""
 
     def _environment(self) -> dict[str, str]:
@@ -119,7 +151,82 @@ class StageProcessManager:
             raise RuntimeError("map_saver returned success without YAML/PGM artifacts")
         return str(yaml_path)
 
+    def start_explorer(self, config_path: Path) -> None:
+        if self.dry_run:
+            print(
+                f"DRY RUN frontier explorer: config={config_path}",
+                flush=True,
+            )
+            return
+        check = subprocess.run(
+            ["ros2", "pkg", "prefix", "explore_lite"],
+            cwd=self.workspace,
+            env=self._environment(),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if check.returncode != 0:
+            raise RuntimeError(
+                "Explore Lite is not installed; run "
+                "bash scripts/setup_frontier_exploration.sh"
+            )
+        if self.explorer_process is not None and self.explorer_process.poll() is None:
+            raise RuntimeError("frontier explorer is already running")
+        self.explorer_process = subprocess.Popen(
+            [
+                "ros2",
+                "run",
+                "explore_lite",
+                "explore",
+                "--ros-args",
+                "--params-file",
+                str(config_path),
+            ],
+            cwd=self.workspace,
+            env=self._environment(),
+            start_new_session=True,
+        )
+
+    @staticmethod
+    def _stop_process(process: subprocess.Popen | None, timeout_s: float) -> None:
+        if process is None or process.poll() is not None:
+            return
+        # `ros2 run` 是 Python 包装进程，真正的 C++ explore 是其子进程；只 terminate
+        # 包装器会留下孤儿 explore，并在定位阶段继续发送 frontier goal。
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        try:
+            process.wait(timeout=timeout_s)
+            return
+        except subprocess.TimeoutExpired:
+            pass
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+            process.wait(timeout=3.0)
+        except (ProcessLookupError, subprocess.TimeoutExpired):
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+    def stop_explorer(self) -> None:
+        process = self.explorer_process
+        self.explorer_process = None
+        if self.dry_run:
+            return
+        self._stop_process(process, 5.0)
+
+    def explorer_exited_unexpectedly(self) -> tuple[bool, int | None]:
+        if self.dry_run or self.explorer_process is None:
+            return False, None
+        code = self.explorer_process.poll()
+        return code is not None, code
+
     def stop(self) -> None:
+        self.stop_explorer()
         process = self.process
         self.process = None
         self.stage = ""
@@ -170,6 +277,52 @@ class SessionOrchestratorNode(Node):
         map_prefix = Path(
             self.declare_parameter("map_prefix", str(default_prefix)).value
         )
+        default_mission_plan = (
+            workspace
+            / "src/embodied_simulation/config/showcase_workplace_mission.yaml"
+        )
+        mission_plan_path = Path(
+            self.declare_parameter(
+                "mission_plan", str(default_mission_plan)
+            ).value
+        )
+        self._mission_plan = yaml.safe_load(
+            mission_plan_path.read_text(encoding="utf-8")
+        )
+        if not isinstance(self._mission_plan, dict):
+            raise ValueError("mission_plan must contain a YAML mapping")
+        automatic_config = self._mission_plan.get("automatic_exploration", {})
+        if not isinstance(automatic_config, dict):
+            raise ValueError("automatic_exploration must be a YAML mapping")
+        explorer_config_name = str(
+            automatic_config.get("config", "frontier_exploration.yaml")
+        )
+        self._explorer_config_path = (
+            workspace / "src/embodied_simulation/config" / explorer_config_name
+        )
+        self._exploration_timeout_s = float(
+            automatic_config.get("timeout_s", 300.0)
+        )
+        self._exploration_min_runtime_s = float(
+            automatic_config.get("min_runtime_s", 15.0)
+        )
+        self._exploration_stable_map_s = float(
+            automatic_config.get("stable_map_s", 20.0)
+        )
+        self._exploration_min_growth_cells = int(
+            automatic_config.get("min_growth_cells", 40)
+        )
+        self._mission_navigation_timeout_s = float(
+            automatic_config.get("navigation_timeout_s", 330.0)
+        )
+        self._exploration_completion_status = str(
+            automatic_config.get("completion_status", "exploration_complete")
+        )
+        acceptance = self._mission_plan.get("acceptance", {})
+        self._min_known_map_cells = int(acceptance.get("min_known_map_cells", 0))
+        self._min_occupied_map_cells = int(
+            acceptance.get("min_occupied_map_cells", 0)
+        )
         readiness_topic = str(
             self.declare_parameter("readiness_topic", "/system/readiness").value
         )
@@ -180,6 +333,9 @@ class SessionOrchestratorNode(Node):
             self.declare_parameter("stop_timeout_s", 15.0).value
         )
         dry_run = bool(self.declare_parameter("dry_run", False).value)
+        self._dry_run_exploration_delay_s = float(
+            self.declare_parameter("dry_run_exploration_delay_s", 0.0).value
+        )
         self._fsm = ShowcaseSessionStateMachine()
         self._manager = StageProcessManager(
             workspace,
@@ -203,6 +359,16 @@ class SessionOrchestratorNode(Node):
         )
         self._stopping = threading.Event()
         self._operation_active = threading.Event()
+        self._active_request: CommandRequest | None = None
+        self._agent_condition = threading.Condition()
+        self._agent_candidates: list[tuple[int, str]] = []
+        self._agent_results: dict[str, RobotCommandResult] = {}
+        self._map_stats: dict[str, int] | None = None
+        self._best_known_map_cells = 0
+        self._last_map_growth_at = time.monotonic()
+        self._exploration_completion_reason = ""
+        self._explore_condition = threading.Condition()
+        self._explore_status = ""
 
         state_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
@@ -220,6 +386,9 @@ class SessionOrchestratorNode(Node):
         self._state_pub = self.create_publisher(
             SlamSessionState, "/slam/session_state", state_qos
         )
+        self._agent_text_pub = self.create_publisher(
+            String, "/agent/text_input", event_qos
+        )
         self.create_subscription(
             String,
             "/agent/asr_final",
@@ -232,6 +401,57 @@ class SessionOrchestratorNode(Node):
             readiness_topic,
             self._on_readiness,
             state_qos,
+            callback_group=callback_group,
+        )
+        self.create_subscription(
+            RobotCommand,
+            "/agent/action_candidate",
+            self._on_agent_candidate,
+            event_qos,
+            callback_group=callback_group,
+        )
+        self.create_subscription(
+            RobotCommandResult,
+            "/robot/action_result",
+            self._on_agent_result,
+            event_qos,
+            callback_group=callback_group,
+        )
+        self.create_subscription(
+            OccupancyGrid,
+            "/map",
+            self._on_map,
+            state_qos,
+            callback_group=callback_group,
+        )
+        if ExploreStatus is not None:
+            self.create_subscription(
+                ExploreStatus,
+                "/explore/status",
+                self._on_explore_status,
+                state_qos,
+                callback_group=callback_group,
+            )
+        self._navigate_to_pose_client = ActionClient(
+            self,
+            NavigateToPose,
+            "/navigate_to_pose",
+            callback_group=callback_group,
+        )
+        self._follow_waypoints_client = ActionClient(
+            self,
+            FollowWaypoints,
+            "/follow_waypoints",
+            callback_group=callback_group,
+        )
+        self._bt_navigator_state_client = self.create_client(
+            GetState,
+            "/bt_navigator/get_state",
+            callback_group=callback_group,
+        )
+        self._waypoint_follower_state_client = self.create_client(
+            GetState,
+            "/waypoint_follower/get_state",
             callback_group=callback_group,
         )
         self._action_server = ActionServer(
@@ -277,6 +497,180 @@ class SessionOrchestratorNode(Node):
             self._latest_ready = bool(message.ready)
             self._ready_condition.notify_all()
 
+    def _on_agent_candidate(self, message: RobotCommand) -> None:
+        if not message.command_id:
+            return
+        with self._agent_condition:
+            self._agent_candidates.append(
+                (int(message.action_type), str(message.command_id))
+            )
+            self._agent_condition.notify_all()
+
+    def _on_agent_result(self, message: RobotCommandResult) -> None:
+        if not message.command_id:
+            return
+        with self._agent_condition:
+            self._agent_results[str(message.command_id)] = message
+            self._agent_condition.notify_all()
+
+    def _on_map(self, message: OccupancyGrid) -> None:
+        stats = {
+            "known_cells": sum(1 for value in message.data if value >= 0),
+            "occupied_cells": sum(1 for value in message.data if value >= 65),
+        }
+        with self._explore_condition:
+            self._map_stats = stats
+            if (
+                stats["known_cells"]
+                >= self._best_known_map_cells + self._exploration_min_growth_cells
+            ):
+                self._best_known_map_cells = stats["known_cells"]
+                self._last_map_growth_at = time.monotonic()
+            self._explore_condition.notify_all()
+
+    def _on_explore_status(self, message: Any) -> None:
+        with self._explore_condition:
+            self._explore_status = str(message.status)
+            self._explore_condition.notify_all()
+
+    def _cancel_automatic_motion(self) -> None:
+        self._agent_text_pub.publish(String(data="停下"))
+        self._manager.stop_explorer()
+
+    def _run_agent_text_action(
+        self,
+        request: CommandRequest,
+        *,
+        text: str,
+        expected_action: str,
+        timeout_s: float,
+    ) -> None:
+        """复用 Agent 的 NLU 与 typed command 链路执行自动任务中的语义动作。"""
+
+        if self._dry_run:
+            print(
+                f"DRY RUN agent action: {text} -> {expected_action}",
+                flush=True,
+            )
+            return
+        expected_type = _ACTION_TYPES[expected_action]
+        deadline = time.monotonic() + timeout_s
+        while self._agent_text_pub.get_subscription_count() == 0:
+            if request.canceled:
+                self._cancel_automatic_motion()
+                raise AutomaticMissionCancelled("automatic mission canceled")
+            if time.monotonic() >= deadline:
+                raise TimeoutError("Agent text input subscriber unavailable")
+            time.sleep(0.1)
+        with self._agent_condition:
+            candidate_start = len(self._agent_candidates)
+        self._agent_text_pub.publish(String(data=text))
+
+        command_id = ""
+        with self._agent_condition:
+            while not command_id:
+                if request.canceled:
+                    self._cancel_automatic_motion()
+                    raise AutomaticMissionCancelled("automatic mission canceled")
+                for action_type, candidate_id in self._agent_candidates[candidate_start:]:
+                    if action_type == expected_type:
+                        command_id = candidate_id
+                        break
+                remaining = deadline - time.monotonic()
+                if command_id or remaining <= 0.0:
+                    break
+                self._agent_condition.wait(timeout=min(0.2, remaining))
+        if not command_id:
+            raise TimeoutError(
+                f"Agent did not publish {expected_action} for {text!r}"
+            )
+
+        with self._agent_condition:
+            while command_id not in self._agent_results:
+                if request.canceled:
+                    self._cancel_automatic_motion()
+                    raise AutomaticMissionCancelled("automatic mission canceled")
+                remaining = deadline - time.monotonic()
+                if remaining <= 0.0:
+                    raise TimeoutError(
+                        f"action result timeout for {expected_action}:{command_id}"
+                    )
+                self._agent_condition.wait(timeout=min(0.2, remaining))
+            result = self._agent_results.pop(command_id)
+        if not result.success:
+            raise RuntimeError(
+                f"{expected_action} failed status={result.status}: {result.message}"
+            )
+
+    def _wait_for_frontier_completion(self, request: CommandRequest) -> None:
+        if self._dry_run:
+            deadline = time.monotonic() + self._dry_run_exploration_delay_s
+            while time.monotonic() < deadline:
+                if request.canceled:
+                    self._cancel_automatic_motion()
+                    raise AutomaticMissionCancelled("automatic mission canceled")
+                time.sleep(0.05)
+            return
+        if ExploreStatus is None:
+            raise RuntimeError(
+                "explore_lite_msgs is unavailable; run "
+                "bash scripts/setup_frontier_exploration.sh"
+            )
+        started_at = time.monotonic()
+        deadline = started_at + self._exploration_timeout_s
+        with self._explore_condition:
+            while time.monotonic() < deadline:
+                if request.canceled:
+                    self._cancel_automatic_motion()
+                    raise AutomaticMissionCancelled("automatic mission canceled")
+                elapsed = time.monotonic() - started_at
+                stats = self._map_stats or {}
+                if (
+                    self._explore_status == self._exploration_completion_status
+                    and elapsed >= self._exploration_min_runtime_s
+                ):
+                    if stats.get("known_cells", 0) < self._min_known_map_cells:
+                        raise RuntimeError(
+                            "frontier exploration ended before known-cell threshold"
+                        )
+                    if stats.get("occupied_cells", 0) < self._min_occupied_map_cells:
+                        raise RuntimeError(
+                            "frontier exploration ended before occupied-cell threshold"
+                        )
+                completion_reason = exploration_completion_reason(
+                    status=self._explore_status,
+                    completion_status=self._exploration_completion_status,
+                    elapsed_s=elapsed,
+                    min_runtime_s=self._exploration_min_runtime_s,
+                    known_cells=stats.get("known_cells", 0),
+                    occupied_cells=stats.get("occupied_cells", 0),
+                    min_known_cells=self._min_known_map_cells,
+                    min_occupied_cells=self._min_occupied_map_cells,
+                    seconds_since_map_growth=(
+                        time.monotonic() - self._last_map_growth_at
+                    ),
+                    stable_map_s=self._exploration_stable_map_s,
+                )
+                if completion_reason is not None:
+                    # 真实室内图常残留家具背后或墙外的不可达 frontier。覆盖达标且地图
+                    # 长时间不再增长时继续恢复只会空转，因此在可审计阈值处结束任务。
+                    self._exploration_completion_reason = completion_reason
+                    self.get_logger().info(
+                        f"frontier exploration complete reason={completion_reason}: "
+                        f"known={stats.get('known_cells', 0)} "
+                        f"occupied={stats.get('occupied_cells', 0)}"
+                    )
+                    return
+                exited, code = self._manager.explorer_exited_unexpectedly()
+                if exited:
+                    raise RuntimeError(
+                        f"frontier explorer exited unexpectedly code={code}"
+                    )
+                self._explore_condition.wait(
+                    timeout=min(0.5, max(0.0, deadline - time.monotonic()))
+                )
+        raise TimeoutError("frontier exploration did not complete before timeout")
+
     def _wait_for_new_ready(self, generation: int) -> None:
         if self._dry_run:
             return
@@ -289,6 +683,57 @@ class SessionOrchestratorNode(Node):
                     timeout=min(0.5, max(0.0, deadline - time.monotonic()))
                 )
         raise TimeoutError("stage did not publish ready SystemReadiness before timeout")
+
+    def _wait_for_navigation_action_servers(self, request: CommandRequest) -> None:
+        """通用 readiness 之后再验证 Nav2 的两个长任务 Action 已真正激活。"""
+
+        if self._dry_run:
+            return
+        deadline = time.monotonic() + self._startup_timeout_s
+        clients = (
+            ("navigate_to_pose", self._navigate_to_pose_client),
+            ("follow_waypoints", self._follow_waypoints_client),
+        )
+        for name, client in clients:
+            while not client.server_is_ready():
+                if request.canceled:
+                    self._cancel_automatic_motion()
+                    raise AutomaticMissionCancelled("automatic mission canceled")
+                remaining = deadline - time.monotonic()
+                if remaining <= 0.0:
+                    raise TimeoutError(f"Nav2 Action server unavailable: {name}")
+                client.wait_for_server(timeout_sec=min(0.5, remaining))
+        lifecycle_clients = (
+            ("bt_navigator", self._bt_navigator_state_client),
+            ("waypoint_follower", self._waypoint_follower_state_client),
+        )
+        for name, client in lifecycle_clients:
+            while True:
+                if request.canceled:
+                    self._cancel_automatic_motion()
+                    raise AutomaticMissionCancelled("automatic mission canceled")
+                remaining = deadline - time.monotonic()
+                if remaining <= 0.0:
+                    raise TimeoutError(f"Nav2 lifecycle node not active: {name}")
+                if not client.wait_for_service(timeout_sec=min(0.5, remaining)):
+                    continue
+                future = client.call_async(GetState.Request())
+                while not future.done() and time.monotonic() < deadline:
+                    if request.canceled:
+                        future.cancel()
+                        self._cancel_automatic_motion()
+                        raise AutomaticMissionCancelled("automatic mission canceled")
+                    time.sleep(0.05)
+                if future.done() and future.result() is not None:
+                    if (
+                        future.result().current_state.id
+                        == State.PRIMARY_STATE_ACTIVE
+                    ):
+                        break
+                time.sleep(0.1)
+        self.get_logger().info(
+            "Nav2 navigation Action servers and lifecycle nodes are active"
+        )
 
     def _readiness_generation(self) -> int:
         with self._ready_condition:
@@ -327,6 +772,15 @@ class SessionOrchestratorNode(Node):
             return False
 
     def _on_asr_final(self, message: String) -> None:
+        active_request = self._active_request
+        if (
+            active_request is not None
+            and active_request.command == SessionCommand.RUN_AUTOMATIC_MISSION
+            and is_automatic_mission_cancel_text(message.data)
+        ):
+            active_request.canceled = True
+            self.get_logger().warning("canceling active automatic mission by voice")
+            return
         command = parse_session_command(message.data)
         if command is None:
             return
@@ -440,6 +894,67 @@ class SessionOrchestratorNode(Node):
         )
         self._feedback(request, 1.0)
 
+    def _run_automatic_mission(self, request: CommandRequest) -> None:
+        """一次高层命令完成 frontier 探索、存图、重定位和语义巡航。"""
+
+        self._transition(
+            SessionPhase.AUTOMATIC_MAPPING,
+            detail="frontier exploration running",
+        )
+        self._feedback(request, 0.05)
+        with self._explore_condition:
+            self._explore_status = ""
+            self._best_known_map_cells = 0
+            self._last_map_growth_at = time.monotonic()
+            self._exploration_completion_reason = ""
+        self._manager.start_explorer(self._explorer_config_path)
+        try:
+            self._wait_for_frontier_completion(request)
+        finally:
+            self._manager.stop_explorer()
+        stats = self._map_stats or {}
+        self._transition(
+            SessionPhase.MAPPING,
+            detail=(
+                "frontier exploration complete "
+                f"reason={self._exploration_completion_reason or 'unknown'} "
+                f"known={stats.get('known_cells', 0)} "
+                f"occupied={stats.get('occupied_cells', 0)}"
+            ),
+        )
+        self._feedback(request, 0.5)
+
+        self._save_map(request)
+        if request.canceled:
+            raise AutomaticMissionCancelled("automatic mission canceled")
+        self._start_navigation(request)
+        self._wait_for_navigation_action_servers(request)
+        self._transition(
+            SessionPhase.AUTOMATIC_NAVIGATING,
+            detail="automatic semantic navigation running",
+        )
+        self._feedback(request, 0.82)
+
+        navigation = self._mission_plan.get("navigation_mission", {})
+        self._run_agent_text_action(
+            request,
+            text=str(navigation["navigate_text"]),
+            expected_action="navigate_to",
+            timeout_s=self._mission_navigation_timeout_s,
+        )
+        self._feedback(request, 0.9)
+        self._run_agent_text_action(
+            request,
+            text=str(navigation["patrol_text"]),
+            expected_action="follow_waypoints",
+            timeout_s=self._mission_navigation_timeout_s,
+        )
+        self._transition(
+            SessionPhase.MISSION_COMPLETED,
+            detail="automatic mapping and navigation mission completed",
+        )
+        self._feedback(request, 1.0)
+
     def _execute_request(self, request: CommandRequest) -> None:
         # 入队与真正执行之间可能已完成上一条阶段转换；执行前再次验证，防止
         # 两个几乎同时到达的 ASR final 都基于旧 MAPPING 状态被接受。
@@ -450,7 +965,10 @@ class SessionOrchestratorNode(Node):
             request.completed.set()
             return
         self._operation_active.set()
+        self._active_request = request
         try:
+            if request.command == SessionCommand.RUN_AUTOMATIC_MISSION:
+                self._run_automatic_mission(request)
             if request.command in {
                 SessionCommand.SAVE_MAP,
                 SessionCommand.SAVE_AND_START_NAVIGATION,
@@ -471,12 +989,32 @@ class SessionOrchestratorNode(Node):
             request.success = True
             if not request.message:
                 request.message = "session command completed"
+        except AutomaticMissionCancelled as exc:
+            request.message = str(exc)
+            recovery_phase = (
+                SessionPhase.NAVIGATING
+                if self._manager.stage == "navigation"
+                else SessionPhase.MAPPING
+            )
+            self._transition(recovery_phase, detail=request.message)
+            self.get_logger().warning(request.message)
         except Exception as exc:
             request.message = str(exc)
-            if self._fsm.snapshot.phase != SessionPhase.MAPPING:
+            if request.command == SessionCommand.RUN_AUTOMATIC_MISSION:
+                recovery_phase = (
+                    SessionPhase.NAVIGATING
+                    if self._manager.stage == "navigation"
+                    else SessionPhase.MAPPING
+                )
+                self._transition(
+                    recovery_phase,
+                    detail=f"automatic mission failed: {exc}",
+                )
+            elif self._fsm.snapshot.phase != SessionPhase.MAPPING:
                 self._transition(SessionPhase.FAILED, detail=f"session failed: {exc}")
             self.get_logger().error(request.message)
         finally:
+            self._active_request = None
             self._operation_active.clear()
             request.completed.set()
 

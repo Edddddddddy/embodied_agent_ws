@@ -68,6 +68,8 @@ Automated modes:
   slam-nav-showcase   Heavy realistic apartment + AMCL + Nav2 motion gate
   slam-nav-showcase-mapping Heavy realistic apartment + SLAM map-save gate
   slam-session-orchestrator-stage Typed single-terminal mapping/save/navigation FSM gate
+  slam-autonomous-mission-stage One intent -> exploration/save/localization/navigation FSM gate
+  slam-autonomous-mission Heavy one-intent frontier SLAM -> AMCL/Nav2 mission
   slam-session-orchestrator Heavy one-terminal Gazebo mapping/save/restart/navigation gate
   slam-benchmark      Heavy Gazebo run: fixed loop, 5 cm map, and drift metrics report
   slam-gtsam-benchmark Heavy Gazebo run with the project GTSAM ScanSolver plugin
@@ -479,8 +481,20 @@ case "$LEVEL" in
   slam-session-orchestrator-stage)
     PYTHONPATH="$WORKSPACE/src/embodied_slam_tools${PYTHONPATH:+:$PYTHONPATH}" \
       python3 -m pytest -q src/embodied_slam_tools/test/test_showcase_session.py
-    colcon build --symlink-install --packages-up-to embodied_slam_tools
+    colcon build --symlink-install --packages-up-to embodied_slam_tools \
+      --allow-overriding embodied_agent_interfaces embodied_slam_tools
     WORKSPACE="$WORKSPACE" bash scripts/smoke_test_voice_slam_session_orchestrator.sh
+    ;;
+  slam-autonomous-mission-stage)
+    PYTHONPATH="$WORKSPACE/src/embodied_slam_tools${PYTHONPATH:+:$PYTHONPATH}" \
+      python3 -m pytest -q src/embodied_slam_tools/test/test_showcase_session.py
+    colcon build --symlink-install --packages-up-to embodied_slam_tools \
+      --allow-overriding embodied_agent_interfaces embodied_slam_tools
+    WORKSPACE="$WORKSPACE" bash scripts/smoke_test_voice_slam_automatic_mission.sh
+    WORKSPACE="$WORKSPACE" bash scripts/smoke_test_voice_slam_automatic_cancel.sh
+    ;;
+  slam-autonomous-mission)
+    WORKSPACE="$WORKSPACE" bash scripts/smoke_test_voice_slam_automatic_mission_gazebo.sh
     ;;
   slam-session-orchestrator)
     bash scripts/smoke_test_voice_slam_session_orchestrator_gazebo.sh

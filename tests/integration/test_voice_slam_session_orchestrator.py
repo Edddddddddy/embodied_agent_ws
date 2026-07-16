@@ -17,6 +17,7 @@ from embodied_agent_interfaces.msg import (
     SlamSessionState,
 )
 from embodied_agent_core.ros_qos import command_qos, event_qos, sensor_qos, state_qos
+from geometry_msgs.msg import Twist
 from nav_msgs.msg import OccupancyGrid, Odometry
 import rclpy
 from rclpy.action import ActionClient
@@ -37,6 +38,7 @@ class SessionProbe(Node):
         self.positions: list[tuple[float, float]] = []
         self.map_stats: dict | None = None
         self.scan_count = 0
+        self.last_cmd_vel = {"linear_x": 0.0, "angular_z": 0.0}
         self.asr_pub = self.create_publisher(
             String, "/agent/asr_final", command_qos(depth=10)
         )
@@ -79,6 +81,12 @@ class SessionProbe(Node):
             self._on_scan,
             sensor_qos(),
         )
+        self.create_subscription(
+            Twist,
+            "/cmd_vel",
+            self._on_cmd_vel,
+            command_qos(depth=20),
+        )
         self.client = ActionClient(
             self, ManageSlamSession, "/slam/manage_session"
         )
@@ -107,6 +115,12 @@ class SessionProbe(Node):
 
     def _on_scan(self, _message: LaserScan) -> None:
         self.scan_count += 1
+
+    def _on_cmd_vel(self, message: Twist) -> None:
+        self.last_cmd_vel = {
+            "linear_x": float(message.linear.x),
+            "angular_z": float(message.angular.z),
+        }
 
     def result_for(self, command_id: str) -> dict | None:
         for result in reversed(self.results):
@@ -191,6 +205,16 @@ def main() -> None:
     parser.add_argument("--evidence-kind", default="dry_run_process_adapter")
     parser.add_argument("--explore-before-save", action="store_true")
     parser.add_argument(
+        "--automatic-mission",
+        action="store_true",
+        help="一句系统意图触发自动探索、存图、定位切换和语义导航",
+    )
+    parser.add_argument(
+        "--cancel-automatic-mission",
+        action="store_true",
+        help="在 dry-run 自动探索期间发送急停并验证恢复到 MAPPING",
+    )
+    parser.add_argument(
         "--survey-plan",
         type=Path,
         help="通过 Agent 顺序执行工作场景 mapping_route，并验证地图覆盖与里程",
@@ -213,6 +237,100 @@ def main() -> None:
             5.0,
             "ASR final subscriber unavailable",
         )
+
+        if args.automatic_mission or args.cancel_automatic_mission:
+            state_start = len(node.states)
+            node.asr_pub.publish(String(data="开始自动巡检建图"))
+            if args.cancel_automatic_mission:
+                wait_until(
+                    lambda: any(
+                        state.phase == SlamSessionState.AUTOMATIC_MAPPING
+                        for state in node.states[state_start:]
+                    ),
+                    args.transition_timeout,
+                    "automatic mission did not enter AUTOMATIC_MAPPING",
+                )
+                node.asr_pub.publish(String(data="急停"))
+                wait_until(
+                    lambda: any(
+                        state.phase == SlamSessionState.MAPPING
+                        and "canceled" in state.detail
+                        for state in node.states[state_start:]
+                    ),
+                    args.transition_timeout,
+                    "urgent stop did not recover automatic mission to MAPPING",
+                )
+                assert not node.has_phase(SlamSessionState.MISSION_COMPLETED)
+                report = {
+                    "passed": True,
+                    "state_sequence": [int(state.phase) for state in node.states],
+                    "automatic_mission_canceled": True,
+                    "final_phase": SlamSessionState.MAPPING,
+                    "final_cmd_vel": node.last_cmd_vel,
+                }
+                args.output.parent.mkdir(parents=True, exist_ok=True)
+                args.output.write_text(
+                    json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+                print(json.dumps(report, ensure_ascii=False, indent=2))
+                return
+            wait_until(
+                lambda: node.has_phase(SlamSessionState.MISSION_COMPLETED),
+                args.transition_timeout,
+                "automatic mission did not reach MISSION_COMPLETED",
+            )
+            observed = [int(state.phase) for state in node.states]
+            # 状态 topic 使用 depth=1 + transient-local：dry-run 阶段切换仅数毫秒，
+            # 订阅者可能合理地只收到最新快照。最终状态同时携带 map_saved，故可作为
+            # 一条语音已经跨越探索、保存和导航事务边界的稳定验收契约。
+            final_state = next(
+                state
+                for state in reversed(node.states)
+                if state.phase == SlamSessionState.MISSION_COMPLETED
+            )
+            candidate_names = [item.get("name") for item in node.candidates]
+            if args.evidence_kind != "dry_run_process_adapter":
+                assert "navigate_to" in candidate_names, candidate_names
+                assert "follow_waypoints" in candidate_names, candidate_names
+                candidate_ids = {
+                    str(item.get("request_id"))
+                    for item in node.candidates
+                    if item.get("name") in {"navigate_to", "follow_waypoints"}
+                }
+                assert all(
+                    node.result_for(command_id)
+                    and node.result_for(command_id).get("success") is True
+                    for command_id in candidate_ids
+                )
+                wait_until(
+                    lambda: (
+                        abs(node.last_cmd_vel["linear_x"]) < 1e-6
+                        and abs(node.last_cmd_vel["angular_z"]) < 1e-6
+                    ),
+                    5.0,
+                    "automatic mission finished without a final zero velocity",
+                )
+            report = {
+                "passed": True,
+                "state_sequence": observed,
+                "map_saved": bool(final_state.map_saved),
+                "map_yaml_path": final_state.map_yaml_path,
+                "final_phase": int(final_state.phase),
+                "evidence_kind": args.evidence_kind,
+                "automatic_mission": True,
+                "action_candidates": node.candidates,
+                "action_results": node.results,
+                "map": node.map_stats,
+                "final_cmd_vel": node.last_cmd_vel,
+            }
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(
+                json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+            return
 
         exploration_succeeded = None
         survey_steps: list[dict] = []
