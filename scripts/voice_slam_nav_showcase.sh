@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-WORKSPACE="${WORKSPACE:-/home/ubuntu/embodied_agent_ws}"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+source "$SCRIPT_DIR/lifecycle_utils.sh"
+embodied_resolve_workspace "${BASH_SOURCE[0]}"
 COMMAND="${1:-help}"
 MODE="${2:-offline}"
 SCENE_SPEC="$WORKSPACE/src/embodied_simulation/config/showcase_apartment.yaml"
@@ -98,6 +100,8 @@ run_voice_stage() {
 case "$COMMAND" in
   auto)
     activate
+    # 在拉起 Gazebo 前先失败，避免用户等到状态机内部才看到 explorer 或旧 Action 报错。
+    embodied_workspace_doctor true
     print_mission_plan
     echo "[showcase] 单终端自动编排：办公巡检建图 -> 保存 -> AMCL -> 多目标 Nav2"
     exec ros2 run embodied_slam_tools voice_slam_session_orchestrator --ros-args \

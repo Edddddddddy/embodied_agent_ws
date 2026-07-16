@@ -7,10 +7,21 @@ automatic_exploration:
   config: frontier_exploration.yaml
   timeout_s: 300.0
   navigation_timeout_s: 330.0
+  bootstrap_action_timeout_s: 45.0
   completion_status: exploration_complete
   min_runtime_s: 45.0
   stable_map_s: 20.0
   min_growth_cells: 40
+  # 机器人从左下角充电位出生。先沿已知安全通道自动进入中央门洞，再让 frontier
+  # 决定后续未知区域目标，避免初始外墙边缘长期主导 frontier 排序。
+  bootstrap_route:
+    - {label: 离开充电角, text: 前进三秒, action: move}
+    - {label: 转向入口通道, text: 左转九十度, action: turn}
+    - {label: 沿西侧通道巡检一, text: 前进十秒, action: move}
+    - {label: 沿西侧通道巡检二, text: 前进四秒, action: move}
+    - {label: 转向中央门洞, text: 右转九十度, action: turn}
+    - {label: 穿过客厅一, text: 前进十秒, action: move}
+    - {label: 穿过客厅二, text: 前进七秒, action: move}
 
 # 路线从 Gazebo 出生点 (-4.15, -3.15) 出发，沿门洞访问客厅、厨房、中央走廊和办公室。
 # 每一步都是用户可以直接说出的普通动作命令；自动门禁只把 ASR 换成文本注入，后续

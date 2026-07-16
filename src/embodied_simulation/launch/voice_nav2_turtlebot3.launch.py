@@ -8,6 +8,7 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import LifecycleNode, Node
 from launch_ros.parameter_descriptions import ParameterValue
+from nav2_common.launch import RewrittenYaml
 
 from embodied_agent_bringup.agent_launch_contract import (
     declare_forwarded_agent_arguments,
@@ -74,6 +75,9 @@ def generate_launch_description():
     auto_gain_enabled = LaunchConfiguration("auto_gain_enabled")
     lifecycle_autostart = LaunchConfiguration("lifecycle_autostart")
     nav_action_timeout_s = LaunchConfiguration("nav_action_timeout_s")
+    nav2_progress_radius = LaunchConfiguration("nav2_progress_radius")
+    nav2_progress_timeout = LaunchConfiguration("nav2_progress_timeout")
+    params_file = LaunchConfiguration("params_file")
     slam = LaunchConfiguration("slam")
     use_rviz = LaunchConfiguration("use_rviz")
     rviz_config_file = LaunchConfiguration("rviz_config_file")
@@ -92,6 +96,20 @@ def generate_launch_description():
         PythonExpression([
             "'", launch_agent, "' == 'true' and '", agent_type, "' == 'offline'"
         ])
+    )
+
+    # 不修改 /opt/ros 中的 Nav2 默认文件，而是在 launch 上下文生成临时参数副本。
+    # WSL/Gazebo 低实时率时 0.5m/10s 的默认进度门槛过于激进；项目级覆盖仍保留
+    # SimpleProgressChecker 的安全约束，同时避免低速有效运动被误判为卡死。
+    configured_nav2_params = RewrittenYaml(
+        source_file=params_file,
+        root_key="",
+        param_rewrites={
+            "required_movement_radius": nav2_progress_radius,
+            "movement_time_allowance": nav2_progress_timeout,
+            "stop_on_failure": "true",
+        },
+        convert_types=True,
     )
 
     return LaunchDescription([
@@ -136,6 +154,8 @@ def generate_launch_description():
         DeclareLaunchArgument("slam", default_value="false"),
         DeclareLaunchArgument("map", default_value=nav2_map),
         DeclareLaunchArgument("params_file", default_value=nav2_params),
+        DeclareLaunchArgument("nav2_progress_radius", default_value="0.10"),
+        DeclareLaunchArgument("nav2_progress_timeout", default_value="30.0"),
         DeclareLaunchArgument("rviz_config_file", default_value=default_rviz),
         DeclareLaunchArgument("world", default_value=default_world),
         DeclareLaunchArgument("use_composition", default_value="true"),
@@ -165,7 +185,7 @@ def generate_launch_description():
                 # ROS 常见的小写 true/false 参数，避免用户命令行习惯被打破。
                 "slam": as_python_bool(slam),
                 "map": LaunchConfiguration("map"),
-                "params_file": LaunchConfiguration("params_file"),
+                "params_file": configured_nav2_params,
                 "rviz_config_file": rviz_config_file,
                 "use_rviz": as_python_bool(use_rviz),
                 "headless": as_python_bool(headless),

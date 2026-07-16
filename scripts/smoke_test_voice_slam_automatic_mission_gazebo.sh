@@ -77,6 +77,12 @@ assert report["automatic_mission"] is True
 assert report["map_saved"] is True
 assert report["final_phase"] == 12
 assert report["map"] and report["map"]["known_cells"] > 0
+follow_results = [
+    item for item in report["action_results"]
+    if str(item.get("message", "")).startswith("nav2:follow_waypoints:")
+]
+assert follow_results
+assert all("missed_waypoints=0" in item["message"] for item in follow_results)
 assert abs(report["final_cmd_vel"]["linear_x"]) < 1e-6
 assert abs(report["final_cmd_vel"]["angular_z"]) < 1e-6
 print(json.dumps(report, ensure_ascii=False, indent=2))

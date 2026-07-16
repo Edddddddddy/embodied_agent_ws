@@ -238,6 +238,14 @@ def test_nav2_failure_parser_classifies_common_failure_layers():
         assert parsed["failure_class"] == expected
         assert parsed["retry_hint"]
 
+    # FollowWaypoints 的 Action 终态可以是 SUCCEEDED，但 missed_waypoints 非空仍
+    # 表示巡检路线没有完整执行，现场诊断不能把它归为成功。
+    partial = live_check._parse_nav2_result_message(
+        "nav2:follow_waypoints:succeeded waypoints=door,desk missed_waypoints=1"
+    )
+    assert partial is not None
+    assert partial["failure_class"] == "waypoint_missed"
+
 
 def test_live_check_report_requires_navigation_details_when_requested():
     node = live_check.LiveCheckNode()

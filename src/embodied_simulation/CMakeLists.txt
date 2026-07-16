@@ -40,12 +40,22 @@ target_include_directories(simulation_control_core PUBLIC
 ament_target_dependencies(simulation_control_core PUBLIC
   behaviortree_cpp diagnostic_msgs embodied_agent_interfaces embodied_agent_middleware geometry_msgs)
 
+add_library(nav2_result_policy
+  src/nav2_result_policy.cpp
+)
+set_target_properties(nav2_result_policy PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(nav2_result_policy PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+ament_target_dependencies(nav2_result_policy PUBLIC nav2_msgs rclcpp_action)
+
 add_library(embodied_simulation_executors SHARED
   src/gazebo_robot_executor.cpp
   src/mock_robot_executor.cpp
   src/nav2_robot_executor.cpp
 )
-target_link_libraries(embodied_simulation_executors simulation_control_core)
+target_link_libraries(embodied_simulation_executors simulation_control_core nav2_result_policy)
 ament_target_dependencies(embodied_simulation_executors
   ament_index_cpp embodied_agent_interfaces geometry_msgs nav2_msgs pluginlib rclcpp rclcpp_action)
 pluginlib_export_plugin_description_file(
@@ -71,6 +81,7 @@ ament_target_dependencies(simulation_control_node rclcpp rclcpp_lifecycle)
 
 install(TARGETS
   simulation_control_core
+  nav2_result_policy
   embodied_simulation_executors
   simulation_control_component
   simulation_control_node
@@ -108,10 +119,14 @@ if(BUILD_TESTING)
   target_link_libraries(test_node_configuration simulation_control_core)
   ament_add_gtest(test_executor_diagnostics test/test_executor_diagnostics.cpp)
   target_link_libraries(test_executor_diagnostics simulation_control_core)
+  ament_add_gtest(test_nav2_result_policy test/test_nav2_result_policy.cpp)
+  target_link_libraries(test_nav2_result_policy nav2_result_policy)
+  ament_target_dependencies(test_nav2_result_policy nav2_msgs rclcpp_action)
 endif()
 
 ament_export_include_directories(include)
-ament_export_libraries(simulation_control_core)
+ament_export_libraries(simulation_control_core nav2_result_policy)
 ament_export_dependencies(
-  behaviortree_cpp diagnostic_msgs embodied_agent_interfaces embodied_agent_middleware geometry_msgs pluginlib)
+  behaviortree_cpp diagnostic_msgs embodied_agent_interfaces embodied_agent_middleware geometry_msgs
+  nav2_msgs pluginlib rclcpp_action)
 ament_package()

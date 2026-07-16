@@ -1,1431 +1,806 @@
-# 学习笔记：关键技术点与设计取舍
-
-这份笔记面向复盘和面试讲解。每个技术点都按四个问题组织：
-
-- 关键代码在哪里？
-- 这一层怎么设计？
-- 为什么这样设计？
-- 和其他方案相比有什么区别？
-
-如果只想先看主链路图，优先打开
-[FINAL_ARCHITECTURE_DIAGRAMS.md](FINAL_ARCHITECTURE_DIAGRAMS.md)。
-如果要准备面试代码走读，优先打开
-[VOICE_TO_SIMULATION_CODE_WALKTHROUGH.md](VOICE_TO_SIMULATION_CODE_WALKTHROUGH.md)，
-它按“语音输入 → Agent → ActionGuard → ROS 2 Action → Gazebo/Nav2 执行”列出了关键文件、
-关键函数和上下游接口。
-
-## 1. ROS 2 通信模型：topic、msg、action 的分工
-
-关键代码：
-
-- `src/embodied_agent_interfaces/msg/RobotCommand.msg`
-- `src/embodied_agent_interfaces/msg/RobotCommandFeedback.msg`
-- `src/embodied_agent_interfaces/msg/RobotCommandResult.msg`
-- `src/embodied_agent_interfaces/action/ExecuteRobotCommand.action`
-- `src/embodied_agent_cpp/src/typed_action_bridge_node.cpp`
-- `src/embodied_agent_cpp/src/typed_action_bridge_main.cpp`
-- `src/embodied_agent_cpp/CMakeLists.txt`
-- `src/embodied_agent_cpp/src/typed_action_demo_client.cpp`
-- `src/embodied_agent_cpp/include/embodied_agent_cpp/typed_action_client_contract.hpp`
-- `scripts/audit_cpp_action_reports.py`
-- `src/embodied_simulation/src/simulation_control_node.cpp`
-
-设计方式：
-
-- Agent 先把 LLM 或 fallback parser 的领域动作映射为强类型 `RobotCommand` candidate。
-- C++ ActionGuard 对 candidate 做白名单、字段约束和限幅，再发布受信任的 `RobotCommand`。
-- C++ `ActionScheduler` 将受信命令排成单执行槽 FIFO，再由 typed action bridge 发送为 `ExecuteRobotCommand` goal。
-- `embodied_agent_cpp` 不增加 ROS 包，而是在 CMake 内拆成 control/audio/hardware 三个库；节点只链接
-  自己需要的模块。typed bridge 同时提供 component 与原可执行入口，并由 Lifecycle manager 激活。
-- bridge 把命令、Action 回调和诊断分到互斥/reentrant callback group；deactivate 通过
-  `ActionScheduler.clear_all()` 取消活动 goal、清空 FIFO 并发布可关联的 canceled result。
-- `typed_action_demo_client` 是面试/调试用最小 C++ action client：从命令行构造
-  `RobotCommand`，直接发送 action goal，打印 feedback/result 并用结果决定进程退出码；
-  它还支持定时取消、结果等待超时和 `CPP_ACTION_REPORT` 结构化报告。
-- simulation executor 返回 feedback/result，并驱动 `/cmd_vel`。
-- 终态契约把 `STATUS_SUCCEEDED/CANCELED/TIMED_OUT/BLOCKED` 映射成稳定业务结果；
-  特别区分服务端执行超时和客户端等待超时，避免排障时把通信故障错判成机器人执行失败。
-
-为什么这样设计：
-
-- topic 适合广播状态和瞬时事件，例如 ASR final、动作候选、监控日志。
-- ROS 2 Action 适合“移动一秒”“转九十度”这种有持续时间、可取消、需要反馈的动作。
-- 自定义 msg/action 让动作接口可测试、可限幅、可扩展，比纯字符串事件载荷更工程化。
-- Lifecycle 让“进程存在”和“节点允许接单”成为两个状态：inactive 明确拒绝命令，cleanup
-  释放 client/publisher/timer，避免重启整个进程才能恢复。
-
-方案对比：
-
-- 只用 `/cmd_vel`：简单，但 LLM 直接控制速度风险高，也难以表达执行结果。
-- 只用 service：适合短请求，不适合持续动作和取消。
-- 只用字符串事件 topic：开发快，但类型不安全，后期维护和测试成本高。
-- 保留一个独立 demo client：比 bridge 更适合讲解 rclcpp_action 的 goal/feedback/result
-  生命周期，也能在没有 Agent 的情况下单独验证 action server。结构化审计比日志关键字
-  `grep` 更可靠，可供 CI 或发布门禁消费。
-- 拆成三个新 ROS package 会让 launch、依赖和发布矩阵膨胀；本项目选择同包多 target，既隔离
-  编译/链接依赖，又保持现有 executable、topic、参数和 action 接口兼容。
-
-### 1.1 运行状态中间件：为什么状态 topic 也要强类型
-
-关键代码：
-
-- `src/embodied_agent_interfaces/msg/AudioFrontendStatus.msg`
-- `src/embodied_agent_interfaces/msg/VadEvent.msg`
-- `src/embodied_agent_interfaces/msg/KwsEvent.msg`
-- `src/embodied_agent_interfaces/msg/KwsScore.msg`
-- `src/embodied_agent_interfaces/msg/SimulationState.msg`
-- `src/embodied_agent_interfaces/msg/RobotActionAck.msg`
-- `src/embodied_agent_interfaces/msg/BehaviorTreeStatus.msg`
-- `src/embodied_agent_core/embodied_agent_core/runtime_status_transport.py`
-- `src/embodied_agent_cpp/src/audio_frontend_node.cpp`
-- `src/embodied_simulation/src/simulation_control_node.cpp`
-
-设计方式：
-
-- `embodied_agent_interfaces` 是跨进程契约的唯一来源；Python/C++ 发布者不再自行拼 JSON。
-- `runtime_status_transport.py` 只负责“领域数据/ROS 消息/可读报告字典”的边界转换，monitor
-  和测试可以继续输出易读 JSON，但 ROS graph 内传输的是可发现、可校验的消息类型。
-- 可选距离使用 `*_valid + value` 表达，避免用 JSON `null`；状态与结果使用枚举，避免
-  `success/succeeded/done` 等自由字符串漂移。
-- 音频 PCM 保持 best-effort，命令与状态按语义选 QoS；高频数据和可靠控制面不混用同一策略。
-
-为什么这样设计：
-
-- ROS 2 在 discovery 阶段就能发现同 topic 类型冲突，编译器和 rosidl 还能约束字段；JSON
-  字符串只能等运行时解析后才暴露拼写、缺字段和类型错误。
-- 多语言系统中，消息定义比散落在 Python/C++ 中的字典约定更适合作为团队接口文档。
-- 报告序列化与实时中间件职责分离后，测试证据仍可保存为 JSON/JSONL，同时不会让文件格式
-  反向污染实时控制接口。
-
-方案对比：
-
-- `std_msgs/String + JSON`：原型快，但无 schema、重复解析、跨节点容易漂移。
-- 全部改 service：状态广播和连续指标不适合请求/响应模型。
-- 自定义 msg + Action：事件/状态用 msg，长动作生命周期用 Action，职责更清楚；代价是接口变更
-  需要重新 build，但这正是工程化版本管理应显式承担的成本。
-
-## 2. ActionGuard：LLM 输出和机器人执行之间的安全边界
-
-关键代码：
-
-- `src/embodied_agent_cpp/src/action_guard_node.cpp`
-- `src/embodied_agent_cpp/include/embodied_agent_cpp/guarded_command_outbox.hpp`
-- `src/embodied_agent_cpp/src/guarded_command_outbox.cpp`
-- `src/embodied_agent_cpp/include/embodied_agent_cpp/action_validator.hpp`
-- `src/embodied_agent_cpp/src/action_validator.cpp`
-- `src/embodied_agent_core/embodied_agent_core/ros_action_transport.py`
-
-设计方式：
-
-- 订阅 `/agent/action_candidate`。
-- 接收强类型动作候选；不再解析 ROS topic 中的 JSON 字符串。
-- `/agent/command_queue` 与 `/agent/command_execution` 也分别使用
-  `CommandQueueEvent`、`CommandExecutionEvent`；`ros_event_transport.py` 是领域 dataclass
-  与 ROS 消息之间唯一的 Adapter，未知事件会在进入 ROS graph 前被拒绝。
-- 唤醒、识别与 NLU 分别使用 `WakeEvent`、`RecognitionFeedback`、`NluParseEvent`。
-  `NluParseEvent` 继续组合 `NluCommand`、`CommandSlot` 和 `RobotCommand`，既保留
-  可观测的语义槽位，又不让任意字典穿过 ROS 中间件边界。
-- `agent_ros_io.py` 把在线/离线节点共同的 publisher/subscription 接线收敛成 Facade；
-  `ros_topics.py` 集中全部 Agent topic，节点只注入业务 callback，不再拼消息或硬编码接口名。
-- `ros_qos.py` 与 C++ `qos_profiles.hpp` 使用相同的六类命名语义：command/event
-  使用 reliable + volatile，state 使用 reliable + transient-local，sensor/audio 使用
-  best-effort，diagnostics 使用可靠浅队列。VAD/KWS/声纹节点只能选择这些 profile，禁止
-  自行拼 `QoSProfile`；这样修改一次即可同时约束在线、离线和所有语音 Adapter。
-- command 与 event 都是 reliable，但不能合并概念：command 可能改变机器人状态，必须禁止
-  transient-local 重放；event 描述已发生的生命周期事实。state 才允许 late joiner 获取最新值。
-- C++ 的 ActionGuard、Action scheduler、音频前端、硬件 Adapter 与仿真节点复用同一套名称，
-  repository guard 会同时扫描 Python 与 C++，防止后续节点重新引入魔法 `depth=10`。
-- 校验动作类型、速度、时长、颜色、模式等字段。
-- 通过后发布 `/robot/action_command_typed` 强类型 ROS 2 msg。
-- Guard 与 scheduler 尚未完成 DDS discovery 时，命令进入有界 TTL outbox；匹配后
-  FIFO 转发，超时则明确拒绝，避免启动阶段静默丢动作或晚到执行旧动作。
-- 拒绝时发布 `/robot/action_rejected`。
-
-为什么这样设计：
-
-- 大模型输出不可完全信任，必须在进入机器人执行层前做白名单和限幅。
-- 删除旧字符串动作命令入口，避免仿真/硬件执行层出现双入口。
-- 使用 typed message，方便 C++、Action、仿真执行器稳定对接。
-- candidate 的 `ARC` 保留上层语义，ActionGuard 校验后规范化为执行层 `MOVE`，
-  兼顾报告可解释性和底层速度控制复用。
-- reliable QoS 只保证已经匹配的 endpoint 之间可靠，并不回放 discovery 前的消息；
-  控制命令也不适合 transient-local，因为节点重启后重放旧移动命令有安全风险。
-  因此这里选择应用层短期 outbox，并用 TTL 明确限制有效窗口。
-
-中间件方案对比：
-
-- 所有 topic 都用 reliable/depth=10：写法简单，但 PCM/scan 容易积压，状态又无法服务晚加入监控。
-- 所有状态都 transient-local：监控方便，但控制命令可能在节点重启后被重放，存在安全风险。
-- 按领域语义命名 QoS：调用处能直接表达 command/event/state/sensor/audio，策略可单测并跨包复用。
-- Facade 与直接在节点里创建 topic：Facade 多一个明确边界，但能保证 online/offline 接口完全
-  同构；新增 topic 或调整 QoS 只改一个模块，结构测试禁止节点重新出现硬编码 topic。
-
-### 组件健康与系统就绪
-
-关键代码：
-
-- `src/embodied_agent_interfaces/msg/ComponentHealth.msg`
-- `src/embodied_agent_interfaces/msg/SystemReadiness.msg`
-- `src/embodied_agent_middleware/include/embodied_agent_middleware/component_health_registry.hpp`
-- `src/embodied_agent_middleware/src/system_readiness_node.cpp`
-- `scripts/system_readiness_check.py`
-
-设计区别：Lifecycle 表达单个受管节点的配置/激活状态，diagnostics 表达运行质量和故障细节，
-SystemReadiness 则回答“当前 launch profile 的必需组件是否全部可用”。三者互补；麦克风 RMS、
-Gazebo odom/scan 等数据质量探针仍单独保留，避免把“进程活着”误当成功能可用。
-
-### Agent Lifecycle：状态必须对应真实资源
-
-关键代码：
-
-- `src/embodied_online_agent/embodied_online_agent/online_agent_node.py`
-- `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py`
-- `src/embodied_agent_core/embodied_agent_core/agent_execution_runtime.py`
-- `src/embodied_agent_core/embodied_agent_core/agent_lifecycle_runtime.py`
-- `src/embodied_agent_core/embodied_agent_core/asr_endpoint_runtime.py`
-- `scripts/smoke_test_agent_lifecycle.sh`
-- `tests/integration/test_agent_lifecycle.py`
-
-生命周期映射为：`configure` 创建/预热 ASR、LLM、TTS 并把 endpoint/execution 所有权
-绑定给 `AgentLifecycleRuntime`；`activate` 激活 managed
-publisher 并启动 ASR/命令 worker；`deactivate` 关闭输入门、取消 endpoint timer、清队列、
-发布 priority STOP，再协作取消模型流和等待线程；`cleanup` 关闭连接并释放 provider。
-`AgentExecutionRuntime` 统一拥有连续 worker 和非连续 turn 线程，停用时通过取消标志让 token
-循环尽快退出；若线程未在超时内静默，transition 明确失败，不会悄悄启动第二套 worker。
-
-launch manager 的顺序是 `ActionGuard → Agent`：启动时下游安全边界先就绪，停用时按逆序让
-Agent 先停车、Guard 后退出。独立 `ros2 run` 使用内部 autostart 保持调试便利；组合 launch
-关闭内部 autostart，防止 manager 与节点同时触发 transition。deactivate 还会在 lifecycle
-publisher 关闭前发布 `ComponentHealth.STATE_STOPPED`，覆盖 transient-local 的旧 READY 缓存。
-
-方案对比：
-
-- 只增加 lifecycle service、资源仍在构造函数启动：状态可查询，但无法安全停用或重建。
-- 每次 deactivate 都销毁模型：语义简单，但重激活延迟大。
-- 当前方案：模型在 configure/cleanup 间持有，I/O 在线程在 activate/deactivate 间运行；
-  兼顾资源语义、快速重激活和异常恢复。
-- 共享 Lifecycle 基类：能少写 callback，但 provider 字段和虚函数容易形成脆弱父类；当前采用
-  组合式 runtime，在线/离线节点注入 start/stop hook，安全状态机可脱离 ROS 单元测试。
-
-### 参数 schema 与 launch profile：为什么配置也是接口
-
-关键代码：
-
-- `src/embodied_agent_core/embodied_agent_core/agent_parameters.py`
-- `src/embodied_agent_bringup/embodied_agent_bringup/agent_launch_contract.py`
-- `src/embodied_agent_bringup/embodied_agent_bringup/agent_deployment_launch_contract.py`
-- `src/embodied_agent_bringup/embodied_agent_bringup/voice_frontend_launch_contract.py`
-- `src/embodied_online_agent/embodied_online_agent/online_agent_node.py`
-- `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py`
-- `src/embodied_online_agent/launch/online_agent.launch.py`
-- `src/embodied_offline_agent/launch/offline_agent.launch.py`
-- `src/embodied_simulation/launch/voice_turtlebot3.launch.py`
-- `src/embodied_simulation/launch/voice_nav2_turtlebot3.launch.py`
-
-设计方式：
-
-- `ParameterSpec` 同时定义默认值、说明、数值范围、枚举和额外校验；公共控制面参数只写一次，
-  online/offline provider 参数分别扩展。
-- `declare_agent_parameters()` 在创建 ASR/LLM/TTS、队列和 worker 前声明并校验所有参数，
-  返回不可变 `AgentParameters` 快照。ROS descriptor 标记为 `read_only`，防止 `ros2 param set`
-  表面成功但已经创建的 provider 没有同步更新。
-- 跨字段校验会检查 `asr_partial_max_age_s >= asr_commit_delay_ms / 1000`；否则 endpoint
-  为等待尾部而延迟 commit 时，partial 反而先过期。
-- `agent_launch_contract.py` 从同一 schema 生成 launch 默认值和带明确 ROS 类型的
-  `ParameterValue`，并为 Gazebo/Nav2 生成相同的 include 转发表。
-- `voice_frontend_launch_contract.py` 进一步把 audio frontend、Silero/WebRTC VAD、KWS、
-  speaker identity 的参数声明和 Node 构造收进一个深模块。在线/离线 launch 从数百行
-  重复装配缩减为 provider、TTS、Lifecycle 和硬件拓扑说明。
-- `agent_deployment_launch_contract.py` 把 ActionGuard、唯一 Lifecycle manager 和硬件
-  Adapter 视为一个安全部署单元；`node_names=[action_guard, agent]` 同时表达正序激活和
-  逆序停机，避免两份 launch 的顺序在维护中漂移。
-- 配置优先级是“节点 schema → provider YAML → launch 覆盖”。YAML 只保留模型 endpoint、
-  路径、线程数等 provider 配置；会话/队列/记忆默认值不再复制。
-
-为什么这样设计：
-
-- 参数名和默认值本质上是部署接口。三处手写会造成在线能启动、离线才在运行中报错，或修改
-  YAML 后被 launch 的旧默认值悄悄覆盖。
-- 启动时 fail-fast 比执行第一条语音后才发现队列容量为 0、TTS provider 拼错更容易排障，
-  也避免部分节点已经 ready 后系统才退化。
-- 上层仿真只透传现场经常调整的体验参数；模型细节留在 provider profile，使 launch 保持
-  “编排进程拓扑”的职责，而不是变成几百行万能参数总线。
-- 共享 contract 只接收 `config` 和 `capture_default`，没有读取在线/离线 provider 对象；
-  这条窄接口避免共享模块反向依赖具体 Agent 包。
-
-方案对比：
-
-- 每个节点内 `declare_parameter(name, default)`：局部直观，但 online/offline 和 YAML 很容易漂移。
-- 只依赖 YAML：部署灵活，却缺少范围/枚举和跨字段校验，也难以给 `ros2 param describe` 提供元数据。
-- 动态参数回调热更新：适合 PID 或阈值等真正支持重配置的组件；Agent 的 provider、线程和队列
-  在构造期绑定，完整热更新需要事务式重建，因此当前选择只读快照和受控重启更可靠。
-- 共享 schema + 薄 launch 契约：多一个抽象模块，但默认值、类型、校验和对外参数面都可单测，
-  更适合在线/离线两条实现长期并行维护。
-
-ActionGuard 方案对比：
-
-- 在 prompt 里约束模型：必要但不够，模型仍可能输出非法字段。
-- 在执行器里校验：太晚，安全边界分散。
-- 单独 ActionGuard：边界清晰，便于单测和面试讲解。
-
-## 3. 连续语音会话：一次唤醒，多轮控制
-
-关键代码：
-
-- `src/embodied_agent_core/embodied_agent_core/continuous_voice.py`
-- `src/embodied_agent_core/embodied_agent_core/agent_execution_runtime.py`
-- `src/embodied_agent_core/embodied_agent_core/agent_control_plane.py`
-- `src/embodied_agent_core/embodied_agent_core/agent_control_plane.py`
-- `src/embodied_agent_core/embodied_agent_core/ros_agent_events.py`
-- `src/embodied_agent_core/embodied_agent_core/wakeword.py`
-- `src/embodied_agent_core/embodied_agent_core/wake_provider.py`
-- `scripts/continuous_voice_monitor.py`
-
-设计方式：
-
-- `ContinuousVoiceSession` 负责判断一句 ASR final 是唤醒、命令、拒绝还是休眠。
-- `AgentControlPlane.accept_transcript()` 在 session 之上统一归一化、短命令补全、
-  retry、session sleep、急停/取消导航和清队列决策；online/offline 不再复制该流程。
-- `RosAgentEventPublisher.publish_control_decision()` 把领域决策适配成 typed ROS 事件，
-  让领域核心可以脱离 ROS graph 做单元测试。
-- 支持唤醒词别名，例如“小志”“晓智”。
-- 支持 filler 过滤，例如“嗯”“啊”。
-- 支持 duplicate window，过滤短时间重复 ASR final。
-- 支持 session timeout，超时后必须重新唤醒。
-
-为什么这样设计：
-
-- 真实麦克风会持续产生 ASR final，如果每句话都直接进 LLM，会出现误触发和卡顿。
-- 会话层把“听到了什么”和“是否应该执行”分开，便于监控和调参。
-- 使用组合而不是让两个节点继承大型基类：控制面拥有状态机，节点拥有 provider，
-  ROS Adapter 只负责传输，三个变化方向可以独立测试和替换。
-- 文本唤醒先跑通，不强依赖声学 KWS 模型，部署更稳。
-
-方案对比：
-
-- 每条命令都要求带“小智”：安全但体验差。
-- 完全不用唤醒：误触发多，不适合现场演示。
-- 声学 KWS 优先：体验更好，但依赖模型和音频环境；当前项目保留 seam，默认用文本唤醒保证可部署。
-
-## 4. 连续命令队列与急停抢占
-
-关键代码：
-
-- `src/embodied_agent_core/embodied_agent_core/continuous_voice.py`
-- `src/embodied_online_agent/embodied_online_agent/online_agent_node.py`
-- `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py`
-- `src/embodied_agent_core/embodied_agent_core/agent_application_runtime.py`
-
-设计方式：
-
-- 普通命令进入 `ContinuousCommandQueue`，按 FIFO 顺序执行。
-- `AgentControlPlane.enqueue_command()` 统一 NLU 拆批、batch metadata、retry 和 queue_full；
-  离线链路只通过私有 context 附加 latency，不得覆盖公共 batch 字段。
-- `AgentApplicationRuntime.run_queued_turn()` 恢复入队时冻结的用户/延迟上下文；
-  `AgentExecutionRuntime` 的 worker 只负责线程所有权、busy 和异常隔离。
-- 命令执行前发布 started，执行后发布 finished。
-- worker 用 `finally` 统一复位 busy；单条命令异常发布 `success=false` 后继续消费下一条，
-  避免 3～5 分钟演示被一次 TTS/LLM 异常永久终止。
-- `停下/急停` 是 priority stop：清空队列、取消当前 sequence、立即发布 stop。
-- 非优先命令设置 TTL，太旧会过期丢弃并上报。
-
-控制层还有第二级 C++ 队列，关键代码为 `action_scheduler.hpp/.cpp`：Python 队列管理“哪句用户命令先处理”，C++ 队列管理“哪个受信 Action goal 先执行”。组合动作会先批量发布给 C++；`RobotCommand.priority` 明确区分用户急停和计划 STOP。这样旁路发布者也不能绕过 FIFO，且 Action Client、取消 watchdog、错误码和 `/diagnostics` 都集中在同一个模块。
-
-为什么这样设计：
-
-- 用户会连续说多条命令，不能因为上一条动作 busy 就静默丢弃下一条。
-- 急停不能排队等待，必须抢占。
-- TTL 防止机器人执行用户很久之前说过、已经过时的命令。
-
-方案对比：
-
-- busy 时直接丢弃：实现简单，但体验像“卡住”。
-- 并行执行所有命令：机器人动作冲突，安全性差。
-- FIFO + priority stop：兼顾连续体验和安全边界。
-
-## 4.1 LLM 流式协议为什么需要独立运行时
-
-关键代码：
-
-- `src/embodied_agent_core/embodied_agent_core/streaming_turn.py`
-- `src/embodied_agent_core/embodied_agent_core/protocol.py`
-- `src/embodied_agent_core/embodied_agent_core/command_fallback.py`
-- `src/embodied_online_agent/embodied_online_agent/online_turn_runtime.py`
-- `src/embodied_offline_agent/embodied_offline_agent/offline_turn_runtime.py`
-
-`StreamingTurnRuntime` 隐藏 `TaggedStreamParser`、`SentenceChunker`、确定性命令优先级和
-语义安全拦截。`OnlineStreamingTurnRuntime` 把 `on_speakable` 接到网络 TTS 队列，
-`OfflineStreamingTurnRuntime` 接到伪流式双缓冲，因此复用的是“稳定协议”，不是强行
-复用不同 provider 的音频实现；两个 ROS 节点只负责装配这些 Adapter。
-
-动作选择顺序固定为：明确中文命令的 deterministic parser → 语义安全阻断 → 模型动作。
-完成后返回不可变 `StreamingTurnResult`，记忆、动作发布和日志都使用同一份已选择结果，
-避免出现“动作被安全层拦截，但用户画像却记录为成功执行”的分裂状态。
-
-方案对比：
-
-- 两个节点复制 token loop：短期直观，但协议修复和安全策略容易只改一边。
-- 继承大型 `BaseAgentNode`：可减少代码，却会把 ROS、provider、TTS 和 latency 耦合到一起。
-- 深模块 + callback adapter：公共规则只有一份，在线/离线只保留真正不同的 I/O 和指标。
-
-## 5. VAD、endpoint 与 ASR commit delay
-
-关键代码：
-
-- `src/embodied_agent_cpp/src/audio_frontend_node.cpp`
-- `src/embodied_agent_cpp/src/audio_processing.cpp`
-- `src/embodied_online_agent/embodied_online_agent/online_agent_node.py`
-- `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py`
-- `src/embodied_agent_core/embodied_agent_core/asr_endpoint_runtime.py`
-- `scripts/audio_frontend_calibration.py`
-- `scripts/voice_calibration_report.py`
-
-设计方式：
-
-- C++ audio frontend 发布 `/audio/clean_pcm`、`/audio/speech_started`、`/audio/speech_ended`、`/audio/silence_timeout`。
-- `VAD_PROVIDER=auto` 会在启动脚本里先跑 `voice_provider_preflight.py`：Silero VAD 依赖可用时，
-  AudioFrontend 只发布 clean PCM，`silero_vad` sidecar 负责 endpoint；Silero 不可用但
-  `webrtcvad` 可用时，`webrtc_vad` sidecar 接管 endpoint；都不可用时降级 energy VAD。
-- `scripts/setup_voice_vad_runtime.sh` 提供 WebRTC/Silero 可选依赖安装入口，支持 dry-run；
-- Silero 默认使用项目内 `SileroOnnxVadProvider` 管理模型的递归 `state` 和 64-sample
-  context，16kHz 每 512 samples（32ms）推理一次。相比官方 PyTorch 包路径，端侧默认只需
-  约 2.2MiB ONNX 模型和 ONNX Runtime；模型版本、哈希与实测延迟由验收报告记录。
-- `StreamingVadEndpoint` 使用“连续帧起点确认 + 较低结束阈值”的状态机：起点去抖负责过滤
-  短噪声，阈值滞回负责避免概率在临界值附近反复切换。相比单一能量阈值，它更适合长时间
-  麦克风控制；相比直接调用模型工具函数，独立 endpoint 状态机更容易单测和替换 provider。
-  它会安装 `embodied_voice_frontend[webrtc-vad]`、`embodied_voice_frontend[silero-vad]`
-  对应 extra，并在安装后跑 provider preflight。
-- `voice_provider_preflight.py` 不只判断 PASS/BLOCKED，还会在 auto 降级或显式 provider
-  缺依赖时输出 `recommendations`。这样真实麦克风演示前可以从“缺什么包”直接走到
-  “运行哪个 setup 脚本”，减少现场排障成本。
-- `webrtc-vad-sidecar` 是安装 WebRTC runtime 后的显式验收入口：它启动 C++ audio frontend
-  和 `webrtc_vad` sidecar，确认端点事件由成熟 VAD 接管，而不只是检查 Python 包是否存在。
-- `silero-vad-runtime` 是更强的 Silero 验收：先使用真实语音测模型概率/单帧延迟，再向
-  ROS 2 sidecar 发布 PCM，要求输出成对 endpoint 事件。
-- `scripts/setup_voice_kws_runtime.sh` 提供 openWakeWord、sherpa-onnx KWS、LiveKit WakeWord
-  的可选运行时入口；sherpa profile 会复用 ZipFormer ASR 模型路径，生成默认关键词文件，
-  并写出 `logs/sherpa_kws.env`，方便后续 `source` 后直接跑 `provider-preflight`。
-- `sherpa-kws-sidecar` 会实际启动 `sherpa_onnx.KeywordSpotter`，证明声学 KWS 不只是
-  参数 seam；默认关键词文件使用 `小 智` / `你 好 小 智` 这种 tokenized 写法，
-  避免 sherpa 无法从 tokens.txt 编码整句中文。
-- Agent 收到 endpoint 后交给 `AsrEndpointRuntime`：50ms 内重复端点只接受一次，延迟 timer
-  在节点关闭时统一取消，且非连续模式 busy 时不会误提交下一句。
-- runtime 只依赖 callback；在线 callback 直接调用 ASR commit，离线 callback 把 commit
-  放入音频处理队列，因此并发策略一致而 provider 传输方式保持独立。
-- `asr_commit_delay_ms` 允许在 endpoint 后等待少量时间，再提交 final。
-- `VOICE_CONTROL_PROFILE` 提供 normal、quiet、low_gain、noisy_room 四种参数预设。
-- `voice_calibration_report.py` 把 provider preflight、audio calibration、KWS score calibration
-  汇总成 `logs/voice_calibration_report.json/.md`，并额外生成可 `source` 的
-  `logs/voice_calibration.env`，用于真实麦克风演示前保存和复用调参证据。对
-  openWakeWord/LiveKit，采到 KWS 分数后会把建议阈值写成
-  `OPENWAKEWORD_THRESHOLD` / `LIVEKIT_WAKEWORD_THRESHOLD`。
-- `continuous_voice_control.sh` 默认 `APPLY_VOICE_CALIBRATION=auto`：如果
-  `logs/voice_calibration.env` 存在，会在 profile 默认值计算前加载；如果用户显式传入
-  `VOICE_CONTROL_PROFILE/SPEECH_START_THRESHOLD/VAD_PROVIDER` 等关键变量，则显式值优先。
-- `transcript_stabilizer.py` 保存同一 utterance 的最新 ASR partial；final 严格截短且尾部是
-  可解释控制槽位时才恢复，并通过 `asr_final_recovered` feedback 留证。
-
-为什么这样设计：
-
-- 真实 ASR 容易漏掉尾部数字和量词，例如“左转90度”只 final 成“左转”。
-- 适当延迟 300～500ms 可以换取更完整的识别结果。
-- 校准文件默认自动复用，可以减少演示前忘记 `source logs/voice_calibration.env` 的概率；
-  但显式环境变量优先，避免旧校准文件覆盖现场临时调参。
-- 把 VAD 依赖安装封装成项目脚本，是为了让“成熟 VAD sidecar”不只是代码 seam；
-  演示环境可以通过 dry-run、install、preflight 三步确认真的没有降级到 energy VAD。
-- KWS 单独做 runtime setup，是因为“唤醒词检测”比文本触发更接近真实机器人交互；openWakeWord
-  适合快速准备 Python runtime，sherpa KWS 则能复用离线 ASR 运行时资产。
-- VAD 和 commit 分离，便于定位“音频没听到”和“ASR final 太早”两类问题。
-- partial/final 合并放在 Agent 入口而不是 ASR provider 内，在线 Qwen 与离线 ZipFormer
-  共用同一安全策略，provider 仍只负责忠实上报模型结果。
-- 成熟 VAD 做成 sidecar，而不是塞进 PortAudio 回调线程，是为了避免模型推理阻塞音频采集。
-
-方案对比：
-
-- 极短静音阈值：响应快，但尾部漏识别多。
-- 很长静音阈值：完整但交互迟钝。
-- profile + commit delay：保留可调空间，适合不同环境。
-- auto Silero/WebRTC sidecar：Silero 判断更稳但依赖较重，WebRTC VAD 更轻、更易部署但只有二分类；
-  降级 energy VAD 保证基础演示不被可选依赖卡死。
-- 直接采用最长 partial：召回高但可能恢复模型中途幻觉；当前实现要求 final 前缀关系、2 秒新鲜度和
-  安全槽位白名单，牺牲部分召回换取动作安全。
-
-## 6. 短命令补全与模糊归一化
-
-关键代码：
-
-- `src/embodied_agent_core/embodied_agent_core/command_normalizer.py`
-- `src/embodied_agent_core/config/command_normalization_zh.yaml`
-- `src/embodied_agent_core/embodied_agent_core/command_completion.py`
-- `src/embodied_agent_core/embodied_agent_core/transcript_stabilizer.py`
-- `src/embodied_agent_core/test/test_command_completion.py`
-
-设计方式：
-
-- command normalizer 处理错别字、同音词、常见 ASR 误识别。
-- command completer 处理缺槽短命令：
-  - `前进` → `前进一秒`
-  - `后退` → `后退一秒`
-  - `左转` → `左转九十度`
-  - `右转` → `右转九十度`
-- 补全只作用于普通控制命令，不处理 `停下/急停`。
-
-为什么这样设计：
-
-- 演示中“短 ASR final”不应该让链路中断。
-- 用规则补全比再调一次 LLM 更快、更稳定、可测试。
-- 安全命令保持原样，避免误改写。
-
-方案对比：
-
-- 全交给 LLM：泛化强，但慢且不可预测。
-- 全靠 ASR 热词：能改善识别，但不能解决所有尾部漏识别。
-- 规则补全 + ASR 调参：更适合当前演示目标。
-
-## 7. 在线 Agent：流式 ASR/LLM/TTS 与动作回调
-
-关键代码：
-
-- `src/embodied_online_agent/embodied_online_agent/online_agent_node.py`
-- `src/embodied_online_agent/embodied_online_agent/providers/qwen_asr.py`
-- `src/embodied_online_agent/embodied_online_agent/providers/openai_compatible_llm.py`
-- `src/embodied_online_agent/embodied_online_agent/providers/qwen_tts.py`
-- `src/embodied_agent_core/prompts/system_prompt_zh.txt`
-- `src/embodied_agent_core/embodied_agent_core/protocol.py`
-
-设计方式：
-
-- ASR partial/final 分开发布。
-- LLM 输出通过 tagged stream parser 解析文本和动作。
-- TTS 按句子 chunk 合成，减少首包等待。
-- 动作候选通过 `/agent/action_candidate` 进入 ActionGuard。
-- metrics 记录 LLM 首 token、TTS 首音频等延迟。
-
-为什么这样设计：
-
-- 流式交互要尽早给用户反馈，不能等完整回复生成完。
-- 动作回调必须结构化，不能从自然语言里临时猜。
-- TTS 与 LLM 分块并行，降低体感延迟。
-
-方案对比：
-
-- 非流式 LLM/TTS：实现简单，但等待时间长。
-- LLM 直接发控制 topic：快但安全边界差。
-- Agent 只产动作候选，C++ guard 再执行：更符合机器人系统分层。
-
-## 8. 轻量 NLU：一句话多个命令识别
-
-关键代码：
-
-- `src/embodied_agent_core/embodied_agent_core/command_nlu.py`
-- `src/embodied_agent_core/config/command_nlu_zh.json`
-- `scripts/train_command_nlu.py`
-- `tests/integration/test_continuous_multi_command.py`
-
-设计方式：
-
-- 使用字符 n-gram 原型模型识别控制意图，不依赖 torch/transformers。
-- 输入一条 ASR final，输出多个动作片段和置信度。
-- `ParsedCommand.slots` 显式保存方向、速度、距离、角度、时长或地点，不再只从最终
-  `linear_x/angular_z/duration_s` 反推动作语义。
-- 距离动作按 `duration = distance / speed` 转换到现有强类型运动接口；未指定速度且超过
-  默认 10 秒窗口时，在 `0.5m/s` 安全上限内自适应提速。用户已明确慢速且单动作无法在
-  10 秒内完成时，拆成多个同速 primitive action 顺序执行，避免提速或静默截断距离。
-- 任意角度先转换为弧度，再根据角速度计算持续时间；90° 保留已有 Gazebo 标定参数，
-  360° 自动使用安全范围内更高的角速度，避免突破 ActionGuard 的时长上限。
-- 例如“向右转，向前走一秒”会输出 `turn -> move`。
-- 每个队列项带 `batch_id / batch_index / batch_size`，便于 monitor 解释顺序。
-- 每个动作候选带 `request_id`，ActionGuard 映射成 `RobotCommand.command_id`，用于 result 关联。
-- monitor 支持 `CONTINUOUS_SAMPLE_LOG=logs/asr_nlu_samples.jsonl`，把真实 ASR final、
-  NLU/补全/归一化 feedback、动作候选和 result 写成 JSONL，方便把现场错词沉淀成回归集。
-- `scripts/asr_nlu_samples_to_eval_candidates.py` 会把这些运行时事件按 `asr_final`
-  分组，生成 `logs/asr_nlu_eval_candidates.jsonl`；候选样本带 `suggested_eval_case`，
-  人工确认后即可补进 `training/robot_instruction_eval.jsonl`。
-- `scripts/evaluate_asr_nlu_eval_candidates.py` 复用正式 parser 评估逻辑，对候选集先跑
-  临时 accuracy；这让现场采到的错词即使还没合入正式数据集，也能马上用于回归观察。
-
-为什么这样设计：
-
-- 纯字符串 split 对无标点语音不稳，例如“向右转向前走一秒”。
-- 大模型理解更强，但慢、不可预测、在线成本高。
-- 轻量 NLU 覆盖固定机器人动作域，速度快、可测试、可解释。
-- 真实 ASR 的错词分布很依赖麦克风和环境，靠人工凭记忆补测试很容易漏；采样日志转候选集
-  可以把现场失败直接变成可回归的数据资产。
-- 候选集和正式评估集分开，是为了避免“观察到的动作候选”未经人工确认就污染 ground truth；
-  但候选集临时评估又能让工程迭代保持速度。
-
-方案对比：
-
-- 规则拆分：部署最简单，但表达能力弱。
-- 大模型 function calling：泛化强，但响应和稳定性受模型影响。
-- 本地轻量 NLU + ActionGuard：在固定动作域内更适合端侧演示。
-
-槽位评测：
-
-```bash
-bash scripts/acceptance_test.sh instruction-parser-eval
+# 技术学习笔记：从语音 Agent 到自动建图导航
+
+本文按稳定技术主题组织，不记录容易过期的开发流水账。每个主题统一说明功能、真实代码位置、
+上下游调用、设计原因、替代方案、失败边界和测试。运行方法和 PASS 标准以
+[测试与验收手册](TESTING_AND_ACCEPTANCE.md) 为准。
+精确的文件、函数和 topic/action 上下游见
+[语音到仿真代码走读](VOICE_TO_SIMULATION_CODE_WALKTHROUGH.md)。
+
+```text
+麦克风 / PCM
+→ AEC、VAD、endpoint
+→ 在线或离线 ASR
+→ 会话、NLU/LLM、队列和用户上下文
+→ typed RobotCommand
+→ C++ ActionGuard、ActionScheduler
+→ ExecuteRobotCommand Action
+→ BehaviorTree.CPP、pluginlib Executor
+→ Gazebo / SLAM / AMCL / Nav2
 ```
 
-当前 `training/robot_instruction_eval.jsonl` 包含 43 条代表用例；报告按 `slots / speed /
-distance / angle / duration / navigation` 等 tag 分组，避免只用总体准确率掩盖某一类槽位失败。
+自动建图导航还包含应用生命周期控制路径：
 
-## 9. 声纹识别与用户行为记忆
-
-关键代码：
-
-- `src/embodied_voice_frontend/embodied_voice_frontend/speaker_identity_node.py`
-- `src/embodied_agent_core/embodied_agent_core/memory_command_service.py`
-- `src/embodied_agent_core/embodied_agent_core/user_context_runtime.py`
-- `src/embodied_agent_core/embodied_agent_core/speaker_transport.py`
-- `src/embodied_agent_interfaces/msg/SpeakerIdentity.msg`
-- `src/embodied_agent_interfaces/msg/SpeakerEnrollRequest.msg`
-- `src/embodied_agent_interfaces/msg/SpeakerEnrollStatus.msg`
-- `src/embodied_agent_core/embodied_agent_core/user_memory.py`
-- `src/embodied_agent_core/embodied_agent_core/user_preferences.py`
-- `src/embodied_online_agent/embodied_online_agent/online_agent_node.py`
-- `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py`
-- `tests/integration/test_speaker_memory_mock.py`
-- `tests/integration/test_sherpa_speaker_identity_ros.py`
-- `scripts/setup_sherpa_speaker_runtime.sh`
-- `scripts/probe_sherpa_speaker_runtime.py`
-
-设计方式：
-
-- 声纹识别被做成 sidecar：订阅 `/audio/clean_pcm` 和 `/audio/speech_ended`，发布 typed `/agent/speaker_identity`。
-- 声纹录入通过 typed `/agent/speaker_enroll_request` 触发，sidecar 把后续语音段保存成 wav 样本并维护 `speakers.txt`，进度通过 `SpeakerEnrollStatus` 枚举发布。
-- `MemoryCommandService.handle()` 是在线/离线共用的深模块接口：查询身份、保存/删除偏好、清空记忆、文本兜底录入和 interaction 记录都隐藏在实现内部；节点只处理 ROS 发布和 TTS。
-- `UserContextRuntime` 统一持有当前身份和 `MemoryCommandService`。每条命令入队时冻结
-  `UserContextSnapshot`，prompt 摘要、动作偏好和最终 interaction 都使用这份快照；这解决了
-  长动作期间声纹从 A 更新成 B 后把 A 的命令误写入 B 画像的并发竞态。
-- `speaker_transport.py` 是声纹领域对象与 rosidl 消息之间唯一 Adapter，置信度门槛在进入领域层时统一应用。
-- Sherpa backend 按 speaker 聚合多段 embedding 后一次注册到
-  `SpeakerEmbeddingManager`，确保注册时采集的 3 段样本都参与模板，而非只保留第一段。
-- 匹配时遍历 `all_speakers` 获取真实 `score`，发布 top-1 confidence、第二名分数和
-  score margin；低于阈值或 top-1/top-2 过近均返回 `unknown`。
-- Sherpa 模式启动时只发布 `awaiting_audio/unknown`，不会用 demo mock 身份抢先加载个人记忆。
-- Agent 只消费稳定 typed `SpeakerIdentity`，不直接绑定某个模型库。
-- `UserMemoryStore` 按 `speaker_id` 保存本地 profile，包括用户名、偏好、常用动作、最近交互。
-- Agent 推理前把当前用户画像追加进 system prompt，但动作仍必须经过 ActionGuard。
-- `user_preferences.py` 在动作发布出口统一应用确定性偏好，例如 `movement_speed=slow/fast`、
-  `default_move_duration_s`、`default_turn_degrees`；这样 fallback、轻量 NLU、多命令队列和 LLM 输出
-  都能得到一致的参数调整。
-- 管理命令直接在 Agent 层处理，例如“记住我，我是小李”“我喜欢慢一点”“我是谁”“清除我的记忆”。
-- 记忆生命周期支持“我的偏好”查询、“恢复默认速度”等按项删除，以及清空整个 profile。
-  清空命令不会再被当作新 interaction 写回，避免出现“刚清除又生成文件”的反直觉行为。
-- `user_memory_retention_days` 对 recent interaction/correction 做 TTL 清理；显式 preference
-  代表用户配置，只有主动删除才消失。这样兼顾隐私留存上限与机器人行为的可预测性。
-
-为什么这样设计：
-
-- 声纹模型属于可替换能力，和 ASR/LLM/动作控制主链路解耦，降低演示风险。
-- 用户画像是长期稳定信息，不适合无限追加到普通对话历史里。
-- 原始话术明细和稳定偏好采用不同保留策略：前者 TTL，后者显式删除；如果给全部记忆
-  使用同一个 TTL，机器人可能在用户不知情时突然恢复默认行为。
-- 记忆写入必须可控，不能完全交给 LLM 自行决定，否则容易把误识别或幻觉写入本地 profile。
-- 低置信度声纹返回 `unknown`；`UserMemoryStore` 对写操作增加 `LowConfidenceSpeakerError`
-  门控，`UserContextRuntime` 捕获后跳过个人记忆写入，避免把 A 用户偏好误写到 B 用户。
-- 偏好只改写低层运动参数，且只在 speaker identity 可信时生效；真正的速度/时长边界继续由
-  C++ ActionGuard 兜底，避免“记忆”绕过安全策略。
-
-方案对比：
-
-- 直接接 mem0/Letta/Zep：记忆能力强，但偏 Web Agent/服务端框架，当前 ROS2 端侧项目会变重。
-- 使用 SpeechBrain/pyannote：模型能力成熟，但依赖 PyTorch 或 HuggingFace 模型，部署复杂。
-- 当前方案：mock 可自动验收，sherpa-onnx seam 可接真实端侧声纹，和已有离线技术栈一致。
-- 当前实测：官方 3D-Speaker 中文 ONNX 已完成真实 CPU embedding 与 ROS sidecar 自匹配；
-  仍未完成多人、多房间数据集上的 FAR/FRR 评估，因此不宣称“声纹准确率已达生产级”。
-- 模型与 API 选型参考 Sherpa-ONNX 官方
-  [Speaker Identification](https://k2-fsa.github.io/sherpa/onnx/speaker-identification/index.html)；
-  setup 脚本固定官方模型 URL 与 SHA256，避免模型文件悄然变化。
-
-验收方式：
-
-```bash
-bash scripts/acceptance_test.sh speaker-memory-mock
-bash scripts/acceptance_test.sh speaker-enroll
-bash scripts/setup_sherpa_speaker_runtime.sh
-bash scripts/acceptance_test.sh speaker-runtime
+```text
+“开始自动巡检建图”
+→ SLAM 会话状态机
+→ Explore Lite frontier + Nav2
+→ map saver
+→ 保存地图 + AMCL/Nav2
+→ Agent typed 语义导航与巡检
 ```
 
-这些验收分别证明：speaker identity 进入 Agent、用户偏好落盘、偏好能影响后续动作参数、
-动作执行后更新用户行为统计、录入流程能采集样本，以及真实 Sherpa embedding 能经 ROS
-sidecar 输出实际相似度。多人准确率仍需另建注册/查询数据集评估。
-
-## 10. 离线 Agent：Sherpa、llama.cpp、Sherpa-TTS/SummerTTS 与双缓冲
-
-关键代码：
-
-- `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py`
-- `src/embodied_offline_agent/embodied_offline_agent/providers/sherpa_asr.py`
-- `src/embodied_offline_agent/embodied_offline_agent/providers/llama_cpp.py`
-- `src/embodied_offline_agent/embodied_offline_agent/providers/sherpa_tts.py`
-- `src/embodied_offline_agent/embodied_offline_agent/providers/summer_tts.py`
-- `src/embodied_offline_agent/embodied_offline_agent/providers/summer_tts_ros.py`
-- `src/embodied_agent_interfaces/srv/SynthesizeSpeech.srv`
-- `src/embodied_agent_cpp/src/summer_tts_service_node.cpp`
-- `src/embodied_offline_agent/embodied_offline_agent/pseudo_streaming_tts.py`
-- `src/embodied_offline_agent/embodied_offline_agent/double_buffer.py`
-- `src/embodied_offline_agent/embodied_offline_agent/latency.py`
-- `scripts/start_llama_server.sh`
-- `scripts/llama_cpp_preflight.py`
-- `scripts/setup_summer_tts_runtime.sh`
-- `scripts/summer_tts_smoke.py`
-- `scripts/smoke_test_summer_pseudo_tts.py`
-- `scripts/generate_offline_showcase_report.py`
-- `scripts/audit_offline_showcase_evidence.py`
-
-设计方式：
-
-- Sherpa ZipFormer 负责流式 ASR。
-- llama.cpp server 提供 OpenAI-compatible streaming completion，`LlamaCppLlm` 只暴露 `stream(messages)`，
-  让 Offline Agent 不关心底层是 llama.cpp、云 API 还是测试 fake client。
-- Sherpa-TTS 是默认稳定 TTS provider；SummerTTS 是新增 C++ 独立编译 TTS provider，可通过 `tts_provider:=summer` 切换。
-- `SummerTts` provider 调用 `third_party/SummerTTS/build/tts_test`，输入文本文件和 `.bin` 模型，读取 16kHz mono wav 后返回 PCM16 bytes。
-- `SummerTtsServiceNode` 是常驻 C++ ROS component：节点启动时加载 `single_speaker_fast.bin`，
-  对外提供 `/tts/synthesize` service，Python 侧 `SummerTtsRosClient` 通过 `tts_provider:=summer_ros` 调用。
-  service 内部对短文本做 LRU 缓存，缓存 key 包含文本、speaker_id 和 length_scale，避免不同音色或语速误复用。
-- `PseudoStreamingTtsPipeline` 把 Sherpa/SummerTTS 这种“整句生成”的本地 TTS 包装成伪流式：
-  LLM 文字增量先经 `SentenceChunker` 切成短句，TTS worker 合成 PCM，audio worker 再按小块发布。
-- 双缓冲把 LLM 文本生成、TTS 合成与音频输出解耦。
-- latency 模块记录离线端到端耗时。
-- llama.cpp provider 请求流式 usage，分别记录 `stream_chunks`、`prompt_tokens`、
-  `completion_tokens`、首 token 和 decode 估算；SSE chunk 数不再冒充 token 数。
-- `runtime_warmup_enabled` 在节点 ready 前预热真实 `system + 已加载短期历史` 前缀，并预合成
-  一个短 TTS；ConversationMemory 保存模型原始 `<speech>/<action>` 协议输出，使下一轮 chat
-  template 与 server slot 中的生成 token 保持一致。离线短期历史限制为 3 轮，长期偏好由用户画像保存。
-- llama-server 默认 `parallel=1`，让单用户语音 Agent 复用 KV cache。2026-07-11 本机实测：
-  冷 prefill 约 4s（节点 ready 前承担），warm Agent turn 首 token 中位数约 `536ms`、P95
-  约 `560ms`，API decode 估算中位数约 `28.9 tokens/s`。
-- TTS pipeline 额外记录 `text_chunks`、`synth_calls`、`audio_chunks`、`first_text_to_first_audio_ms`，
-  由 `metrics_transport.py` 映射进统一 `/agent/metrics` 的 `AgentTurnMetrics` 字段。
-- 在线/离线不再维护两条 `String + JSON` 指标 topic；`AgentTurnMetrics.source` 区分来源，NaN
-  表达缺失浮点值，`TARGET_UNKNOWN/MET/MISSED` 避免布尔默认值把“未采集”误写成“不达标”。
-- `llama_cpp_preflight.py` 把 binary、模型文件、`/health`、`/v1/models`、低 token 流式 chat 分层验证。
-- `summer_tts_smoke.py` 把 SummerTTS 源码、二进制、模型和真实合成分层验证；`summer-pseudo-tts`
-  再验证真实 SummerTTS 能接入项目双缓冲伪流式 pipeline。
-- `generate_offline_showcase_report.py` 汇总模型资产、运行时版本、parser accuracy、可选 latency/ASR/TTS/
-  真实 Agent E2E benchmark；`offline_latency_targets.py` 明确把非流式 `synthesize()` 计为整句合成耗时，
-  真正首音频只采用 `PseudoStreamingTtsPipeline` 发布第一块 PCM 的时间，避免指标命名失真；
-  `audit_offline_showcase_evidence.py` 再审计这份报告，输出 `claim_guidance`，明确哪些指标已有证据、
-  哪些只能作为后续计划。
-
-为什么这样设计：
-
-- 端侧算力有限，离线链路必须控制模型体积和串行等待。
-- llama.cpp、Sherpa、SummerTTS 都是轻量本地部署方案，适合 CPU/边缘端演示。
-- 双缓冲可以减少“LLM 等 TTS / TTS 等 LLM”的卡顿。
-- 本地 TTS 通常不是天然流式；伪流式的关键是尽早切短句、尽早开始合成、音频按 PCM 小块发布。
-- 推理层独立预检可以快速判断问题在模型服务、ASR、TTS 还是 ROS 控制链路，避免完整 demo 失败时只能猜。
-- 离线展示最怕“工程接口接了”和“指标已复现”混在一起讲；证据审计脚本把未运行的 latency、
-  ASR/TTS benchmark 标成 warning，并用数据集、提示词、adapter、GGUF 和评估报告 SHA256
-  绑定 LoRA 证据，帮助汇报时守住边界。
-- Qwen3 thinking parser 可能造成“动作 JSON 正确但 speech 起始标签缺失”。因此评估永久拆成
-  `action_score`、`protocol_score`、严格 `model_score` 和 fallback `effective_score`，避免把模板
-  兼容问题误判为动作语义，也避免用工程兜底冒充模型能力。
-- `llama-bench` 的纯 decode 与 Agent API 长 prompt 指标必须分开：前者证明模型/CPU 上限，
-  后者包含 prompt cache、历史滑窗和服务协议开销。本机同轮报告分别约为 `37.2` 与
-  `28.9 tokens/s`，不能选择更高数字冒充端到端吞吐。
-- SummerTTS 是 C++ 项目，适合展示“端侧 C++ 运行时嵌入”；命令行 provider 保证部署简单，
-  常驻 ROS component 则展示了更工程化的低耦合封装，并减少每句进程启动和模型加载开销。
-- 短文本缓存只覆盖“收到/好的/正在执行”等反馈语，长句不缓存，避免内存被长音频占满；这属于工程优化，
-  不是模型推理加速，因此文档仍把 Sherpa-TTS 作为默认低延迟 gate。
-- 请求失败后只在“尚未吐出 token”时重试；如果流式回复已经输出一半，就不能静默重试，否则上游 parser 会收到拼接污染的回复。
-
-方案对比：
-
-- 全部云端：效果强，但不体现端侧部署能力。
-- Python 大模型框架直接推理：开发方便，但部署和性能压力更大。
-- llama.cpp + Sherpa：工程味更强，适合展示端侧推理思路。
-- SummerTTS 命令行封装：接入最快、易验收，但每句会启动进程并加载模型；适合先打通链路。
-- SummerTTS C++ 组件化封装：可复用已加载模型，服务接口清晰，但需要维护 C++ wrapper、ROS2 service
-  和组件生命周期；短文本缓存能显著优化重复反馈，未命中时仍受 SummerTTS CPU infer 本身限制。
-- 直接绑定 llama.cpp C API：可控性更强，但 Python/ROS2 集成和维护成本高；本项目选择 OpenAI-compatible server，
-  用网络 seam 换取更低耦合、更容易 mock 和更清晰的部署边界。
-
-## 11. BehaviorTree.CPP 与 pluginlib 仿真执行
-
-关键代码：
-
-- `src/embodied_simulation/config/command_tree.xml`
-- `src/embodied_simulation/include/embodied_simulation/active_action_runtime.hpp`
-- `src/embodied_simulation/src/active_action_runtime.cpp`
-- `src/embodied_simulation/include/embodied_simulation/simulation_ros_io.hpp`
-- `src/embodied_simulation/src/simulation_ros_io.cpp`
-- `src/embodied_simulation/src/command_behavior_tree.cpp`
-- `src/embodied_simulation/include/embodied_simulation/robot_executor.hpp`
-- `src/embodied_simulation/src/gazebo_robot_executor.cpp`
-- `src/embodied_simulation/src/mock_robot_executor.cpp`
-- `src/embodied_simulation/src/nav2_robot_executor.cpp`
-- `src/embodied_simulation/src/simulation_controller.cpp`
-
-设计方式：
-
-- BehaviorTree 负责动作执行流程：校验动作、检查安全、执行、确认结果。
-- `ActiveActionRuntime` 把“本地计时 + Nav2 外部 result + cancel/timeout + BT
-  outcome”合并为一个 `ActiveActionDecision`，ROS 节点不再维护平行状态字段。
-- `SimulationRosIo` 统一管理 7 个 Lifecycle publisher 及其激活/停用顺序，并把领域状态
-  映射为强类型 ACK、BT status、diagnostics 和 component health；控制节点不再感知消息序号、
-  BT 去重签名或各 topic 的 QoS 细节。
-- `RobotExecutor` 是统一接口。
-- pluginlib 提供 `GazeboRobotExecutor` 和 `MockRobotExecutor` 两种后端。
-- `SimulationController` 负责把动作转换成 `/cmd_vel`，并处理基础安全逻辑。
-
-为什么这样设计：
-
-- BT 把流程从 if/else 里抽出来，更接近 Nav2 的工程风格。
-- pluginlib 让 mock 和 Gazebo 后端可替换，测试不必依赖 Gazebo。
-- executor 分层后，未来接真实硬件或 Nav2 行为树更自然。
-- 三类 executor 分开编译后，Gazebo/Mock 不再携带 Nav2 Action、地图加载和线程依赖；
-  新增后端只需实现 `RobotExecutor` 并注册 pluginlib，不必修改既有后端源码。
-- 运行时是无 ROS Node 依赖的 C++ 深模块，可以用确定的时间值测试边界条件，
-  避免用 launch 测试才能覆盖超时、取消和旧 result 等状态组合。
-- ROS I/O 集中后，新增 topic 或修改 DDS 策略只有一个改动点；Lifecycle 停用时先发布 STOPPED、
-  再停用 publisher，避免 transient-local 缓存仍向晚加入观察者显示 READY。
-
-方案对比：
-
-- 单个节点写死所有逻辑：短期快，但难测试、难扩展。
-- 仅把代码机械拆成多个 helper：文件变短但状态仍散落；本项目按“一个 goal
-  的完整生命周期”划分模块边界，让调用方只处理 `start/update/reset`。
-- 每个 publisher 都留在 Node：直观但 QoS、激活状态、状态码映射会散落；本项目用
-  `SimulationRosIo` 封装完整中间件语义，Node 只调用业务含义明确的 publish 方法。
-- 直接引入完整 Nav2：功能强，但本项目目标不是复杂导航，成本过高。
-- 轻量 BT + pluginlib：足够展示工程规范，同时保持项目可跑通。
-
-### 真实语音部署 profile
-
-- `scripts/voice_control_profile.sh` 是 `normal/quiet/low_gain/noisy_room` 的唯一默认值解析器。
-- `continuous_voice_control.sh` 选择 `control` 场景，Nav2 入口选择 `navigation` 场景；后者只延长
-  会话和命令有效期，不复制整套 VAD 参数表。
-- profile 只提供稳定默认值，校准文件和用户显式环境变量仍可覆盖，形成
-  “代码默认值 < 场景 profile < 现场校准/显式覆盖”的配置优先级。
-
-这样既保留现场调参能力，又避免两个入口对同一个 `low_gain` 名称产生不同且无法追踪的含义。
-
-## 12. 测试体系
-
-关键代码：
-
-- `tests/repository/test_repository_architecture.py`
-- `tests/repository/test_repository_delivery.py`
-- `tests/repository/test_repository_voice_runtime.py`
-- `tests/integration/test_acceptance_cli.sh`
-- `tests/integration/test_continuous_voice_control.py`
-- `src/embodied_agent_core/test/`：共享领域与运行时
-- `src/embodied_voice_frontend/test/`：VAD、KWS、声纹输入 Adapter
-- `tests/integration/test_online_api.py`：在线 provider Adapter
-- `src/embodied_offline_agent/test/`
-- `src/embodied_agent_cpp/test/`
-- `src/embodied_simulation/test/`
-- `scripts/acceptance_test.sh`
-- `scripts/showcase_release_gate.py`
-
-设计方式：
-
-- repository test 保证文件结构和文档入口不漂移。
-- Python 单测覆盖 Agent 侧规则、会话、队列、补全。
-- C++ 单测覆盖 validator、ActionScheduler、Action client contract、BT 和 pluginlib 仿真执行器。
-- smoke script 覆盖 ROS 2 topic/action/launch 组合。
-- `release-gate` 默认固定 5 条聚合命令，并输出 `logs/acceptance_report.json`；
-  `demo-gate` 输出 `logs/demo_acceptance_report.json`，更偏现场展示证据，例如 provider preflight、
-  speaker memory、连续多命令、语音导航 mock 和离线展示报告。这样演示前有一份可复查报告，
-  而不是在大量 smoke 脚本中临时挑命令。
-- 真实麦克风用 `continuous-live-check` 做人工辅助证据统计。
-
-为什么这样设计：
-
-- 机器人项目很容易“单个模块能跑，整链路断掉”。
-- 分层测试能快速定位问题发生在 ASR、Agent、ActionGuard、Action、Gazebo 哪一层。
-- 人工真实语音无法完全自动化，所以需要明确“人工验收标准”。
-
-方案对比：
-
-- 只做单测：无法证明 Gazebo 真动了。
-- 只做人工演示：不可复现，回归成本高。
-- 单测 + smoke + 人工验收：更适合当前工程规模。
-
-## 13. 语音目标点导航与多目标点巡航
-
-关键代码：
-
-- `src/embodied_agent_core/embodied_agent_core/navigation_phrases.py`
-- `src/embodied_agent_core/embodied_agent_core/command_nlu.py`
-- `src/embodied_agent_core/embodied_agent_core/command_fallback.py`
-- `src/embodied_agent_interfaces/msg/RobotCommand.msg`
-- `src/embodied_agent_core/embodied_agent_core/ros_action_transport.py`
-- `src/embodied_agent_cpp/src/action_validator.cpp`
-- `src/embodied_simulation/include/embodied_simulation/nav2_places.hpp`
-- `src/embodied_simulation/config/places.yaml`
-- `src/embodied_simulation/rviz/voice_nav2_demo.rviz`
-- `src/embodied_simulation/src/simulation_control_node.cpp`
-- `src/embodied_simulation/src/nav2_robot_executor.cpp`
-- `src/embodied_simulation/launch/voice_nav2_turtlebot3.launch.py`
-- `scripts/continuous_nav2_voice_control.sh`
-- `scripts/audit_nav2_demo_assets.py`
-- `scripts/publish_nav2_initial_pose.py`
-- `tests/integration/test_navigation_sequence.py`
-- `tests/integration/test_continuous_navigation_queue.py`
-- `tests/integration/test_nav2_bridge_sequence.py`
-- `tests/integration/test_nav2_turtlebot3_voice.py`
-- `tests/integration/test_continuous_nav2_voice_control_script.py`
-
-设计方式：
-
-- Agent 层只解析“去哪里”和“经过哪些点”，输出 `navigate_to` 或 `follow_waypoints`，不直接写坐标。
-- `navigation_phrases.py` 用语义地点词表把“门口/书桌/起点”等口语映射为 `door/desk/home`。
-- `RobotCommand.msg` 新增 `NAVIGATE_TO / FOLLOW_WAYPOINTS / CANCEL_NAVIGATION` 和 `target/waypoints/number_of_loops` 字段。
-- `ActionGuard` 继续作为安全边界：校验地点白名单、巡航点数量、循环次数，再转换为 typed command。
-- `places.yaml` 维护语义地点到地图坐标的映射。
-- `tests/repository/test_repository_voice_runtime.py` 会检查 Agent 地点词表、ActionGuard 白名单和
-  `places.yaml` 的 canonical place 完全一致，避免“语音能解析但 Nav2 不认地点”的漂移。
-- mock/Gazebo executor 用“运动窗口”模拟导航和巡航，确保 `/cmd_vel`、Action feedback、Action result 可观测。
-- `Nav2RobotExecutor` 作为 pluginlib 插件调用 Nav2 `NavigateToPose / FollowWaypoints` action；
-  `nav2-bridge` 用 fake Nav2 action server 自动验证 goal 内容和底层 cancel request。
-- 连续控制中，“取消导航”属于控制面指令：online/offline Agent 会清理待执行队列、唤醒
-  正在等待 result 的 sequence，并立即发布 `CANCEL_NAVIGATION`，而不是排到 FIFO 尾部。
-- Nav2 executor 的 goal handle 由互斥锁和 generation 保护；取消或新 goal 会递增代次，
-  晚到的旧 result callback 不得清空新 goal 或覆盖新的执行状态。
-- `RobotExecutor::external_action_update()` 让 Nav2 action result 反向驱动本项目
-  `ExecuteRobotCommand` 的 result，避免只按本地 `duration_s` 假完成。
-- `RobotExecutor::external_action_detail()` 是配套的可观测性 seam：Nav2 插件记录
-  `server_unavailable`、`goal_rejected`、`aborted/canceled`、`error_code/error_msg`、
-  `missed_waypoints` 等原因，`simulation_control_node` 再把这些 detail 写入
-  Action feedback/result。这样现场演示失败时可以从终端直接区分“Nav2 没启动”
-  和“目标执行失败”，而不是只看到笼统的 `blocked`。
-- `voice_nav2_turtlebot3.launch.py` 复用官方 `nav2_bringup/tb3_simulation_launch.py`，
-  再叠加本项目的 Agent、ActionGuard、typed action bridge 和 Nav2 executor。
-- launch 暴露 `rviz_config_file/world/map/params_file`，默认 RViz 使用本项目的
-  `voice_nav2_demo.rviz`，默认 map/world 使用项目内的 `voice_demo.yaml` 和
-  `voice_demo.sdf.xacro`，方便面试时稳定展示 TF、map、scan、odom、global plan。
-- `audit_nav2_demo_assets.py` 审计语义地点、Nav2 launch、RViz 配置、本地 map/world
-  和验收脚本；加 `--require-local-assets` 时，可以把“项目自带固定 map/world”
-  变成严格发布条件。world 文件仍通过 `model://turtlebot3_world` 复用 TurtleBot3 官方
-  场景几何，这是为了降低 Gazebo/Nav2 bringup 的不确定性；项目负责维护演示入口、
-  map/world 文件、目标点配置和语音到 Nav2 action 的链路。
-- `nav2-turtlebot3` 重型验收会启动真实 TurtleBot3/Nav2 仿真，注入语音文本命令，
-  等待目标点导航/巡航 result，并检查 `/odom` 运动证据；探针还订阅 `/map`、`/scan`，
-  发布 AMCL 初始位姿并验证 `map→base_link` 定位 TF。
-- 重型探针通过 `GetState` 服务等待 `bt_navigator`（巡航时还包括
-  `waypoint_follower`）进入 Lifecycle ACTIVE 后才发 goal。只看到 action server 名称
-  不代表它已经激活；旧做法会在启动窗口收到 `Action server is inactive` 拒绝。
-- `logs/nav2_turtlebot3_voice_report.json` 保存地图元数据、激光帧数、定位 TF、Nav2
-  result 数量和 odom 位移，使“真实 Nav2 跑过”成为可复查证据。
-- `nav2-resilience` 在导航运行中调用 `ros_gz_sim create`，把小型静态方块动态插入
-  当前全局路径前方的 inflation 区；它比较插入前后 `/plan` 到障碍中心的最小净空，
-  同时要求 NavigateToPose 成功，证明不是只看到雷达或只发布了模型。
-- `unreachable_zone` 是刻意放在地图外的测试目标：它通过 NLU 和 ActionGuard 白名单进入
-  真正的 Nav2 planner，再要求 `aborted/error_code` 反向传播并检查 `/cmd_vel=0`。这与在
-  Guard 层直接拒绝未知地点不同，前者验证的是导航失败恢复，后者验证的是输入协议安全。
-- `logs/nav2_resilience_report.json` 分别记录障碍前向投影、旧/新路径净空、规划帧数、
-  成功 result、不可达失败 detail 和最终速度，是动态避障/失败反馈的实际重型证据。
-- `test_continuous_navigation_queue.py` 是介于普通连续队列测试和真实 Nav2 重型测试之间的
-  自动回归：它验证一次唤醒后，多目标点导航和巡航命令都能进入连续队列，并按 request_id
-  对应到 ROS 2 Action result；同时验证运行中语音取消会抢占，而不是排队等待。
-- `continuous_nav2_voice_control.sh` 面向现场真实麦克风演示：它在 TurtleBot3/Nav2
-  bringup 之上打开在线/离线 Agent 的连续语音模式，让用户一次唤醒后连续说多个目标点命令。
-- `publish_nav2_initial_pose.py` 在演示启动后重复发布 AMCL `/initialpose`，降低现场
-  “Nav2 已启动但机器人还没有定位”的失败概率。
-- 真实 Nav2 bringup 前需要给 AMCL 发布 `/initialpose`，否则 map->odom/base_link TF
-  不成立；导航 action 也要使用较长 `nav_action_timeout_s`，不能沿用普通动作 12 秒超时。
-
-为什么这样设计：
-
-- 先做语义地点，而不是直接语音转坐标，可以减少 ASR/LLM 的自由度，方便测试和演示。
-- 新增强类型字段，而不是继续塞字符串字段，可以体现 ROS2/C++ 工程能力，也让后续 Nav2 bridge 更自然。
-- 把真实 Nav2 作为 executor 插件，避免把导航细节侵入 Agent、ActionGuard 和测试。
-- 用 external result seam 连接 Nav2 与本项目 Action，能体现“长动作可反馈、可取消、可等待结果”，
-  而不是仅发布一个 topic 后马上认为成功。
-- 失败 detail 由 executor 层产生，而不是让 Agent 猜测，是因为 planner/controller/localization
-  的真实状态属于导航运行时；语音层只负责把自然语言变成目标，不能把底层故障伪装成语义错误。
-- AMCL 初始位姿和长动作超时放在验收/launch 层处理，而不是塞进 Agent，保持“语音语义层”和
-  “导航运行时状态层”职责分离。
-- 连续麦克风 Nav2 演示脚本保留 `VOICE_CONTROL_PROFILE`、VAD endpoint、ASR commit delay、
-  session timeout 和 queue size 参数，原因是导航命令更长、更容易被噪声或尾部漏识别影响；
-  把这些参数显式打印出来，比“没反应时猜原因”更适合工程验收。
-- Nav2 自己会发布 `/cmd_vel`，所以 `RobotExecutor::publishes_cmd_vel()` 允许 Nav2 插件禁止
-  simulation node 周期性发布速度，避免两个控制器抢同一个速度话题。
-
-方案对比：
-
-- 直接让 LLM 输出 `{x,y,yaw}`：灵活但不稳定，且每个地图都要改 prompt；本项目更适合展示工程闭环，所以先固定语义地点。
-- 只做 fake Nav2 bridge：速度快、CI 稳定，但不能证明 controller server 真的驱动机器人；因此本项目同时提供 `nav2-turtlebot3` 重型验收入口，演示前单独跑。
-- 只做文本注入 Nav2 验收：自动化更稳，但不能覆盖真实麦克风的 ASR/session/queue 体验；因此新增 `continuous-nav2-offline/online` 作为人工演示入口。
-- 只做字符串 topic：实现快，但难体现可取消、带反馈、可测试的 ROS 2 Action 能力。
-
-## 14. 真实 SLAM 回访、回环约束与后端 A/B
-
-关键代码：
-
-- `src/embodied_slam/src/gtsam_scan_solver.cpp`
-- `scripts/evaluate_slam_trajectory.py`
-- `scripts/analyze_openloris_revisits.py`
-- `scripts/rank_openloris_revisit_sequences.py`
-- `scripts/evaluate_loop_constraints.py`
-- `scripts/analyze_slam_degradation.py`
-- `scripts/compare_openloris_backends.py`
-- `scripts/compact_openloris_rosbag.py`
-- `scripts/build_openloris_loop_sweep_configs.py`
-- `scripts/compare_openloris_loop_sweep.py`
-- `scripts/analyze_loop_frontend_trace.py`
-- `src/embodied_slam/src/instrumented_async_slam_toolbox_node.cpp`
-- `src/embodied_slam/src/loop_frontend_diagnostics.cpp`
-- `src/embodied_slam/src/gtsam_graph_optimize.cpp`
-- `scripts/run_gtsam_robust_kernel_ablation.py`
-- `scripts/run_gtsam_loop_consistency_ablation.sh`
-- `src/embodied_slam/include/embodied_slam/scan_overlap_validator.hpp`
-- `src/embodied_slam/src/scan_overlap_validator.cpp`
-- `scripts/augment_pose_graph_scan_overlap.py`
-- `scripts/run_gtsam_scan_overlap_ablation.py`
-- `scripts/run_gtsam_scan_overlap_ablation.sh`
-- `src/embodied_slam/include/embodied_slam/lidar_loop_descriptor.hpp`
-- `src/embodied_slam/src/lidar_loop_descriptor.cpp`
-- `src/embodied_slam/src/lidar_loop_candidates.cpp`
-- `scripts/extract_openloris_scan_corpus.py`
-- `scripts/evaluate_lidar_loop_candidates.py`
-- `scripts/compare_lidar_loop_candidate_sequences.py`
-- `src/embodied_slam/config/openloris_loop_sweep.json`
-- `src/embodied_slam/config/openloris_office1_7_annotations.json`
-
-设计方式：先用真值定义“相隔足够久后再次进入同一位置/朝向容差”的回访采样点，
-再按时间间隔聚合为事件，避免提高采样率就虚增回环机会。轨迹层检查估计轨迹是否保持回访几何；
-图优化层则在 GTSAM `ScanSolver::AddConstraint` 记录前端已经接受的边，再用 Karto 原生
-`end_closure.scan_index` 选出真正的闭环边。仅靠 node id 间隔会把局部图连接误判成 loop，因此
-不再用于正式指标。边正确性比较测得相对位姿与真值相对位姿，回访半径只负责聚合事件；这两层
-分开后才能正确计算 accepted-edge precision、false-loop rate 和事件 recall。
-
-真值来源也分层：office 使用独立 OptiTrack；market/corridor 使用官方离线 LiDAR SLAM。后者能
-提供更长的轨迹，但与在线 Hokuyo 输入并非完全独立，不能混称为 mocap 证据。下载大型 bag 前，
-`rank_openloris_revisit_sequences.py` 会同时计算方向敏感回访和 360° LiDAR 位置回访；正式推荐
-还要求路径 ≥100 m、时长 ≥120 s、回访两端相隔 ≥60 s。轨迹层排序最高的 `market1-3`
-（约 294 s / 221.8 m / 1 个同向长回访）在完整 bag 契约中缺少 `/scan`，所以不能用于当前
-2D 管线。加入传感器 profile 后，正式推荐变为 `corridor1-1`（约 272.5 s / 220.1 m / 2 个
-位置长回访）。它是反向穿越同一走廊，360° LiDAR 仍有完整几何重叠，因此采用 180° 位置口径；
-报告必须同时展示 yaw 范围，不能把它描述为同向视觉回环。
-
-为什么分两层：机器人依靠较好的里程计和局部 scan matching，也可能在短路径上回到原处；最终
-ATE 较低或回访恢复率较高，并不证明前端真正检测并接受了回环。`office1-7` 就给出了反例：
-在旧的 10 秒宽松定义下最终轨迹恢复 2/2 次事件，但 46 条 accepted graph edge 全是相邻边，
-非局部回环为 0；按正式 60 秒长回环门槛，它没有真值事件。
-
-退化区间也不从速度阈值猜语义。工具按时间抽取 RGB 联络表，人工复核后才标注玻璃隔断和动态人员
-遮挡；没有长走廊证据就记录 negative evidence。Ceres/GTSAM A/B 固定 bag、前端参数、时间窗和
-评估器，只替换 `ScanSolver`，并检查匹配数、时间覆盖、运动类别及人工区间样本完全一致。
-
-方案对比：只报告 ATE/RPE 能评价最终轨迹，但解释不了回环前端行为；解析 INFO 日志容易受版本和
-文案影响；结构化 JSONL 图边可与真值重放关联。现在的 InstrumentedAsynchronousSlamToolbox 在
-`addScan()` 这个同步 Karto 窄接口外包一层：先让上游完成原始处理，再通过公开 graph/mapper API
-复算 `FindPossibleLoopClosure` 的候选 chain 拓扑，并用 `MapperLoopClosureListener` 收集原生
-coarse/fine response、variance、reject 和 closure callback。它不修改匹配结果，也不伪造约束。
-Karto 的候选函数本身是 private，因此报告明确标为 `replicated_karto_rule`；这比复制或修改
-第三方源码更易升级，但仍不能当作候选函数内部逐行执行轨迹。
-
-为了让真实阈值消融可重复，项目没有复制 1.43 GB 原包做六份实验，而是流式生成只含三个 SLAM
-契约 topic 的约 5 MB ROS 1 bag。派生 `source.json` 同时保存原包/派生包 SHA256、消息数和时间窗，
-实验 manifest 再绑定参数文件哈希。runner 默认只复用“bag 哈希和配置哈希都一致”的已完成结果，
-避免断点续跑时混入旧参数。
-
-实测 baseline、短 chain、低 response、宽 search、组合放宽和 extreme 诊断配置都得到 449 个
-匹配位姿，ATE 约 9.96～10.02 cm；每组 46 条 accepted edge 全是相邻边。即使 extreme 把 chain
-降到 1、响应阈值降到 0.05，也没有非局部边。这说明继续优化 GTSAM 的鲁棒核不会提升回环召回，
-因为非局部约束尚未进入后端。新增诊断在 baseline 观察到 47 个实际图节点：前 8 个为
-`insufficient_history`，其余 39 个为 `all_geometric_neighbors_near_linked`，coarse/fine check 均为
-0。失败点因此进一步收窄到“候选 chain 生成前的 near-linked 排除”，不是 response、variance 或
-GTSAM 鲁棒核。下一步应选择时间跨度和空间回访更大的序列，或在不破坏上游语义的前提下研究
-near-linked 图遍历半径，而不是继续盲目降低 scan matcher 阈值。
-
-`corridor1-1` 随后证明前端确实会接受真假混合的 closure，因此后端鲁棒性才成为有意义的问题。
-为排除异步回放每轮 closure 数不同的干扰，`GtsamScanSolver` 将分批工作集之外再维护一份按
-node/edge 去重的证据图；四种配置只读取同一个 SHA256 快照。1834 节点/2751 约束实测中，
-Gaussian、Huber-all、Huber-non-local、Cauchy-non-local 的 ATE 分别为
-1.8235/1.4081/1.4626/1.2236 m。Cauchy 重尾损失对大残差降权更强，但 node ID 间隔只是
-non-local 启发式，不是 Karto closure 真值；这项优化降低错误边破坏程度，却不会找回漏检回环。
-
-进一步的 consistency gate 位于鲁棒核之前：`violates_consistency_gate()` 用优化前两节点计算预测
-相对位姿，并与候选边测量比较 SE(2) 平移/偏航创新量。它和“用真值筛边”有本质区别——运行时
-只读当前图，因此能部署；真值只在离线实验结束后评价 ATE/RPE。固定图上 2 m / π/4 阈值拒绝
-23 条边，Cauchy ATE 从 1.2236 m 降到 1.1713 m。不过，强回环本来就是为了纠正累计漂移：若当前
-图错得超过阈值，硬门控会把最有价值的真回环拒掉。因此工程上采用“明显异常才硬拒绝、中等异常交给
-鲁棒核、默认关闭等待多序列验证”的分层策略，而不是把一次消融最优参数直接写成生产默认值。
-
-扫描重叠层用于给创新门控补充独立传感器证据。`scan_overlap_validator.cpp` 把 target scan 按约束
-相对位姿变换到 source 坐标系，并用栅格空间哈希做双向最近邻匹配；对比直接构造 N×M 距离矩阵，
-在线复杂度和临时内存更适合 C++ 回调。输入点不是 Karto 的 `GetPointReadings()` 缓存，因为该缓存
-已随 corrected pose 进入世界系；`gtsam_scan_solver.cpp::to_local_scan_points()` 从原始 range、角分辨率
-和 LaserRangeFinder offset 重建 base 局部点，避免重复应用位姿。
-
-离线 `augment_pose_graph_scan_overlap.py` 使用完全相同的坐标语义，但从 bag 的 `/scan + /tf_static`
-恢复局部点。它将 overlap 作为 pose graph v2 的可选字段，因此旧图仍可读、缺证据时运行时 fail-open；
-所有变体再由 `run_gtsam_scan_overlap_ablation.py` 读取同一增强图。与基于真值删除错误边相比，这个
-判定可在线部署，真值只用于最后 ATE/RPE 评价。与 Scan Context 等全局描述子相比，它不负责召回
-候选，只复核 Karto 已接受边，改动面更小但无法解决漏检。
-
-`corridor1-1` 的关键结论不是“重叠越高越好”：0.65 naive 门控删除 269 条边并在该序列得到较低
-ATE，但 0.50 阈值反而使 ATE 恶化 1.73%，说明单帧重叠会受走廊视场、chain matching 和阈值影响。
-工程默认采用更保守的双条件——只有平移创新 >1 m 且 overlap <0.65 才由重叠层额外拒绝；固定图
-只多删 11 条，ATE 从 1.1713 m 降到 1.1521 m。即便如此仍默认关闭，因为真正的生产阈值必须用
-多个不同场景验证，不能在一个公开序列上调参后宣称泛化。
-
-`compare_gtsam_scan_overlap_sequences.py` 把这个原则编码成发布门禁，而不只写在文档里：输入必须
-来自不同 graph SHA256 且阈值相同；每条序列都要改善 ATE、P95 不能明显退化、双证据要比 naive
-少删边。`corridor1-2` 的第二固定图只有一条高重叠非局部边，因此四组指标完全相同。即使两序列
-平均 ATE 仍改善 2.92%，也不能启用门控——宏平均会隐藏“一个有效、一个无效”的事实。这个设计
-与常见“只报告平均分”的 benchmark 不同，更接近生产参数发布时的回归保护。
-
-候选级检索进一步把“前端召回”和“后端拒错”分开。`makePolarScanDescriptor()` 将局部激光点投影为
-径向环 × 方位扇区占用矩阵；环方向求和得到与机器人朝向无关的 `ring_key`，用于低成本历史粗筛。
-`alignPolarDescriptors()` 对完整矩阵穷举循环移位，返回余弦相似度和偏航初值。`LidarLoopCandidateIndex`
-先剔除 60 秒内的近邻帧，再按环键距离取 Top-K；整个 C++ 路径只读 LaserScan 和时间戳，不读取
-里程计、优化位姿或真值。
-
-离线评估没有直接复用异步 Karto 图节点时间轴，因为 `corridor1-2` 的固定图只覆盖原 bag 前约
-49 秒，会错误消除 60 秒长回访机会。`extract_openloris_scan_corpus.py` 改为对完整原始扫描流按
-0.5 秒确定性采样，同时绑定 bag/graph/corpus 三类 SHA256；官方轨迹只在
-`evaluate_lidar_loop_candidates.py` 中给候选打标签。这样后端是否丢帧不会反向定义前端召回率。
-
-消融还给出了一个有价值的反例：完整占用矩阵相似度重排在两个走廊序列都弱于环键排序，说明
-平移视角变化对稀疏 2D occupancy cosine 的影响超过了它提供的区分力。因此工程实现让环键负责排序，
-完整描述子只提供偏航和二次复核。两序列平均 Recall@10 为 48.13%，事件召回 4/4，但平均
-Precision@10 仅 4.28%；它足以进入 shadow scan matcher，却远不足以跳过几何匹配直接加图边。
-对比 Scan Context 的 3D 高度描述子，本实现面向 2D LaserScan，采用占用计数而非高度统计；对比
-Karto 几何近邻 chain，它不依赖当前漂移位姿，但更容易受到重复走廊的感知混淆。
-
-### 14.6 为什么 scan matcher 仍然只运行在 shadow 模式
-
-关键代码：
-
-- `src/embodied_slam/src/lidar_scan_matcher.cpp`：多初值粗到细 ICP、trim、重叠和退化门限。
-- `src/embodied_slam/src/lidar_shadow_scan_match.cpp`：显式 pair 输入契约与 JSONL 诊断输出。
-- `scripts/prepare_lidar_shadow_pairs.py`：Top-K 候选与 `/odom` 相对位姿先验。
-- `scripts/evaluate_lidar_shadow_matches.py`：真值离线标注和固定 profile 对比。
-- `scripts/compare_lidar_shadow_match_sequences.py`：跨序列发布决策，始终禁止直接写图。
-
-设计上把历史候选扫描变换到当前查询扫描坐标系。零平移初值适合“检索层认为位置接近”的闭环，
-质心初值覆盖较大视角变化；显式加入 π 偏航种子，用 `/odom` 偏航排除走廊半周镜像。里程计平移
-不会默认参与一致性 veto，因为它正是长时回访中会积累漂移的量。每个种子必须经过 convergence、
-最大平移、inlier、RMSE 和 observability 门，最终结果仍只进入 shadow 报告。
-
-与单初值 ICP 相比，多初值减少局部极值；与 NDT 相比，本实现依赖更少、易做 C++ 单测，但对重复
-结构仍弱；与 Cartographer 的 correlative scan matching 相比，它没有搜索窗分支限界和子地图上下文。
-真实多序列平均 accepted precision 只有 21.10%，说明单帧 scan-to-scan 几何不足以安全构造图边。
-这是发布门拒绝上线的依据，也是下一步升级为 scan-to-submap/多帧时序一致性的原因。
-
-### 14.7 scan-to-submap 为什么只使用短时里程计
-
-关键代码：
-
-- `src/embodied_slam/src/lidar_submap_builder.cpp`：邻帧到中心帧的 SE(2) 变换和局部点云聚合。
-- `src/embodied_slam/src/lidar_shadow_scan_match.cpp`：单帧/子地图共用 matcher 与输出契约。
-- `scripts/evaluate_lidar_shadow_matches.py`：显式记录 `matching_mode`、贡献帧数和几何点数。
-- `scripts/compare_lidar_submap_ablation.py`：校验同候选/同真值/同阈值并计算逐序列 delta。
-
-长时里程计会积累漂移，若直接用它构造查询到历史候选的初始平移，会把“待检测的真实回环”先验
-排除。这里仅在中心帧 ±0.75 秒内借用里程计，把相邻扫描聚合到局部坐标系；闭环两端之间的位姿
-仍由 ICP 独立估计。对比 scan-to-scan，它增加几何上下文、降低部分真闭环的平移误差；对比
-Cartographer 的概率子地图与分支限界搜索，它没有占用概率更新和全搜索窗，依赖更少、易做固定
-A/B，但抗重复结构能力明显更弱。
-
-真实结果是 precision 平均提高 2.32 个百分点、平移误差两序列均下降，但 recall 平均下降 1.72
-个百分点。工程结论不是“子地图已解决回环”，而是：局部聚合值得保留为 matcher seam，下一步
-需要多帧时序一致性、可学习地点描述或相关扫描搜索；当前仍不允许生成正式图边。
-
-### 14.8 如何把离线回环算法变成可控的 ROS 2 在线组件
-
-关键代码：
-
-- `src/embodied_slam/include/embodied_slam/lidar_loop_runtime.hpp`：与 ROS 无关的在线领域接口。
-- `src/embodied_slam/src/lidar_loop_runtime.cpp`：采样、时间单调性、先查询后入库和 ID 关联。
-- `src/embodied_slam/src/lidar_loop_candidate_node.cpp`：LaserScan Adapter、Lifecycle 和 typed 发布。
-- `src/embodied_agent_interfaces/msg/LidarLoopCandidateArray.msg`：候选批次的稳定进程间契约。
-- `src/embodied_slam/launch/lidar_loop_candidate.launch.py`：自动 configure/activate。
-- `tests/integration/test_lidar_loop_runtime.py`：DDS + Lifecycle 运行时契约探针。
-
-`LiveLidarLoopDetector` 是深模块：节点不关心环键、循环偏航或索引内部数据结构，只提交
-`stamp + points` 并接收候选批次。它必须“先 query、后 add”，否则当前扫描会以满分匹配自己；
-无效稀疏帧不会消耗 query ID，采样间隔则在描述子计算前拒绝帧，降低在线 CPU 占用。
-
-ROS 壳采用 Lifecycle 而非普通 Node：configure 才分配索引和 DDS 实体，inactive 不消费输入，
-cleanup 明确删除内存历史，bag reset 或重复实验不会继承旧候选。组件同时注册到
-`rclcpp_components`，既能独立运行，也能后续装入组合容器减少进程与 DDS 序列化开销。
-
-与直接修改 slam_toolbox 回环代码相比，shadow component 不影响现有建图基线、可独立 A/B，失败
-也不会污染位姿图；代价是候选还必须经过独立几何验证，且通过后仍不能绕过后端一致性评估。
-与 ROS 字符串/JSON topic 相比，typed message 在编译期固定 ID、时间戳、排序和相似度字段，下游
-不会靠字符串键名猜测含义。`shadow_only` 作为消息字段而非日志文本，使安全边界可被自动测试。
-
-### 14.9 在线候选为何还需要独立几何验证组件
-
-关键代码：
-
-- `src/embodied_slam/include/embodied_slam/lidar_loop_verifier.hpp`：无 ROS 依赖的缓存和验证接口。
-- `src/embodied_slam/src/lidar_loop_verifier.cpp`：有界扫描/里程计缓存、时间关联、子图与匹配模式。
-- `src/embodied_slam/src/lidar_submap_builder.cpp`：离线/在线共用的中心坐标系子图装配实现。
-- `src/embodied_slam/src/lidar_loop_verifier_node.cpp`：三订阅、pending 关联和 typed 结果 Adapter。
-- `src/embodied_agent_interfaces/msg/LidarLoopVerificationArray.msg`：批次级验证契约。
-- `src/embodied_slam/launch/lidar_loop_verifier.launch.py`：Lifecycle 自动编排。
-- `tests/integration/test_lidar_loop_runtime.py`：候选→验证及乱序到达的 DDS 探针。
-
-描述子相似只回答“外观像不像”，不能回答两帧是否存在稳定刚体变换。`LiveLidarLoopVerifier`
-缓存原始扫描和短时里程计，以候选消息的精确时间戳取回两端局部上下文。每个中心帧从有序缓存
-选取前后邻帧，通过最大 50 ms 的最近里程计关联，将邻帧点云变换到中心坐标系，再复用粗到细
-trimmed ICP、双向重叠率、RMSE、可观测性与半周歧义检测。算法放在纯 C++ 深模块中，ROS 节点
-不复制门限、坐标变换和匹配状态机。
-
-离线 `LidarSubmapBuilder` 与在线 verifier 都调用 `assembleLidarSubmap()`。这是本轮深化后的关键
-seam：坐标变换、点抽样、最少贡献帧和最少点数只实现一次；离线语料按 scan ID 适配，在线缓存
-按纳秒时间戳适配。删除这个模块会迫使两条路径各自重写复杂规则，因此它不是透传式浅模块。
-
-为什么用时间戳而不是复制候选节点的 scan ID 采样逻辑：ID 只标识被描述子采样的帧，验证节点却
-订阅全部 `/scan`。若两边各自复刻采样规则，参数或无效帧处理稍有差异就会错配；消息中已有的
-精确时间戳是两条数据流共同的事实键。缓存有上限，历史帧被淘汰时返回
-`candidate_scan_not_cached`，不会悄悄拿最近帧代替。
-
-DDS 只保证单个 writer/topic 内的顺序，不保证 `/scan`、`/odom` 和
-`/slam/loop_candidates` 跨 topic 全序。因此候选先到、查询扫描先到但里程计后到，都不能立即
-判为丢帧：节点把批次放入有界 pending，并在任一扫描或里程计回调后重新检查几何是否可用；
-超过扫描宽限仍缺失才发布明确拒绝原因。另有 steady-clock timer 处理“pending 后数据流停止”的
-情况，避免永远等待。这比固定 sleep 更可测，也避免执行器线程被阻塞。
-
-为什么只用短时里程计：局部邻帧之间的相对运动通常比长程累计位姿可靠，适合增加门框/拐角
-上下文；远距离查询端到候选端的变换仍由 ICP 独立估计。若直接用长程 odom 平移作为闭环初值，
-累计漂移会把真正回环拉向错误极值。当前默认 `scan_to_submap`，但保留 `scan_to_scan` 参数档用于
-同输入 A/B 和故障隔离；消息显式报告实际模式与两端贡献帧数。
-
-对比“候选节点内直接跑 ICP”，独立组件多一次 typed DDS 传输，但生命周期、CPU 负载和失败域可
-独立治理，未来可装入同一 component container 消除进程间序列化。对比直接写 GTSAM 因子，本层
-固定 `shadow_only=true` 且没有写图接口：几何 accepted 仍只是证据，真实多序列 precision 和
-后端一致性未达门槛前不会污染地图。
-
-### 14.10 为什么在几何验证与位姿图之间增加两阶段约束门
-
-关键代码：
-
-- `src/embodied_slam/include/embodied_slam/lidar_loop_constraint_gate.hpp`：纯 C++ 门控接口。
-- `src/embodied_slam/src/lidar_loop_constraint_gate.cpp`：质量门、择优、去重、限频与协方差策略。
-- `src/embodied_slam/src/lidar_loop_constraint_gate_node.cpp`：Lifecycle 与 typed message Adapter。
-- `src/embodied_slam/src/loop_constraint_adapter.cpp`：时间戳关联及 ICP/Karto 坐标语义转换。
-- `src/embodied_slam/src/instrumented_async_slam_toolbox_node.cpp`：实验性 Karto 写入边界。
-- `src/embodied_agent_interfaces/msg/LidarLoopConstraintDecision.msg`：策略批准与 commit 请求分离。
-- `src/embodied_agent_interfaces/msg/LidarLoopConstraintResult.msg`：后端实际提交/拒绝证据。
-- `tests/integration/test_lidar_loop_runtime.py`：shadow、重复 pair、Lifecycle reset 和后端拒绝探针。
-
-`accepted geometry` 只说明单次 ICP 满足门限，不代表它应立即成为图优化因子。门控领域对象先检查
-scan-to-submap、子图贡献帧、对应点、descriptor、inlier、双向 overlap、RMSE 和 observability，
-再在同一个 query 内只选择质量最高的候选。历史 pair 去重防止 DDS 重投生成重复边，query 间隔
-限制防止短时间大量相关约束过度影响优化器。协方差由保守配置固定，而不是把启发式 quality
-score 错当成统计概率。
-
-第一阶段输出 `policy_approved`，第二阶段才输出 `commit_requested`。默认 commit 关闭，因此可以
-长期采集决策分布而不污染地图；只有显式开启实验 flag，instrumented slam_toolbox 才订阅 commit。
-后端仍独立校验 Lifecycle active、时间顺序、协方差和 Karto processed scan 关联，并用 typed result
-报告 `commit_not_requested/backend_not_ready/...`。这形成 fail-closed 的双重授权，而不是相信
-任意 topic publisher。
-
-与“验证节点直接调用 Karto”相比，策略和后端生命周期解耦，纯 C++ 门可以无 ROS 单测，后端也可
-替换为 GTSAM Adapter；代价是增加一个 DDS hop 和更多状态。与完整 switchable constraints、DCS
-或 max-mixture 相比，当前方案更轻、容易审计，但不能在优化过程中自动降低错误回环权重。真实
-多序列 precision 仍低，所以本轮只证明安全边界和接口完整，不能宣称回环已经改善真实地图。
-
-### 14.11 多帧时序一致性为什么是独立深模块
-
-关键代码：
-
-- `src/embodied_slam/include/embodied_slam/lidar_loop_temporal_consistency.hpp`：最小 observation、
-  config 与 decision 接口。
-- `src/embodied_slam/src/lidar_loop_temporal_consistency.cpp`：连续确认、迟到隔离和轨迹重置状态机。
-- `src/embodied_slam/src/lidar_loop_constraint_gate.cpp`：质量择优后调用时序策略。
-- `src/embodied_slam/src/lidar_loop_temporal_replay.cpp`：真实数据离线 Adapter，不复制策略。
-- `scripts/evaluate_lidar_shadow_matches.py`：不读取真值地选择每个 query 的最高质量候选，再调用
-  C++ replay；真值只在 replay 完成后评分。
-- `scripts/compare_lidar_temporal_ablation.py`：校验两条序列使用同一参数，并汇总 precision/recall。
-- `src/embodied_slam/test/test_lidar_loop_temporal_consistency.cpp`：纯 C++ 状态机边界测试。
-
-单帧 ICP 的 inlier、overlap 和 RMSE 只描述“两个局部几何能否对齐”，无法区分外观相同的两段
-走廊。时序门要求相邻 query 单调前进，query 间隔不超过 2 秒，当前与历史候选的回访时间差变化
-不超过 1.25 秒，相对位姿平移/偏航变化不超过 0.55 m/0.35 rad，并连续 4 次成立。迟到消息不改变
-当前 track；任一突变都从 1 重新计数。typed decision 暴露确认计数和四项 delta，因此现场能区分
-“质量不够”“还在确认”和“时序突变”，而不是只看到一个 false。
-
-为什么不把逻辑写进 ROS callback：时序一致性既要服务在线 Lifecycle node，也要在 OpenLORIS
-固定结果上做参数消融。纯 C++ 深模块让两个 Adapter 复用同一实现；离线 Python 只负责数据格式和
-真值评分，避免出现“评测算法和运行时算法看起来相同、实际分叉”的问题。
-
-两序列统一参数下，单 query 择优基线聚合 precision/recall 为 13.21%/12.57%，4 帧门控后为
-31.25%/2.99%；`corridor1-1` precision 9.24%→12.50%，`corridor1-2` 为 25.00%→50.00%。这是一项
-明确的 precision-recall 权衡，不是全面胜出。与简单 debounce 相比，本策略检查候选时间关系和
-SE(2) 变化；与 HMM/学习式序列分类器相比，它数据需求小、可解释、容易 fail-closed，但不能解决
-长走廊中持续一致的感知混淆。后续更合理的方向是加入语义/视觉地点判别或 switchable
-constraints，而不是无限增加确认帧数。
-
-### 14.12 GTSAM 可切换回环约束如何软关闭错误边
-
-关键代码：
-
-- `src/embodied_slam/src/gtsam_pose_graph.cpp`：`SwitchableBetweenFactor::evaluateError`、
-  `GtsamPoseGraphOptimizer::optimize`；前者定义三变量因子，后者只为非局部边创建 switch 与先验。
-- `src/embodied_slam/include/embodied_slam/gtsam_pose_graph.hpp`：配置、switch 估计和审计统计接口。
-- `src/embodied_slam/src/gtsam_scan_solver.cpp`：把 slam_toolbox 参数适配进深模块，在线默认关闭。
-- `src/embodied_slam/src/gtsam_graph_optimize.cpp`：固定图 CLI，输出 switch 数量、最小值和均值。
-- `scripts/run_gtsam_robust_kernel_ablation.py`：同图运行 Gaussian/Huber/Cauchy/switchable 变体。
-- `scripts/compare_gtsam_switchable_sequences.py`：验证独立图 SHA、相同参数和逐序列不回退。
-- `src/embodied_slam/test/test_gtsam_pose_graph.cpp`：错误回环关闭、正确回环保留和非法配置测试。
-
-普通 BetweenFactor 默认相信每条已接受边。鲁棒核根据统一损失函数连续降权，但无法显式回答
-“哪一条回环被关掉”；硬一致性门能审计拒绝原因，却可能在累计漂移很大时拒掉最有价值的真回环。
-本实现给每条非局部边增加 `s_ij`，优化 `s_ij r_ij(x)`，并用 `PriorFactor<double>(s=1)` 防止所有边
-一起归零。错误边承担巨大残差时更愿意牺牲自己的 switch，正常边则由先验保持开启。局部链边不加
-switch，避免削弱短时运动连续性。
-
-与 DCS 相比，switchable constraints 把权重作为显式变量联合求解，统计和可视化更直接，但变量
-更多、非凸性更强；与 max-mixture 相比，它没有离散多模态假设，结构更轻，但无法表达两个都合理的
-地点假设；与 Cauchy 相比，它提供逐边状态，却更依赖先验强度。当前标量没有硬边界，二次先验与
-残差在实测中得到 `[0,1]` 内解；如后续出现越界，再升级为 sigmoid 参数化而不是在输出端伪造钳制。
-
-两条 OpenLORIS 固定图共 859 条非局部边，80 条低于 0.5；加权 ATE 从 Gaussian 1.6214 m、
-Cauchy 1.0892 m 降至 Switchable+Cauchy 0.9196 m。第二序列唯一非局部边保持 0.9976，证明门禁
-不是“关闭全部边”换指标。边界仍要讲清：switch 是后端潜变量，不是 closure 真值标签；固定图
-A/B 也没有证明在线新增约束或最终栅格地图一定改善，所以在线参数保持默认关闭。
-
-### 14.13 动态障碍为什么要把数据关联与运动模型分开
-
-关键代码：
-
-- `src/embodied_navigation/include/embodied_navigation/gated_observation_assignment.hpp`：稳定的策略、
-  输入输出和未匹配语义。
-- `src/embodied_navigation/src/gated_observation_assignment.cpp`：贪心基线与矩形匈牙利全局分配。
-- `src/embodied_navigation/src/dynamic_obstacle_tracker.cpp`：先统一 predict，再一次关联，最后分别
-  update 或按遮挡策略外推。
-- `src/embodied_navigation/src/dynamic_obstacle_association_benchmark.cpp`：固定冲突输入 A/B。
-- `src/embodied_navigation/src/dynamic_obstacle_uncertainty_benchmark.cpp`：固定异方差身份交叉 A/B。
-- `scripts/verify_dynamic_obstacle_association.py`：结构门禁、身份连续性和碎片轨迹判定。
-- `scripts/verify_dynamic_obstacle_uncertainty.py`：NIS 身份恢复与报告结构门禁。
-- `src/embodied_navigation/test/test_gated_observation_assignment.cpp`：门限、dummy 和全局最优回归。
-
-运动模型回答“每条轨迹下一刻在哪里”，数据关联回答“哪些观测属于哪些轨迹”。如果把最近邻循环
-写在 Kalman/IMM 内部，模型难以独立消融，也会让遍历顺序成为隐藏状态。这里先收集所有模型预测，
-构造整批代价矩阵。Mahalanobis 实验模式用创新协方差
-`S = P_prediction + R_measurement` 归一化二维残差，NIS 超过二维卡方 99% 门限 `9.210` 的边禁用；
-同时保留 `association_distance_m` 米制硬门，防止长遮挡导致协方差膨胀后吸收远处观测。纯库接口
-和 ROS 参数都保留 Euclidean 默认：当前 `PoseArray` 没有逐目标检测协方差，直接启用 NIS 会把
-模型不匹配误当成离群点，必须先用真实检测残差标定 `R/Q`。每条轨迹另有私有 dummy 表示合法
-遮挡/漏检，匈牙利算法在
-整批观测上求最小代价，复杂度为 O(n²m)，少量动态目标场景的开销远小于感知和 costmap。
-
-与逐轨迹贪心相比，全局分配不会让前一条模糊轨迹抢走后一条轨迹唯一可用的观测；与 JPDA 相比，
-它仍是硬分配，工程简单、确定性强，但不能表达多个关联假设的概率；与 MHT 相比，它没有跨帧假设
-树，内存和调参成本低，但严重遮挡后的身份恢复能力有限。固定双目标冲突中，贪心只更新 1/2 条
-既有轨迹并生成 1 条碎片，全局策略更新 2/2、无碎片，身份位置 RMSE 0.2915 m→0。此证据只隔离
-关联算法，不代表真实检测器、Gazebo 物理行人或复杂人群场景已经验收。
-
-欧氏距离还隐含“所有轨迹同样确定”的假设。固定异方差交叉场景中，一条轨迹协方差为 0.0025，
-另一条为 0.25；欧氏全局分配发生 2/2 身份交换，身份位置 RMSE 为 0.3 m，而 NIS 全局分配恢复
-2/2 身份、RMSE 为 0。该 A/B 证明协方差确实进入了关联决策，但输入协方差和真值是确定性构造，
-不能替代真实检测器的标定、MOTA/HOTA 或行人数据集评测。
-
-### 14.14 多假设序列门为什么优于单 query 贪心
-
-关键代码：
-
-- `src/embodied_slam/include/embodied_slam/lidar_loop_sequence_consistency.hpp`：固定容量的多假设接口与
-  独立参数，默认三次确认、最多 64 条轨迹。
-- `src/embodied_slam/src/lidar_loop_sequence_consistency.cpp`：Top-K 分支延伸、迟到隔离、连续性残差
-  和有界裁剪。
-- `src/embodied_slam/src/lidar_loop_constraint_gate.cpp`：先让所有合格候选积累序列证据，再从已确认
-  候选中按质量选一个；不是先选赢家再确认。
-- `src/embodied_slam/src/lidar_loop_temporal_replay.cpp`：`--multi-hypothesis` 按相同 query 时间戳
-  组成 batch，复用运行时 C++ 状态机。
-- `scripts/evaluate_lidar_shadow_matches.py`、`compare_lidar_sequence_ablation.py`：真值只在状态机输出后
-  打标签，并要求两条序列逐条提升。
-- `src/embodied_slam/test/test_lidar_loop_sequence_consistency.cpp`：验证第二名连贯假设不会被第一名误候选
-  抢占，以及乱序 batch 不污染状态。
-
-旧单轨门的问题不是“没有连续确认”，而是确认前发生了信息丢失：每个 query 只留下一个最高质量
-候选。重复走廊的假匹配同样可能有高 overlap/低 RMSE，正确地点可能排在 Top-K 后部。多假设门把
-每个候选看作一条可延伸轨迹，只使用时间推进和相对位姿连续性；轨迹过期或状态超过 64 条时按确认
-长度和新鲜度裁剪，避免内存无界增长。ROS callback 只转换 typed message，状态机不知道 ROS、
-OpenLORIS 或真值。
-
-固定两序列结果：单轨聚合 accepted/true/false 为 `16/5/11`，多假设为 `11/5/6`，precision
-`31.25%→45.45%`；逐序列为 `12.50%→33.33%`、`50.00%→60.00%`。它保留了与单轨相同数量的真
-约束，但总体 conditional recall 仍只有 2.99%。因此面试时应表述为“减少前端假阳性的可审计
-改进”，不能说“真实回环问题已解决”或“地图精度已经因此提升”。下一步需要语义/学习式地点判别
-或带人工真值的更长多场景验证，而不是继续增加确认帧数。
-
-## 15. 动态障碍运动模型与同场景消融
-
-关键代码：
-
-- `src/embodied_navigation/include/embodied_navigation/dynamic_obstacle_tracker.hpp`
-- `src/embodied_navigation/src/dynamic_obstacle_tracker.cpp`
-- `src/embodied_navigation/src/dynamic_obstacle_model_benchmark.cpp`
-- `src/embodied_navigation/src/predicted_obstacle_layer.cpp`
-- `src/embodied_navigation/config/dynamic_obstacle_crossing_scenario.json`
-- `scripts/compare_dynamic_navigation_models.py`
-- `scripts/verify_dynamic_obstacle_ablation.py`
-- `tests/integration/test_predicted_dynamic_obstacle_navigation.py`
-
-设计方式：ROS 节点只把 `PoseArray` 转成观测并调用 `DynamicObstacleTracker::update()`，运动模型、
-协方差和 IMM 模型概率全部藏在 PImpl 中。关联时使用模型预测位置而不是最后一次原始观测，短时
-漏检继续发布预测，但 `last_seen` 不前移，TTL 到期仍会删除轨迹。输出继续使用原有 typed
-`DynamicObstacleArray`，所以 costmap plugin 和 Nav2 不需要知道选择了哪种滤波器。
-
-为什么这样设计：消融实验必须只替换一个变量。如果为每种算法复制 ROS 节点、topic 或 launch，
-差异会混入 QoS、时间戳和调度噪声；统一 seam 让四种 Adapter 接收相同观测，并让同一个
-`PredictedObstacleLayer` 消费结果。tracker-level 报告负责比较 RMSE，Gazebo/Nav2 报告负责证明
-lethal cost、重规划、到达和最终零速，两层证据互不替代。
-
-重型 A/B 的“同场景”不能只靠 for 循环保证。场景 JSON 固定目标点、观测位置、时间间隔、预测
-时域和阈值；每份报告绑定场景、地图 YAML+PGM 和 Nav2 参数哈希，比较器先验证 provenance 再
-汇总指标。这种设计比在测试函数里硬编码四组坐标更容易审阅，也能阻止断点重跑时混入旧地图。
-局限同样写进报告：目前只把确定性 `PoseArray` 注入跟踪器，尚未模拟物理行人的碰撞体、传感器
-遮挡和检测器误差，所以它证明的是预测层到规划控制的闭环，而不是感知算法的真实准确率。
-
-方案区别：current-only 没有运动先验；平滑 CV 低成本但无法表达模式切换；单一 Kalman 假设固定
-过程模型；IMM 通过 Markov 转移概率、状态/协方差交互和观测似然在低运动与机动模型之间切换。
-当前 IMM 在长序列综合误差最低，但短序列启动偏保守，说明选择模型还要考虑观测窗口和业务风险，
-不能只看一个总 RMSE。
-
-## 16. SLAM 会话编排与进程生命周期
-
-关键代码：
-
-- `src/embodied_slam_tools/embodied_slam_tools/showcase_session.py`：不依赖 ROS 的状态机、合法迁移和
-  中文系统意图解析；
-- `src/embodied_slam_tools/embodied_slam_tools/showcase_session_node.py`：worker 队列、阶段子进程、
-  readiness generation、typed Action 和状态发布；
-- `src/embodied_agent_interfaces/msg/SlamSessionState.msg`：可观测阶段快照；
-- `src/embodied_agent_interfaces/action/ManageSlamSession.action`：可反馈的保存/切换控制面；
-- `scripts/voice_slam_nav_showcase.sh`：mapping/save/navigation 的稳定 stage Adapter；
-- `tests/integration/test_voice_slam_session_orchestrator.py`：状态顺序、typed 探索动作、幂等命令；
-- `scripts/smoke_test_voice_slam_session_orchestrator_gazebo.sh`：真实 Gazebo/SLAM/map_saver/AMCL/Nav2
-  的单进程重型证据。
-
-设计方式：领域状态机不知道 ROS 和 subprocess；节点只负责把 ASR/Action 转为 `SessionCommand`，
-worker 串行执行有副作用的阶段操作。地图保存成功前不停止 mapping，保存失败可回退重试；切换时先
-停止父脚本，再启动新阶段，并要求 `/system/readiness` 的 generation 增长且 ready，避免把旧阶段
-的 transient-local 快照误当成新阶段成功。语音重复 final 在三秒窗口内忽略，而 Action 仍返回
-结构化结果。导航动作本身继续经过 C++ ActionGuard，编排层只控制生命周期。
-
-为什么不把所有步骤写成一段 shell：shell 很适合稳定地组装 launch 参数和设置环境，却不适合表达
-可查询状态、Action feedback、幂等性和失败回退。为什么不用 Nav2 Behavior Tree 管建图进程：Nav2
-BT 的职责是一次导航任务，建图/保存/销毁整套 ROS graph 属于应用会话生命周期，放进去会把进程
-管理和运动行为耦合。为什么不用 ROS 2 Lifecycle 单独管理所有三方节点：Nav2/SLAM Toolbox 已有
-各自 lifecycle manager，但整套 Gazebo/Agent graph 的 world、map、executor 都要更换，进程级
-stage Adapter 更容易保证资源完全释放。
-
-中间件上的关键区别是“健康状态”和“心跳”不能混用。当前组件发布 transient-local 生命周期快照，
-不是周期心跳；如果仍用 3 秒 stale 窗口，重型冷启动会把早启动组件误判过期。因此普通执行保持
-3 秒，语音 Nav2 冷启动参数化为 30 秒。更产品化的方案是每个组件周期发布 heartbeat，再把冷启动
-deadline 与运行期 stale timeout 分离；本项目当前只证明阶段启动闭环，不宣称已有进程级故障自愈。
-
-## 17. 面试讲法建议
-
-可以用这条主线介绍项目：
-
-> 我做的是一个 ROS 2 机器人智能语音控制系统。前端用 ASR 把语音转文本，Agent 负责唤醒、连续会话、命令归一化、LLM 动作解析和 TTS。动作不会直接控制机器人，而是先进入 C++ ActionGuard 做校验和限幅，再转换成自定义 RobotCommand 和 ROS 2 Action。仿真侧用 BehaviorTree.CPP 编排安全检查、执行和结果确认，用 pluginlib 切换 mock/Gazebo executor。最终在 Gazebo/TurtleBot3 里验证 `/cmd_vel` 和 odom 变化。
-
-强调点：
-
-- 不是只调 API，而是打通了 ROS 2 端到端控制链路。
-- 不是 LLM 直接发速度，而是有 ActionGuard 和强类型 Action。
-- 不是只写 demo，而是有连续语音、队列、急停、验收脚本和测试体系。
-- 不是复杂导航项目，当前重点是语音到动作到仿真控制的闭环。
+文件或接口存在只能证明结构完成，不能替代运行证据。以下所有结论都要区分单元测试、mock、
+Gazebo、真实麦克风和公开 bag。
+
+## 1. WSL 工作区、colcon overlay 与可重复激活
+
+### 【功能】
+
+把 ROS 2 Jazzy、Python 虚拟环境、当前工作区的 colcon 产物和 `.env` 组合为同一运行环境。
+显式 `WORKSPACE` 让主仓库与 Git worktree 不会误用彼此的安装树或配置。
+
+### 【关键文件/类/函数】
+
+- `scripts/bootstrap.sh`：安装依赖、创建 `.venv`、安装 requirements、执行 colcon build。
+- `scripts/activate.sh`：依次 source ROS、venv、当前 overlay 和 `.env`。
+- `scripts/ros_dds_env.sh`：统一 DDS transport 环境变量。
+- `package.xml`、`CMakeLists.txt`、`setup.py`：ament/colcon 包发现与安装契约。
+
+### 【上游 → 处理 → 下游】
+
+```text
+/opt/ros/jazzy/setup.bash（underlay）
+→ .venv + PYTHONPATH
+→ $WORKSPACE/install/setup.bash（overlay）
+→ .env
+→ ros2 run / ros2 launch / pytest / acceptance_test.sh
+```
+
+### 【为什么这样设计】
+
+ROS 2 生成的 Python console script 常使用系统 Python shebang，而模型依赖安装在 venv。
+激活脚本显式暴露 venv site-packages，避免“当前 shell 能 import，ros2 run 却不能 import”。
+`WORKSPACE` 作为唯一根目录，也比在每个脚本中猜 `pwd` 更适合 worktree。
+
+### 【与替代方案区别】
+
+- 只 source `/opt/ros/jazzy`：看不到项目接口和节点。
+- 只激活 venv：ament index 找不到 ROS package。
+- 全局 pip 安装：短期简单，容易污染系统 ROS Python ABI。
+- 容器：隔离更强，但 WSLg 麦克风和 Gazebo GUI 接线成本更高。
+
+### 【失败/安全边界】
+
+`install/setup.bash` 不存在表示尚未构建；worktree 未设置 `WORKSPACE` 可能加载主工作区旧产物。
+不要把删除整个 `build/install/log` 作为第一反应，应先确认路径、overlay 和包版本。
+
+### 【对应测试】
+
+```bash
+export WORKSPACE="$PWD"
+source scripts/activate.sh
+bash scripts/acceptance_test.sh core
+```
+
+## 2. C++ ActionGuard 与 ActionScheduler
+
+### 【功能】
+
+在模型与执行器间建立可信边界：Guard 校验和限幅候选动作；Scheduler 管理单 active goal、FIFO、
+优先取消、失败清队列、watchdog 和 command ID 结果关联。
+
+### 【关键文件/类/函数】
+
+- `src/embodied_agent_cpp/src/action_guard_node.cpp`：`ActionGuardNode::on_candidate()`。
+- `src/embodied_agent_cpp/src/action_validator.cpp`：`ActionValidator::validate()`。
+- `src/embodied_agent_cpp/src/action_scheduler.cpp`：`ActionScheduler::enqueue()`、`complete()`、
+  `clear_all()`、`dispatch_next()`。
+- `src/embodied_agent_cpp/src/typed_action_bridge_node.cpp`：`on_command()`、`process_events()`、
+  `dispatch_goal()`、`request_cancel()`。
+- `src/embodied_agent_cpp/src/typed_action_demo_client.cpp`：独立 `rclcpp_action` client 示例，展示
+  goal、feedback、result、cancel 和 timeout 的标准调用方式。
+- `src/embodied_agent_cpp/include/embodied_agent_cpp/guarded_command_outbox.hpp`：`GuardedCommandOutbox`。
+
+### 【上游 → 处理 → 下游】
+
+```text
+/agent/action_candidate → ActionGuardNode::on_candidate()
+→ ActionValidator::validate() → /robot/action_command_typed 或 rejection
+→ TypedActionBridgeNode::on_command() → ActionScheduler::enqueue()
+→ ExecuteRobotCommand goal/cancel → typed feedback/result/diagnostics
+```
+
+### 【为什么这样设计】
+
+模型层变化快且可能幻觉，控制 policy 需要稳定、可单测、低延迟。Guard 回答“能否执行”，Scheduler
+回答“何时执行、取消谁、结果属于谁”。outbox 只覆盖 discovery 短窗口，并用容量和 TTL 防旧命令回放。
+
+### 【与替代方案区别】
+
+LLM 直接 `/cmd_vel` 没有 schema、限幅和取消；Python 调度开发快，但 C++ 更贴近 ROS 2 执行生命周期；
+把校验与调度塞进一个节点会让纯策略和并发状态难以独立测试。
+
+### 【失败/安全边界】
+
+Guard 不能修复“左”被识别成“右”这种合法但错误的语义，只保证参数边界。deactivate/cleanup 必须
+取消 active goal、清 pending、发布终态并停车。priority 明确区分用户急停和计划 STOP。
+
+### 【对应测试】
+
+```bash
+colcon test --packages-select embodied_agent_cpp --event-handlers console_direct+
+bash scripts/acceptance_test.sh cpp-action-client
+bash scripts/acceptance_test.sh gazebo
+```
+
+## 3. BehaviorTree.CPP、pluginlib 与 Gazebo 执行层
+
+### 【功能】
+
+Action server 接收长动作，BehaviorTree 依次做校验、安全检查、执行和确认；pluginlib 在 Mock、
+Gazebo、Nav2 Executor 间切换，上游接口保持不变。
+
+### 【关键文件/类/函数】
+
+- `src/embodied_simulation/src/simulation_control_node.cpp`：`handle_goal()`、`control_tick()`、
+  `update_active_action()`、`finish_active_action()`。
+- `src/embodied_simulation/src/command_behavior_tree.cpp`：`CommandBehaviorTree::start()`、`tick()`、
+  `cancel()`；`ValidateCommandNode`、`CheckSafetyNode`、`ExecuteCommandNode`、`ConfirmResultNode`。
+- `src/embodied_simulation/include/embodied_simulation/robot_executor.hpp`：`RobotExecutor`。
+- `src/embodied_simulation/src/gazebo_robot_executor.cpp`：`GazeboRobotExecutor::execute()`、`step()`。
+- `src/embodied_simulation/src/simulation_controller.cpp`：`SimulationController::update_scan()`、`step()`。
+- `src/embodied_simulation/src/simulation_ros_io.cpp`：`publish_velocity()`、`publish_zero_velocity()`。
+
+### 【上游 → 处理 → 下游】
+
+```text
+ExecuteRobotCommand goal → SimulationControlNode::handle_goal()
+→ ActiveActionRuntime + CommandBehaviorTree::tick()
+→ RobotExecutor::execute()/step() → GazeboRobotExecutor
+→ /cmd_vel → Gazebo /odom + /scan → Action result
+```
+
+### 【为什么这样设计】
+
+Action server 管外部协议，BT 表达业务顺序，Executor 隐藏后端，Controller 封装速度和雷达安全。
+mock 验证状态机、Gazebo 验证物理运动、Nav2 验证规划控制，无需复制 Action/Lifecycle 逻辑。
+
+### 【与替代方案区别】
+
+switch/case 在小动作域简单，扩展取消和终态后难维护；Nav2 BT 适合一次导航，不适合销毁整套 mapping
+graph；每个后端独立节点隔离强，却会重复 Action server、诊断和超时逻辑。
+
+### 【失败/安全边界】
+
+雷达无效、紧急障碍、取消、超时或插件异常都必须发布零速度。`/cmd_vel` 有数据不等于成功，还需
+odom、Action result 和最终停车。mock PASS 不代表 Gazebo 时钟、TF 和物理插件正常。
+
+### 【对应测试】
+
+```bash
+colcon test --packages-select embodied_simulation --event-handlers console_direct+
+bash scripts/acceptance_test.sh gazebo
+```
+
+## 4. 自动 frontier 建图、map saver、AMCL 与 Nav2
+
+### 【功能】
+
+一句语音启动自动任务：Explore Lite 从 OccupancyGrid 选择 frontier，Nav2 自主到达；覆盖完成后
+保存地图、关闭 mapping stage、启动 AMCL/Nav2，再通过 Agent typed 链执行入口和多地点巡检。
+
+### 【关键文件/类/函数】
+
+- `config/frontier_exploration.repos`、`scripts/setup_frontier_exploration.sh`：固定第三方 commit。
+- `src/embodied_simulation/config/frontier_exploration.yaml`、`showcase_workplace_mission.yaml`。
+- `src/embodied_slam_tools/embodied_slam_tools/showcase_session.py`：`parse_session_command()`、
+  `parse_mapping_bootstrap_route()`、`ShowcaseSessionStateMachine.validate()`、`transition()`。
+- `src/embodied_slam_tools/embodied_slam_tools/showcase_session_node.py`：
+  `_run_automatic_mission()`、`_wait_for_frontier_completion()`、`_save_map()`、`_start_navigation()`、
+  `_run_agent_text_action()`、`StageProcessManager`。
+- `src/embodied_simulation/src/nav2_places.cpp`、`nav2_robot_executor.cpp`：
+  `Nav2Places::to_pose_stamped()`、`send_navigate_goal()`、`send_follow_goal()`。
+- `src/embodied_simulation/src/nav2_result_policy.cpp`：
+  `evaluate_follow_waypoints_result()` 区分 Action 协议成功与多航点业务完整成功。
+- `src/embodied_simulation/launch/voice_nav2_turtlebot3.launch.py`：`RewrittenYaml` 生成项目级
+  Nav2 参数副本，为 WSL/Gazebo 调整进度半径和时间窗，不修改系统安装文件。
+
+### 【上游 → 处理 → 下游】
+
+```text
+_on_asr_final() → parse_session_command() → _enqueue() → _worker_loop()
+→ _execute_request() → _run_automatic_mission()
+→ _run_agent_text_action(move/turn bootstrap route)
+→ StageProcessManager.start_explorer() → /explore/status + /map
+→ _wait_for_frontier_completion() → _save_map() → _start_navigation()
+→ _run_agent_text_action() → Agent/Guard/Action → NavigateToPose/FollowWaypoints
+→ evaluate_follow_waypoints_result() → success / blocked + missed detail
+```
+
+### 【为什么这样设计】
+
+Explore Lite 选择未知边界，Nav2 负责安全到达，编排器负责结束条件、存图、进程切换和业务任务。
+领域状态机不依赖 ROS/subprocess，worker 执行副作用，readiness generation 防止误用旧 stage 快照。
+出生点位于充电角时，先用 move/turn-only bootstrap route 进入中央门洞；这些动作仍经过 Agent、
+ActionGuard 和 ROS 2 Action，且不包含未知地图上的语义目标。它解决初始 frontier 被外墙边缘主导，
+但不会替代后续自主选点。
+Nav2 默认 0.5 m/10 s 的进度检查对低实时率 WSL 仿真过于临界，因此 launch 将它改为
+0.10 m/30 s；这仍能发现真正卡死，又不会把低速有效运动误判为无进展。
+结束原因分为 `no_frontiers`、`coverage_plateau` 和 `time_budget_coverage`；最后一种只在
+300 秒预算到期且已知/占用栅格均达标时成立，因此“任务有时间上限”不等于“超时也算成功”。
+
+### 【与替代方案区别】
+
+固定速度路线确定性高但不是自主探索；SLAM Toolbox/Cartographer 估计地图和位姿，不决定探索目标；
+已知 waypoint 适合巡检，未知地图需要 frontier 或其他 exploration policy。
+
+### 【失败/安全边界】
+
+frontier goal 由 Explore Lite 直接发 Nav2，不经过 LLM ActionGuard，但仍受 costmap、planner、controller
+约束。地图质量达标且长期不增长可按平台期结束。取消/异常必须停止 explorer 和机器人，并回到
+MAPPING 或 NAVIGATING 可恢复状态。`FollowWaypoints` 只有 `ResultCode=SUCCEEDED`、`error_code=0`
+且 `missed_waypoints=0` 才是业务成功；部分到达不得进入 COMPLETED。
+
+### 【对应测试】
+
+```bash
+bash scripts/acceptance_test.sh slam-nav-showcase-stage
+HEADLESS=false USE_RVIZ=true bash scripts/acceptance_test.sh voice-slam-workplace-demo offline
+```
+
+## 5. SLAM 后端、GTSAM 与 LiDAR 回环发布门
+
+### 【功能】
+
+把 scan matcher 的节点/约束交给 Ceres/GTSAM 优化 SE(2) 位姿图；旁路生成 Top-K 回环候选，经过
+局部子图几何验证和时序/序列门控后决定 shadow 或 commit，并用 ATE/RPE/precision/recall 评价。
+
+### 【关键文件/类/函数】
+
+- `src/embodied_slam/src/gtsam_pose_graph.cpp`：`GtsamPoseGraphOptimizer::optimize()`、
+  `SwitchableBetweenFactor`。
+- `src/embodied_slam/src/gtsam_scan_solver.cpp`：`GtsamScanSolver::AddNode()`、`AddConstraint()`、`Compute()`。
+- `src/embodied_slam/src/lidar_loop_runtime.cpp`：`LiveLidarLoopDetector::ingest()`。
+- `src/embodied_slam/src/lidar_submap_builder.cpp`：短时局部子图。
+- `src/embodied_slam/src/lidar_loop_verifier.cpp`：`LiveLidarLoopVerifier::verify()`。
+- `src/embodied_slam/src/lidar_loop_constraint_gate.cpp`：`LidarLoopConstraintGate::evaluate()`、`reset()`。
+- `src/embodied_slam/src/instrumented_async_slam_toolbox_node.cpp`：Karto commit Adapter。
+
+### 【上游 → 处理 → 下游】
+
+```text
+LaserScan + odom/TF → Karto nodes/constraints → GtsamScanSolver
+→ GtsamPoseGraphOptimizer.optimize() → 优化轨迹/地图/ATE/RPE
+/scan + /slam/odom → Top-K candidate → submap ICP verification
+→ LidarLoopConstraintGate::evaluate() → shadow decision 或 Karto commit result
+```
+
+### 【为什么这样设计】
+
+前端决定约束，后端联合优化位姿，二者不能混为一谈。纯 optimizer 与 Karto Adapter 分离便于固定图
+A/B。描述子负责召回，ICP/重叠负责几何，多帧/多假设减少偶然匹配；policy 与 commit 分离可先在
+真实数据 shadow 运行，错误边不会拉坏地图。
+
+### 【与替代方案区别】
+
+GTSAM 的 factor graph 适合鲁棒核/可切换约束；Ceres 是通用最小二乘和 slam_toolbox 生态对照；g2o
+轻量经典但不是本项目主实现。单一最高分候选直接写图风险高，地图“看起来直”也不能替代指标。
+
+### 【失败/安全边界】
+
+后端不能创造正确回环；错误边会扭曲全图。真实比较必须固定 bag、前端、时间关联、配置和哈希。
+当前新 LiDAR 回环保持 `commit_enabled=false`；PASS 可能只证明证据完整，不表示精度达到发布门槛。
+
+### 【对应测试】
+
+```bash
+colcon test --packages-select embodied_slam --event-handlers console_direct+
+bash scripts/acceptance_test.sh slam-evaluation-stage
+bash scripts/acceptance_test.sh openloris-replay-stage
+```
+
+## 6. 动态障碍关联、运动模型与 Nav2 预测层
+
+### 【功能】
+
+把检测关联为稳定 track，比较 current-only、CV、Kalman、IMM，再把未来占用写入 Nav2 costmap，
+使规划器在障碍进入机器人路线前提前重规划。
+
+### 【关键文件/类/函数】
+
+- `src/embodied_navigation/src/dynamic_obstacle_tracker.cpp`：`DynamicObstacleTracker::update()`、
+  `CurrentOnlyEstimator`、`SmoothedConstantVelocityEstimator`、`KalmanEstimator`、`ImmEstimator`。
+- `src/embodied_navigation/src/gated_observation_assignment.cpp`：全局门限关联。
+- `src/embodied_navigation/src/constant_velocity_predictor.cpp`：`predict_constant_velocity()`。
+- `src/embodied_navigation/src/predicted_obstacle_layer.cpp`：`on_obstacles()`、`updateBounds()`、
+  `updateCosts()`、`reset()`。
+
+### 【上游 → 处理 → 下游】
+
+```text
+PoseArray / typed detections → global gated assignment
+→ DynamicObstacleTracker::update() → track state/velocity/covariance/TTL
+→ predict_constant_velocity() → DynamicObstacleArray
+→ PredictedObstacleLayer → future lethal cost → Nav2 replan
+```
+
+### 【为什么这样设计】
+
+数据关联和运动估计是两个问题：先保持身份，再比较模型。tracker 用统一 `update()` 隐藏四种模型，
+costmap plugin 只消费统一轨迹；旧 bounds 被保留用于清除过期占用，避免留下永久“鬼墙”。
+
+### 【与替代方案区别】
+
+greedy nearest 简单但多目标会抢同一 track；全局门限关联更稳定。CV 轻量可解释，Kalman/IMM 能表达
+噪声和模式切换但参数更复杂。只在控制器急停能防撞，不能提前改变全局路径。
+
+### 【失败/安全边界】
+
+重型导航证据使用确定性合成感知输入，不等于真实检测器或人群模型。二维 costmap 压平时间维会较
+保守；协方差未标定时不能包装成真实传感器收益。track TTL、旧 bounds 清理和最终急停都要验收。
+
+### 【对应测试】
+
+```bash
+colcon test --packages-select embodied_navigation --event-handlers console_direct+
+bash scripts/acceptance_test.sh dynamic-obstacle-stage
+bash scripts/acceptance_test.sh dynamic-obstacle-navigation
+```
+
+## 7. 可观测性、分层测试与事实证据
+
+### 【功能】
+
+把音频、ASR、session、NLU、队列、Action、BT、仿真、SLAM 和 Nav2 变成可观察事件；以单测、
+repository contract、stage、Gazebo、真人麦克风和公开 bag 分层证明。
+
+### 【关键文件/类/函数】
+
+- `scripts/continuous_voice_monitor.py`：`ContinuousVoiceMonitor`、`MonitorStats.format_summary()`、
+  `format_advice()`、`AsrNluSampleRecorder`。
+- `src/embodied_agent_middleware/src/system_readiness_node.cpp`：`publish_readiness()`。
+- `src/embodied_simulation/src/simulation_ros_io.cpp`：ACK、BT status、health、diagnostics。
+- `scripts/showcase_release_gate.py`：`GateCommand`、`_run_command()`、`main()`。
+- `scripts/generate_architecture_facts.py`：`build_facts()`、`render_markdown()`。
+- `scripts/acceptance_test.sh`、`tests/repository/`、各包 `test/`、`tests/integration/`。
+
+### 【上游 → 处理 → 下游】
+
+```text
+typed events + TF/map/odom/cmd_vel
+→ monitor/readiness/integration probes
+→ command ID、状态迁移和指标聚合
+→ terminal + JSON/Markdown report
+→ release/demo/robotics gate → CI 或人工结论
+```
+
+### 【为什么这样设计】
+
+链路跨音频、网络、Python、DDS、C++、Gazebo 和 Nav2，仅看最终“不动”无法定位。typed 状态能区分
+没录音、ASR 拒绝、队列满、Guard 拒绝、Action 失败、Nav2 aborted 和 TF 缺失；失败报告也要保留。
+
+### 【与替代方案区别】
+
+只看 INFO 日志难做断言；只做单测不能证明 DDS/TF/Gazebo；只做重型 E2E 反馈慢。测试金字塔让
+单测定位、stage 验接口、重型/真人/公开数据提供最终证据。
+
+### 【失败/安全边界】
+
+mock、fixture、Gazebo、真人麦克风、公开 bag 和实体硬件不能互相替代。报告 PASS 可能只表示契约
+完整，算法发布仍要检查 metric/release decision。历史报告必须绑定日期、commit、配置和输入来源。
+
+### 【对应测试】
+
+```bash
+bash scripts/acceptance_test.sh core
+bash scripts/acceptance_test.sh robotics-gate
+bash scripts/acceptance_test.sh slam-nav-showcase-stage
+```
+
+## 8. DDS、QoS、Lifecycle 与系统 readiness
+
+### 【功能】
+
+为命令、事件、状态、传感器、音频和诊断定义不同 DDS 语义；用 Lifecycle 管理 provider 和 Action
+资源；用组件健康聚合判断整套 launch 是否真正可以接收任务。
+
+### 【关键文件/类/函数】
+
+- `src/embodied_agent_middleware/include/embodied_agent_middleware/qos_profiles.hpp`：
+  `command_qos()`、`event_qos()`、`state_qos()`、`sensor_qos()`、`audio_qos()`。
+- `src/embodied_agent_core/embodied_agent_core/ros_qos.py`：Python 同名 QoS。
+- `src/embodied_agent_core/embodied_agent_core/agent_lifecycle_runtime.py`：
+  `AgentLifecycleRuntime.activate()`、`deactivate()`、`release()`。
+- `src/embodied_agent_middleware/include/embodied_agent_middleware/component_health_registry.hpp`：
+  `ComponentHealthRegistry`。
+- `src/embodied_agent_middleware/src/system_readiness_node.cpp`：`SystemReadinessNode`。
+
+### 【上游 → 处理 → 下游】
+
+```text
+节点 configure/activate/deactivate
+→ ComponentHealth + typed state/event
+→ ComponentHealthRegistry
+→ SystemReadinessNode::publish_readiness()
+→ launch、会话编排器和验收探针决定是否放行任务
+```
+
+命令/事件使用 reliable + volatile；当前状态使用 reliable + transient-local；scan/PCM 使用
+best-effort + volatile；diagnostics 使用 reliable。命令不使用 transient-local，避免节点重启后
+重放旧动作。
+
+### 【为什么这样设计】
+
+状态晚加入订阅者需要拿到最新快照，所以用 transient-local；高频 PCM/scan 更重视低延迟，消费
+落后时应丢旧帧。Lifecycle 让“进程存在”和“资源已准备”成为不同状态，停机可以先停车、取消
+goal，再释放线程和 provider。
+
+### 【与替代方案区别】
+
+- 所有 topic 都 reliable：音频积压会放大端到端延迟。
+- 所有 topic 都 best-effort：控制结果丢失会破坏队列关联。
+- 普通 Node：启动简单，无法表达资源 configure/activate/deactivate 边界。
+- 只检查 PID：进程活着不代表模型、Action server 或 TF 已就绪。
+
+### 【失败/安全边界】
+
+DDS discovery 有时间窗；已校验命令只由有容量和 TTL 的 outbox 暂存。Fast DDS SHM 锁和过大的
+`ROS_DOMAIN_ID` 属于环境故障，不应通过放宽安全规则规避。readiness 快照不是永久有效心跳，
+重型冷启动要使用合适的 stale window。
+
+### 【对应测试】
+
+```bash
+bash scripts/acceptance_test.sh core
+bash scripts/acceptance_test.sh robotics-gate
+```
+
+## 9. 音频 AEC、VAD、endpoint 与 ASR commit
+
+### 【功能】
+
+从 WSL/PulseAudio 获取 PCM，执行回声抑制和音频指标统计，检测说话开始/结束，并在 endpoint 后
+延迟提交 ASR，减少“左转九十度”被截成“左转”的尾部漏识别。
+
+### 【关键文件/类/函数】
+
+- `src/embodied_agent_cpp/src/audio_frontend_node.cpp`：`AudioFrontendNode`。
+- `src/embodied_agent_cpp/src/audio_processing.cpp`：`EnergyVad::is_speech()`、
+  `SpeechEndpointDetector::update()`、`SilenceDetector::update()`、`NlmsEchoCanceller::process()`。
+- `src/embodied_voice_frontend/embodied_voice_frontend/silero_vad_sidecar.py`：
+  `StreamingVadEndpoint`。
+- `src/embodied_voice_frontend/embodied_voice_frontend/webrtc_vad_node.py`：`WebRtcVadNode`、`_on_audio()`。
+- `src/embodied_agent_core/embodied_agent_core/asr_endpoint_runtime.py`：`AsrEndpointRuntime`。
+
+### 【上游 → 处理 → 下游】
+
+```text
+PulseAudio source + TTS reference
+→ NlmsEchoCanceller / AudioFrontendNode
+→ /audio/clean_pcm + frontend metrics
+→ energy、Silero 或 WebRTC VAD
+→ /audio/speech_started + /audio/speech_ended
+→ AsrEndpointRuntime 延迟 commit
+→ online WebSocket commit 或 offline ASR queue event
+```
+
+### 【为什么这样设计】
+
+音频采集、声学 endpoint 和语义理解属于不同变化方向。C++ 前端保证低开销 PCM 处理与统一指标，
+成熟 VAD 作为 sidecar 可替换；Agent 只响应稳定 endpoint。commit delay 用少量延迟换取数字、量词
+等尾部完整性。
+
+### 【与替代方案区别】
+
+- 固定静音 0.4 秒：响应快，短停顿和尾音容易截断。
+- 只用能量 VAD：部署简单，对噪声和远场说话适应较弱。
+- Silero/WebRTC VAD：泛化更好，增加模型/依赖和采样格式要求。
+- 完整 WebRTC AEC：更成熟，WSL 音频路由与参考时钟接入更复杂。
+
+### 【失败/安全边界】
+
+NLMS 是轻量回声抑制，不等于生产级双讲 AEC。VAD provider 缺失时必须明确降级，不能静默声称
+使用成熟模型。RMS/peak 很低时先检查 source 和输入增益，不要把阈值降到环境底噪以下。
+
+### 【对应测试】
+
+```bash
+pytest -q src/embodied_voice_frontend/test
+colcon test --packages-select embodied_agent_cpp --event-handlers console_direct+
+```
+
+## 10. 在线 ASR、LLM 与流式 TTS Adapter
+
+### 【功能】
+
+在线节点把音频发送给 Qwen/DashScope 兼容 ASR，把上下文交给 OpenAI-compatible LLM，增量解析
+speech/action 标签，并把可说句子交给 Qwen TTS；provider 差异不侵入共享控制面。
+
+### 【关键文件/类/函数】
+
+- `src/embodied_online_agent/embodied_online_agent/online_agent_node.py`：`OnlineAgentNode`、
+  `_on_clean_audio()`、`_commit_asr_endpoint()`、`_on_asr_final()`、`_accept_transcript()`、`_run_turn()`。
+- `src/embodied_online_agent/embodied_online_agent/providers/qwen_asr.py`：
+  `QwenRealtimeAsr.start()`、`push_audio()`、`commit()`。
+- `src/embodied_online_agent/embodied_online_agent/providers/openai_compatible_llm.py`：
+  `OpenAiCompatibleLlm.stream()`。
+- `src/embodied_online_agent/embodied_online_agent/providers/qwen_tts.py`：
+  `QwenRealtimeTts.synthesize()`。
+- `src/embodied_agent_core/embodied_agent_core/streaming_turn.py`：`StreamingTurnRuntime.feed()`、`finish()`。
+
+### 【上游 → 处理 → 下游】
+
+```text
+/audio/clean_pcm
+→ QwenRealtimeAsr.push_audio()/commit()
+→ OnlineAgentNode._on_asr_final()
+→ AgentApplicationRuntime.accept_transcript()
+→ OpenAiCompatibleLlm.stream()
+→ StreamingTurnRuntime.feed()/finish()
+→ QwenRealtimeTts.synthesize() + typed action candidate
+```
+
+### 【为什么这样设计】
+
+节点负责 ROS/Lifecycle 接线，provider 负责云协议，`StreamingTurnRuntime` 负责标签协议、分句和动作
+选择。API SDK 更新不会迫使会话、记忆、队列和 ActionGuard 一起变化。token 和可说句子分开，便于
+分别观察首 token、首音频和完整动作。
+
+### 【与替代方案区别】
+
+- 单次 HTTP：实现简单，无法提供 ASR partial、LLM token 和低等待 TTS。
+- 节点直接解析 SDK event：接入快，测试必须连接真实云端。
+- provider Adapter：多一层接口，换来 mock、重试和 API 替换能力。
+- LLM 自由输出动作：泛化强、协议不稳定，仍需 parser 和 Guard。
+
+### 【失败/安全边界】
+
+网络、配额、key、限流和模型升级都可能失败。在线延迟必须由本次报告证明，不能永久引用历史
+`<1s`。LLM 输出只是候选，任何动作仍要通过 typed transport 和 C++ ActionGuard。
+
+### 【对应测试】
+
+```bash
+bash scripts/acceptance_test.sh continuous-online
+pytest -q src/embodied_agent_core/test/test_streaming_turn.py
+```
+
+## 11. 离线 Sherpa ASR、llama.cpp 与 TTS 双缓冲
+
+### 【功能】
+
+在无云环境使用 Sherpa-ONNX ZipFormer、llama.cpp GGUF 和 Sherpa-TTS/SummerTTS；通过文本/音频
+双缓冲让 LLM 与 TTS 并行，并记录首 token、decode 和首音频指标。
+
+### 【关键文件/类/函数】
+
+- `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py`：`OfflineAgentNode`、
+  `_enqueue_asr()`、`_run_asr()`、`_on_asr_final()`、`_run_turn()`。
+- `src/embodied_offline_agent/embodied_offline_agent/providers/sherpa_asr.py`：
+  `SherpaZipformerAsr.push_audio()`、`commit()`、`_decode_ready()`。
+- `src/embodied_offline_agent/embodied_offline_agent/providers/llama_cpp.py`：
+  `LlamaCppLlm.warmup()`、`stream()`。
+- `src/embodied_offline_agent/embodied_offline_agent/providers/sherpa_tts.py`：`SherpaVitsTts.synthesize()`。
+- `src/embodied_offline_agent/embodied_offline_agent/double_buffer.py`：`DoubleBuffer.put()`、`get()`、`abort()`。
+- `src/embodied_offline_agent/embodied_offline_agent/pseudo_streaming_tts.py`：
+  `PseudoStreamingTtsPipeline._tts_worker()`、`_audio_worker()`。
+- `src/embodied_offline_agent/embodied_offline_agent/offline_turn_runtime.py`：
+  `OfflineStreamingTurnRuntime.run()`。
+
+### 【上游 → 处理 → 下游】
+
+```text
+clean PCM + endpoint
+→ SherpaZipformerAsr
+→ AgentApplicationRuntime / OfflineStreamingTurnRuntime
+→ LlamaCppLlm.stream()
+→ 文本 DoubleBuffer → TTS worker
+→ 音频 DoubleBuffer → audio worker
+→ /audio/tts_pcm
+```
+
+### 【为什么这样设计】
+
+ASR、LLM 和 TTS 的计算特征不同。有界双缓冲隔离生成速度与播放速度，避免 TTS 阻塞 LLM token；
+abort/close 让取消和停机有明确语义。provider 测试可以使用 fake runtime，不必下载大模型。
+
+### 【与替代方案区别】
+
+- LLM 完成后再 TTS：简单，首音频等待长。
+- 原生流式 TTS：延迟更低，模型必须支持增量状态。
+- 分句伪流式：适配现有模型，第一句仍需整句合成。
+- SummerTTS 常驻 C++ service：减少加载开销，未命中缓存仍可能较慢。
+
+### 【失败/安全边界】
+
+模型、tokenizer、GGUF 架构与运行时版本必须匹配。队列满时不能无限占用内存；取消必须 abort 两个
+buffer。Q8/LoRA 合成 holdout 不等于真实麦克风准确率，伪流式不能表述为原生流式 TTS。
+
+### 【对应测试】
+
+```bash
+pytest -q src/embodied_offline_agent/test
+bash scripts/acceptance_test.sh continuous-offline
+```
+
+## 12. 连续会话、多命令 NLU 与执行队列
+
+### 【功能】
+
+支持一次唤醒后连续输入，把一句话解析成多个动作，在前一动作执行时继续接收命令，并用优先 stop、
+TTL、duplicate/filler 过滤和 command ID 保证长期控制不乱序。
+
+### 【关键文件/类/函数】
+
+- `src/embodied_agent_core/embodied_agent_core/continuous_voice.py`：
+  `ContinuousVoiceSession`、`ContinuousCommandQueue`。
+- `src/embodied_agent_core/embodied_agent_core/agent_control_plane.py`：
+  `AgentControlPlane.accept_transcript()`、`enqueue_command()`。
+- `src/embodied_agent_core/embodied_agent_core/agent_application_runtime.py`：
+  `AgentApplicationRuntime.accept_transcript()`、`run_queued_turn()`、私有 `_run_preparsed_turn()`。
+- `src/embodied_agent_core/embodied_agent_core/command_nlu.py`：`CommandNLU.parse()`。
+- `src/embodied_agent_core/embodied_agent_core/command_completion.py`、`command_fallback.py`。
+- `src/embodied_agent_core/embodied_agent_core/agent_execution_runtime.py`：`AgentExecutionRuntime`。
+
+### 【上游 → 处理 → 下游】
+
+```text
+ASR final
+→ AgentApplicationRuntime.accept_transcript()
+→ AgentControlPlane.accept_transcript()
+→ wake/session、normalization、completion、NLU batch
+→ enqueue_command() → run_queued_turn()
+→ _run_preparsed_turn() 或 provider turn
+→ publish_actions()
+→ 等待同 command_id 的 Action result
+```
+
+### 【为什么这样设计】
+
+输入与执行速度不同，busy 时丢命令会像卡住，并行执行又会产生运动冲突。单 worker + FIFO 保证
+顺序，batch ID 表示同一句多动作，command/request ID 关联结果。高置信度 NLU 直接执行，低置信度
+才交给 LLM，兼顾延迟和泛化。
+
+### 【与替代方案区别】
+
+- 按“然后/再”切字符串：难处理否定、自然表达和组合动作。
+- 小型字符模型 + 槽位规则：轻量可解释，领域外泛化有限。
+- 全部 function calling：能力强，在线成本和延迟高，离线小模型协议不稳。
+- 并行动作：吞吐高，移动、转向和导航无法安全并发。
+
+### 【失败/安全边界】
+
+`停下/急停` 不排队，必须取消 active goal 并清 pending；计划 STOP 不能误当用户急停。过期命令
+不得很久后执行，旧 result 不得唤醒下一 command ID。否定句和疑问句不应猜测执行。
+
+### 【对应测试】
+
+```bash
+pytest -q src/embodied_agent_core/test/test_continuous_voice.py \
+  src/embodied_agent_core/test/test_command_nlu.py
+bash scripts/acceptance_test.sh continuous-multi-command
+```
+
+## 13. 声纹身份、用户记忆与行为偏好
+
+### 【功能】
+
+把声纹身份、录入、用户偏好和交互历史组合为 turn 级不可变上下文，使“默认慢一点”等习惯确定性
+影响动作参数，同时防止低置信度身份污染个人画像。
+
+### 【关键文件/类/函数】
+
+- `src/embodied_voice_frontend/embodied_voice_frontend/speaker_identity_node.py`：
+  `SpeakerIdentityNode`、`classify_speaker_scores()`、`_on_speech_ended()`。
+- `src/embodied_agent_core/embodied_agent_core/user_context_runtime.py`：
+  `UserContextRuntime.snapshot()`、`handle_command()`、`record_interaction()`。
+- `src/embodied_agent_core/embodied_agent_core/memory_command_service.py`：`MemoryCommandService.handle()`。
+- `src/embodied_agent_core/embodied_agent_core/user_memory.py`：
+  `UserMemoryStore.profile()`、`set_preference()`、`record_interaction()`、`prompt_summary()`。
+- `src/embodied_agent_core/embodied_agent_core/user_preferences.py`：动作偏好应用逻辑。
+
+### 【上游 → 处理 → 下游】
+
+```text
+clean PCM + speech_ended
+→ SpeakerIdentityNode
+→ /agent/speaker_identity
+→ UserContextRuntime.update_identity()
+→ 命令入队时 snapshot()
+→ system prompt + deterministic preferences
+→ 已选择动作 → record_interaction()
+```
+
+### 【为什么这样设计】
+
+声纹会在 turn 期间异步更新。入队时冻结 `UserContextSnapshot`，可保证 prompt、偏好和 interaction
+属于同一用户。记忆只记录最终被策略接受的动作，不让被安全层拦截的模型输出污染画像。
+
+### 【与替代方案区别】
+
+- 全局共享记忆：简单，多人串写。
+- 每次读取当前身份：实时，同一 turn 可能前后换用户。
+- 向量数据库：适合开放知识召回；固定控制偏好用结构化 profile 更可审计。
+- 云声纹：可能更准，引入隐私、网络和费用。
+
+### 【失败/安全边界】
+
+low-confidence/unknown 不可写个人 profile；多人、多房间 FAR/FRR 尚未充分评测。记忆不是安全授权，
+用户应能清理数据，偏好修改后的动作仍必须经过 ActionGuard。
+
+### 【对应测试】
+
+```bash
+pytest -q src/embodied_agent_core/test/test_user_context_runtime.py \
+  src/embodied_agent_core/test/test_user_memory.py \
+  src/embodied_voice_frontend/test/test_speaker_identity_node.py
+```
+
+## 14. Typed msg/srv/action 作为跨进程契约
+
+### 【功能】
+
+用 rosidl schema 表达动作、队列、执行、VAD/KWS、健康、SLAM 回环和动态障碍，使 Python/C++ 节点
+在编译与 discovery 阶段共享字段、枚举和时间戳语义。
+
+### 【关键文件/类/函数】
+
+- `src/embodied_agent_interfaces/msg/RobotCommand.msg`、`RobotCommandFeedback.msg`、
+  `RobotCommandResult.msg`。
+- `src/embodied_agent_interfaces/msg/CommandContext.msg`、`CommandQueueEvent.msg`、
+  `CommandExecutionEvent.msg`、`NluParseEvent.msg`。
+- `src/embodied_agent_interfaces/action/ExecuteRobotCommand.action`、`ManageSlamSession.action`。
+- `src/embodied_agent_interfaces/srv/SynthesizeSpeech.srv`。
+- `src/embodied_agent_core/embodied_agent_core/ros_action_transport.py`：`action_command_to_message()`。
+- `src/embodied_agent_core/embodied_agent_core/ros_event_transport.py`：
+  `queue_event_to_message()`、`execution_event_to_message()`、`nlu_parse_to_message()`。
+
+### 【上游 → 处理 → 下游】
+
+```text
+Python 领域 ActionCommand / queue event
+→ transport Adapter
+→ rosidl Python/C++ message
+→ DDS
+→ C++ Guard、Scheduler、simulation 或 monitor
+→ typed feedback/result
+→ Adapter 恢复报告字典
+```
+
+### 【为什么这样设计】
+
+跨进程协议不能靠每个节点自行拼字典。typed message 固定字段、数组和枚举，C++/Python 由同一 IDL
+生成。报告层仍可序列化 JSON，不让文件格式反向污染实时控制协议。
+
+### 【与替代方案区别】
+
+- `String + JSON`：原型快，无编译期 schema，字段漂移运行时才发现。
+- protobuf/gRPC：跨语言强，不是 ROS graph 原生工具链。
+- ROS service：适合短请求响应，不适合可取消长动作。
+- ROS Action：有 goal/feedback/result/cancel，适合移动、导航和会话切换。
+
+### 【失败/安全边界】
+
+typed 只保证结构，不保证语义安全；速度、地点和任务状态仍要校验。修改 IDL 后必须重建所有依赖
+overlay，避免 Python 读取旧生成类型。JSON 只保留在报告、数据集和硬件协议边界。
+
+### 【对应测试】
+
+```bash
+pytest -q src/embodied_agent_core/test/test_ros_action_transport.py \
+  src/embodied_agent_core/test/test_ros_event_transport.py
+bash scripts/acceptance_test.sh core
+```
+
+## 15. 复盘主线
+
+数据面：在线/离线语音进入同一 `AgentApplicationRuntime`，经过 NLU/LLM、typed message、C++
+Guard/Scheduler、Action、BT/pluginlib，最终驱动 Gazebo 或 Nav2。
+
+应用生命周期：`SessionOrchestratorNode` 把 frontier 探索、地图质量判断、map saver、进程切换、
+AMCL/Nav2 readiness 和语义巡检组织成可取消、有状态、有失败回退的任务。
+
+算法与证据：GTSAM/Ceres 负责后端图优化，LiDAR 回环保持 shadow/commit 分层，动态障碍通过关联、
+运动估计和 costmap 预测接入 Nav2；每项结论都对应测试与事实边界。
+
+最重要的工程原则是：模型输出不是控制权，接口存在不是运行证据，单场景正向结果不是泛化结论。

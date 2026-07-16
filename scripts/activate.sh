@@ -1,42 +1,115 @@
 #!/usr/bin/env bash
-set -e
 
-WORKSPACE="${WORKSPACE:-/home/ubuntu/embodied_agent_ws}"
+_embodied_activate_main() {
+  local activate_source="${BASH_SOURCE[0]}"
+  local had_errexit=false
+  local had_nounset=false
+  local had_allexport=false
+  [[ $- == *e* ]] && had_errexit=true
+  [[ $- == *u* ]] && had_nounset=true
+  [[ $- == *a* ]] && had_allexport=true
 
-if [[ -f "$WORKSPACE/scripts/ros_dds_env.sh" ]]; then
-  source "$WORKSPACE/scripts/ros_dds_env.sh"
-fi
-
-# ROS-generated setup files are not safe under `set -u`. Preserve the caller's
-# nounset setting while sourcing them, then restore it.
-NOUNSET_WAS_ENABLED=false
-if [[ $- == *u* ]]; then
-  NOUNSET_WAS_ENABLED=true
+  # ROS/colcon 生成的 setup 可能读取未定义变量。激活期间临时关闭这些选项，
+  # 结束时精确恢复，避免 `source activate.sh` 改变开发者终端的控制流语义。
+  set +e
   set +u
-fi
-source /opt/ros/jazzy/setup.bash
-if [[ -f "$WORKSPACE/.venv/bin/activate" ]]; then
-  source "$WORKSPACE/.venv/bin/activate"
-fi
-if [[ -n "${VIRTUAL_ENV:-}" ]]; then
-  # ROS console script 固定使用系统 Python shebang；无论 venv 位于当前
-  # workspace 还是由 git worktree 复用，都要显式暴露依赖给子进程。
-  VENV_SITE_PACKAGES="$(python -c 'import site; print(site.getsitepackages()[0])')"
-  export PYTHONPATH="$VENV_SITE_PACKAGES${PYTHONPATH:+:$PYTHONPATH}"
-fi
-source "$WORKSPACE/install/setup.bash"
-if [[ -f "$WORKSPACE/.env" ]]; then
-  ALLEXPORT_WAS_ENABLED=false
-  if [[ $- == *a* ]]; then
-    ALLEXPORT_WAS_ENABLED=true
-  else
-    set -a
+  set +a
+
+  local status=0
+  local script_dir=""
+  script_dir="$(cd -- "$(dirname -- "$activate_source")" 2>/dev/null && pwd -P)" || status=2
+  if [[ $status -ne 0 ]]; then
+    echo "ERROR: 无法定位 activate.sh：$activate_source" >&2
   fi
-  source "$WORKSPACE/.env"
-  if [[ "$ALLEXPORT_WAS_ENABLED" != true ]]; then
+
+  if [[ $status -eq 0 ]]; then
+    if [[ ! -f "$script_dir/lifecycle_utils.sh" ]]; then
+      echo "ERROR: 缺少共享 shell 工具：$script_dir/lifecycle_utils.sh" >&2
+      status=2
+    elif ! source "$script_dir/lifecycle_utils.sh"; then
+      echo "ERROR: 无法加载共享 shell 工具：$script_dir/lifecycle_utils.sh" >&2
+      status=2
+    elif ! embodied_resolve_workspace "${BASH_SOURCE[0]}"; then
+      status=2
+    fi
+  fi
+
+  local ros_setup="${EMBODIED_ROS_SETUP:-/opt/ros/jazzy/setup.bash}"
+  if [[ $status -eq 0 && ! -f "$ros_setup" ]]; then
+    cat >&2 <<EOF
+ERROR: 未找到 ROS 2 环境：$ros_setup
+请先安装 ROS 2 Jazzy，再执行：
+  cd "$WORKSPACE"
+  bash scripts/bootstrap.sh
+EOF
+    status=2
+  fi
+
+  if [[ $status -eq 0 && ! -f "$WORKSPACE/install/setup.bash" ]]; then
+    cat >&2 <<EOF
+ERROR: 未找到工作区安装层：$WORKSPACE/install/setup.bash
+请先构建当前工作区：
+  cd "$WORKSPACE"
+  source "$ros_setup"
+  colcon build --symlink-install
+EOF
+    status=2
+  fi
+
+  if [[ $status -eq 0 && -f "$WORKSPACE/scripts/ros_dds_env.sh" ]]; then
+    source "$WORKSPACE/scripts/ros_dds_env.sh" || status=2
+  fi
+  if [[ $status -eq 0 ]]; then
+    source "$ros_setup" || {
+      echo "ERROR: ROS 2 环境加载失败：$ros_setup" >&2
+      status=2
+    }
+  fi
+  if [[ $status -eq 0 && -f "$WORKSPACE/.venv/bin/activate" ]]; then
+    source "$WORKSPACE/.venv/bin/activate" || {
+      echo "ERROR: Python 虚拟环境加载失败：$WORKSPACE/.venv" >&2
+      status=2
+    }
+  fi
+  if [[ $status -eq 0 && -n "${VIRTUAL_ENV:-}" ]]; then
+    # ROS console script 固定使用系统 Python shebang，因此把当前 venv 依赖显式
+    # 暴露给 ROS 子进程；这不是切换解释器，而是补齐 provider Python 包路径。
+    local venv_site_packages=""
+    venv_site_packages="$(python -c 'import site; print(site.getsitepackages()[0])')" || status=2
+    if [[ $status -eq 0 ]]; then
+      export PYTHONPATH="$venv_site_packages${PYTHONPATH:+:$PYTHONPATH}"
+    else
+      echo "ERROR: 无法解析 Python 虚拟环境 site-packages。" >&2
+    fi
+  fi
+  if [[ $status -eq 0 ]]; then
+    source "$WORKSPACE/install/setup.bash" || {
+      echo "ERROR: 工作区安装层加载失败；请重新执行 colcon build --symlink-install。" >&2
+      status=2
+    }
+  fi
+
+  if [[ $status -eq 0 && -f "$WORKSPACE/.env" ]]; then
+    # .env 中的 provider key/模型路径必须传给 launch 子进程；仅在 source 期间
+    # 开启 allexport，随后恢复调用者原状态。
+    set -a
+    source "$WORKSPACE/.env" || {
+      echo "ERROR: 项目环境文件加载失败：$WORKSPACE/.env" >&2
+      status=2
+    }
     set +a
   fi
-fi
-if [[ "$NOUNSET_WAS_ENABLED" == true ]]; then
-  set -u
+
+  if [[ "$had_allexport" == true ]]; then set -a; else set +a; fi
+  if [[ "$had_nounset" == true ]]; then set -u; else set +u; fi
+  # errexit 最后恢复，避免清理过程中的非关键命令提前终止调用者 shell。
+  if [[ "$had_errexit" == true ]]; then set -e; else set +e; fi
+  return "$status"
+}
+
+if _embodied_activate_main; then
+  unset -f _embodied_activate_main
+else
+  unset -f _embodied_activate_main
+  return 2 2>/dev/null || exit 2
 fi

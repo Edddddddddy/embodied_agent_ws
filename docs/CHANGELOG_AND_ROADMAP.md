@@ -42,7 +42,9 @@
 | Nav2 演示资产本地化 | 减少对官方 `tb3_sandbox` map/world 入口的展示依赖 | 新增 `voice_demo.yaml`、`voice_demo.sdf.xacro`，`nav2-assets` 审计本地 map/world/RViz |
 | 真实感语音 SLAM/Nav2 主演示 | 把语音探索、在线建图、地图保存、重启定位和语义导航串成可观看闭环 | 新增四区域公寓/办公室场景、单清单资产生成、SLAM/world 双坐标地点、spawn/AMCL 位姿解耦及两条 Gazebo 重型门禁 |
 | 单终端 SLAM 会话编排 | 删除主演示对第二终端和人工重启的依赖 | 新增 `SlamSessionState`、`ManageSlamSession`、显式状态机和进程 Adapter；办公巡检任务以 15 个语音语义动作完成 10 m 以上建图路径，真实存图并重启 AMCL/Nav2，随后验证入口单点导航和厨房/办公室多航点巡检 |
-| 自动建图与导航任务 | 用一句语音替代人工逐步驾驶和阶段命令 | 固定 Explore Lite 提交完成 frontier 探索；覆盖平台期处理不可达边界，自动存图、等待 Nav2 Lifecycle ACTIVE、执行入口与厨房/办公室巡检；重型报告验证 18,310 个已知栅格、1,425 个占用栅格、两个 Action success 和最终零速 |
+| 自动建图与导航任务 | 用一句语音替代人工逐步驾驶和阶段命令 | 固定 Explore Lite 提交完成 frontier 探索；覆盖平台期处理不可达边界，自动存图、等待 Nav2 Lifecycle ACTIVE、执行入口与厨房/办公室巡检；重型报告保留地图、Action 和最终零速证据 |
+| 自动导航严格终态 | 消除 FollowWaypoints 协议成功但漏点的验收假阳性 | `evaluate_follow_waypoints_result()` 要求 error_code=0 且 missed_waypoints=0；输出漏点 index/error code，monitor 同步分类；项目级 Nav2 progress checker 使用 0.10 m/30 s 适配 WSL/Gazebo 低实时率；重型回归得到 12,348/799 已知/占用栅格、厨房与办公室零漏点、最终零速 |
+| 自动探索角落脱困 | 避免充电角外墙 frontier 长期占用探索预算 | 增加 move/turn-only bootstrap route，经 Agent→ActionGuard→Action 自动驶入中央门洞，再由 Explore Lite 决定未知区域目标；预算终态只有覆盖达标才允许存图 |
 | 成熟 VAD 预检闭环 | 降低真实麦克风现场排障成本 | `provider-preflight` 输出 `recommendations`，连续语音启动时提示 WebRTC/Silero setup 命令 |
 | WebRTC VAD 运行时验收 | 让成熟 VAD 不只停留在 preflight | 新增 `webrtc-vad-sidecar`，验证 WebRTC VAD sidecar 可启动并接管 endpoint |
 | Sherpa KWS 部署闭环 | 让声学唤醒路径可复制验收 | `setup_voice_kws_runtime.sh sherpa` 生成 `logs/sherpa_kws.env`，`sherpa-kws-sidecar` 验证真实 KeywordSpotter 启动 |
@@ -106,6 +108,8 @@
 | LiDAR 多帧时序一致性门 | 抑制重复走廊中单帧 ICP 偶然高分直接进入后端 | 新增纯 C++ 连续确认状态机与离线 replay；两序列同参数下聚合 precision 13.21%→31.25%、recall 12.57%→2.99%，因此保留 shadow-only 并明确精度/召回权衡 |
 | GTSAM 可切换回环约束 | 避免硬阈值在累计漂移时直接误拒真回环，让每条已接受非局部边由后端联合估计可信度 | 新增三变量 SwitchableBetweenFactor、ROS/CLI 参数和两序列固定图门禁；加权 ATE 0.9196 m，较 Gaussian/Cauchy 下降 43.28%/15.57%，在线仍默认关闭 |
 | 架构事实与发布门禁防漂移 | 避免包数量、脚本/模式规模、节点行数和 CI/release-gate 覆盖随迭代再次失真 | 新增确定性 JSON/Markdown 架构报告和 repository contract；12 包 CI 矩阵、12 个公开入口、125 个高级/router mode、typed interface 与 robotics gate 覆盖由源码计算并在 CI 校验 |
+| 自动建图主演示部署收口 | 修复 worktree 静默加载主工作区旧 install、缺 Explore Lite 到运行期才失败的问题 | 公共入口从自身路径解析并 export `WORKSPACE`；激活器恢复 shell 选项；bootstrap 默认安装 pinned Explore Lite；stage/主演示前检查 package prefix 与自动任务 Action contract |
+| 顶层文档权威性收口 | 让部署、架构、调用链、验收和 15 分钟汇报与一句话自动任务一致 | 新增 `docs/README.md`；架构/走读/测试/学习/汇报统一写明文件、函数、上下游、设计原因和证据边界；不改 `docs` 子目录 |
 
 ## 2. 当前完成度结论
 
@@ -195,24 +199,19 @@ bash scripts/acceptance_test.sh continuous-live-check offline
 
 ### P0：保持演示稳定
 
-- 优先保证 `continuous-offline` 在 3～5 分钟内稳定连续控制。
-- 固定 10 命令、5 分钟真实麦克风 benchmark，量化识别率、动作成功率、误触发、queue reject
-  与延迟 P50/P95；online/offline 报告使用独立文件名。
-  自动测试不再冒充真人长时间证据。
-- 新增 `continuous-voice-evidence` 单终端入口，自动启停控制链路并显示倒计时；benchmark
-  即使未达门槛也保证生成现场与汇总两份报告，避免 `set -e` 提前中断留证。
-- 新增 `runtime-evidence-summary`，用 `proven/failed/missing` 汇总两种长稳证据；离线 LLM
-  原始动作准确率与 fallback+安全后的系统有效率永久分栏。
-- 优先保证 `continuous-nav2-offline` 能支撑 3～5 分钟真实麦克风目标点导航/巡航演示。
-- 继续完善 monitor 输出，让失败原因能直接定位到 ASR、session、queue、Action、Gazebo。
-- 为常见麦克风和噪声环境补充 profile 建议。
-- 阶段发布前固定运行 README 中的 release gate，并把真实麦克风/Gazebo/Nav2 结果留成可复查证据。
+- 优先保证 `voice-slam-workplace-demo offline` 能从一句语音完成 frontier 探索、存图、AMCL/Nav2
+  切换与语义巡检，并留下地图、Action result 和最终零速证据。
+- 保持 `embodied_resolve_workspace` 与 `embodied_workspace_doctor` 门禁，禁止 worktree 加载主工作区
+  install，禁止缺 Explore Lite 时进入重型演示。
+- 保留 `continuous-offline/online` 作为语音上游验收，继续用独立的 5 分钟报告量化识别率、动作
+  成功率、误触发、queue reject 与 P50/P95，不用自动测试冒充真人长时间证据。
+- 阶段发布前运行 core、自动任务 stage、真实 Gazebo 自动任务和人工麦克风主演示，并保存报告。
 
 ### P1：增强 ROS 2/C++ 求职展示价值
 
-- 继续提高 C++ 节点比例：安全校验、仿真执行、协议层、诊断层优先 C++。
-- 补充更多 C++ 单元测试和 launch test。
-- 将关键设计整理成可讲的架构图和面试问答。
+- 对 frontier 覆盖率、探索耗时、地图已知栅格增长、重定位时间和导航成功率形成可重复指标。
+- 将自动任务的进程管理逐步收敛为更明确的 Lifecycle/launch service 边界，但先保持现有稳定入口。
+- 对关键 C++ 安全、调度、BT/pluginlib、SLAM 后端和动态障碍模块补充 launch test 与故障注入。
 
 ### P2：补齐端侧部署故事
 
@@ -294,7 +293,11 @@ bash scripts/acceptance_test.sh continuous-live-check offline
 
 具身智能机器人智能语音交互与仿真控制系统
 
-项目描述：设计并实现机器人智能语音交互系统的在线与离线 Agent 链路，打通从语音输入、ASR 识别、大模型/规则动作解析、动作安全校验到 ROS 2/Gazebo 仿真控制的端到端流程。项目引入自定义 ROS 2 msg/action、C++ ActionGuard、BehaviorTree.CPP 和 pluginlib 执行器，支持真实麦克风连续语音控制、多命令队列、急停抢占和仿真运动验收。
+项目描述：设计并实现机器人智能语音交互系统的在线与离线 Agent 链路，打通从真实语音、ASR、
+大模型/轻量 NLU 动作解析、C++ 安全调度到 ROS 2/Gazebo 的端到端流程；进一步用一句高层语音任务
+编排 Explore Lite frontier 自动探索、SLAM 地图保存、AMCL 定位、Nav2 规划避障和语义巡检。系统
+使用自定义 ROS 2 msg/action、Lifecycle、BehaviorTree.CPP 与 pluginlib，并以分层测试区分 mock、
+真实麦克风、Gazebo 和公开数据证据。
 
 主要工作：
 
@@ -302,4 +305,7 @@ bash scripts/acceptance_test.sh continuous-live-check offline
 - 离线 Agent：预留 Sherpa-onnx ZipFormer ASR、llama.cpp、Sherpa-TTS 的端侧部署结构，设计双缓冲和延迟统计，支持 mock 与真实模型 smoke 验收。
 - 连续语音控制：实现 wake/session gate、重复 ASR final 过滤、filler 过滤、命令队列、TTL、急停抢占、短命令补全和现场 monitor，提高真实麦克风长时间控制稳定性。
 - ROS 2/C++ 控制链路：基于 C++ 编写 ActionGuard、typed action bridge、仿真执行节点，将 LLM 动作候选转换为强类型 RobotCommand 和 ROS 2 Action，并在 Gazebo/TurtleBot3 中验证 `/cmd_vel` 和 odom 变化。
+- 自动建图导航：开发显式会话状态机和进程 Adapter，一条“开始自动巡检建图”触发 frontier 选点、
+  Nav2 探索、YAML/PGM 存图、SLAM→AMCL 生命周期切换及入口/厨房/办公室语义任务；支持取消、超时、
+  readiness 和最终零速验收。
 - 工程化与验收：引入 BehaviorTree.CPP 编排动作校验、安全检查、执行和结果确认，用 pluginlib 支持 mock/Gazebo executor，配套单元测试、集成 smoke、Gazebo 验收和真实麦克风人工验收脚本。

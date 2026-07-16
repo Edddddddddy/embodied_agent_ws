@@ -1,5 +1,9 @@
 # Nav2 语音目标点导航与多目标点巡航验收审计
 
+> 定位：Nav2 接入阶段的历史审计快照。当前完整验收以
+> [测试与验收手册](TESTING_AND_ACCEPTANCE.md) 为准，自动建图主演示以
+> [语音 SLAM/Nav2 演示](VOICE_SLAM_NAV_SHOWCASE.md) 为准。
+
 本文档用于判断“语音目标点导航 + 多目标点巡航”是否真正完成。它不是开发计划，而是把需求逐条映射到当前代码、自动化证据和仍需人工提供的真实麦克风证据。
 
 ## 1. 需求拆解
@@ -11,7 +15,7 @@
 | 多目标点巡航输出 `follow_waypoints` | `command_nlu.py`、`ros_action_transport.py` | `continuous-navigation`、`continuous-navigation-natural` | 已有自动化证据 |
 | 所有动作经过 C++ ActionGuard 限幅与强类型校验 | `src/embodied_agent_cpp/src/action_guard_node.cpp`、`action_validator.cpp` | `bash scripts/smoke_test_typed_action.sh`、`colcon test --packages-select embodied_agent_cpp` | 已有自动化证据 |
 | 导航动作通过 ROS 2 Action 可反馈、可等待 result | `src/embodied_agent_cpp/src/typed_action_bridge_node.cpp`、`src/embodied_simulation/src/simulation_control_node.cpp` | `bash scripts/smoke_test_typed_action_server.sh` | 已有自动化证据 |
-| `navigate_to/follow_waypoints` 能转成 Nav2 Action goal | `src/embodied_simulation/src/nav2_action_bridge_node.cpp`、语义地点配置 | `bash scripts/acceptance_test.sh nav2-bridge` | 已有自动化证据 |
+| `navigate_to/follow_waypoints` 能转成 Nav2 Action goal | `src/embodied_simulation/src/nav2_places.cpp` 的 `Nav2Places`、`nav2_robot_executor.cpp` 的 `send_navigate_goal()/send_follow_goal()` | `bash scripts/acceptance_test.sh nav2-bridge` | 已有自动化证据 |
 | 真实 TurtleBot3/Nav2 仿真依赖和 launch 参数正确 | `src/embodied_simulation/launch/voice_nav2_turtlebot3.launch.py` | `bash scripts/acceptance_test.sh nav2-preflight` | 已有自动化证据 |
 | 阶段门禁覆盖解析、队列、Nav2 bridge、preflight | `scripts/acceptance_test.sh` | `bash scripts/acceptance_test.sh nav2-stage` | 已有自动化证据 |
 | 真实麦克风连续说目标点/巡航命令可被现场验收 | `scripts/continuous_nav2_voice_control.sh`、`continuous_live_check.py`、`continuous_nav2_voice_evidence.sh` | `bash scripts/acceptance_test.sh continuous-nav2-evidence offline` 生成的现场报告 | 需要用户在有麦克风的环境中补充证据 |

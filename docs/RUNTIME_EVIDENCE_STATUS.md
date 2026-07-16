@@ -15,6 +15,7 @@
 | fallback + safety 系统有效率 | 两侧均 36/43（83.72%） | **已测**，只能描述系统兜底效果，不能替代模型原始分数 |
 | 离线 fixture E2E | endpoint 到首音频 707.533 ms，turn complete 1428.566 ms，LLM 首 token 120.607 ms | **已测且 <3.5 s**，但它是测试音频/fixture，不是 5 分钟真人长稳证据 |
 | 离线组件性能 | warm LLM P95 544.79 ms、解码中位数 30.52 tokens/s、Sherpa-TTS 178.94 ms | **已测**，属于组件 benchmark |
+| 自动建图→定位→导航 | 本轮 Gazebo 重型门禁：12,348 个已知栅格、799 个占用栅格；入口成功；厨房/办公室 `error_code=0`、`missed_waypoints=0`；最终零速 | **已留证**，证明仿真中的 bootstrap+frontier→map saver→AMCL/Nav2 闭环，不代表真实硬件环境 |
 | OpenLORIS SLAM | office1-7：449 对齐位姿、99.753% 覆盖，Ceres/GTSAM ATE 约 10 cm；6 组前端阈值均为 46 条相邻边、accepted 非局部边 0；baseline 47 个图节点中 39 次被 near-linked 排除、8 次历史不足、0 次 coarse check | **已测**，已补来源绑定的 5 MB SLAM-only bag、阈值消融和 Karto 前端诊断；当前不能宣称回环检测成功 |
 | 扫描重叠跨序列 | corridor1-1 双证据 ATE 改善 5.84%；corridor1-2 四组 ATE 均 0.1484 m、收益为 0；两图 SHA256 独立且证据完整 | **已测但不启用**，平均改善 2.92% 不能掩盖第二序列无收益，发布决策为 `keep_disabled_collect_more_sequences` |
 
@@ -40,6 +41,8 @@ bash scripts/acceptance_test.sh wsl-microphone-preflight
 bash scripts/acceptance_test.sh continuous-voice-evidence offline
 bash scripts/acceptance_test.sh continuous-voice-evidence online
 bash scripts/acceptance_test.sh runtime-evidence-summary
+# 无麦克风、真实 Gazebo/SLAM/Nav2 自动任务证据
+bash scripts/acceptance_test.sh slam-autonomous-mission
 ```
 
 关键产物：
@@ -50,6 +53,7 @@ logs/voice_benchmark_offline_report.json
 logs/continuous_voice_online_live_report.json
 logs/voice_benchmark_online_report.json
 logs/runtime_evidence_summary.json
+logs/showcase/autonomous_runtime/automatic_mission_report.json
 ```
 
 正式通过标准：在线、离线的 `status` 都为 `proven`；每份报告至少 300 s；动作成功率和

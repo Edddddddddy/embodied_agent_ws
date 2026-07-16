@@ -160,6 +160,7 @@ def test_workplace_mission_covers_mapping_and_multiple_semantic_targets():
     mission = yaml.safe_load(WORKPLACE_MISSION.read_text(encoding="utf-8"))
     places = _read_compact_places(MAPPING_PLACES)
     route = mission["mapping_route"]
+    bootstrap_route = mission["automatic_exploration"]["bootstrap_route"]
     navigation = mission["navigation_mission"]
     acceptance = mission["acceptance"]
 
@@ -169,6 +170,11 @@ def test_workplace_mission_covers_mapping_and_multiple_semantic_targets():
     assert all(step["label"] and step["text"] for step in route)
     labels = " ".join(step["label"] for step in route)
     assert all(room in labels for room in ("客厅", "厨房", "中央走廊", "办公室"))
+    assert len(bootstrap_route) >= 5
+    assert {step["action"] for step in bootstrap_route} == {"move", "turn"}
+    assert all(step["label"] and step["text"] for step in bootstrap_route)
+    assert "充电" in bootstrap_route[0]["label"]
+    assert "中央" in " ".join(step["label"] for step in bootstrap_route)
     assert len(navigation["expected_targets"]) >= 3
     assert set(navigation["expected_targets"]).issubset(places)
     assert acceptance["min_mapping_path_m"] >= 10.0

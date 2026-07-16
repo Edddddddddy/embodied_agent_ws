@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-WORKSPACE="${WORKSPACE:-/home/ubuntu/embodied_agent_ws}"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+source "$SCRIPT_DIR/lifecycle_utils.sh"
+embodied_resolve_workspace "${BASH_SOURCE[0]}"
 REPOSITORY="https://github.com/robo-friends/m-explore-ros2.git"
 REVISION="326cf8a0b487c34246bb8f3326afbcd69576dc60"
 SOURCE_DIR="$WORKSPACE/third_party/m-explore-ros2"
@@ -42,4 +44,5 @@ set +u
 source "$WORKSPACE/install/setup.bash"
 set -u
 ros2 pkg executables explore_lite | grep -q 'explore_lite explore'
+embodied_workspace_doctor true
 echo "PASS: pinned Explore Lite frontier runtime is installed"

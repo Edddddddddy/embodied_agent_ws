@@ -276,10 +276,36 @@ def main() -> None:
                 print(json.dumps(report, ensure_ascii=False, indent=2))
                 return
             wait_until(
-                lambda: node.has_phase(SlamSessionState.MISSION_COMPLETED),
+                lambda: (
+                    node.has_phase(SlamSessionState.MISSION_COMPLETED)
+                    or any(
+                        state.phase == SlamSessionState.FAILED
+                        or (
+                            state.phase == SlamSessionState.MAPPING
+                            and "automatic mission failed" in state.detail
+                        )
+                        for state in node.states[state_start:]
+                    )
+                ),
                 args.transition_timeout,
-                "automatic mission did not reach MISSION_COMPLETED",
+                "automatic mission did not reach a terminal state",
             )
+            failed_state = next(
+                (
+                    state
+                    for state in reversed(node.states[state_start:])
+                    if state.phase == SlamSessionState.FAILED
+                    or (
+                        state.phase == SlamSessionState.MAPPING
+                        and "automatic mission failed" in state.detail
+                    )
+                ),
+                None,
+            )
+            if failed_state is not None:
+                # 重型进程已经给出确定失败时立即结束，避免继续等待完整超时，
+                # 同时让 smoke 脚本及时打印 orchestrator/Nav2 原始日志。
+                raise RuntimeError(failed_state.detail)
             observed = [int(state.phase) for state in node.states]
             # 状态 topic 使用 depth=1 + transient-local：dry-run 阶段切换仅数毫秒，
             # 订阅者可能合理地只收到最新快照。最终状态同时携带 map_saved，故可作为
@@ -302,6 +328,19 @@ def main() -> None:
                     node.result_for(command_id)
                     and node.result_for(command_id).get("success") is True
                     for command_id in candidate_ids
+                )
+                follow_ids = {
+                    str(item.get("request_id"))
+                    for item in node.candidates
+                    if item.get("name") == "follow_waypoints"
+                }
+                # WaypointFollower 可在部分点失败后返回协议 SUCCEEDED；真实重型证据
+                # 必须额外证明没有漏点，避免报告出现业务假阳性。
+                assert follow_ids
+                assert all(
+                    "missed_waypoints=0"
+                    in str(node.result_for(command_id).get("message", ""))
+                    for command_id in follow_ids
                 )
                 wait_until(
                     lambda: (

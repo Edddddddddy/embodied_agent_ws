@@ -333,6 +333,13 @@ def test_nav2_executor_failure_details_are_preserved():
         / "src"
         / "nav2_robot_executor.cpp"
     ).read_text(encoding="utf-8")
+    result_policy = (
+        ROOT
+        / "src"
+        / "embodied_simulation"
+        / "src"
+        / "nav2_result_policy.cpp"
+    ).read_text(encoding="utf-8")
     control_node = (
         ROOT
         / "src"
@@ -353,11 +360,18 @@ def test_nav2_executor_failure_details_are_preserved():
         "server_unavailable",
         "goal_rejected",
         "goal_response_timeout_or_rejected",
-        "missed_waypoints",
-        "error_msg",
         "nav2:cancel_requested",
     ):
         assert detail_token in executor_plugin
+    # Nav2 通信留在 executor，协议终态到业务终态的映射集中在纯策略模块，
+    # 避免 FollowWaypoints 的部分成功规则继续埋在 ROS callback 中。
+    for detail_token in (
+        "missed_waypoints",
+        "missed_detail",
+        "error_msg",
+        "ActionExecutionState::kBlocked",
+    ):
+        assert detail_token in result_policy
     assert "executor_->external_action_detail()" in control_node
     assert "detail.empty() ? \"executor_rejected\" : detail" in control_node
     assert "Nav2 这类外部 action 的失败原因" in action_runtime

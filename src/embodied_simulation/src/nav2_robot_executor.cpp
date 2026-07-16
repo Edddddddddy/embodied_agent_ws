@@ -20,6 +20,7 @@
 #include <rclcpp_action/rclcpp_action.hpp>
 
 #include "embodied_simulation/nav2_places.hpp"
+#include "embodied_simulation/nav2_result_policy.hpp"
 
 namespace embodied_simulation
 {
@@ -305,9 +306,9 @@ private:
           follow_goal_handle_.reset();
         }
         active_.store(false);
-        set_external_state(
-          state_from_result_code(result.code),
-          follow_result_detail(waypoints, result));
+        const auto outcome = evaluate_follow_waypoints_result(
+          waypoints, result.code, result.result.get());
+        set_external_state(outcome.state, outcome.detail);
       };
     auto future = follow_client_->async_send_goal(goal, options);
     const bool accepted =
@@ -369,23 +370,6 @@ private:
            << " target=" << target;
     if (result.result) {
       stream << " error_code=" << result.result->error_code;
-      if (!result.result->error_msg.empty()) {
-        stream << " error_msg=" << result.result->error_msg;
-      }
-    }
-    return stream.str();
-  }
-
-  static std::string follow_result_detail(
-    const std::vector<std::string> & waypoints,
-    const FollowGoalHandle::WrappedResult & result)
-  {
-    std::ostringstream stream;
-    stream << "nav2:follow_waypoints:" << result_code_name(result.code)
-           << " waypoints=" << join(waypoints, ",");
-    if (result.result) {
-      stream << " error_code=" << result.result->error_code
-             << " missed_waypoints=" << result.result->missed_waypoints.size();
       if (!result.result->error_msg.empty()) {
         stream << " error_msg=" << result.result->error_msg;
       }
