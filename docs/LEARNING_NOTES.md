@@ -199,6 +199,8 @@ bash scripts/acceptance_test.sh gazebo
   `AutomaticMissionExecutor.run()` 封装自动探索、存图、定位切换和语义巡航事务。
 - `src/embodied_slam_tools/embodied_slam_tools/frontier_monitor.py`：
   `FrontierExplorationMonitor.wait()` 统一覆盖阈值、地图平台期、Explorer 健康、超时和取消判定。
+- `src/embodied_slam_tools/embodied_slam_tools/agent_action_gateway.py`：
+  `AgentActionGateway.run()` 用回调代次关联候选与结果，拒绝 Agent 重启后复用 ID 的旧结果。
 - `src/embodied_slam_tools/embodied_slam_tools/showcase_session_node.py`：
   作为 ROS Adapter 提供 `save_map()`、`start_navigation()`、`run_agent_action()`。
 - `src/embodied_slam_tools/embodied_slam_tools/mapping_evidence.py`：
@@ -421,6 +423,8 @@ bash scripts/acceptance_test.sh slam-nav-showcase-stage
 - `src/embodied_agent_middleware/include/embodied_agent_middleware/component_health_registry.hpp`：
   `ComponentHealthRegistry`。
 - `src/embodied_agent_middleware/src/system_readiness_node.cpp`：`SystemReadinessNode`。
+- `src/embodied_agent_cpp/src/action_guard_node.cpp`：`flush_outbox()` 同时验证
+  Agent→Guard 与 Guard→Scheduler 两段 DDS discovery 后才发布 READY。
 
 ### 【上游 → 处理 → 下游】
 
@@ -451,7 +455,8 @@ goal，再释放线程和 provider。
 
 ### 【失败/安全边界】
 
-DDS discovery 有时间窗；已校验命令只由有容量和 TTL 的 outbox 暂存。Fast DDS SHM 锁和过大的
+DDS discovery 有时间窗；ActionGuard readiness 必须同时看到上下游端点，不能只把 Lifecycle ACTIVE
+当作通信链路 ready。已校验命令只由有容量和 TTL 的 outbox 暂存。Fast DDS SHM 锁和过大的
 `ROS_DOMAIN_ID` 属于环境故障，不应通过放宽安全规则规避。readiness 快照不是永久有效心跳，
 重型冷启动要使用合适的 stale window。
 

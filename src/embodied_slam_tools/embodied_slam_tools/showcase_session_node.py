@@ -41,6 +41,7 @@ try:
 except ImportError:  # 可选运行时由 setup_frontier_exploration.sh 安装。
     ExploreStatus = None
 
+from .agent_action_gateway import AgentActionGateway, AgentActionOutcome
 from .frontier_monitor import FrontierExplorationMonitor, FrontierMonitorConfig
 from .mapping_evidence import MappingEvidenceTracker
 from .mission_executor import (
@@ -230,9 +231,6 @@ class SessionOrchestratorNode(Node):
         self._stopping = threading.Event()
         self._operation_active = threading.Event()
         self._active_request: CommandRequest | None = None
-        self._agent_condition = threading.Condition()
-        self._agent_candidates: list[tuple[int, str]] = []
-        self._agent_results: dict[str, RobotCommandResult] = {}
 
         state_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
@@ -252,6 +250,15 @@ class SessionOrchestratorNode(Node):
         )
         self._agent_text_pub = self.create_publisher(
             String, "/agent/text_input", event_qos
+        )
+        self._agent_action_gateway = AgentActionGateway(
+            publish_text=lambda text: self._agent_text_pub.publish(
+                String(data=text)
+            ),
+            subscriber_count=self._agent_text_pub.get_subscription_count,
+            cancel_motion=self._cancel_automatic_motion,
+            dry_run=dry_run,
+            log_dry_run=lambda message: print(message, flush=True),
         )
         self.create_subscription(
             String,
@@ -376,20 +383,19 @@ class SessionOrchestratorNode(Node):
             self._ready_condition.notify_all()
 
     def _on_agent_candidate(self, message: RobotCommand) -> None:
-        if not message.command_id:
-            return
-        with self._agent_condition:
-            self._agent_candidates.append(
-                (int(message.action_type), str(message.command_id))
-            )
-            self._agent_condition.notify_all()
+        self._agent_action_gateway.record_candidate(
+            int(message.action_type), str(message.command_id)
+        )
 
     def _on_agent_result(self, message: RobotCommandResult) -> None:
-        if not message.command_id:
-            return
-        with self._agent_condition:
-            self._agent_results[str(message.command_id)] = message
-            self._agent_condition.notify_all()
+        self._agent_action_gateway.record_result(
+            str(message.command_id),
+            AgentActionOutcome(
+                success=bool(message.success),
+                status=int(message.status),
+                message=str(message.message),
+            ),
+        )
 
     def _on_map(self, message: OccupancyGrid) -> None:
         self._mapping_evidence.record_map(message.data)
@@ -422,60 +428,13 @@ class SessionOrchestratorNode(Node):
     ) -> None:
         """复用 Agent 的 NLU 与 typed command 链路执行自动任务中的语义动作。"""
 
-        if self._dry_run:
-            print(
-                f"DRY RUN agent action: {text} -> {expected_action}",
-                flush=True,
-            )
-            return
-        expected_type = _ACTION_TYPES[expected_action]
-        deadline = time.monotonic() + timeout_s
-        while self._agent_text_pub.get_subscription_count() == 0:
-            if request.canceled:
-                self._cancel_automatic_motion()
-                raise AutomaticMissionCancelled("automatic mission canceled")
-            if time.monotonic() >= deadline:
-                raise TimeoutError("Agent text input subscriber unavailable")
-            time.sleep(0.1)
-        with self._agent_condition:
-            candidate_start = len(self._agent_candidates)
-        self._agent_text_pub.publish(String(data=text))
-
-        command_id = ""
-        with self._agent_condition:
-            while not command_id:
-                if request.canceled:
-                    self._cancel_automatic_motion()
-                    raise AutomaticMissionCancelled("automatic mission canceled")
-                for action_type, candidate_id in self._agent_candidates[candidate_start:]:
-                    if action_type == expected_type:
-                        command_id = candidate_id
-                        break
-                remaining = deadline - time.monotonic()
-                if command_id or remaining <= 0.0:
-                    break
-                self._agent_condition.wait(timeout=min(0.2, remaining))
-        if not command_id:
-            raise TimeoutError(
-                f"Agent did not publish {expected_action} for {text!r}"
-            )
-
-        with self._agent_condition:
-            while command_id not in self._agent_results:
-                if request.canceled:
-                    self._cancel_automatic_motion()
-                    raise AutomaticMissionCancelled("automatic mission canceled")
-                remaining = deadline - time.monotonic()
-                if remaining <= 0.0:
-                    raise TimeoutError(
-                        f"action result timeout for {expected_action}:{command_id}"
-                    )
-                self._agent_condition.wait(timeout=min(0.2, remaining))
-            result = self._agent_results.pop(command_id)
-        if not result.success:
-            raise RuntimeError(
-                f"{expected_action} failed status={result.status}: {result.message}"
-            )
+        self._agent_action_gateway.run(
+            request,
+            text=text,
+            expected_action_type=_ACTION_TYPES[expected_action],
+            expected_action_name=expected_action,
+            timeout_s=timeout_s,
+        )
 
     def wait_for_frontier(self, request: CommandRequest) -> None:
         self._frontier_monitor.wait(request)
