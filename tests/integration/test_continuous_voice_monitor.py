@@ -13,7 +13,9 @@ MONITOR = ROOT / "scripts" / "continuous_voice_monitor.py"
 sys.path.insert(0, str(ROOT / "scripts"))
 
 try:
-    import rclpy  # noqa: F401
+    # 只 import 顶层 rclpy 时 rclpy.node 尚未进入 sys.modules，旧测试会误把
+    # real rclpy.qos 替换成 stub，随后导致 node 导入失败。
+    from rclpy.node import Node as _RclpyNode  # noqa: F401
 except ImportError:
     sys.modules.setdefault("rclpy", types.SimpleNamespace())
     sys.modules.setdefault(
@@ -125,6 +127,7 @@ def test_monitor_formats_asr_queue_action_and_result_events():
     )
 
     assert monitor.format_asr_final("向前走一秒") == "[asr] 向前走一秒"
+    assert monitor.format_asr_partial("开始自动巡检") == "[asr-partial] 开始自动巡检"
     assert monitor.format_queue_event(queue_event) == "[queue] enqueue 向前走一秒 size=2"
     assert (
         monitor.format_queue_event(expired_event)

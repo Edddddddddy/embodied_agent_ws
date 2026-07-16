@@ -177,7 +177,8 @@ def main():
                 f"{follow_elapsed:.2f}s"
             )
         follow = node.follow_goals[-1]
-        if follow.number_of_loops != 1 or len(follow.poses) != 3:
+        # RobotCommand 的 1 表示“总共走一遍”；Nav2 的 0 才表示不做额外重复。
+        if follow.number_of_loops != 0 or len(follow.poses) != 3:
             raise RuntimeError(f"unexpected follow goal: {follow}")
         positions = [(pose.pose.position.x, pose.pose.position.y) for pose in follow.poses]
         expected = [(1.2, 0.0), (1.2, 1.0), (0.0, 0.0)]

@@ -494,6 +494,10 @@ case "$LEVEL" in
       python3 -m pytest -q src/embodied_slam_tools/test/test_showcase_session.py
     colcon build --symlink-install --packages-up-to embodied_slam_tools \
       --allow-overriding embodied_agent_interfaces embodied_slam_tools
+    PYTHONPATH="$WORKSPACE/src/embodied_slam_tools${PYTHONPATH:+:$PYTHONPATH}" \
+      python3 -m pytest -q \
+        src/embodied_slam_tools/test/test_showcase_session_node.py \
+        tests/integration/test_trigger_automatic_slam_mission.py
     WORKSPACE="$WORKSPACE" bash scripts/smoke_test_voice_slam_automatic_mission.sh
     WORKSPACE="$WORKSPACE" bash scripts/smoke_test_voice_slam_automatic_cancel.sh
     ;;

@@ -28,7 +28,14 @@ from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalRespons
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
-from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.qos import (
+    DurabilityPolicy,
+    HistoryPolicy,
+    QoSProfile,
+    ReliabilityPolicy,
+    qos_profile_sensor_data,
+)
+from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
 import yaml
 
@@ -43,6 +50,7 @@ from .showcase_session import (
     ShowcaseSessionStateMachine,
     exploration_completion_reason,
     is_automatic_mission_cancel_text,
+    is_truncated_automatic_mission_text,
     parse_mapping_bootstrap_route,
     parse_session_command,
 )
@@ -55,6 +63,35 @@ _ACTION_TYPES = {
     "navigate_to": RobotCommand.NAVIGATE_TO,
     "follow_waypoints": RobotCommand.FOLLOW_WAYPOINTS,
 }
+
+
+def _get_lifecycle_state(client, timeout_s: float) -> int | None:
+    """在非 executor 工作线程中同步查询 lifecycle，超时返回 ``None``。"""
+
+    response = client.call(GetState.Request(), timeout_sec=timeout_s)
+    if response is None:
+        return None
+    return int(response.current_state.id)
+
+
+def _wait_for_required_event(
+    event: threading.Event,
+    timeout_s: float,
+    is_canceled,
+    *,
+    poll_s: float = 0.05,
+) -> bool:
+    """可取消地等待运行时依赖；成功返回 True，超时返回 False。"""
+
+    deadline = time.monotonic() + max(0.0, timeout_s)
+    while True:
+        if is_canceled():
+            raise AutomaticMissionCancelled("automatic mission canceled")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0.0:
+            return event.is_set()
+        if event.wait(timeout=min(poll_s, remaining)):
+            return True
 
 
 @dataclass
@@ -336,6 +373,11 @@ class SessionOrchestratorNode(Node):
         self._startup_timeout_s = float(
             self.declare_parameter("startup_timeout_s", 120.0).value
         )
+        self._scan_startup_timeout_s = float(
+            self.declare_parameter("scan_startup_timeout_s", 20.0).value
+        )
+        if self._scan_startup_timeout_s <= 0.0:
+            raise ValueError("scan_startup_timeout_s must be positive")
         stop_timeout_s = float(
             self.declare_parameter("stop_timeout_s", 15.0).value
         )
@@ -376,6 +418,7 @@ class SessionOrchestratorNode(Node):
         self._exploration_completion_reason = ""
         self._explore_condition = threading.Condition()
         self._explore_status = ""
+        self._scan_ready = threading.Event()
 
         state_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
@@ -429,6 +472,13 @@ class SessionOrchestratorNode(Node):
             "/map",
             self._on_map,
             state_qos,
+            callback_group=callback_group,
+        )
+        self.create_subscription(
+            LaserScan,
+            "/scan",
+            self._on_scan,
+            qos_profile_sensor_data,
             callback_group=callback_group,
         )
         if ExploreStatus is not None:
@@ -534,6 +584,11 @@ class SessionOrchestratorNode(Node):
                 self._best_known_map_cells = stats["known_cells"]
                 self._last_map_growth_at = time.monotonic()
             self._explore_condition.notify_all()
+
+    def _on_scan(self, _message: LaserScan) -> None:
+        # SystemReadiness 只能证明图中关键节点已经启动；Gazebo 传感器首帧可能
+        # 稍晚到达。显式记录首帧，避免 bootstrap 动作被安全执行器按 scan_timeout 拒绝。
+        self._scan_ready.set()
 
     def _on_explore_status(self, message: Any) -> None:
         with self._explore_condition:
@@ -750,19 +805,12 @@ class SessionOrchestratorNode(Node):
                     raise TimeoutError(f"Nav2 lifecycle node not active: {name}")
                 if not client.wait_for_service(timeout_sec=min(0.5, remaining)):
                     continue
-                future = client.call_async(GetState.Request())
-                while not future.done() and time.monotonic() < deadline:
-                    if request.canceled:
-                        future.cancel()
-                        self._cancel_automatic_motion()
-                        raise AutomaticMissionCancelled("automatic mission canceled")
-                    time.sleep(0.05)
-                if future.done() and future.result() is not None:
-                    if (
-                        future.result().current_state.id
-                        == State.PRIMARY_STATE_ACTIVE
-                    ):
-                        break
+                # 这里运行在专用 worker，而不是 ROS callback。同步 Client.call 会
+                # 用事件等待 executor 处理响应，并在每次短超时后清理 pending request；
+                # 旧的 call_async + busy polling 在 Gazebo 高负载下会把有效响应饿死。
+                state = _get_lifecycle_state(client, min(0.5, remaining))
+                if state == State.PRIMARY_STATE_ACTIVE:
+                    break
                 time.sleep(0.1)
         self.get_logger().info(
             "Nav2 navigation Action servers and lifecycle nodes are active"
@@ -814,6 +862,13 @@ class SessionOrchestratorNode(Node):
             active_request.canceled = True
             self.get_logger().warning("canceling active automatic mission by voice")
             return
+        if is_truncated_automatic_mission_text(message.data):
+            # 该别名来自真实 ZipFormer 尾部漏字样本。只对完全相等的“开始自动”
+            # 生效，既让现场演示可恢复，也不会把“开始自动播放音乐”误判为建图。
+            self.get_logger().warning(
+                "ASR final truncated to '开始自动'; recovering the explicit "
+                "automatic mapping mission intent"
+            )
         command = parse_session_command(message.data)
         if command is None:
             return
@@ -932,9 +987,22 @@ class SessionOrchestratorNode(Node):
 
         self._transition(
             SessionPhase.AUTOMATIC_MAPPING,
-            detail="mapping bootstrap route running",
+            detail="waiting for first LiDAR scan",
         )
         self._feedback(request, 0.03)
+        if not self._dry_run and not _wait_for_required_event(
+            self._scan_ready,
+            self._scan_startup_timeout_s,
+            lambda: request.canceled,
+        ):
+            # 不降低底层 scan freshness 安全阈值；启动竞态应由编排层等待解决。
+            raise TimeoutError(
+                "mapping stage did not publish /scan before bootstrap timeout"
+            )
+        self._transition(
+            SessionPhase.AUTOMATIC_MAPPING,
+            detail="mapping bootstrap route running",
+        )
         route_size = len(self._mapping_bootstrap_route)
         for index, (label, text, expected_action) in enumerate(
             self._mapping_bootstrap_route

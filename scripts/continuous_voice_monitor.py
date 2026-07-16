@@ -137,6 +137,10 @@ def format_asr_final(text: str) -> str:
     return f"[asr] {text}"
 
 
+def format_asr_partial(text: str) -> str:
+    return f"[asr-partial] {text}"
+
+
 def format_queue_state(state: str, size: int | None = None) -> str:
     if state == "queued":
         suffix = "" if size is None else f" size={size}"
@@ -499,6 +503,9 @@ class ContinuousVoiceMonitor(Node):
             AudioFrontendStatus, "/audio/frontend_metrics", self._on_audio, state_qos()
         )
         self.create_subscription(
+            String, "/agent/asr_partial", self._on_asr_partial, sensor_qos(depth=10)
+        )
+        self.create_subscription(
             String, "/agent/asr_final", self._on_asr, event_qos(depth=10)
         )
         self.create_subscription(String, "/agent/state", self._on_state, state_qos())
@@ -582,6 +589,11 @@ class ContinuousVoiceMonitor(Node):
         if self._sample_recorder is not None:
             self._sample_recorder.record_asr(message.data)
         self._emit(format_asr_final(message.data))
+
+    def _on_asr_partial(self, message: String) -> None:
+        # partial 只用于现场诊断，不进入统计门槛：它能直接区分“模型从未听到
+        # 句尾”和“partial 完整但 final 回退”两类问题。
+        self._emit(format_asr_partial(message.data))
 
     def _on_state(self, message: String) -> None:
         if message.data == "queued" and not self._structured_queue_seen:

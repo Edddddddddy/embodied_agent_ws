@@ -25,4 +25,5 @@ string color
 string mode
 string target
 string[] waypoints
+# 路线总遍历轮数：1 表示每个 waypoint 只访问一遍；执行器会转换成后端的循环语义。
 uint32 number_of_loops

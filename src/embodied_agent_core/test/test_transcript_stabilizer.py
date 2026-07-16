@@ -28,6 +28,16 @@ def test_recovers_time_color_and_navigation_slot_tails():
         assert stabilizer.finalize(final).text == partial
 
 
+def test_recovers_automatic_mapping_tail_only_when_partial_observed_it():
+    stabilizer = TranscriptStabilizer()
+    stabilizer.observe_partial("开始自动巡检建图")
+
+    result = stabilizer.finalize("开始自动")
+
+    assert result.text == "开始自动巡检建图"
+    assert result.reason == "partial_slot_tail_recovered"
+
+
 def test_does_not_restore_arbitrary_chat_tail():
     stabilizer = TranscriptStabilizer()
     stabilizer.observe_partial("今天天气很热")

@@ -29,6 +29,18 @@ def test_parser_recognizes_only_explicit_slam_session_intents():
     assert parse_session_command("你能介绍一下地图吗") is None
 
 
+def test_parser_recovers_only_the_exact_truncated_automatic_mission_prefix():
+    """真实离线 ASR 可能只留下“开始自动”，但不能因此放宽为任意开始语句。"""
+
+    assert (
+        parse_session_command("开始自动")
+        == SessionCommand.RUN_AUTOMATIC_MISSION
+    )
+    assert parse_session_command("开始") is None
+    assert parse_session_command("自动") is None
+    assert parse_session_command("开始自动播放音乐") is None
+
+
 def test_automatic_mission_only_starts_from_ready_mapping_phase():
     machine = ShowcaseSessionStateMachine()
     accepted, reason = machine.validate(SessionCommand.RUN_AUTOMATIC_MISSION)
