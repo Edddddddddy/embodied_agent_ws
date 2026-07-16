@@ -54,6 +54,54 @@ def test_readiness_blocks_when_audio_metrics_are_missing():
     assert readiness.readiness_exit_code(report) == 1
 
 
+def test_required_live_window_blocks_when_vad_never_detects_speech():
+    audio = readiness.AudioHealthReport(
+        sample_count=4,
+        max_rms=0.015,
+        mean_rms=0.009,
+        speech_ratio=0.0,
+        dropped_input_delta=0,
+        dropped_playback_delta=0,
+        suggested_vad_threshold=0.01,
+        warnings=(),
+    )
+    kws = readiness.analyze_kws_scores([])
+
+    report = readiness.build_readiness_report(
+        audio,
+        kws,
+        require_kws=False,
+        require_speech=True,
+    )
+
+    assert report.ok is False
+    assert "audio:no_speech_detected_during_required_window" in report.blockers
+    assert readiness.readiness_exit_code(report) == 1
+
+
+def test_optional_calibration_window_can_report_vad_advice_without_blocking():
+    audio = readiness.AudioHealthReport(
+        sample_count=4,
+        max_rms=0.015,
+        mean_rms=0.009,
+        speech_ratio=0.0,
+        dropped_input_delta=0,
+        dropped_playback_delta=0,
+        suggested_vad_threshold=0.01,
+        warnings=(),
+    )
+    kws = readiness.analyze_kws_scores([])
+
+    report = readiness.build_readiness_report(
+        audio,
+        kws,
+        require_kws=False,
+        require_speech=False,
+    )
+
+    assert report.ok is True
+
+
 def test_require_kws_blocks_when_kws_scores_are_missing():
     audio = readiness.AudioHealthReport(
         sample_count=3,

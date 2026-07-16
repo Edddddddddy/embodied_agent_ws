@@ -45,6 +45,8 @@ def test_profile_specific_defaults_remain_explicit():
     assert offline["memory_max_turns"] == 3
     assert online["tts_sample_rate"] == 24000
     assert offline["tts_sample_rate"] == 44100
+    assert offline["asr_tail_padding_s"] == 0.66
+    assert offline["asr_max_active_paths"] == 16
 
 
 @pytest.mark.parametrize(
@@ -58,6 +60,8 @@ def test_profile_specific_defaults_remain_explicit():
             "command_normalization_fuzzy_threshold",
         ),
         ("offline", {"asr_num_threads": 0}, "asr_num_threads"),
+        ("offline", {"asr_tail_padding_s": -0.01}, "asr_tail_padding_s"),
+        ("offline", {"asr_tail_padding_s": 2.01}, "asr_tail_padding_s"),
     ],
 )
 def test_invalid_parameter_fails_with_field_name(profile, override, field):

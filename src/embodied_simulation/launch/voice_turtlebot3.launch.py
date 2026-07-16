@@ -31,6 +31,16 @@ def include_launch(package, filename, arguments=None, condition=None):
     )
 
 
+def default_gz_partition():
+    """按 ROS domain 隔离 Gazebo Transport，避免残留 server 抢占 /clock。"""
+
+    configured = os.environ.get("GZ_PARTITION", "").strip()
+    if configured:
+        return configured
+    domain_id = os.environ.get("ROS_DOMAIN_ID", "0")
+    return f"embodied_agent_{domain_id}"
+
+
 def generate_launch_description():
     os.environ["TURTLEBOT3_MODEL"] = "burger"
     simulation_share = get_package_share_directory("embodied_simulation")
@@ -83,6 +93,7 @@ def generate_launch_description():
     executor_plugin = LaunchConfiguration("executor_plugin")
     lifecycle_autostart = LaunchConfiguration("lifecycle_autostart")
     use_composition = LaunchConfiguration("use_composition")
+    gz_partition = LaunchConfiguration("gz_partition")
 
     online_condition = IfCondition(
         PythonExpression([
@@ -137,9 +148,13 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument("lifecycle_autostart", default_value="true"),
         DeclareLaunchArgument("use_composition", default_value="false"),
+        DeclareLaunchArgument("gz_partition", default_value=default_gz_partition()),
         DeclareLaunchArgument("x_pose", default_value="-2.0"),
         DeclareLaunchArgument("y_pose", default_value="-0.5"),
         SetEnvironmentVariable("TURTLEBOT3_MODEL", "burger"),
+        SetEnvironmentVariable("GZ_PARTITION", gz_partition),
+        # Jazzy/Harmonic 使用 GZ_PARTITION；同步旧名称便于兼容仍读取 IGN_PARTITION 的工具。
+        SetEnvironmentVariable("IGN_PARTITION", gz_partition),
         AppendEnvironmentVariable(
             "GZ_SIM_RESOURCE_PATH", os.path.join(turtlebot_share, "models")
         ),

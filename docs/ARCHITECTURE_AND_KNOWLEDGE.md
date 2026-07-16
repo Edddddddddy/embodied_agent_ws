@@ -146,8 +146,8 @@ Agent→ActionGuard→Action 主链。这个区别必须在汇报中说清楚。
 - “停下/急停/取消自动任务”映射为优先请求，设置取消事件并停止 explorer/Nav2 goal。
 - `StageProcessManager` 负责进程组终止，避免只杀父进程留下 Gazebo/Nav2 子进程。
 - 每个阶段先检查 readiness，再推进状态；不能用固定 `sleep` 假设组件已经就绪。
-- 自动探索失败时可退回确定性 `mapping/save/navigation`，或使用同源静态地图的
-  `navigation-static`；回退用于定位问题，不算自动探索通过。
+- 自动探索失败时可用 `mapping/save/navigation` 分阶段定位，但 `navigation` 只接受本次保存地图；
+  分阶段成功不算自动探索完整通过。
 
 ## 6. ROS 2 接口与通信语义
 

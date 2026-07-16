@@ -131,3 +131,12 @@ class AsrEndpointRuntime:
             self._timers.clear()
         for timer in timers:
             timer.cancel()
+
+    def resume_utterance(self) -> None:
+        """VAD 在提交延迟内恢复说话时，把两段继续视为同一 utterance。
+
+        本方法只取消 endpoint timer，不触碰 ASR provider 的音频流；因此前半句
+        已经送入 provider 的 PCM 会保留，下一次 speech_ended 再一次性提交完整句。
+        """
+
+        self.cancel_pending()

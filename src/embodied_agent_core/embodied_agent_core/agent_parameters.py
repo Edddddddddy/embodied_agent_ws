@@ -269,6 +269,13 @@ OFFLINE_PARAMETER_SPECS = (
     ),
     ParameterSpec("asr_num_threads", 2, "Sherpa ASR 线程数。", 1, 128),
     ParameterSpec(
+        "asr_tail_padding_s",
+        0.66,
+        "提交流式 Sherpa ASR 前注入的尾部静音时长。",
+        0.0,
+        2.0,
+    ),
+    ParameterSpec(
         "asr_decoding_method",
         "modified_beam_search",
         "Sherpa 解码方法。",
@@ -276,7 +283,7 @@ OFFLINE_PARAMETER_SPECS = (
     ),
     ParameterSpec("asr_hotwords_file", "", "离线 ASR 热词文件。"),
     ParameterSpec("asr_hotwords_score", 3.0, "离线 ASR 热词偏置分数。", 0.0, 100.0),
-    ParameterSpec("asr_max_active_paths", 4, "beam search 最大活跃路径数。", 1, 128),
+    ParameterSpec("asr_max_active_paths", 16, "beam search 最大活跃路径数。", 1, 128),
     ParameterSpec(
         "asr_modeling_unit",
         "cjkchar",

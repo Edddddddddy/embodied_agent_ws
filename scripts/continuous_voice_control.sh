@@ -110,7 +110,7 @@ OPENWAKEWORD_THRESHOLD="${OPENWAKEWORD_THRESHOLD:-0.5}"
 LIVEKIT_WAKEWORD_MODELS="${LIVEKIT_WAKEWORD_MODELS:-}"
 LIVEKIT_WAKEWORD_THRESHOLD="${LIVEKIT_WAKEWORD_THRESHOLD:-0.5}"
 AUDIO_ENHANCER="${AUDIO_ENHANCER:-nlms}"
-AEC_ENABLED="${AEC_ENABLED:-${PROFILE_AEC_ENABLED:-true}}"
+AEC_ENABLED="${AEC_ENABLED:-${PROFILE_AEC_ENABLED:-$SPEAKER_ENABLED}}"
 NOISE_SUPPRESSION_ENABLED="${NOISE_SUPPRESSION_ENABLED:-false}"
 AUTO_GAIN_ENABLED="${AUTO_GAIN_ENABLED:-false}"
 GUI_ENABLED="${GUI_ENABLED:-true}"
@@ -120,7 +120,10 @@ MONITOR_SAMPLE_LOG="${CONTINUOUS_SAMPLE_LOG:-}"
 PRINT_CONFIG="${CONTINUOUS_PRINT_CONFIG:-false}"
 PREFLIGHT_ENABLED="${CONTINUOUS_PREFLIGHT_ENABLED:-true}"
 READINESS_ENABLED="${CONTINUOUS_READINESS_ENABLED:-true}"
-READINESS_DURATION="${CONTINUOUS_READINESS_DURATION:-3.0}"
+READINESS_DURATION="${CONTINUOUS_READINESS_DURATION:-4.0}"
+# 该入口始终面向真实麦克风，readiness 失败默认视为音频路由故障。
+# 自动化若有意注入 mock 音频，可显式设置为 false 保留非阻断模式。
+READINESS_REQUIRED="${CONTINUOUS_READINESS_REQUIRED:-true}"
 SIMULATION_READINESS_ENABLED="${SIMULATION_READINESS_ENABLED:-true}"
 SIMULATION_READINESS_REQUIRED="${SIMULATION_READINESS_REQUIRED:-true}"
 SIMULATION_READINESS_TIMEOUT="${SIMULATION_READINESS_TIMEOUT:-35.0}"
@@ -128,6 +131,10 @@ SYSTEM_READINESS_TIMEOUT="${SYSTEM_READINESS_TIMEOUT:-35.0}"
 SIMULATION_CLEANUP_STALE="${SIMULATION_CLEANUP_STALE:-false}"
 source "$WORKSPACE/scripts/activate.sh"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((140 + $$ % 80))}"
+# ROS_DOMAIN_ID 不会隔离 Gazebo Transport；单独设置 partition 才能避免旧
+# gz sim 抢占 /clock 并让 use_sim_time 动作永远停在 0%。
+export GZ_PARTITION="${GZ_PARTITION:-embodied_agent_${ROS_DOMAIN_ID}}"
+export IGN_PARTITION="${IGN_PARTITION:-$GZ_PARTITION}"
 
 resolve_vad_provider() {
   if [[ "$VAD_PROVIDER_REQUESTED" != "auto" ]]; then
@@ -189,6 +196,7 @@ fi
 print_configuration() {
   cat <<EOF
 ROS_DOMAIN_ID=$ROS_DOMAIN_ID，连续语音控制模式=$MODE
+GZ_PARTITION=$GZ_PARTITION（隔离 Gazebo Transport，避免残留世界抢占 /clock）
 FASTDDS_BUILTIN_TRANSPORTS=${FASTDDS_BUILTIN_TRANSPORTS:-<unset>}（默认 UDPv4，用于规避 WSL FastDDS SHM 锁报错）
 EMBODIED_ALLOW_FASTDDS_SHM=${EMBODIED_ALLOW_FASTDDS_SHM:-false}
 
@@ -256,6 +264,7 @@ CONTINUOUS_SAMPLE_LOG=$MONITOR_SAMPLE_LOG（可选 JSONL；保存真实 ASR/NLU/
 CONTINUOUS_PREFLIGHT_ENABLED=$PREFLIGHT_ENABLED
 CONTINUOUS_READINESS_ENABLED=$READINESS_ENABLED
 CONTINUOUS_READINESS_DURATION=$READINESS_DURATION
+CONTINUOUS_READINESS_REQUIRED=$READINESS_REQUIRED
 SIMULATION_READINESS_ENABLED=$SIMULATION_READINESS_ENABLED
 SIMULATION_READINESS_REQUIRED=$SIMULATION_READINESS_REQUIRED
 SIMULATION_READINESS_TIMEOUT=$SIMULATION_READINESS_TIMEOUT
@@ -464,14 +473,25 @@ fi
 
 if [[ "$READINESS_ENABLED" == "true" ]]; then
   readiness_args=(--duration "$READINESS_DURATION")
+  if [[ "$READINESS_REQUIRED" == "true" ]]; then
+    readiness_args+=(--require-speech)
+  fi
   if [[ "$KWS_PROVIDER" == "sherpa" || "$KWS_PROVIDER" == "openwakeword" || "$KWS_PROVIDER" == "livekit" ]]; then
     readiness_args+=(--require-kws)
   fi
   echo
-  echo "正在进行连续语音 readiness check（${READINESS_DURATION}s），请保持麦克风环境接近演示现场..."
+  echo "正在进行连续语音 readiness check（${READINESS_DURATION}s）..."
+  if [[ "$READINESS_REQUIRED" == "true" ]]; then
+    echo "请在接下来的 ${READINESS_DURATION}s 采样窗口内持续说完整话，例如：小智，向前走一秒；不要安静等待。"
+  fi
   if python3 "$WORKSPACE/scripts/voice_control_readiness_check.py" "${readiness_args[@]}"; then
     echo "系统已就绪，可以开始说：小智"
   else
+    if [[ "$READINESS_REQUIRED" == "true" ]]; then
+      echo "FAIL: 真实麦克风 readiness 未通过；为避免把近静音或残缺 ASR 送入任务队列，当前停止 continuous-$MODE。" >&2
+      echo "      请现在对着麦克风清晰说一句完整指令，例如：小智，向前走一秒；确认有声音后重新运行。" >&2
+      exit 1
+    fi
     echo "WARN: readiness check 未完全通过；仍继续运行。建议按顺序检查：麦克风 source、SPEECH_START_THRESHOLD、VOICE_CONTROL_PROFILE=low_gain/quiet/noisy_room，以及可选 KWS 模型路径。" >&2
   fi
 fi

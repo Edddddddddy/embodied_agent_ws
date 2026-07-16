@@ -199,10 +199,10 @@ bash scripts/acceptance_test.sh slam-nav-showcase
 4. 至少两个语义目标产生规划并成功到达；
 5. 结束、失败和取消后 `/cmd_vel` 均归零。
 
-自动任务报告必须进入 `MISSION_COMPLETED`、保存有效地图、至少包含 6,000 个已知栅格和 150 个
-占用栅格、入口导航和厨房/办公室巡检成功，并验证最终停车。报告路径是
-`logs/showcase/autonomous_runtime/automatic_mission_report.json`。旧固定路线回归报告仍保留 15 步和
-10 m 路径阈值。自动门禁用文本 topic 代替真人发声以保持回归可重复；
+自动任务报告必须进入 `MISSION_COMPLETED`、保存本次会话的新地图、至少包含 6,000 个已知栅格和
+150 个占用栅格、建图轨迹不少于 10 m、入口导航和厨房/办公室巡检成功，并验证动态重规划和最终停车。
+唯一完整门禁是 `bash scripts/acceptance_test.sh slam-nav-e2e`，报告路径是
+`logs/acceptance/slam_nav/<session-id>/slam_nav_e2e_report.json`。自动门禁用 typed Action 触发以保持回归可重复；
 `auto offline` 人工验收才是麦克风证据。两者复用相同编排器、Explore Lite、Nav2 和阶段安全检查；
 建图 bootstrap 原语与存图后的语义导航都复用
 `RobotCommand → ActionGuard → ExecuteRobotCommand` 控制链，不直接写 `/cmd_vel`。
@@ -215,7 +215,7 @@ Agent 对 `move/turn` 保持 12 秒快速故障超时，对 `navigate_to/follow_
 超时；底层 Nav2 executor 仍有自己的 300 秒 Action 超时。这样 Nav2 可进行规划与恢复，又不会让
 普通短动作故障长期占住语音队列。
 
-## 6. 手工回退、现场保底与事实边界
+## 6. 分阶段诊断与事实边界
 
 自动切换异常时，可用原有三阶段命令定位问题：
 
@@ -225,13 +225,8 @@ bash scripts/voice_slam_nav_showcase.sh save       # mapping 运行时由第二�
 bash scripts/voice_slam_nav_showcase.sh navigation offline
 ```
 
-现场时间不足或探索覆盖不全时，可使用：
-
-```bash
-bash scripts/voice_slam_nav_showcase.sh navigation-static offline
-```
-
-它加载与 Gazebo 几何同源生成的确定性地图，不能宣称该地图由本次语音探索建立。
+`navigation` 必须加载本次 `save` 生成的地图。项目不提供静态地图保底入口，避免把预生成地图导航
+误报为 SLAM→定位→规划闭环完成。
 `ManageSlamSession` 的取消会在等待和保存/切换边界生效；正在运行的 `map_saver_cli` 是有界 35 秒
 子进程，当前不做进程内部抢占，不能表述为任意时刻硬实时取消。
 

@@ -2,7 +2,11 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import (
+    DeclareLaunchArgument,
+    IncludeLaunchDescription,
+    SetEnvironmentVariable,
+)
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PythonExpression
@@ -29,6 +33,16 @@ def include_launch(package, filename, arguments=None, condition=None):
 
 def as_python_bool(value):
     return PythonExpression(["'True' if '", value, "'.lower() == 'true' else 'False'"])
+
+
+def default_gz_partition():
+    """隔离 Nav2 自带 Gazebo server，防止旧世界令 /clock 改为 namespaced topic。"""
+
+    configured = os.environ.get("GZ_PARTITION", "").strip()
+    if configured:
+        return configured
+    domain_id = os.environ.get("ROS_DOMAIN_ID", "0")
+    return f"embodied_agent_{domain_id}"
 
 
 def generate_launch_description():
@@ -86,6 +100,10 @@ def generate_launch_description():
     use_composition = LaunchConfiguration("use_composition")
     executor_plugin = LaunchConfiguration("executor_plugin")
     readiness_stale_timeout_s = LaunchConfiguration("readiness_stale_timeout_s")
+    gz_partition = LaunchConfiguration("gz_partition")
+    enable_dynamic_obstacle_layer = LaunchConfiguration(
+        "enable_dynamic_obstacle_layer"
+    )
 
     online_condition = IfCondition(
         PythonExpression([
@@ -96,6 +114,24 @@ def generate_launch_description():
         PythonExpression([
             "'", launch_agent, "' == 'true' and '", agent_type, "' == 'offline'"
         ])
+    )
+
+    # 预测层只在显式启用时启动 tracker。普通语音/Nav2 演示保持官方参数，
+    # 完整 SLAM 门禁则同时传入已插入 PredictedObstacleLayer 的 params_file。
+    dynamic_obstacle_tracker = Node(
+        package="embodied_navigation",
+        executable="dynamic_obstacle_tracker_node",
+        name="dynamic_obstacle_tracker",
+        output="screen",
+        parameters=[
+            os.path.join(
+                get_package_share_directory("embodied_navigation"),
+                "config",
+                "navigation_overrides.yaml",
+            ),
+            {"use_sim_time": True},
+        ],
+        condition=IfCondition(enable_dynamic_obstacle_layer),
     )
 
     # 不修改 /opt/ros 中的 Nav2 默认文件，而是在 launch 上下文生成临时参数副本。
@@ -171,9 +207,17 @@ def generate_launch_description():
         # Gazebo、AMCL/Nav2 与 Agent 并行冷启动时会跨越数秒。健康事件是
         # transient-local 状态快照而非高频心跳，因此这里的窗口必须覆盖冷启动。
         DeclareLaunchArgument("readiness_stale_timeout_s", default_value="30.0"),
+        DeclareLaunchArgument("gz_partition", default_value=default_gz_partition()),
+        DeclareLaunchArgument(
+            "enable_dynamic_obstacle_layer",
+            default_value="false",
+            description="Start typed dynamic tracker; params_file must contain the costmap plugin",
+        ),
         DeclareLaunchArgument("x_pose", default_value="-2.0"),
         DeclareLaunchArgument("y_pose", default_value="-0.5"),
         DeclareLaunchArgument("yaw", default_value="0.0"),
+        SetEnvironmentVariable("GZ_PARTITION", gz_partition),
+        SetEnvironmentVariable("IGN_PARTITION", gz_partition),
         # 复用 Nav2 官方 TurtleBot3 bringup 的成熟导航栈；默认 map/world/RViz
         # 指向本项目资产，让演示脚本、审计报告和简历讲解都有稳定的项目内入口。
         include_launch(
@@ -198,6 +242,7 @@ def generate_launch_description():
                 "yaw": LaunchConfiguration("yaw"),
             },
         ),
+        dynamic_obstacle_tracker,
         include_launch(
             "embodied_simulation",
             "simulation_control.launch.py",

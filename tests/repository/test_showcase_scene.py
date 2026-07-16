@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
+import json
 import subprocess
 from pathlib import Path
 
@@ -15,6 +16,10 @@ SLAM_FRAME_MAP_YAML = SIMULATION / "maps/showcase_apartment_slam_frame.yaml"
 STATIC_PLACES = SIMULATION / "config/showcase_places.yaml"
 MAPPING_PLACES = SIMULATION / "config/showcase_mapping_places.yaml"
 WORKPLACE_MISSION = SIMULATION / "config/showcase_workplace_mission.yaml"
+DYNAMIC_SCENARIO = (
+    ROOT
+    / "src/embodied_navigation/config/showcase_dynamic_obstacle_scenario.json"
+)
 
 
 def _read_compact_places(path: Path) -> dict[str, dict[str, float]]:
@@ -75,6 +80,11 @@ def test_showcase_assets_are_generated_from_one_manifest():
         "floor", "wall", "furniture", "landmark"
     }
     assert len(spec["places"]) >= 8
+    assert spec["dynamic_obstacles"][0]["name"] == "crossing_cart"
+    world = (
+        SIMULATION / "worlds/showcase_apartment.sdf.xacro"
+    ).read_text(encoding="utf-8")
+    assert '<model name="crossing_cart"><static>true</static>' in world
 
 
 def test_showcase_semantic_places_share_one_inflated_connected_free_space():
@@ -127,11 +137,11 @@ def test_mapping_places_are_relative_to_slam_start_pose():
     ]
 
 
-def test_showcase_shell_exposes_mapping_save_and_navigation_stages():
+def test_showcase_shell_exposes_fresh_map_navigation_and_internal_diagnostic():
     script = (ROOT / "scripts/voice_slam_nav_showcase.sh").read_text(encoding="utf-8")
     continuous = (ROOT / "scripts/continuous_nav2_voice_control.sh").read_text(encoding="utf-8")
     for stage in (
-        "auto)", "mapping)", "save)", "navigation)", "navigation-static)", "audit)"
+        "auto)", "mapping)", "save)", "navigation)", "audit)"
     ):
         assert stage in script
     assert "map_saver_cli" in script
@@ -140,11 +150,33 @@ def test_showcase_shell_exposes_mapping_save_and_navigation_stages():
     assert 'NAV2_EXECUTOR_PLUGIN="${NAV2_EXECUTOR_PLUGIN:-embodied_simulation/Nav2RobotExecutor}"' in continuous
     assert 'embodied_simulation/GazeboRobotExecutor' in script
     assert '"$MAPPING_PLACES" 0.0 0.0 0.0' in script
-    assert '"$STATIC_PLACES" -4.15 -3.15 0.0' in script
     assert 'NAV2_SPAWN_X="${NAV2_SPAWN_X:--4.15}"' in script
     assert 'add_launch_arg x_pose "$SPAWN_X"' in continuous
     assert '--x "$INITIAL_X" --y "$INITIAL_Y"' in continuous
     assert "voice_slam_session_orchestrator" in script
+    help_text = script.split("EOF", 1)[0]
+    assert "navigation-static" not in script
+    acceptance_cli = (ROOT / "scripts/acceptance_test.sh").read_text(
+        encoding="utf-8"
+    )
+    assert "slam-nav-e2e" in acceptance_cli
+
+
+def test_showcase_dynamic_obstacle_scenario_binds_visible_actor_and_new_map_frame():
+    scenario = json.loads(DYNAMIC_SCENARIO.read_text(encoding="utf-8"))
+    spec = yaml.safe_load(SPEC.read_text(encoding="utf-8"))
+    actor_names = {item["name"] for item in spec["dynamic_obstacles"]}
+    assert scenario["entity_name"] in actor_names
+    assert scenario["world_name"] == spec["world"]["name"]
+    assert scenario["map_to_world_translation"] == {
+        "x": spec["world"]["spawn"]["x"],
+        "y": spec["world"]["spawn"]["y"],
+    }
+    assert scenario["path_relative_motion"]["path_fraction"] > 0.0
+    assert scenario["path_relative_motion"]["path_fraction"] < 1.0
+    assert scenario["warmup"]["sample_count"] >= 4
+    assert scenario["navigation"]["sample_count"] >= 4
+    assert scenario["thresholds"]["minimum_unique_navigation_plans"] >= 2
 
 
 def test_session_orchestrator_uses_canonical_readiness_topic():

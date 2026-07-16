@@ -9,12 +9,13 @@ MODE="${2:-offline}"
 SCENE_SPEC="$WORKSPACE/src/embodied_simulation/config/showcase_apartment.yaml"
 WORLD="$WORKSPACE/src/embodied_simulation/worlds/showcase_apartment.sdf.xacro"
 STATIC_MAP="$WORKSPACE/src/embodied_simulation/maps/showcase_apartment.yaml"
-STATIC_PLACES="$WORKSPACE/src/embodied_simulation/config/showcase_places.yaml"
 MAPPING_PLACES="$WORKSPACE/src/embodied_simulation/config/showcase_mapping_places.yaml"
 MISSION_SPEC="$WORKSPACE/src/embodied_simulation/config/showcase_workplace_mission.yaml"
 SESSION_DIR="${SHOWCASE_SESSION_DIR:-$WORKSPACE/logs/showcase}"
 SAVED_MAP_PREFIX="${SHOWCASE_MAP_PREFIX:-$SESSION_DIR/voice_built_map}"
 FRONTIER_NAV2_PARAMS="$SESSION_DIR/frontier_nav2_params.yaml"
+DYNAMIC_NAV2_PARAMS="$SESSION_DIR/showcase_dynamic_nav2_params.yaml"
+SHOWCASE_DYNAMIC_OBSTACLE_ENABLED="${SHOWCASE_DYNAMIC_OBSTACLE_ENABLED:-true}"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-30}"
 
 usage() {
@@ -34,7 +35,6 @@ Terminal 2（mapping 仍运行时）：
 
 其他：
   bash scripts/voice_slam_nav_showcase.sh audit
-  bash scripts/voice_slam_nav_showcase.sh navigation-static offline
 
 推荐演示顺序：
   1. 推荐 auto：说“小智，开始自动巡检建图”。
@@ -42,8 +42,6 @@ Terminal 2（mapping 仍运行时）：
   3. 系统自动执行“去入口”“依次去厨房、办公室”。
 
 mapping/save/navigation 仍保留为手工故障回退。
-
-navigation-static 使用项目自带确定性地图，适合作为现场演示的保底路径。
 EOF
 }
 
@@ -89,6 +87,7 @@ run_voice_stage() {
   export NAV2_MAP="$map"
   export NAV2_PLACES_FILE="$places"
   export NAV2_EXECUTOR_PLUGIN="$executor_plugin"
+  export NAV2_ENABLE_DYNAMIC_OBSTACLE_LAYER="$SHOWCASE_DYNAMIC_OBSTACLE_ENABLED"
   export NAV2_INITIAL_X="${NAV2_INITIAL_X:-$initial_x}"
   export NAV2_INITIAL_Y="${NAV2_INITIAL_Y:-$initial_y}"
   export NAV2_INITIAL_YAW="${NAV2_INITIAL_YAW:-$initial_yaw}"
@@ -150,15 +149,16 @@ case "$COMMAND" in
       exit 2
     }
     echo "[showcase] 阶段 3/3：加载语音建图结果 + AMCL 定位 + Nav2 规划/避障"
+    if [[ "$SHOWCASE_DYNAMIC_OBSTACLE_ENABLED" == "true" ]]; then
+      # 只在导航阶段插入预测层；SLAM 阶段不能让演示障碍污染待保存地图。
+      python3 "$WORKSPACE/scripts/build_slam_nav2_params.py" \
+        --output "$DYNAMIC_NAV2_PARAMS"
+      export NAV2_PARAMS_FILE="$DYNAMIC_NAV2_PARAMS"
+    fi
     # 保存的 SLAM 地图以建图起点为 map 原点，因此使用相对起点的地点表，
     # 并把重启后的初始位姿发布为 (0, 0, 0)。
     run_voice_stage false "$SAVED_MAP_PREFIX.yaml" "embodied_simulation/Nav2RobotExecutor" \
       "$MAPPING_PLACES" 0.0 0.0 0.0
-    ;;
-  navigation-static)
-    echo "[showcase] 保底演示：加载项目内确定性地图 + AMCL + Nav2"
-    run_voice_stage false "$STATIC_MAP" "embodied_simulation/Nav2RobotExecutor" \
-      "$STATIC_PLACES" -4.15 -3.15 0.0
     ;;
   audit)
     python3 "$WORKSPACE/scripts/generate_showcase_scene.py" --spec "$SCENE_SPEC" --check

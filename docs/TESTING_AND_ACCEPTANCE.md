@@ -121,6 +121,12 @@ PASS：列出 WSLg Pulse source，3 秒采样 `rms` 明显高于阈值，结果�
 bash scripts/acceptance_test.sh continuous-offline
 ```
 
+启动后会先打开 **4 秒 readiness 采样窗口**。看到提示后必须立即持续说一条完整话，例如
+“小智，向前走一秒”，不能安静等待窗口结束。WSLg 正确采集日志应显示
+`enhancer=pulse_bridge aec=False`；若仍是 `enhancer=nlms aec=True`，说明入口回退到了 PortAudio，
+应先检查 Pulse source、校准文件和启动配置。真人入口 readiness 默认失败即退出；只有隔离调试时才可用
+`CONTINUOUS_READINESS_REQUIRED=false` 暂时继续，不能把该运行计为真人语音 PASS。
+
 推荐话术：
 
 ```text
@@ -172,6 +178,7 @@ token 和 TTS 指标。在线 ASR/LLM 的外部波动不应导致队列乱序或
 | “左转90度”只成“左转” | endpoint/commit event | 增大 silence/commit delay；短命令补全应给 feedback |
 | ASR final 有、无动作 | `/agent/nlu_parse`、recognition feedback | 检查否定/缺槽位/低置信度 fallback |
 | 第二条命令丢失 | queue/execution events | 检查 queue full、TTL、重复 final、command_id |
+| `executing 0%` 持续不变 | `/clock`、`GZ_PARTITION`、Gazebo warning | `/clock` 必须推进；检查是否有旧 `gz sim` 抢占全局 clock |
 | 看似卡住 | Action feedback/result、readiness | 区分等待 Action、provider、生命周期未激活 |
 
 ### 5.5 成熟 VAD、KWS 与现场校准
@@ -246,9 +253,11 @@ VOICE_CALIBRATION_COLLECT=true \
 小智，开始自动巡检建图
 ```
 
-若 ASR final 精确截断为“开始自动”，白名单会恢复这条自动任务；“开始”、单独“自动”和完整识别
-出的其他意图不会被模糊触发。若其他长句也被声学模型截成完全相同的 final，文本层无法区分；
-终端应同时打印 partial/final，便于识别这一边界。
+该入口与普通连续语音共用 Pulse capture、4 秒主动 readiness、端点延迟和校准参数；离线 ZipFormer
+还会在提交前注入 0.66 秒零尾，并用 16 条 beam path 降低长句尾部过早剪枝。以上是可回归的工程
+保障，不代表任意环境下的准确率承诺，也不应再依赖“开始自动”截断白名单作为真人语音通过标准。
+若 final 仍明显过短，先核对 `enhancer=pulse_bridge aec=False`，再对照 partial/final、端点事件和
+`sherpa-asr-smoke` 长句门禁；不要直接在文本层扩大模糊触发范围。
 
 若需要先隔离麦克风/ASR、证明后半段真实机器人闭环，保持 Terminal 1 演示运行，并在 Terminal 2
 执行：
@@ -257,8 +266,8 @@ VOICE_CALIBRATION_COLLECT=true \
 bash scripts/voice_slam_nav_showcase.sh trigger-auto
 ```
 
-此入口通过 typed `/slam/manage_session` Action 发送 `RUN_AUTOMATIC_MISSION`，不是文本 topic 或
-旧 JSON 命令。它只绕过声学触发，不能计为真人语音 PASS；后续 Explore Lite、SLAM、map_saver、
+此入口通过 typed `/slam/manage_session` Action 发送 `RUN_AUTOMATIC_MISSION`。它只绕过声学触发，
+不能计为真人语音 PASS；后续 Explore Lite、SLAM、map_saver、
 AMCL/Nav2 和语义巡检仍是同一真实运行时。
 
 核心函数链：
@@ -283,7 +292,8 @@ SessionOrchestratorNode._on_asr_final()
 4. 生成非空 YAML/PGM；
 5. SLAM 阶段退出后，map_server/AMCL/Nav2 就绪，`map→odom` 存在；
 6. 入口单点导航与厨房/办公室多航点巡检收到成功 result；
-7. 最终 `/cmd_vel=0`。
+7. 红色动态障碍在 Gazebo 中进入本次规划路径，typed track 与预测代价层生效；
+8. 新规划相对基准路径提升障碍净空，导航完成后 `/cmd_vel=0`。
 
 任一步失败，任务应停止并给出阶段/原因；不能在 map 未保存时假装进入导航。
 探索结束日志还应给出 `no_frontiers`、`coverage_plateau` 或 `time_budget_coverage`；后者必须
@@ -292,18 +302,22 @@ SessionOrchestratorNode._on_asr_final()
 ### 6.3 无麦克风重型门禁
 
 ```bash
-bash scripts/acceptance_test.sh slam-autonomous-mission
+bash scripts/acceptance_test.sh slam-nav-e2e
 ```
 
 它用确定性文本触发同一真实 Gazebo、frontier、SLAM、map_saver、AMCL 和 Nav2 运行时，隔离云
-服务和声学波动。报告：
+服务和声学波动。每次运行创建唯一会话目录，报告和本次地图不会覆盖历史证据：
 
 ```text
-logs/showcase/autonomous_runtime/automatic_mission_report.json
+logs/acceptance/slam_nav/<session-id>/slam_nav_e2e_report.json
+logs/acceptance/slam_nav/<session-id>/voice_built_map.yaml
+logs/acceptance/slam_nav/<session-id>/voice_built_map.pgm
+logs/acceptance/slam_nav/<session-id>/runtime.log
 ```
 
-PASS 至少要求 `automatic_mission=true`、`map_saved=true`、final phase COMPLETED、已知/占用栅格
-达到脚本阈值、导航/巡检成功、最终速度为零。多航点结果还必须同时满足
+PASS 要求 `checks` 全部为 `true`：地图文件时间晚于本次会话、至少观察到一个 frontier goal、
+建图里程不少于 10 m、已知/占用栅格达到阈值、探索结束原因可审计、AMCL 与 `map→odom` 有证据、
+Nav2 Lifecycle 全部 ACTIVE、语义导航成功、动态预测重规划成功、最终速度为零。多航点结果还必须同时满足
 `ResultCode=SUCCEEDED`、`error_code=0`、`missed_waypoints=0`；Nav2 仅返回协议 `SUCCEEDED`
 但存在漏点时按失败处理，不能把“尝试完全部目标”误报为“到达全部目标”。
 
@@ -311,11 +325,10 @@ PASS 至少要求 `automatic_mission=true`、`map_saved=true`、final phase COMP
 
 - `bash scripts/voice_slam_nav_showcase.sh mapping offline`：只定位建图问题；
 - 另一个终端 `bash scripts/voice_slam_nav_showcase.sh save`：只定位 map_saver；
-- `bash scripts/voice_slam_nav_showcase.sh navigation offline`：加载本次地图定位导航；
-- `bash scripts/voice_slam_nav_showcase.sh navigation-static offline`：加载同源静态地图。
+- `bash scripts/voice_slam_nav_showcase.sh navigation offline`：只加载本次保存的地图定位导航。
 
-这些入口是故障隔离或现场保底。`navigation-static` 成功不能算自动建图成功，固定 mapping route 也
-不能算 frontier 自主探索成功。
+这些入口只用于故障隔离，不能替代 `slam-nav-e2e`。项目不提供静态地图保底入口，固定 mapping route
+也不能算 frontier 自主探索成功。
 
 ## 7. C++/ROS 2 专项验收
 
@@ -352,6 +365,10 @@ bash scripts/acceptance_test.sh llama-cpp-smoke
 bash scripts/acceptance_test.sh offline-latency
 bash scripts/acceptance_test.sh summer-tts-service
 ```
+
+`sherpa-asr-smoke` 使用官方约 10.05 秒 WAV，并要求最终转写必须包含“星期三”；仅输出非空的开头
+短句仍判定失败。该门禁固定覆盖 16 条 beam path 和 provider 提交刷新，防止严重截断被“非空文本”
+条件误报为 PASS。
 
 前后调用关系：clean PCM→Sherpa stream decode→transcript→llama.cpp stream→sentence chunk→TTS
 producer→双缓冲播放 consumer。ASR、LLM、TTS 分项通过不等于真实语音 E2E 通过；完整证据使用：
@@ -409,6 +426,15 @@ ps -ef | grep -E 'gz sim|nav2|slam_toolbox|explore' | grep -v grep
 
 WSL 出现 `Failed init_port fastrtps_port7000` 时，确认通过 `source scripts/activate.sh` 加载了
 `scripts/ros_dds_env.sh`；默认 Fast DDS 使用 UDPv4，避免 SHM 锁冲突。
+
+Gazebo Transport 不受 `ROS_DOMAIN_ID` 隔离。项目入口会自动设置
+`GZ_PARTITION=embodied_agent_<ROS_DOMAIN_ID>`，并在仿真 readiness 中要求 `/clock` 至少推进
+0.1 秒。如果仍看到 `Found additional publishers on /clock` 或 Action 长期 `executing 0%`，说明
+有旧进程显式使用了相同 partition，可执行：
+
+```bash
+CLEANUP_CONFIRM=true bash scripts/cleanup_simulation_processes.sh
+```
 
 ## 11. 合并与发布标准
 

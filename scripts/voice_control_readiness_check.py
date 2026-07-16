@@ -41,6 +41,7 @@ class VoiceReadinessReport:
     audio: AudioHealthReport
     kws: KwsScoreReport
     require_kws: bool
+    require_speech: bool
     blockers: tuple[str, ...]
     warnings: tuple[str, ...]
 
@@ -54,6 +55,7 @@ def build_readiness_report(
     kws: KwsScoreReport,
     *,
     require_kws: bool,
+    require_speech: bool = False,
 ) -> VoiceReadinessReport:
     """Merge audio and KWS calibration reports into one go/no-go decision."""
 
@@ -69,6 +71,11 @@ def build_readiness_report(
         target = blockers if warning in audio_blockers else warnings
         target.append(f"audio:{warning}")
 
+    # 真人演示的 readiness 窗口明确要求用户开口；只有声能而 VAD 从未
+    # speech=true，说明阈值、采集路由或 VAD provider 仍未真正可用。
+    if require_speech and audio.sample_count > 0 and audio.speech_ratio <= 0.0:
+        blockers.append("audio:no_speech_detected_during_required_window")
+
     if kws.sample_count == 0 and not require_kws:
         warnings.append("kws:not_required_or_not_running")
     else:
@@ -80,6 +87,7 @@ def build_readiness_report(
         audio=audio,
         kws=kws,
         require_kws=require_kws,
+        require_speech=require_speech,
         blockers=tuple(blockers),
         warnings=tuple(warnings),
     )
@@ -112,6 +120,7 @@ def format_readiness_report(report: VoiceReadinessReport) -> str:
             f"agc={report.audio.auto_gain_active}"
         ),
         f"  kws_required: {report.require_kws}",
+        f"  speech_required: {report.require_speech}",
         f"  kws_samples: {report.kws.sample_count}",
         f"  kws_provider: {report.kws.provider}",
         f"  kws_top_score: {report.kws.max_top_score:.3f}",
@@ -208,6 +217,11 @@ def main() -> None:
         action="store_true",
         help="要求声学 KWS 分数存在；使用 openwakeword/livekit 时建议开启",
     )
+    parser.add_argument(
+        "--require-speech",
+        action="store_true",
+        help="要求采样窗口中至少一次 VAD speech=true；真人麦克风入口应开启",
+    )
     parser.add_argument("--json", action="store_true", help="输出机器可读 JSON")
     args = parser.parse_args()
 
@@ -226,6 +240,7 @@ def main() -> None:
         analyze_audio_health(audio_samples),
         analyze_kws_scores(kws_samples),
         require_kws=args.require_kws,
+        require_speech=args.require_speech,
     )
     if args.json:
         payload = asdict(report)

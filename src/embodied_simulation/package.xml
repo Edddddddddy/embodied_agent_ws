@@ -26,6 +26,7 @@
   <exec_depend>embodied_agent_bringup</exec_depend>
   <exec_depend>embodied_online_agent</exec_depend>
   <exec_depend>embodied_offline_agent</exec_depend>
+  <exec_depend>embodied_navigation</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>nav2_bringup</exec_depend>

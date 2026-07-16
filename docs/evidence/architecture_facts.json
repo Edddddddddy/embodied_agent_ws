@@ -1,7 +1,7 @@
 {
   "acceptance_cli": {
-    "advanced_help_mode_count": 133,
-    "public_mode_count": 13,
+    "advanced_help_mode_count": 134,
+    "public_mode_count": 14,
     "public_modes": [
       "continuous-multi-command",
       "continuous-offline",
@@ -14,10 +14,11 @@
       "openloris-replay-stage",
       "robotics-gate",
       "slam-evaluation-stage",
+      "slam-nav-e2e",
       "slam-nav-showcase-stage",
       "voice-slam-workplace-demo"
     ],
-    "router_mode_count": 133,
+    "router_mode_count": 134,
     "undocumented_router_modes": []
   },
   "ci": {
@@ -36,7 +37,7 @@
     "advanced_modes_are_routable": true,
     "ci_matrix_matches_ros_packages": true,
     "ci_push_and_pr_only_dev_main": true,
-    "public_mode_count_is_13": true,
+    "public_mode_count_is_14": true,
     "public_modes_are_routable": true,
     "release_gates_use_current_workspace": true,
     "robotics_profile_covers_required_gates": true
@@ -165,8 +166,8 @@
     }
   },
   "repository_scale": {
-    "offline_agent_node_lines": 677,
-    "online_agent_node_lines": 544,
+    "offline_agent_node_lines": 686,
+    "online_agent_node_lines": 550,
     "scripts_recursive_file_count": 199,
     "scripts_top_level_file_count": 199
   },

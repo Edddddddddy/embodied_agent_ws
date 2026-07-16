@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-WORKSPACE="${WORKSPACE:-/home/ubuntu/embodied_agent_ws}"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+WORKSPACE="${WORKSPACE:-$(cd -- "$SCRIPT_DIR/../.." && pwd -P)}"
 
 set +e
 OUTPUT="$(bash "$WORKSPACE/scripts/acceptance_test.sh" help 2>&1)"
@@ -15,6 +16,7 @@ grep -q "core" <<<"$OUTPUT"
 grep -q "robotics-gate" <<<"$OUTPUT"
 grep -q "continuous-offline" <<<"$OUTPUT"
 grep -q "slam-nav-showcase-stage" <<<"$OUTPUT"
+grep -q "slam-nav-e2e" <<<"$OUTPUT"
 grep -q "voice-slam-workplace-demo" <<<"$OUTPUT"
 grep -q "openloris-replay-stage" <<<"$OUTPUT"
 grep -q -- "--help-all" <<<"$OUTPUT"
@@ -47,6 +49,7 @@ grep -q "mapping-stage" <<<"$OUTPUT"
 grep -q "slam-nav-showcase-stage" <<<"$OUTPUT"
 grep -q "slam-nav-showcase-mapping" <<<"$OUTPUT"
 grep -q "slam-nav-showcase   " <<<"$OUTPUT"
+grep -q "slam-nav-e2e" <<<"$OUTPUT"
 grep -q "slam-session-orchestrator-stage" <<<"$OUTPUT"
 grep -q "slam-session-orchestrator " <<<"$OUTPUT"
 grep -q "slam-benchmark" <<<"$OUTPUT"

@@ -125,9 +125,15 @@ def run_smoke(args: argparse.Namespace) -> dict[str, object]:
     ended = time.perf_counter()
 
     text = finals[-1] if finals else ""
+    expected_substring = str(args.expected_substring or "")
+    expected_substring_found = (
+        not expected_substring or expected_substring in text
+    )
     report = {
-        "ok": bool(text) or args.allow_empty,
+        "ok": (bool(text) or args.allow_empty) and expected_substring_found,
         "text": text,
+        "expected_substring": expected_substring,
+        "expected_substring_found": expected_substring_found,
         "partial_count": len(partials),
         "final_count": len(finals),
         "audio_seconds": round(audio_seconds, 3),
@@ -150,12 +156,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sample-rate", type=int, default=16_000)
     parser.add_argument("--num-threads", type=int, default=2)
     parser.add_argument("--decoding-method", default="modified_beam_search")
-    parser.add_argument("--max-active-paths", type=int, default=4)
+    parser.add_argument("--max-active-paths", type=int, default=16)
     parser.add_argument("--modeling-unit", default="cjkchar")
     parser.add_argument("--hotwords-file", default="")
     parser.add_argument("--hotwords-score", type=float, default=3.0)
     parser.add_argument("--chunk-samples", type=int, default=1600)
     parser.add_argument("--allow-empty", action="store_true")
+    parser.add_argument(
+        "--expected-substring",
+        default="",
+        help="要求最终转写包含该文本；用于防止非空但严重截断的结果误报 PASS。",
+    )
     parser.add_argument(
         "--preflight-only",
         action="store_true",

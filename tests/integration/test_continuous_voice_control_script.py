@@ -172,7 +172,10 @@ def test_continuous_voice_control_can_use_wsl_pulse_capture_bridge():
     assert "PULSE_CAPTURE_BRIDGE=true（active=true" in result.stdout
     assert "PULSE_CAPTURE_SOURCE=RDPSource" in result.stdout
     assert "PULSE_ENDPOINT_EVENTS_ENABLED=true" in result.stdout
+    assert "SPEAKER_ENABLED=false" in result.stdout
+    assert "AEC_ENABLED=false" in result.stdout
     assert "capture_enabled:=false" in result.stdout
+    assert "aec_enabled:=false" in result.stdout
 
 
 def test_continuous_voice_control_disables_pulse_endpoint_events_when_silero_owns_vad():
@@ -479,37 +482,56 @@ def test_continuous_voice_control_rejects_unknown_profile():
     assert "unknown VOICE_CONTROL_PROFILE" in result.stderr
 
 
-def test_voice_launches_expose_audio_enhancer_arguments():
-    files = [
-        ROOT / "src" / "embodied_simulation" / "launch" / "voice_turtlebot3.launch.py",
+def test_shared_voice_frontend_contract_exposes_audio_enhancer_arguments():
+    simulation_launch = (
+        ROOT / "src" / "embodied_simulation" / "launch" / "voice_turtlebot3.launch.py"
+    )
+    agent_launches = [
         ROOT / "src" / "embodied_online_agent" / "launch" / "online_agent.launch.py",
         ROOT / "src" / "embodied_offline_agent" / "launch" / "offline_agent.launch.py",
     ]
+    frontend_contract = (
+        ROOT
+        / "src"
+        / "embodied_agent_bringup"
+        / "embodied_agent_bringup"
+        / "voice_frontend_launch_contract.py"
+    ).read_text(encoding="utf-8")
 
-    for path in files:
+    # Online/offline launch 已经是薄部署层；参数声明、类型化和前端节点映射
+    # 由共享 contract 单点拥有，测试也必须跟随这一真实架构 seam。
+    for name in (
+        "audio_enhancer",
+        "aec_enabled",
+        "noise_suppression_enabled",
+        "auto_gain_enabled",
+        "speech_start_threshold",
+        "speech_end_silence_s",
+        "min_utterance_ms",
+        "max_utterance_s",
+        "silero_model_path",
+        "silero_use_onnx",
+        "silero_threshold",
+        "openwakeword_models",
+        "livekit_wakeword_models",
+        "sherpa_tokens",
+    ):
+        assert f'LaunchArgumentSpec("{name}"' in frontend_contract
+    assert "def declare_voice_frontend_arguments(" in frontend_contract
+    assert "def voice_frontend_nodes(" in frontend_contract
+
+    for path in agent_launches:
         content = path.read_text(encoding="utf-8")
-        assert "audio_enhancer" in content, path
-        assert "aec_enabled" in content, path
-        assert "noise_suppression_enabled" in content, path
-        assert "auto_gain_enabled" in content, path
-        assert "speech_start_threshold" in content, path
-        assert "speech_end_silence_s" in content, path
-        assert "min_utterance_ms" in content, path
-        assert "max_utterance_s" in content, path
-        assert "silero_model_path" in content, path
-        assert "silero_use_onnx" in content, path
-        assert "silero_threshold" in content, path
-        assert "openwakeword_models" in content, path
-        assert "livekit_wakeword_models" in content, path
-        assert "sherpa_tokens" in content, path
+        assert "declare_voice_frontend_arguments" in content, path
+        assert "voice_frontend_nodes" in content, path
 
-    # 公共控制面参数已收敛到 core 契约；具体 launch 只调用生成函数，禁止重新
+    # 公共控制面参数已收敛到 bringup 契约；具体 launch 只调用生成函数，禁止重新
     # 复制 queue/normalization/endpoint 参数名和默认值。
     contract = (
         ROOT
         / "src"
-        / "embodied_agent_core"
-        / "embodied_agent_core"
+        / "embodied_agent_bringup"
+        / "embodied_agent_bringup"
         / "agent_launch_contract.py"
     ).read_text(encoding="utf-8")
     for name in (
@@ -524,10 +546,10 @@ def test_voice_launches_expose_audio_enhancer_arguments():
     ):
         assert name in contract
 
-    assert "declare_forwarded_agent_arguments" in files[0].read_text(
+    assert "declare_forwarded_agent_arguments" in simulation_launch.read_text(
         encoding="utf-8"
     )
-    for path in files[1:]:
+    for path in agent_launches:
         assert "declare_agent_control_arguments" in path.read_text(encoding="utf-8")
 
 
@@ -556,7 +578,7 @@ def test_continuous_voice_control_waits_for_readiness_after_launch():
     assert "VOICE_CONTROL_PROFILE=low_gain/quiet/noisy_room" in content
 
 
-def test_online_and_offline_publish_queue_rejected_feedback():
+def test_online_and_offline_delegate_queue_rejected_feedback_to_application_runtime():
     files = [
         ROOT
         / "src"
@@ -572,9 +594,19 @@ def test_online_and_offline_publish_queue_rejected_feedback():
 
     for path in files:
         content = path.read_text(encoding="utf-8")
-        assert "self._control.enqueue_command(" in content, path
-        assert "self._events.publish_enqueue_decision(decision)" in content, path
+        assert "AgentApplicationRuntime" in content, path
+        assert "self._application = AgentApplicationRuntime(" in content, path
+        assert "self._application.accept_transcript(transcript)" in content, path
+        assert "self._control.enqueue_command(" not in content, path
+        assert "self._events.publish_enqueue_decision(decision)" not in content, path
 
+    application_runtime = (
+        ROOT
+        / "src"
+        / "embodied_agent_core"
+        / "embodied_agent_core"
+        / "agent_application_runtime.py"
+    ).read_text(encoding="utf-8")
     shared_events = (
         ROOT
         / "src"
@@ -589,6 +621,14 @@ def test_online_and_offline_publish_queue_rejected_feedback():
         / "embodied_agent_core"
         / "agent_control_plane.py"
     ).read_text(encoding="utf-8")
+
+    # 当前链路：节点 accept_transcript -> 应用层 enqueue -> 控制面决策 ->
+    # ROS event facade。queue-full/retry 等边界行为不再复制到两个节点。
+    assert "def enqueue_continuous_command(" in application_runtime
+    assert "decision = self._control.enqueue_command(" in application_runtime
+    assert "self._events.publish_enqueue_decision(decision)" in application_runtime
+    assert "def enqueue_command(" in control_plane
+    assert "def publish_enqueue_decision(" in shared_events
     assert '"status": "queue_rejected"' in shared_events
     assert "def publish_queue_rejected(" in shared_events
     assert "def _queue_rejected_feedback(" in control_plane
