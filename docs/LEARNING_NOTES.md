@@ -198,6 +198,8 @@ bash scripts/acceptance_test.sh gazebo
 - `src/embodied_slam_tools/embodied_slam_tools/showcase_session_node.py`：
   `_run_automatic_mission()`、`_wait_for_frontier_completion()`、`_save_map()`、`_start_navigation()`、
   `_run_agent_text_action()`。
+- `src/embodied_slam_tools/embodied_slam_tools/mapping_evidence.py`：
+  `MappingEvidenceTracker` 原子收集地图增长、真实里程、LiDAR 首帧和探索结束状态。
 - `src/embodied_slam_tools/embodied_slam_tools/stage_process_manager.py`：
   `StageProcessManager` 隔离 launch、Explore Lite、map saver 与进程树回收副作用。
 - `src/embodied_simulation/src/nav2_places.cpp`、`nav2_robot_executor.cpp`：

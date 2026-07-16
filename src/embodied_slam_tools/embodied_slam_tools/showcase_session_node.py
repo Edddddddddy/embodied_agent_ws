@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-import math
 import os
 from pathlib import Path
 import queue
@@ -43,6 +42,7 @@ try:
 except ImportError:  # 可选运行时由 setup_frontier_exploration.sh 安装。
     ExploreStatus = None
 
+from .mapping_evidence import MappingEvidenceTracker
 from .stage_process_manager import StageProcessManager
 from .showcase_session import (
     SessionCommand,
@@ -155,7 +155,7 @@ class SessionOrchestratorNode(Node):
         self._exploration_stable_map_s = float(
             automatic_config.get("stable_map_s", 20.0)
         )
-        self._exploration_min_growth_cells = int(
+        exploration_min_growth_cells = int(
             automatic_config.get("min_growth_cells", 40)
         )
         self._mission_navigation_timeout_s = float(
@@ -204,6 +204,9 @@ class SessionOrchestratorNode(Node):
             stop_timeout_s=stop_timeout_s,
             dry_run=dry_run,
         )
+        self._mapping_evidence = MappingEvidenceTracker(
+            exploration_min_growth_cells
+        )
         self._dry_run = dry_run
         self._state_lock = threading.RLock()
         self._ready_condition = threading.Condition()
@@ -223,16 +226,6 @@ class SessionOrchestratorNode(Node):
         self._agent_condition = threading.Condition()
         self._agent_candidates: list[tuple[int, str]] = []
         self._agent_results: dict[str, RobotCommandResult] = {}
-        self._map_stats: dict[str, int] | None = None
-        self._best_known_map_cells = 0
-        self._last_map_growth_at = time.monotonic()
-        self._exploration_completion_reason = ""
-        self._mapping_path_m = 0.0
-        self._mapping_last_position: tuple[float, float] | None = None
-        self._record_mapping_path = False
-        self._explore_condition = threading.Condition()
-        self._explore_status = ""
-        self._scan_ready = threading.Event()
 
         state_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
@@ -392,47 +385,21 @@ class SessionOrchestratorNode(Node):
             self._agent_condition.notify_all()
 
     def _on_map(self, message: OccupancyGrid) -> None:
-        stats = {
-            "known_cells": sum(1 for value in message.data if value >= 0),
-            "occupied_cells": sum(1 for value in message.data if value >= 65),
-        }
-        with self._explore_condition:
-            self._map_stats = stats
-            if (
-                stats["known_cells"]
-                >= self._best_known_map_cells + self._exploration_min_growth_cells
-            ):
-                self._best_known_map_cells = stats["known_cells"]
-                self._last_map_growth_at = time.monotonic()
-            self._explore_condition.notify_all()
+        self._mapping_evidence.record_map(message.data)
 
     def _on_scan(self, _message: LaserScan) -> None:
         # SystemReadiness 只能证明图中关键节点已经启动；Gazebo 传感器首帧可能
         # 稍晚到达。显式记录首帧，避免 bootstrap 动作被安全执行器按 scan_timeout 拒绝。
-        self._scan_ready.set()
+        self._mapping_evidence.mark_scan_ready()
 
     def _on_odom(self, message: Odometry) -> None:
         """累计本次自动建图的真实里程，防止覆盖阈值让探索过早结束。"""
 
         position = message.pose.pose.position
-        current = (float(position.x), float(position.y))
-        with self._explore_condition:
-            if not self._record_mapping_path:
-                return
-            previous = self._mapping_last_position
-            self._mapping_last_position = current
-            if previous is None:
-                return
-            step = math.hypot(current[0] - previous[0], current[1] - previous[1])
-            # Gazebo 重置或定位跳变不属于机器人实际巡检里程，不能污染验收证据。
-            if 0.001 <= step <= 0.5:
-                self._mapping_path_m += step
-            self._explore_condition.notify_all()
+        self._mapping_evidence.record_odom(position.x, position.y)
 
     def _on_explore_status(self, message: Any) -> None:
-        with self._explore_condition:
-            self._explore_status = str(message.status)
-            self._explore_condition.notify_all()
+        self._mapping_evidence.record_explore_status(str(message.status))
 
     def _cancel_automatic_motion(self) -> None:
         self._agent_text_pub.publish(String(data="停下"))
@@ -519,15 +486,17 @@ class SessionOrchestratorNode(Node):
             )
         started_at = time.monotonic()
         deadline = started_at + self._exploration_timeout_s
-        with self._explore_condition:
+        with self._mapping_evidence.condition:
             while time.monotonic() < deadline:
                 if request.canceled:
                     self._cancel_automatic_motion()
                     raise AutomaticMissionCancelled("automatic mission canceled")
                 elapsed = time.monotonic() - started_at
-                stats = self._map_stats or {}
+                evidence = self._mapping_evidence.snapshot()
+                stats = evidence.map_stats or {}
                 if (
-                    self._explore_status == self._exploration_completion_status
+                    evidence.explore_status
+                    == self._exploration_completion_status
                     and elapsed >= self._exploration_min_runtime_s
                 ):
                     if stats.get("known_cells", 0) < self._min_known_map_cells:
@@ -538,14 +507,14 @@ class SessionOrchestratorNode(Node):
                         raise RuntimeError(
                             "frontier exploration ended before occupied-cell threshold"
                         )
-                    if self._mapping_path_m < self._min_mapping_path_m:
+                    if evidence.mapping_path_m < self._min_mapping_path_m:
                         raise RuntimeError(
                             "frontier exploration ended before mapping-path threshold "
-                            f"({self._mapping_path_m:.2f}m < "
+                            f"({evidence.mapping_path_m:.2f}m < "
                             f"{self._min_mapping_path_m:.2f}m)"
                         )
                 completion_reason = exploration_completion_reason(
-                    status=self._explore_status,
+                    status=evidence.explore_status,
                     completion_status=self._exploration_completion_status,
                     elapsed_s=elapsed,
                     min_runtime_s=self._exploration_min_runtime_s,
@@ -553,22 +522,22 @@ class SessionOrchestratorNode(Node):
                     occupied_cells=stats.get("occupied_cells", 0),
                     min_known_cells=self._min_known_map_cells,
                     min_occupied_cells=self._min_occupied_map_cells,
-                    mapping_path_m=self._mapping_path_m,
+                    mapping_path_m=evidence.mapping_path_m,
                     min_mapping_path_m=self._min_mapping_path_m,
                     seconds_since_map_growth=(
-                        time.monotonic() - self._last_map_growth_at
+                        time.monotonic() - evidence.last_map_growth_at
                     ),
                     stable_map_s=self._exploration_stable_map_s,
                 )
                 if completion_reason is not None:
                     # 真实室内图常残留家具背后或墙外的不可达 frontier。覆盖达标且地图
                     # 长时间不再增长时继续恢复只会空转，因此在可审计阈值处结束任务。
-                    self._exploration_completion_reason = completion_reason
+                    self._mapping_evidence.completion_reason = completion_reason
                     self.get_logger().info(
                         f"frontier exploration complete reason={completion_reason}: "
                         f"known={stats.get('known_cells', 0)} "
                         f"occupied={stats.get('occupied_cells', 0)} "
-                        f"path={self._mapping_path_m:.2f}m"
+                        f"path={evidence.mapping_path_m:.2f}m"
                     )
                     return
                 exited, code = self._manager.explorer_exited_unexpectedly()
@@ -576,12 +545,13 @@ class SessionOrchestratorNode(Node):
                     raise RuntimeError(
                         f"frontier explorer exited unexpectedly code={code}"
                     )
-                self._explore_condition.wait(
+                self._mapping_evidence.condition.wait(
                     timeout=min(0.5, max(0.0, deadline - time.monotonic()))
                 )
-        stats = self._map_stats or {}
+        evidence = self._mapping_evidence.snapshot()
+        stats = evidence.map_stats or {}
         completion_reason = exploration_completion_reason(
-            status=self._explore_status,
+            status=evidence.explore_status,
             completion_status=self._exploration_completion_status,
             elapsed_s=time.monotonic() - started_at,
             min_runtime_s=self._exploration_min_runtime_s,
@@ -589,26 +559,28 @@ class SessionOrchestratorNode(Node):
             occupied_cells=stats.get("occupied_cells", 0),
             min_known_cells=self._min_known_map_cells,
             min_occupied_cells=self._min_occupied_map_cells,
-            mapping_path_m=self._mapping_path_m,
+            mapping_path_m=evidence.mapping_path_m,
             min_mapping_path_m=self._min_mapping_path_m,
-            seconds_since_map_growth=time.monotonic() - self._last_map_growth_at,
+            seconds_since_map_growth=(
+                time.monotonic() - evidence.last_map_growth_at
+            ),
             stable_map_s=self._exploration_stable_map_s,
             time_budget_reached=True,
         )
         if completion_reason is not None:
-            self._exploration_completion_reason = completion_reason
+            self._mapping_evidence.completion_reason = completion_reason
             self.get_logger().info(
                 f"frontier exploration complete reason={completion_reason}: "
                 f"known={stats.get('known_cells', 0)} "
                 f"occupied={stats.get('occupied_cells', 0)} "
-                f"path={self._mapping_path_m:.2f}m"
+                f"path={evidence.mapping_path_m:.2f}m"
             )
             return
         raise TimeoutError(
             "frontier exploration did not complete before timeout "
             f"known={stats.get('known_cells', 0)} "
             f"occupied={stats.get('occupied_cells', 0)} "
-            f"path={self._mapping_path_m:.2f}m"
+            f"path={evidence.mapping_path_m:.2f}m"
         )
 
     def _wait_for_new_ready(self, generation: int) -> None:
@@ -837,12 +809,8 @@ class SessionOrchestratorNode(Node):
     def _run_automatic_mission(self, request: CommandRequest) -> None:
         """一次高层命令完成 frontier 探索、存图、重定位和语义巡航。"""
 
-        with self._explore_condition:
-            # 从 bootstrap 开始计入里程；这是自动探索的一部分，且所有运动仍走
-            # Agent→ActionGuard→ROS 2 Action，不直接写 /cmd_vel。
-            self._mapping_path_m = 0.0
-            self._mapping_last_position = None
-            self._record_mapping_path = True
+        # bootstrap 和 frontier 都属于本次建图里程，但跳变由证据层过滤。
+        self._mapping_evidence.begin_mapping_path()
 
         self._transition(
             SessionPhase.AUTOMATIC_MAPPING,
@@ -850,7 +818,7 @@ class SessionOrchestratorNode(Node):
         )
         self._feedback(request, 0.03)
         if not self._dry_run and not _wait_for_required_event(
-            self._scan_ready,
+            self._mapping_evidence.scan_ready,
             self._scan_startup_timeout_s,
             lambda: request.canceled,
         ):
@@ -890,27 +858,23 @@ class SessionOrchestratorNode(Node):
             SessionPhase.AUTOMATIC_MAPPING,
             detail="frontier exploration running",
         )
-        with self._explore_condition:
-            self._explore_status = ""
-            self._best_known_map_cells = 0
-            self._last_map_growth_at = time.monotonic()
-            self._exploration_completion_reason = ""
+        self._mapping_evidence.reset_exploration()
         self._manager.start_explorer(self._explorer_config_path)
         try:
             self._wait_for_frontier_completion(request)
         finally:
             self._manager.stop_explorer()
-            with self._explore_condition:
-                self._record_mapping_path = False
-        stats = self._map_stats or {}
+            self._mapping_evidence.finish_mapping_path()
+        evidence = self._mapping_evidence.snapshot()
+        stats = evidence.map_stats or {}
         self._transition(
             SessionPhase.MAPPING,
             detail=(
                 "frontier exploration complete "
-                f"reason={self._exploration_completion_reason or 'unknown'} "
+                f"reason={evidence.exploration_completion_reason or 'unknown'} "
                 f"known={stats.get('known_cells', 0)} "
                 f"occupied={stats.get('occupied_cells', 0)} "
-                f"path={self._mapping_path_m:.2f}m"
+                f"path={evidence.mapping_path_m:.2f}m"
             ),
         )
         self._feedback(request, 0.5)
@@ -947,7 +911,7 @@ class SessionOrchestratorNode(Node):
             detail=(
                 "automatic mapping and navigation mission completed "
                 f"exploration_reason="
-                f"{self._exploration_completion_reason or 'unknown'}"
+                f"{self._mapping_evidence.completion_reason or 'unknown'}"
             ),
         )
         self._feedback(request, 1.0)
@@ -1012,8 +976,7 @@ class SessionOrchestratorNode(Node):
             self.get_logger().error(request.message)
         finally:
             if request.command == SessionCommand.RUN_AUTOMATIC_MISSION:
-                with self._explore_condition:
-                    self._record_mapping_path = False
+                self._mapping_evidence.finish_mapping_path()
             self._active_request = None
             self._operation_active.clear()
             request.completed.set()
