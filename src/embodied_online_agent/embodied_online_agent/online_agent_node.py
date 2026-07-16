@@ -376,6 +376,9 @@ class OnlineAgentNode(LifecycleNode):
     def _on_silence_timeout(self, _message: Empty):
         if not self._runtime.active:
             return
+        # 主端点启用时忽略兼容 silence_timeout，避免二次切句；关闭时仍作回退。
+        if self._param("speech_endpoint_events_enabled"):
+            return
         self._commit_asr_endpoint("silence_timeout")
 
     def _on_speech_started(self, _message: Empty):
@@ -383,7 +386,10 @@ class OnlineAgentNode(LifecycleNode):
             return
         if self._is_busy() and not self._continuous_enabled:
             return
-        # speech_started 是 utterance 边界，先清掉异常遗留的上一句 partial。
+        # 短停顿后恢复说话时取消延迟提交，避免长句被提前 final。
+        if self._runtime.endpoint is not None:
+            self._runtime.endpoint.resume_utterance()
+        # speech_started 是 utterance 边界，再清掉异常遗留的上一句 partial。
         self._control.transcript_stabilizer.clear()
         self._publish_state("speech_detected")
 

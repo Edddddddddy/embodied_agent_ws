@@ -130,7 +130,14 @@ MONITOR_AUDIO_SAMPLE_LIMIT="${CONTINUOUS_MONITOR_AUDIO_SAMPLE_LIMIT:-600}"
 PRINT_CONFIG="${CONTINUOUS_PRINT_CONFIG:-false}"
 PREFLIGHT_ENABLED="${CONTINUOUS_PREFLIGHT_ENABLED:-true}"
 READINESS_ENABLED="${CONTINUOUS_READINESS_ENABLED:-true}"
-READINESS_DURATION="${CONTINUOUS_READINESS_DURATION:-3.0}"
+READINESS_DURATION="${CONTINUOUS_READINESS_DURATION:-4.0}"
+# 真实麦克风演示必须以可听输入作为启动门槛；mock provider 或明确关闭
+# 麦克风的确定性测试没有声学输入，因此默认保留非阻断 readiness。
+READINESS_REQUIRED_DEFAULT=true
+if [[ "$MICROPHONE_ENABLED" != "true" || "$PROVIDER_MODE" == "mock" ]]; then
+  READINESS_REQUIRED_DEFAULT=false
+fi
+READINESS_REQUIRED="${CONTINUOUS_READINESS_REQUIRED:-$READINESS_REQUIRED_DEFAULT}"
 SYSTEM_READINESS_TIMEOUT="${SYSTEM_READINESS_TIMEOUT:-60.0}"
 SYSTEM_READINESS_STALE_TIMEOUT_S="${SYSTEM_READINESS_STALE_TIMEOUT_S:-30.0}"
 
@@ -311,6 +318,9 @@ PULSE_CAPTURE_BRIDGE=$PULSE_CAPTURE_BRIDGE（active=$PULSE_CAPTURE_BRIDGE_ACTIVE
 PULSE_CAPTURE_SOURCE=$PULSE_CAPTURE_SOURCE
 PULSE_ENDPOINT_EVENTS_ENABLED=$PULSE_ENDPOINT_EVENTS_ENABLED
 AEC_ENABLED=$AEC_ENABLED
+CONTINUOUS_READINESS_ENABLED=$READINESS_ENABLED
+CONTINUOUS_READINESS_DURATION=$READINESS_DURATION
+CONTINUOUS_READINESS_REQUIRED=$READINESS_REQUIRED
 NAV_ACTION_TIMEOUT_S=$NAV_ACTION_TIMEOUT_S
 SYSTEM_READINESS_STALE_TIMEOUT_S=$SYSTEM_READINESS_STALE_TIMEOUT_S
 NAV2_INITIAL_X=$INITIAL_X
@@ -447,12 +457,24 @@ python3 "$WORKSPACE/scripts/system_readiness_check.py" \
   --timeout "$SYSTEM_READINESS_TIMEOUT" --profile voice_nav2
 
 if [[ "$READINESS_ENABLED" == "true" ]]; then
+  readiness_args=(--duration "$READINESS_DURATION")
+  if [[ "$READINESS_REQUIRED" == "true" ]]; then
+    readiness_args+=(--require-speech)
+  fi
   echo
   echo "正在进行连续语音 readiness check（${READINESS_DURATION}s）..."
+  if [[ "$READINESS_REQUIRED" == "true" ]]; then
+    echo "请在接下来的 ${READINESS_DURATION}s 采样窗口内持续说完整话，例如：小智，去门口；不要安静等待。"
+  fi
   if python3 "$WORKSPACE/scripts/voice_control_readiness_check.py" \
-    --duration "$READINESS_DURATION"; then
+    "${readiness_args[@]}"; then
     echo "系统已就绪，可以开始说：小智"
   else
+    if [[ "$READINESS_REQUIRED" == "true" ]]; then
+      echo "FAIL: 真实麦克风 readiness 未通过；为避免把近静音或残缺 ASR 送入导航队列，当前停止 continuous-nav2-$MODE。" >&2
+      echo "      请现在对着麦克风清晰说一句完整指令，例如：小智，去门口；确认有声音后重新运行。" >&2
+      exit 1
+    fi
     echo "WARN: readiness check 未完全通过；仍继续运行。请检查麦克风/VAD/profile。" >&2
   fi
 fi

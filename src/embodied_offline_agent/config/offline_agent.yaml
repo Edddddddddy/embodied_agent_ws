@@ -4,11 +4,14 @@ offline_agent:
     # 本文件仅保留 ZipFormer、llama.cpp 与离线 TTS provider 的部署配置。
     asr_model_dir: "/home/ubuntu/embodied_agent_ws/models/sherpa-onnx-streaming-zipformer-small-bilingual-zh-en-2023-02-16"
     asr_num_threads: 2
+    # ZipFormer 在 input_finished 前需要尾部静音推出编码器剩余上下文，避免长句末尾漏字。
+    asr_tail_padding_s: 0.66
     asr_decoding_method: modified_beam_search
     asr_hotwords_file: ""
     # 领域命令很短，适度提高上下文偏置可减少“取消导航->取消刀”等槽位错听。
     asr_hotwords_score: 3.0
-    asr_max_active_paths: 4
+    # 真实 10 秒长句回归中 4 条路径会过早剪枝，16 条可保留“星期三”等尾部词元。
+    asr_max_active_paths: 16
     asr_modeling_unit: cjkchar
     recognition_max_retries: 3
     llm_base_url: "http://127.0.0.1:8080/v1"

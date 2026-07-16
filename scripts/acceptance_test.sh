@@ -340,7 +340,7 @@ run_sherpa_asr_preflight() {
 }
 
 run_sherpa_asr_smoke() {
-  python3 scripts/sherpa_asr_smoke.py
+  python3 scripts/sherpa_asr_smoke.py --expected-substring "星期三"
 }
 
 run_isolated_ros_smoke() {

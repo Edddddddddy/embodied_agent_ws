@@ -121,6 +121,12 @@ PASS：列出 WSLg Pulse source，3 秒采样 `rms` 明显高于阈值，结果�
 bash scripts/acceptance_test.sh continuous-offline
 ```
 
+启动后会先打开 **4 秒 readiness 采样窗口**。看到提示后必须立即持续说一条完整话，例如
+“小智，向前走一秒”，不能安静等待窗口结束。WSLg 正确采集日志应显示
+`enhancer=pulse_bridge aec=False`；若仍是 `enhancer=nlms aec=True`，说明入口回退到了 PortAudio，
+应先检查 Pulse source、校准文件和启动配置。真人入口 readiness 默认失败即退出；只有隔离调试时才可用
+`CONTINUOUS_READINESS_REQUIRED=false` 暂时继续，不能把该运行计为真人语音 PASS。
+
 推荐话术：
 
 ```text
@@ -246,9 +252,11 @@ VOICE_CALIBRATION_COLLECT=true \
 小智，开始自动巡检建图
 ```
 
-若 ASR final 精确截断为“开始自动”，白名单会恢复这条自动任务；“开始”、单独“自动”和完整识别
-出的其他意图不会被模糊触发。若其他长句也被声学模型截成完全相同的 final，文本层无法区分；
-终端应同时打印 partial/final，便于识别这一边界。
+该入口与普通连续语音共用 Pulse capture、4 秒主动 readiness、端点延迟和校准参数；离线 ZipFormer
+还会在提交前注入 0.66 秒零尾，并用 16 条 beam path 降低长句尾部过早剪枝。以上是可回归的工程
+保障，不代表任意环境下的准确率承诺，也不应再依赖“开始自动”截断白名单作为真人语音通过标准。
+若 final 仍明显过短，先核对 `enhancer=pulse_bridge aec=False`，再对照 partial/final、端点事件和
+`sherpa-asr-smoke` 长句门禁；不要直接在文本层扩大模糊触发范围。
 
 若需要先隔离麦克风/ASR、证明后半段真实机器人闭环，保持 Terminal 1 演示运行，并在 Terminal 2
 执行：
@@ -352,6 +360,10 @@ bash scripts/acceptance_test.sh llama-cpp-smoke
 bash scripts/acceptance_test.sh offline-latency
 bash scripts/acceptance_test.sh summer-tts-service
 ```
+
+`sherpa-asr-smoke` 使用官方约 10.05 秒 WAV，并要求最终转写必须包含“星期三”；仅输出非空的开头
+短句仍判定失败。该门禁固定覆盖 16 条 beam path 和 provider 提交刷新，防止严重截断被“非空文本”
+条件误报为 PASS。
 
 前后调用关系：clean PCM→Sherpa stream decode→transcript→llama.cpp stream→sentence chunk→TTS
 producer→双缓冲播放 consumer。ASR、LLM、TTS 分项通过不等于真实语音 E2E 通过；完整证据使用：

@@ -168,3 +168,34 @@ def test_lifecycle_cancel_invalidates_old_timer_but_allows_next_activation():
     assert runtime.request("second_activation") is True
     _FakeTimer.created[-1].fire()
     assert commits == ["commit"]
+
+
+def test_resumed_speech_keeps_buffered_prefix_and_commits_the_whole_utterance():
+    _FakeTimer.created.clear()
+    buffered_audio = ["向右转"]
+    finals = []
+
+    def commit_provider():
+        finals.append("，".join(buffered_audio))
+        buffered_audio.clear()
+
+    runtime = AsrEndpointRuntime(
+        delay_ms=300,
+        blocked=lambda: False,
+        commit=commit_provider,
+        on_endpoint=lambda _source, _delay: None,
+        on_commit=lambda _source: None,
+        timer_factory=_FakeTimer,
+    )
+
+    assert runtime.request("speech_ended") is True
+    first_timer = _FakeTimer.created[-1]
+    runtime.resume_utterance()
+    buffered_audio.append("向前走一秒")
+    assert runtime.request("speech_ended") is True
+    second_timer = _FakeTimer.created[-1]
+
+    first_timer.fire()
+    assert finals == []
+    second_timer.fire()
+    assert finals == ["向右转，向前走一秒"]

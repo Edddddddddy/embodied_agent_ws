@@ -165,8 +165,8 @@
     }
   },
   "repository_scale": {
-    "offline_agent_node_lines": 677,
-    "online_agent_node_lines": 544,
+    "offline_agent_node_lines": 686,
+    "online_agent_node_lines": 550,
     "scripts_recursive_file_count": 199,
     "scripts_top_level_file_count": 199
   },

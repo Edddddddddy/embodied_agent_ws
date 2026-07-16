@@ -192,10 +192,10 @@ bash scripts/acceptance_test.sh slam-session-orchestrator
 ```
 
 主演示会自动复用 `logs/voice_calibration.env`，并在 WSLg 可用时优先由 Pulse bridge 从
-`@DEFAULT_SOURCE@` 采集，避免普通连续语音可用而 SLAM 演示误用近静音 PortAudio source。完整识别
-仍推荐说“小智，开始自动巡检建图”；如果 ASR final **精确截断为**“开始自动”，会按安全白名单
-恢复为自动任务，但不会把“开始”或完整识别出的其他语义文本做模糊泛化。若 ASR 把另一条更长
-语句也错误截成完全相同的“开始自动”，文本层无法消除该声学歧义，因此现场应核对 partial/final。
+`@DEFAULT_SOURCE@` 采集；启动后的 4 秒 readiness 窗口内应立即说完整话，正确日志为
+`enhancer=pulse_bridge aec=False`，失败默认 fail-fast。离线 ZipFormer 通过 0.66 秒零尾、16 条 beam
+path 和“星期三”长句门禁降低尾部截断，但不宣称统计准确率；异常时应核对 partial/final 与端点，
+不要依赖“开始自动”截断白名单。仅隔离调试可设置 `CONTINUOUS_READINESS_REQUIRED=false`。
 `trigger-auto` 只绕过麦克风/ASR 高层触发，后续仍执行同一编排器、Explore Lite、存图、
 AMCL/Nav2 和动作安全链，不能用它冒充真人语音识别证据。
 

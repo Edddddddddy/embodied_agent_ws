@@ -11,10 +11,16 @@ class SherpaZipformerAsr:
         self, model_dir: str, sample_rate: int, num_threads: int,
         decoding_method: str = "modified_beam_search",
         hotwords_file: str = "", hotwords_score: float = 3.0,
-        max_active_paths: int = 4, modeling_unit: str = "cjkchar",
+        max_active_paths: int = 16, modeling_unit: str = "cjkchar",
+        tail_padding_s: float = 0.66,
     ):
         root = Path(model_dir).expanduser()
         self._sample_rate = sample_rate
+        # Streaming ZipFormer 需要少量尾部静音把编码器剩余上下文推出。这里在
+        # 构造期预分配，避免每个 utterance 提交时重复创建 numpy 数组。
+        self._tail_padding = np.zeros(
+            round(sample_rate * tail_padding_s), dtype=np.float32
+        )
         self._recognizer = sherpa_onnx.OnlineRecognizer.from_transducer(
             tokens=str(root / "tokens.txt"),
             encoder=str(root / "encoder-epoch-99-avg-1.int8.onnx"),
@@ -49,6 +55,8 @@ class SherpaZipformerAsr:
             self._on_partial(text)
 
     def commit(self):
+        if self._tail_padding.size:
+            self._stream.accept_waveform(self._sample_rate, self._tail_padding)
         self._stream.input_finished()
         self._decode_ready()
         text = self._text().strip()

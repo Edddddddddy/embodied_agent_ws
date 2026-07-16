@@ -352,6 +352,7 @@ class OfflineAgentNode(LifecycleNode):
                 hotwords_score=self._param("asr_hotwords_score"),
                 max_active_paths=self._param("asr_max_active_paths"),
                 modeling_unit=self._param("asr_modeling_unit"),
+                tail_padding_s=self._param("asr_tail_padding_s"),
             ),
             LlamaCppLlm(
                 self._param("llm_base_url"), self._param("llm_model"),
@@ -455,6 +456,10 @@ class OfflineAgentNode(LifecycleNode):
     def _on_silence(self, _message):
         if not self._runtime.active:
             return
+        # speech_ended 已作为主端点时，silence_timeout 只是兼容事件；再次提交会把
+        # 同一句话切成两个 ASR 流。只有关闭主端点事件时才保留旧链路作为回退。
+        if self._param("speech_endpoint_events_enabled"):
+            return
         self._commit_asr_endpoint("silence_timeout")
 
     def _on_speech_started(self, _message):
@@ -462,6 +467,10 @@ class OfflineAgentNode(LifecycleNode):
             return
         if self._is_busy() and not self._continuous_enabled:
             return
+        # 长句中的短停顿可能先触发 speech_ended；若延迟提交窗口内恢复说话，
+        # 必须取消旧定时器，避免 ASR 在句中被提前 final。
+        if self._runtime.endpoint is not None:
+            self._runtime.endpoint.resume_utterance()
         self._control.transcript_stabilizer.clear()
         self._publish_state("speech_detected")
 

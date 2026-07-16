@@ -13,8 +13,8 @@
 | CLI router mode | 133 |
 | `scripts/` 顶层文件 | 199 |
 | `scripts/` 递归文件 | 199 |
-| online Agent 主节点行数 | 544 |
-| offline Agent 主节点行数 | 677 |
+| online Agent 主节点行数 | 550 |
+| offline Agent 主节点行数 | 686 |
 | 自定义 msg/srv/action 总数 | 37 |
 
 ## ROS 2 package 与 CI 矩阵
