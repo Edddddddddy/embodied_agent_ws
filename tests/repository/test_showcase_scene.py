@@ -7,6 +7,8 @@ from pathlib import Path
 
 import yaml
 
+from tools.acceptance.catalog import MODE_BY_NAME
+
 
 ROOT = Path(__file__).resolve().parents[2]
 SIMULATION = ROOT / "src/embodied_simulation"
@@ -156,10 +158,7 @@ def test_showcase_shell_exposes_fresh_map_navigation_and_internal_diagnostic():
     assert "voice_slam_session_orchestrator" in script
     help_text = script.split("EOF", 1)[0]
     assert "navigation-static" not in script
-    acceptance_cli = (ROOT / "scripts/acceptance_test.sh").read_text(
-        encoding="utf-8"
-    )
-    assert "slam-nav-e2e" in acceptance_cli
+    assert MODE_BY_NAME["slam-nav-e2e"].public is True
 
 
 def test_showcase_dynamic_obstacle_scenario_binds_visible_actor_and_new_map_frame():

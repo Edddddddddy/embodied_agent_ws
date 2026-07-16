@@ -86,7 +86,7 @@ bash scripts/acceptance_test.sh offline-sherpa-typed
 | ASR-only 安装 | `scripts/setup_sherpa_asr_runtime.sh` | `download_file()` |
 | ASR 预检/冒烟 | `scripts/sherpa_asr_smoke.py` | `check_model_dir()`、`read_pcm16_wav()`、`run_smoke()` |
 | ASR 到 typed Action 链路 | `scripts/smoke_test_offline_sherpa_typed_simulation.sh` | 启动 llama-server、Offline Agent、simulation_control |
-| 链路探针 | `tests/integration/test_offline_sherpa_typed_simulation.py` | `OfflineSherpaTypedProbe`、`main()` |
+| 链路探针 | `tests/integration/control/test_offline_sherpa_typed_simulation.py` | `OfflineSherpaTypedProbe`、`main()` |
 | 离线 ASR provider | `src/embodied_offline_agent/embodied_offline_agent/providers/sherpa_asr.py` | `SherpaZipformerAsr.push_audio()`、`commit()` |
 | Offline Agent 接入 | `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py` | `_create_providers()`、`_run_asr()`、`_on_asr_final()` |
 

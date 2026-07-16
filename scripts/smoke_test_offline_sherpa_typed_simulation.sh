@@ -73,7 +73,7 @@ if ! wait_for_topic_subscribers /robot/action_command_typed 1 180; then
   exit 1
 fi
 
-if ! timeout 120 python3 "$WORKSPACE/tests/integration/test_offline_sherpa_typed_simulation.py"; then
+if ! timeout 120 bash "$WORKSPACE/tests/integration/run_probe.sh" "$WORKSPACE/tests/integration/voice/test_offline_sherpa_typed_simulation.py"; then
   cat "$AGENT_LOG" >&2
   cat "$CONTROL_LOG" >&2
   cat "$SERVER_LOG" >&2

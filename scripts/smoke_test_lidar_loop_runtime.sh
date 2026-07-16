@@ -47,7 +47,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if ! python3 "$WORKSPACE/tests/integration/test_lidar_loop_runtime.py"; then
+if ! bash "$WORKSPACE/tests/integration/run_probe.sh" "$WORKSPACE/tests/integration/control/test_lidar_loop_runtime.py"; then
   echo "---- lidar_loop_candidate_node log ----" >&2
   tail -80 "$NODE_LOG" >&2 || true
   echo "---- lidar_loop_verifier_node log ----" >&2

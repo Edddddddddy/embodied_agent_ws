@@ -22,7 +22,7 @@ trap cleanup EXIT
 
 python3 "$WORKSPACE/scripts/simulation_readiness_check.py" --timeout 45
 
-if ! python "$WORKSPACE/tests/integration/test_gazebo_motion.py"; then
+if ! bash "$WORKSPACE/tests/integration/run_probe.sh" "$WORKSPACE/tests/integration/control/test_gazebo_motion.py"; then
   cat "$LOG_FILE" >&2
   exit 1
 fi

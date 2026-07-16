@@ -16,14 +16,14 @@ commands=(
   "$LORA_VENV/bin/llamafactory-cli export $WORKSPACE/training/qwen3_0_6b_lora_merge.yaml"
   "$LORA_VENV/bin/python $LLAMA_CPP/convert_hf_to_gguf.py $MERGED_DIR --outfile $F16_GGUF --outtype f16"
   "$WORKSPACE/scripts/quantize_qwen_q8.sh $F16_GGUF $Q8_GGUF"
-  "bash $WORKSPACE/scripts/evaluate_lora_q8_comparison.sh"
-  "$LORA_VENV/bin/python $WORKSPACE/scripts/audit_lora_q8_pipeline.py --f16 $F16_GGUF --q8 $Q8_GGUF --strict-reproduced"
+  "bash $WORKSPACE/tools/evaluation/evaluate_lora_q8_comparison.sh"
+  "$LORA_VENV/bin/python $WORKSPACE/tools/evaluation/audit_lora_q8_pipeline.py --f16 $F16_GGUF --q8 $Q8_GGUF --strict-reproduced"
 )
 
 if [[ "$MODE" == "--dry-run" ]]; then
   printf '[dry-run] %s\n' "${commands[@]}"
   source "$WORKSPACE/scripts/activate.sh"
-  python3 "$WORKSPACE/scripts/audit_lora_q8_pipeline.py" --f16 "$F16_GGUF" --q8 "$Q8_GGUF"
+  python3 "$WORKSPACE/tools/evaluation/audit_lora_q8_pipeline.py" --f16 "$F16_GGUF" --q8 "$Q8_GGUF"
   exit 0
 fi
 if [[ "$MODE" != "--execute" ]]; then

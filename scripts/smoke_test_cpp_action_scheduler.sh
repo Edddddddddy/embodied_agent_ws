@@ -23,7 +23,7 @@ if ! activate_lifecycle_node simulation_control; then
   cat "$LOG_FILE" >&2
   exit 1
 fi
-if ! timeout 35 python3 "$WORKSPACE/tests/integration/test_cpp_action_scheduler.py"; then
+if ! timeout 35 bash "$WORKSPACE/tests/integration/run_probe.sh" "$WORKSPACE/tests/integration/control/test_cpp_action_scheduler.py"; then
   cat "$LOG_FILE" >&2
   exit 1
 fi

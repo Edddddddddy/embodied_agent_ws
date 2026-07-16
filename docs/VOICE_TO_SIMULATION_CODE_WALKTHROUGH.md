@@ -521,7 +521,7 @@ generation 防止 stop 后迟到的旧 callback 覆盖新目标；若旧 goal re
 | 内容 | 位置 |
 | --- | --- |
 | 重型门禁 | `scripts/smoke_test_voice_slam_automatic_mission_gazebo.sh` |
-| probe | `tests/integration/test_voice_slam_session_orchestrator.py::SessionProbe` |
+| probe | `tests/integration/slam_nav/test_voice_slam_session_orchestrator.py::SessionProbe` |
 | 报告 | `logs/showcase/autonomous_runtime/automatic_mission_report.json` |
 
 重型门禁只把声学 ASR 替换成 mock 文本，Gazebo、Explore Lite、SLAM Toolbox、map_saver、AMCL/Nav2、Agent NLU、ActionGuard、Action/BT/pluginlib 均真实运行。报告用 `evidence_kind` 标记证据类型，并验证 `passed/automatic_mission/map_saved`、最终 `MISSION_COMPLETED`、地图 cells、navigate/follow 成功和最终 `/cmd_vel=0`。真实麦克风准确率仍需人工演示，不能用 mock 证据替代。

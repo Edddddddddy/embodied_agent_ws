@@ -1,31 +1,31 @@
-# 测试目录
+# 测试结构
 
-- `repository/`：仓库结构与交付约束，不依赖 ROS graph。
-- `integration/`：由 `scripts/smoke_test_*.sh` 驱动的 ROS 探针，只通过 topic、Action、
-  diagnostics 和 odom 等公开 interface 验证行为。
-- `src/<package>/test/`：C++ GTest 或 Python 单元测试，随 `colcon test` 运行。
+测试按“反馈速度”和“系统边界”分层：
 
-集成探针本身不负责启动系统，也不自行选择 ROS domain；对应 smoke runner 负责隔离
-`ROS_DOMAIN_ID`、启动进程、收集日志与清理资源。这样同一个探针可以复用于独立进程、
-component container 或 Gazebo launch。
+| 目录 | 职责 | 是否启动 ROS graph |
+| --- | --- | --- |
+| `src/<package>/test/` | 包内算法、状态机与 C++ GTest | 否 |
+| `tests/repository/` | CLI、目录、接口和 launch 静态契约 | 否 |
+| `tests/integration/voice/` | ASR/VAD/KWS、连续会话与语音队列探针 | 由 runner 决定 |
+| `tests/integration/control/` | typed Action、Lifecycle、Gazebo 控制探针 | 由 runner 决定 |
+| `tests/integration/slam_nav/` | SLAM、Nav2、动态障碍端到端探针 | 由 runner 决定 |
+| `tests/evaluation/` | 数据集、回环、后端、消融和报告算法 | 否 |
 
-统一入口：
+集成探针只订阅/发布公开 topic、Action、diagnostics、TF 和 odom；对应
+`scripts/smoke_test_*.sh` 负责 ROS domain 隔离、进程启动、日志与清理。
+
+日常入口：
 
 ```bash
 bash scripts/acceptance_test.sh --help
 bash scripts/acceptance_test.sh core
-bash scripts/acceptance_test.sh mock
 ```
 
-建议日常开发优先跑 `core`：它覆盖仓库结构护栏、在线/离线 Agent Python
-单元测试，以及 C++/仿真包的 GTest。`mock` 会在 `core` 之上继续启动 ROS
-smoke runner，适合提交前回归；`gazebo`、`continuous-*` 和真实麦克风模式用于
-链路验收。
+局部开发可直接运行：
 
-脚本整理原则：
+```bash
+pytest -q tests/repository tests/evaluation
+pytest -q src/embodied_agent_core/test
+```
 
-- `scripts/acceptance_test.sh` 是用户入口，只暴露稳定验收模式。
-- `scripts/run_core_tests.sh` 是开发入口，只收口最典型、最快反馈的单元/结构测试。
-- `scripts/smoke_test_*.sh` 是 acceptance 后端 runner，仍被统一入口调用时不能删除。
-- `tests/integration/test_*.py` 只做探针，不负责启动系统；对应 smoke runner 负责
-  `ROS_DOMAIN_ID`、进程清理和日志收集。
+新增测试应放入所属领域目录，禁止重新把 `test_*.py` 堆回 `tests/integration/` 根目录。

@@ -24,7 +24,7 @@ def main() -> int:
         ROOT / "src/embodied_slam/src/odom_drift_injector_node.cpp",
         ROOT / "src/embodied_slam/src/closed_loop_driver_node.cpp",
         ROOT / "src/embodied_simulation/worlds/slam_loop_demo.sdf.xacro",
-        ROOT / "tests/integration/test_slam_mapping_baseline.py",
+        ROOT / "tests/integration/slam_nav/test_slam_mapping_baseline.py",
         ROOT / "scripts/smoke_test_slam_mapping_baseline.sh",
     ]
     checks: dict[str, bool] = {

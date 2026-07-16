@@ -3,7 +3,7 @@
 import importlib.util
 import yaml
 
-from repository_test_support import ROOT
+from repository_test_support import ROOT, assert_acceptance_modes
 
 
 def test_frontier_nav2_params_only_narrow_the_mapping_goal_tolerance():
@@ -118,30 +118,35 @@ def test_slam_mapping_baseline_has_reproducible_inputs_and_evidence_entrypoints(
         ROOT / "src" / "embodied_simulation" / "worlds" / "slam_loop_demo.sdf.xacro",
         ROOT / "scripts" / "audit_slam_mapping_assets.py",
         ROOT / "scripts" / "smoke_test_slam_mapping_baseline.sh",
-        ROOT / "tests" / "integration" / "test_slam_mapping_baseline.py",
-        ROOT / "tests" / "integration" / "test_lidar_loop_runtime.py",
+        ROOT / "tests" / "integration" / "slam_nav" / "test_slam_mapping_baseline.py",
+        ROOT / "tests" / "integration" / "slam_nav" / "test_lidar_loop_runtime.py",
         ROOT / "scripts" / "smoke_test_lidar_loop_runtime.sh",
         package / "launch" / "localization_navigation.launch.py",
         ROOT / "scripts" / "smoke_test_slam_localization_navigation.sh",
-        ROOT / "tests" / "integration" / "test_slam_localization_navigation.py",
-        ROOT / "scripts" / "evaluate_slam_trajectory.py",
-        ROOT / "scripts" / "extract_rosbag_trajectory.py",
-        ROOT / "scripts" / "setup_openloris_groundtruth.py",
-        ROOT / "scripts" / "compare_gtsam_switchable_sequences.py",
-        ROOT / "scripts" / "compare_lidar_sequence_ablation.py",
+        ROOT
+        / "tests"
+        / "integration"
+        / "slam_nav"
+        / "test_slam_localization_navigation.py",
+        ROOT / "tools" / "evaluation" / "evaluate_slam_trajectory.py",
+        ROOT / "tools" / "evaluation" / "extract_rosbag_trajectory.py",
+        ROOT / "tools" / "evaluation" / "setup_openloris_groundtruth.py",
+        ROOT / "tools" / "evaluation" / "compare_gtsam_switchable_sequences.py",
+        ROOT / "tools" / "evaluation" / "compare_lidar_sequence_ablation.py",
         ROOT / "docs" / "evidence" / "gtsam_switchable_multisequence.json",
         ROOT / "docs" / "evidence" / "lidar_sequence_ablation_multisequence.json",
-        ROOT / "tests" / "repository" / "test_slam_trajectory_evaluation.py",
+        ROOT / "tests" / "evaluation" / "test_slam_trajectory_evaluation.py",
     )
     assert all(path.is_file() for path in required)
 
-    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(encoding="utf-8")
-    assert "mapping-stage" in acceptance
-    assert "slam-benchmark" in acceptance
-    assert "slam-navigation" in acceptance
-    assert "slam-evaluation-stage" in acceptance
-    assert "openloris-evaluate" in acceptance
-    assert "lidar-loop-runtime" in acceptance
+    assert_acceptance_modes(
+        "mapping-stage",
+        "slam-benchmark",
+        "slam-navigation",
+        "slam-evaluation-stage",
+        "openloris-evaluate",
+        "lidar-loop-runtime",
+    )
 
 
 def test_live_lidar_loop_frontend_is_typed_lifecycle_and_commit_is_default_off():
@@ -209,7 +214,7 @@ def test_slam_baseline_exposes_drift_and_loop_closure_as_measurable_variables():
         ROOT / "src" / "embodied_slam" / "src" / "odom_drift_injector_node.cpp"
     ).read_text(encoding="utf-8")
     probe = (
-        ROOT / "tests" / "integration" / "test_slam_mapping_baseline.py"
+        ROOT / "tests" / "integration" / "slam_nav" / "test_slam_mapping_baseline.py"
     ).read_text(encoding="utf-8")
 
     assert "solver_plugins::CeresSolver" in config
@@ -244,7 +249,7 @@ def test_ci_builds_the_slam_package_without_running_the_heavy_gazebo_benchmark()
 
 
 def test_openloris_runner_uses_a_fastdds_safe_domain_id():
-    runner = (ROOT / "scripts" / "run_openloris_slam_replay.sh").read_text(
+    runner = (ROOT / "tools" / "evaluation" / "run_openloris_slam_replay.sh").read_text(
         encoding="utf-8"
     )
     assert "120 + $$ % 80" in runner

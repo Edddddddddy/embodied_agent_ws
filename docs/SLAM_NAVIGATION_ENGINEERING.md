@@ -42,8 +42,8 @@ Gazebo LaserScan + 参考里程计
 | 可切换回环约束 | `gtsam_pose_graph.cpp`：`SwitchableBetweenFactor/evaluateError` | 为每条非局部边联合优化独立可信度；错误边可软关闭，正确边保留，不修改前端图输入 |
 | 多序列 switch 消融 | `compare_gtsam_switchable_sequences.py`：`compare` | 要求两份独立 graph SHA、同一先验/阈值，并同时观察“压低错误边”和“保留正常边” |
 | 协方差防护 | `make_positive_definite` | 对称化协方差并钳制特征值，防止走廊等退化几何给出奇异矩阵导致求解器崩溃 |
-| 地图/轨迹报告 | `tests/integration/test_slam_mapping_baseline.py`：`build_report` | 同时统计原始 ATE、闭环误差、`map->odom` 校正轨迹和已知地图面积 |
-| 后端 A/B | `scripts/compare_slam_backends.py`：`compare` | 检查两次路线与漂移尺度一致，再比较校正 ATE、闭环误差、覆盖面积和时间 |
+| 地图/轨迹报告 | `tests/integration/slam_nav/test_slam_mapping_baseline.py`：`build_report` | 同时统计原始 ATE、闭环误差、`map->odom` 校正轨迹和已知地图面积 |
+| 后端 A/B | `tools/evaluation/compare_slam_backends.py`：`compare` | 检查两次路线与漂移尺度一致，再比较校正 ATE、闭环误差、覆盖面积和时间 |
 | 公开 bag 回放 | `bag_source.py`：`inspect_bag/iter_events`；`replay_node.py`：`replay` | 懒加载 ROS 1/2 消息，发布单调 `/clock`、隔离 TF 与 scan；不把 9 GB bag 读入内存 |
 | 轨迹记录 | `trajectory_recorder.py`：`_on_tf/_record` | 显式组合 `map→odom→base`，逐样本 flush，避免只记录后端校正量或退出丢证据 |
 | 真实后端 A/B | `compare_openloris_backends.py`：`compare` | 先验证样本窗/覆盖率可比，再描述 ATE/RPE 差异，不预设某个求解器必胜 |

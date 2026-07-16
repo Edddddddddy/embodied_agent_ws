@@ -2,7 +2,13 @@
 
 import re
 
-from repository_test_support import CORE_ROOT, ROOT, VOICE_FRONTEND_ROOT
+from repository_test_support import (
+    CORE_ROOT,
+    ROOT,
+    VOICE_FRONTEND_ROOT,
+    acceptance_handler_source,
+    assert_acceptance_modes,
+)
 
 
 def test_generated_ros_domain_ids_stay_within_fastdds_port_limit():
@@ -73,16 +79,13 @@ def test_critical_full_chain_probes_remain_discoverable():
         "test_offline_sherpa_typed_simulation.py",
         "test_agent_lifecycle.py",
     }
-    present = {path.name for path in integration.glob("test_*")}
+    present = {path.name for path in (ROOT / "tests").rglob("test_*")}
     assert required <= present
 
 def test_voice_navigation_acceptance_entrypoints_remain_available():
     """语音目标点导航/巡航是当前阶段核心能力，入口脚本不能在整理中丢失。"""
 
-    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
-        encoding="utf-8"
-    )
-    for mode in (
+    assert_acceptance_modes(
         "navigation-demo",
         "nav2-bridge",
         "nav2-preflight",
@@ -95,8 +98,7 @@ def test_voice_navigation_acceptance_entrypoints_remain_available():
         "continuous-nav2-live-check",
         "continuous-navigation",
         "continuous-navigation-natural",
-    ):
-        assert mode in acceptance
+    )
 
     for script in (
         "smoke_test_navigation_sequence.sh",
@@ -126,13 +128,9 @@ def test_voice_navigation_acceptance_entrypoints_remain_available():
 def test_real_asr_sample_eval_loop_entrypoints_remain_available():
     """真实 ASR 错词/多命令样本要能从现场日志沉淀为评估候选集。"""
 
-    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
-        encoding="utf-8"
-    )
-    assert "asr-nlu-samples-to-eval" in acceptance
-    assert "asr-nlu-candidate-eval" in acceptance
-    assert (ROOT / "scripts" / "asr_nlu_samples_to_eval_candidates.py").is_file()
-    assert (ROOT / "scripts" / "evaluate_asr_nlu_eval_candidates.py").is_file()
+    assert_acceptance_modes("asr-nlu-samples-to-eval", "asr-nlu-candidate-eval")
+    assert (ROOT / "tools" / "evaluation" / "asr_nlu_samples_to_eval_candidates.py").is_file()
+    assert (ROOT / "tools" / "evaluation" / "evaluate_asr_nlu_eval_candidates.py").is_file()
     assert (ROOT / "training" / "robot_instruction_eval.jsonl").is_file()
 
 
@@ -167,16 +165,20 @@ def test_sherpa_asr_deployment_entrypoints_remain_available():
     推理框架、ZipFormer 模型文件和项目 provider seam 是否可用。
     """
 
-    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
-        encoding="utf-8"
+    assert_acceptance_modes(
+        "sherpa-asr-preflight", "sherpa-asr-smoke", "offline-sherpa-typed"
     )
-    for mode in ("sherpa-asr-preflight", "sherpa-asr-smoke", "offline-sherpa-typed"):
-        assert mode in acceptance
 
     setup_script = ROOT / "scripts" / "setup_sherpa_asr_runtime.sh"
     smoke_script = ROOT / "scripts" / "sherpa_asr_smoke.py"
     typed_script = ROOT / "scripts" / "smoke_test_offline_sherpa_typed_simulation.sh"
-    typed_probe = ROOT / "tests" / "integration" / "test_offline_sherpa_typed_simulation.py"
+    typed_probe = (
+        ROOT
+        / "tests"
+        / "integration"
+        / "voice"
+        / "test_offline_sherpa_typed_simulation.py"
+    )
     assert setup_script.is_file()
     assert smoke_script.is_file()
     assert typed_script.is_file()
@@ -198,16 +200,14 @@ def test_sherpa_asr_deployment_entrypoints_remain_available():
 def test_llama_cpp_deployment_entrypoints_remain_available():
     """llama.cpp 离线推理必须能独立预检，不能只能挂在完整离线验收里排查。"""
 
-    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
-        encoding="utf-8"
+    assert_acceptance_modes(
+        "llama-cpp-preflight", "llama-cpp-smoke", "llama-decode-benchmark"
     )
-    for mode in ("llama-cpp-preflight", "llama-cpp-smoke", "llama-decode-benchmark"):
-        assert mode in acceptance
 
     start_script = ROOT / "scripts" / "start_llama_server.sh"
     smoke_script = ROOT / "scripts" / "smoke_test_llama_cpp.sh"
     preflight_script = ROOT / "scripts" / "llama_cpp_preflight.py"
-    decode_benchmark_script = ROOT / "scripts" / "benchmark_llama_decode_speed.py"
+    decode_benchmark_script = ROOT / "tools" / "evaluation" / "benchmark_llama_decode_speed.py"
     provider = (
         ROOT
         / "src"
@@ -251,17 +251,13 @@ def test_offline_voice_e2e_reuses_an_existing_llama_server():
 def test_instruction_following_lora_review_workflow_remains_available():
     """失败样例只能先进入候选集；人工审核后才允许导出 approved LoRA 数据集。"""
 
-    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
-        encoding="utf-8"
-    )
-    for mode in (
+    assert_acceptance_modes(
         "instruction-following-lora-candidates",
         "instruction-following-lora-review",
-    ):
-        assert mode in acceptance
+    )
 
-    candidate_script = ROOT / "scripts" / "export_instruction_following_lora_candidates.py"
-    review_script = ROOT / "scripts" / "review_lora_candidates.py"
+    candidate_script = ROOT / "tools" / "evaluation" / "export_instruction_following_lora_candidates.py"
+    review_script = ROOT / "tools" / "evaluation" / "review_lora_candidates.py"
     dataset_info = (ROOT / "training" / "dataset_info.json").read_text(
         encoding="utf-8"
     )
@@ -279,18 +275,17 @@ def test_instruction_following_lora_review_workflow_remains_available():
 def test_summer_tts_deployment_entrypoints_remain_available():
     """SummerTTS 是独立 C++ 离线 TTS 后端，必须能单独部署和验收。"""
 
-    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
-        encoding="utf-8"
+    assert_acceptance_modes(
+        "summer-tts-preflight", "summer-tts-smoke", "summer-pseudo-tts",
+        "summer-tts-cache-audit",
     )
-    for mode in ("summer-tts-preflight", "summer-tts-smoke", "summer-pseudo-tts"):
-        assert mode in acceptance
 
     setup_script = ROOT / "scripts" / "setup_summer_tts_runtime.sh"
     smoke_script = ROOT / "scripts" / "summer_tts_smoke.py"
     pseudo_script = ROOT / "scripts" / "smoke_test_summer_pseudo_tts.py"
     service_probe = ROOT / "scripts" / "summer_tts_service_probe.py"
     service_smoke = ROOT / "scripts" / "smoke_test_summer_tts_service.sh"
-    cache_audit = ROOT / "scripts" / "audit_summer_tts_cache_evidence.py"
+    cache_audit = ROOT / "tools" / "evaluation" / "audit_summer_tts_cache_evidence.py"
     provider = (
         ROOT
         / "src"
@@ -328,7 +323,6 @@ def test_summer_tts_deployment_entrypoints_remain_available():
     assert "--require-cache-hit" in service_probe_text
     assert "--require-cache-hit" in service_smoke_text
     assert "summer_tts_cache_evidence_audit" in cache_audit_text
-    assert "summer-tts-cache-audit" in acceptance
     assert "SummerTts" in offline_node
     assert "tts_provider" in offline_node
     assert "tts_provider" in offline_launch
@@ -337,9 +331,6 @@ def test_summer_tts_deployment_entrypoints_remain_available():
 def test_summer_tts_resident_ros_component_entrypoints_remain_available():
     """SummerTTS 常驻 C++ ROS 组件化入口必须可构建、可验收、可从 Agent 选择。"""
 
-    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
-        encoding="utf-8"
-    )
     cpp_cmake = (ROOT / "src" / "embodied_agent_cpp" / "CMakeLists.txt").read_text(
         encoding="utf-8"
     )
@@ -379,17 +370,16 @@ def test_summer_tts_resident_ros_component_entrypoints_remain_available():
     assert "cache_hit" in (ROOT / "scripts" / "summer_tts_service_probe.py").read_text(
         encoding="utf-8"
     )
-    assert "summer-tts-service" in acceptance
-    assert "summer_tts_service_probe.py" in acceptance or "smoke_test_summer_tts_service.sh" in acceptance
+    assert_acceptance_modes("summer-tts-service")
+    assert "smoke_test_summer_tts_service.sh" in acceptance_handler_source(
+        "summer-tts-service"
+    )
     assert "summer_ros" in offline_node
     assert "summer_tts_service" in offline_launch
 
 def test_offline_runtime_versions_are_pinned_and_documented():
     """离线运行时必须有固定版本，避免第三方 main 分支漂移破坏演示。"""
 
-    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
-        encoding="utf-8"
-    )
     setup_offline = (ROOT / "scripts" / "setup_offline_runtime.sh").read_text(
         encoding="utf-8"
     )
@@ -405,7 +395,7 @@ def test_offline_runtime_versions_are_pinned_and_documented():
     expected_summer = "c90e0e8d31e09c98199ab9b5a605af74c179f811"
     expected_sherpa = "1.13.3"
 
-    assert "offline-runtime-versions" in acceptance
+    assert_acceptance_modes("offline-runtime-versions")
     assert version_probe.is_file()
     assert version_doc.is_file()
     assert expected_llama in setup_offline
@@ -418,9 +408,6 @@ def test_offline_runtime_versions_are_pinned_and_documented():
 def test_offline_latency_gate_remains_available_and_documented():
     """组件延迟和真实 Agent E2E 必须分开测量，不能把整句合成冒充首音频。"""
 
-    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
-        encoding="utf-8"
-    )
     latency_probe = ROOT / "scripts" / "offline_latency_targets.py"
     latency_smoke = ROOT / "scripts" / "smoke_test_offline_latency.sh"
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -428,9 +415,10 @@ def test_offline_latency_gate_remains_available_and_documented():
         encoding="utf-8"
     )
 
-    assert "offline-latency" in acceptance
-    assert "offline-voice-e2e-report" in acceptance
-    assert "smoke_test_offline_latency.sh" in acceptance
+    assert_acceptance_modes("offline-latency", "offline-voice-e2e-report")
+    assert "smoke_test_offline_latency.sh" in acceptance_handler_source(
+        "offline-latency"
+    )
     assert latency_probe.is_file()
     assert latency_smoke.is_file()
     probe_text = latency_probe.read_text(encoding="utf-8")
@@ -492,16 +480,13 @@ def test_job_presentation_doc_remains_discoverable():
 def test_showcase_hardening_artifacts_remain_discoverable():
     """缺点收口阶段的展示硬化产物不能在后续整理中丢失。"""
 
-    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
-        encoding="utf-8"
-    )
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     release_gate = ROOT / "scripts" / "showcase_release_gate.py"
     demo_evidence_checklist = ROOT / "scripts" / "demo_evidence_checklist.py"
-    offline_showcase_report = ROOT / "scripts" / "generate_offline_showcase_report.py"
-    offline_evidence_audit = ROOT / "scripts" / "audit_offline_showcase_evidence.py"
-    eval_validator = ROOT / "scripts" / "validate_instruction_eval_dataset.py"
-    parser_eval = ROOT / "scripts" / "evaluate_instruction_parser.py"
+    offline_showcase_report = ROOT / "tools" / "evaluation" / "generate_offline_showcase_report.py"
+    offline_evidence_audit = ROOT / "tools" / "evaluation" / "audit_offline_showcase_evidence.py"
+    eval_validator = ROOT / "tools" / "evaluation" / "validate_instruction_eval_dataset.py"
+    parser_eval = ROOT / "tools" / "evaluation" / "evaluate_instruction_parser.py"
     eval_dataset = ROOT / "training" / "robot_instruction_eval.jsonl"
     interview_doc = ROOT / "docs" / "INTERVIEW_QA.md"
     gaps_doc = ROOT / "docs" / "PROJECT_GAPS_AND_OPTIMIZATION.md"
@@ -521,18 +506,22 @@ def test_showcase_hardening_artifacts_remain_discoverable():
     ):
         assert path.is_file()
 
-    assert "release-gate" in acceptance
-    assert "robotics-gate" in acceptance
-    assert "demo-gate" in acceptance
-    assert "demo-evidence-checklist" in acceptance
-    assert "offline-showcase-report" in acceptance
-    assert "offline-evidence-audit" in acceptance
-    assert "instruction-eval-dataset" in acceptance
-    assert "instruction-parser-eval" in acceptance
-    assert "instruction-following-eval" in acceptance
-    assert "instruction-following-lora-candidates" in acceptance
-    assert "OFFLINE_SHOWCASE_RUN_INSTRUCTION_FOLLOWING" in acceptance
-    assert "OFFLINE_EVIDENCE_REQUIRE_INSTRUCTION_FOLLOWING" in acceptance
+    assert_acceptance_modes(
+        "release-gate",
+        "robotics-gate",
+        "demo-gate",
+        "demo-evidence-checklist",
+        "offline-showcase-report",
+        "offline-evidence-audit",
+        "instruction-eval-dataset",
+        "instruction-parser-eval",
+        "instruction-following-eval",
+        "instruction-following-lora-candidates",
+    )
+    showcase_handler = acceptance_handler_source("offline-showcase-report")
+    audit_handler = acceptance_handler_source("offline-evidence-audit")
+    assert "OFFLINE_SHOWCASE_RUN_INSTRUCTION_FOLLOWING" in showcase_handler
+    assert "OFFLINE_EVIDENCE_REQUIRE_INSTRUCTION_FOLLOWING" in audit_handler
     assert "logs/acceptance_report.json" in readme
     assert "logs/demo_acceptance_report.json" in readme
     assert "离线模型 Benchmark 与展示报告" in readme
@@ -546,8 +535,8 @@ def test_showcase_hardening_artifacts_remain_discoverable():
     assert "claim_guidance" in audit_text
     assert "不要说：LoRA" in audit_text
     assert "require_llama_bench" in audit_text
-    assert "OFFLINE_SHOWCASE_RUN_LLAMA_BENCH" in acceptance
-    assert "OFFLINE_EVIDENCE_REQUIRE_LLAMA_BENCH" in acceptance
+    assert "OFFLINE_SHOWCASE_RUN_LLAMA_BENCH" in showcase_handler
+    assert "OFFLINE_EVIDENCE_REQUIRE_LLAMA_BENCH" in audit_handler
     release_gate_text = release_gate.read_text(encoding="utf-8")
     checklist_text = demo_evidence_checklist.read_text(encoding="utf-8")
     assert "job_showcase_release_gate" in release_gate_text
@@ -568,11 +557,11 @@ def test_showcase_hardening_artifacts_remain_discoverable():
     assert "tag_accuracy" in parser_eval.read_text(encoding="utf-8")
     assert "source_counts" in parser_eval.read_text(encoding="utf-8")
     assert "failed_cases" in parser_eval.read_text(encoding="utf-8")
-    following_eval = (ROOT / "scripts" / "evaluate_instruction_following.py").read_text(
+    following_eval = (ROOT / "tools" / "evaluation" / "evaluate_instruction_following.py").read_text(
         encoding="utf-8"
     )
     lora_export = (
-        ROOT / "scripts" / "export_instruction_following_lora_candidates.py"
+        ROOT / "tools" / "evaluation" / "export_instruction_following_lora_candidates.py"
     ).read_text(encoding="utf-8")
     assert "offline_llm_instruction_following_eval" in following_eval
     assert "minimum_effective" in following_eval

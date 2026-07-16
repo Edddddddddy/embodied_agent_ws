@@ -14,7 +14,7 @@ for model in current_only constant_velocity kalman imm; do
   reports+=("$report")
 done
 
-python3 scripts/compare_dynamic_navigation_models.py \
+python3 tools/evaluation/compare_dynamic_navigation_models.py \
   "${reports[@]}" \
   --output logs/dynamic_obstacle_navigation_ablation.json \
   --markdown logs/dynamic_obstacle_navigation_ablation.md

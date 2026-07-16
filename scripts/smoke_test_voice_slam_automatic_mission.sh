@@ -24,7 +24,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-if ! timeout 30 python3 tests/integration/test_voice_slam_session_orchestrator.py \
+if ! timeout 30 bash tests/integration/run_probe.sh tests/integration/slam_nav/test_voice_slam_session_orchestrator.py \
   --output "$REPORT" \
   --automatic-mission; then
   echo "---- automatic orchestrator log ----" >&2

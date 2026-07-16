@@ -55,40 +55,21 @@ def _ci_packages(workflow: str) -> list[str]:
     raise ValueError("CI workflow does not contain an action-ros-ci package-name block")
 
 
-def _heredoc_body(script: str, function_name: str) -> str:
-    pattern = re.compile(
-        rf"{re.escape(function_name)}\(\)\s*\{{.*?cat <<'EOF'\n(.*?)\nEOF\n\}}",
-        re.DOTALL,
-    )
-    match = pattern.search(script)
-    if match is None:
-        raise ValueError(f"cannot find {function_name}() heredoc")
-    return match.group(1)
+def _acceptance_registry(root: Path) -> tuple[list[str], list[str], list[str]]:
+    """Read CLI facts from the same registry used at runtime.
 
+    旧实现反向解析 1000 行 shell ``case`` 和 help heredoc，重排空格就会误报。
+    现在 Python 注册表是唯一事实源，架构审计直接验证它的公开/内部边界。
+    """
 
-def _documented_modes(help_body: str) -> list[str]:
-    return sorted(
-        {
-            match.group(1)
-            for match in re.finditer(
-                r"^  ([a-z0-9][a-z0-9-]*)\s+", help_body, re.MULTILINE
-            )
-        }
-    )
+    root_text = str(root)
+    if root_text not in sys.path:
+        sys.path.insert(0, root_text)
+    from tools.acceptance.catalog import MODES, PUBLIC_MODE_NAMES
 
-
-def _router_modes(script: str) -> list[str]:
-    start = script.find('case "$LEVEL" in')
-    end = script.rfind("\nesac")
-    if start < 0 or end <= start:
-        raise ValueError("cannot locate acceptance_test.sh main case router")
-    block = script[start:end]
-    modes: set[str] = set()
-    for match in re.finditer(
-        r"^  ([a-z0-9_-]+(?:\|[a-z0-9_-]+)*)\)", block, re.MULTILINE
-    ):
-        modes.update(match.group(1).split("|"))
-    return sorted(modes)
+    public_modes = sorted(PUBLIC_MODE_NAMES)
+    all_modes = sorted(mode.name for mode in MODES)
+    return public_modes, all_modes, all_modes
 
 
 def _release_profiles(root: Path) -> dict[str, list[dict[str, str]]]:
@@ -132,15 +113,15 @@ def build_facts(root: Path) -> dict[str, Any]:
     workflow = (root / ".github" / "workflows" / "ros2-ci.yml").read_text(
         encoding="utf-8"
     )
-    acceptance = (root / "scripts" / "acceptance_test.sh").read_text(
-        encoding="utf-8"
+    handler_paths = sorted((root / "tools" / "acceptance" / "handlers").glob("*.sh"))
+    handler_paths.append(root / "tools" / "evaluation" / "acceptance_handlers.sh")
+    acceptance_handlers = "\n".join(
+        path.read_text(encoding="utf-8") for path in handler_paths
     )
 
     ros_packages = _ros_packages(root)
     ci_packages = _ci_packages(workflow)
-    public_modes = _documented_modes(_heredoc_body(acceptance, "usage"))
-    advanced_modes = _documented_modes(_heredoc_body(acceptance, "usage_all"))
-    router_modes = _router_modes(acceptance)
+    public_modes, advanced_modes, router_modes = _acceptance_registry(root)
     release_profiles = _release_profiles(root)
     robotics_text = "\n".join(
         command["command"] for command in release_profiles["robotics"]
@@ -176,9 +157,10 @@ def build_facts(root: Path) -> dict[str, Any]:
     trigger_lines = workflow.count("branches: [main, dev]")
     release_gate_workspace_is_explicit = all(
         re.search(
-            rf"^  {re.escape(mode)}\).*showcase_release_gate\.py.*--workspace \"\$WORKSPACE\"",
-            acceptance,
-            re.MULTILINE,
+            rf"accept_{mode.replace('-', '_')}\(\)\s*\{{.*?"
+            rf"showcase_release_gate\.py.*?--workspace \"\$WORKSPACE\"",
+            acceptance_handlers,
+            re.DOTALL,
         )
         is not None
         for mode in ("release-gate", "robotics-gate", "demo-gate")
@@ -186,7 +168,8 @@ def build_facts(root: Path) -> dict[str, Any]:
     contracts = {
         "ci_matrix_matches_ros_packages": ci_packages == ros_packages,
         "ci_push_and_pr_only_dev_main": trigger_lines == 2,
-        "public_mode_count_is_14": len(public_modes) == 14,
+        "public_mode_count_is_7": len(public_modes) == 7,
+        "shell_entry_is_thin": _line_count(root / "scripts" / "acceptance_test.sh") <= 15,
         "public_modes_are_routable": set(public_modes) <= set(router_modes),
         "advanced_modes_are_routable": set(advanced_modes) <= set(router_modes),
         "release_gates_use_current_workspace": release_gate_workspace_is_explicit,

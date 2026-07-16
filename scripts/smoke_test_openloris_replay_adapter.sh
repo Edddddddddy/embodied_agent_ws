@@ -15,7 +15,7 @@ cleanup() {
 trap cleanup EXIT
 
 BAG_PATH="$TMP_DIR/bag"
-python3 scripts/generate_openloris_replay_fixture.py --output "$BAG_PATH"
+python3 tools/evaluation/generate_openloris_replay_fixture.py --output "$BAG_PATH"
 ros2 run embodied_slam_tools openloris_rosbag_inspect "$BAG_PATH" \
   --output "$TMP_DIR/contract.json"
 

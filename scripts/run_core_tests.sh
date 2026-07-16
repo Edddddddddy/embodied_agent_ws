@@ -7,11 +7,11 @@ source "$WORKSPACE/scripts/activate.sh"
 cd "$WORKSPACE"
 
 echo "[core] acceptance CLI contract"
-bash tests/integration/test_acceptance_cli.sh
-bash tests/integration/test_voice_benchmark_cli.sh
+bash tests/integration/control/test_acceptance_cli.sh
+bash tests/integration/voice/test_voice_benchmark_cli.sh
 
-echo "[core] repository structure guards"
-python3 -m pytest -q tests/repository
+echo "[core] repository and deterministic evaluation tests"
+python3 -m pytest -q tests/repository tests/evaluation
 
 echo "[core] Python agent unit tests"
 python3 -m pytest -q \

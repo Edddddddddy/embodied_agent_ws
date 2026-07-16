@@ -45,7 +45,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 if ! timeout "${SHOWCASE_NAV_TIMEOUT:-150}" \
-  python3 tests/integration/test_nav2_turtlebot3_voice.py \
+  bash tests/integration/run_probe.sh tests/integration/slam_nav/test_nav2_turtlebot3_voice.py \
     --initial-x 0.0 --initial-y 0.0 --initial-yaw 0.0 \
     --navigate-text "去客厅" \
     --navigate-timeout "${SHOWCASE_NAV_TIMEOUT:-120}" \
