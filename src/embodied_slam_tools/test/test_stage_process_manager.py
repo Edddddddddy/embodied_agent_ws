@@ -4,7 +4,29 @@ from pathlib import Path
 import subprocess
 import time
 
-from embodied_slam_tools.showcase_session_node import StageProcessManager
+from embodied_slam_tools.stage_process_manager import StageProcessManager
+
+
+def test_dry_run_exposes_stage_command_without_starting_process(tmp_path: Path):
+    manager = StageProcessManager(
+        tmp_path,
+        "offline",
+        tmp_path / "session" / "map",
+        stop_timeout_s=0.5,
+        dry_run=True,
+    )
+
+    manager.start("mapping")
+
+    assert manager.stage == "mapping"
+    assert manager.process is None
+    assert manager.command("navigation") == [
+        "bash",
+        str(tmp_path / "scripts/voice_slam_nav_showcase.sh"),
+        "navigation",
+        "offline",
+    ]
+    assert manager.save_map() == str(tmp_path / "session" / "map.yaml")
 
 
 def test_stop_reaps_child_that_created_a_separate_process_group(tmp_path: Path):

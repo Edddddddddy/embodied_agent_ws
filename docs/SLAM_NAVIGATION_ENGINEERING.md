@@ -278,7 +278,7 @@ ActionGuard 保护的脱角原语；进入开阔区后，未知区域由 frontie
 | 高层意图 | `showcase_session_node.py:SessionOrchestratorNode._on_asr_final()` | `/agent/asr_final` | `parse_session_command()`、`_enqueue()` |
 | 状态编排 | 同文件 `_worker_loop()`、`_start_mapping()`、`_execute_request()`、`_run_automatic_mission()` | command queue | mapping/bootstrap/explorer/save/navigation 阶段 |
 | 初始脱角 | `showcase_session.py:parse_mapping_bootstrap_route()`、编排器 `_run_agent_text_action()` | mission YAML 的 7 段 move/turn | ActionGuard → ROS 2 Action；完成后才启动 explorer |
-| 进程生命周期 | `StageProcessManager.start()`、`start_explorer()`、`save_map()` | orchestrator | launch、Explore Lite、map_saver |
+| 进程生命周期 | `stage_process_manager.py:StageProcessManager.start()`、`start_explorer()`、`save_map()` | orchestrator | launch、Explore Lite、map_saver |
 | 探索结束判定 | `_wait_for_frontier_completion()` | `/map`、explorer 进程和超时 | `_save_map()` |
 | 定位切换 | `_start_navigation()` | 保存地图 | map_server、AMCL、Nav2 readiness |
 | 语义巡检 | `_run_agent_text_action()` | mission plan 文本 | Agent→Guard→Action→Nav2 executor |

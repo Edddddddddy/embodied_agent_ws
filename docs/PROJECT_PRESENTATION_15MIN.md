@@ -295,7 +295,9 @@ SessionOrchestratorNode._on_asr_final()
   `parse_session_command()`、`parse_mapping_bootstrap_route()`、
   `ShowcaseSessionStateMachine.validate()`、`transition()`。
 - `src/embodied_slam_tools/embodied_slam_tools/showcase_session_node.py`：
-  `SessionOrchestratorNode`、`StageProcessManager`。
+  `SessionOrchestratorNode`。
+- `src/embodied_slam_tools/embodied_slam_tools/stage_process_manager.py`：
+  `StageProcessManager`。
 
 关键技术：显式有限状态机、有界队列、worker、readiness generation、进程组关闭、幂等/重复意图过滤、
 可取消 Action 和失败回退。
