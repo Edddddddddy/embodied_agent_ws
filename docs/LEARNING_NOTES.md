@@ -197,9 +197,10 @@ bash scripts/acceptance_test.sh gazebo
   `parse_mapping_bootstrap_route()`、`ShowcaseSessionStateMachine.validate()`、`transition()`。
 - `src/embodied_slam_tools/embodied_slam_tools/mission_executor.py`：
   `AutomaticMissionExecutor.run()` 封装自动探索、存图、定位切换和语义巡航事务。
+- `src/embodied_slam_tools/embodied_slam_tools/frontier_monitor.py`：
+  `FrontierExplorationMonitor.wait()` 统一覆盖阈值、地图平台期、Explorer 健康、超时和取消判定。
 - `src/embodied_slam_tools/embodied_slam_tools/showcase_session_node.py`：
-  `wait_for_frontier()`、`save_map()`、`start_navigation()`、
-  `run_agent_action()`。
+  作为 ROS Adapter 提供 `save_map()`、`start_navigation()`、`run_agent_action()`。
 - `src/embodied_slam_tools/embodied_slam_tools/mapping_evidence.py`：
   `MappingEvidenceTracker` 原子收集地图增长、真实里程、LiDAR 首帧和探索结束状态。
 - `src/embodied_slam_tools/embodied_slam_tools/stage_process_manager.py`：
@@ -218,7 +219,7 @@ _on_asr_final() → parse_session_command() → _enqueue() → _worker_loop()
 → _execute_request() → AutomaticMissionExecutor.run()
 → run_agent_action(move/turn bootstrap route)
 → StageProcessManager.start_explorer() → /explore/status + /map
-→ wait_for_frontier() → save_map() → start_navigation()
+→ FrontierExplorationMonitor.wait() → save_map() → start_navigation()
 → run_agent_action() → Agent/Guard/Action → NavigateToPose/FollowWaypoints
 → evaluate_follow_waypoints_result() → success / blocked + missed detail
 ```

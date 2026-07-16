@@ -41,6 +41,7 @@ try:
 except ImportError:  # 可选运行时由 setup_frontier_exploration.sh 安装。
     ExploreStatus = None
 
+from .frontier_monitor import FrontierExplorationMonitor, FrontierMonitorConfig
 from .mapping_evidence import MappingEvidenceTracker
 from .mission_executor import (
     AutomaticMissionCancelled,
@@ -53,7 +54,6 @@ from .showcase_session import (
     SessionCommand,
     SessionPhase,
     ShowcaseSessionStateMachine,
-    exploration_completion_reason,
     is_automatic_mission_cancel_text,
     is_truncated_automatic_mission_text,
     parse_mapping_bootstrap_route,
@@ -116,13 +116,13 @@ class SessionOrchestratorNode(Node):
         explorer_config_path = (
             workspace / "src/embodied_simulation/config" / explorer_config_name
         )
-        self._exploration_timeout_s = float(
+        exploration_timeout_s = float(
             automatic_config.get("timeout_s", 300.0)
         )
-        self._exploration_min_runtime_s = float(
+        exploration_min_runtime_s = float(
             automatic_config.get("min_runtime_s", 15.0)
         )
-        self._exploration_stable_map_s = float(
+        exploration_stable_map_s = float(
             automatic_config.get("stable_map_s", 20.0)
         )
         exploration_min_growth_cells = int(
@@ -131,7 +131,7 @@ class SessionOrchestratorNode(Node):
         mission_navigation_timeout_s = float(
             automatic_config.get("navigation_timeout_s", 330.0)
         )
-        self._exploration_completion_status = str(
+        exploration_completion_status = str(
             automatic_config.get("completion_status", "exploration_complete")
         )
         mapping_bootstrap_route = parse_mapping_bootstrap_route(
@@ -141,11 +141,11 @@ class SessionOrchestratorNode(Node):
             automatic_config.get("bootstrap_action_timeout_s", 45.0)
         )
         acceptance = self._mission_plan.get("acceptance", {})
-        self._min_known_map_cells = int(acceptance.get("min_known_map_cells", 0))
-        self._min_occupied_map_cells = int(
+        min_known_map_cells = int(acceptance.get("min_known_map_cells", 0))
+        min_occupied_map_cells = int(
             acceptance.get("min_occupied_map_cells", 0)
         )
-        self._min_mapping_path_m = float(
+        min_mapping_path_m = float(
             acceptance.get("min_mapping_path_m", 0.0)
         )
         readiness_topic = str(
@@ -163,7 +163,7 @@ class SessionOrchestratorNode(Node):
             self.declare_parameter("stop_timeout_s", 15.0).value
         )
         dry_run = bool(self.declare_parameter("dry_run", False).value)
-        self._dry_run_exploration_delay_s = float(
+        dry_run_exploration_delay_s = float(
             self.declare_parameter("dry_run_exploration_delay_s", 0.0).value
         )
         self._fsm = ShowcaseSessionStateMachine()
@@ -176,6 +176,24 @@ class SessionOrchestratorNode(Node):
         )
         self._mapping_evidence = MappingEvidenceTracker(
             exploration_min_growth_cells
+        )
+        self._frontier_monitor = FrontierExplorationMonitor(
+            self._mapping_evidence,
+            self._manager,
+            FrontierMonitorConfig(
+                timeout_s=exploration_timeout_s,
+                min_runtime_s=exploration_min_runtime_s,
+                stable_map_s=exploration_stable_map_s,
+                completion_status=exploration_completion_status,
+                min_known_cells=min_known_map_cells,
+                min_occupied_cells=min_occupied_map_cells,
+                min_mapping_path_m=min_mapping_path_m,
+                status_available=ExploreStatus is not None,
+                dry_run=dry_run,
+                dry_run_delay_s=dry_run_exploration_delay_s,
+            ),
+            cancel_motion=self._cancel_automatic_motion,
+            log_info=self.get_logger().info,
         )
         navigation = self._mission_plan.get("navigation_mission", {})
         if not isinstance(navigation, dict):
@@ -460,117 +478,7 @@ class SessionOrchestratorNode(Node):
             )
 
     def wait_for_frontier(self, request: CommandRequest) -> None:
-        if self._dry_run:
-            deadline = time.monotonic() + self._dry_run_exploration_delay_s
-            while time.monotonic() < deadline:
-                if request.canceled:
-                    self._cancel_automatic_motion()
-                    raise AutomaticMissionCancelled("automatic mission canceled")
-                time.sleep(0.05)
-            return
-        if ExploreStatus is None:
-            raise RuntimeError(
-                "explore_lite_msgs is unavailable; run "
-                "bash scripts/setup_frontier_exploration.sh"
-            )
-        started_at = time.monotonic()
-        deadline = started_at + self._exploration_timeout_s
-        with self._mapping_evidence.condition:
-            while time.monotonic() < deadline:
-                if request.canceled:
-                    self._cancel_automatic_motion()
-                    raise AutomaticMissionCancelled("automatic mission canceled")
-                elapsed = time.monotonic() - started_at
-                evidence = self._mapping_evidence.snapshot()
-                stats = evidence.map_stats or {}
-                if (
-                    evidence.explore_status
-                    == self._exploration_completion_status
-                    and elapsed >= self._exploration_min_runtime_s
-                ):
-                    if stats.get("known_cells", 0) < self._min_known_map_cells:
-                        raise RuntimeError(
-                            "frontier exploration ended before known-cell threshold"
-                        )
-                    if stats.get("occupied_cells", 0) < self._min_occupied_map_cells:
-                        raise RuntimeError(
-                            "frontier exploration ended before occupied-cell threshold"
-                        )
-                    if evidence.mapping_path_m < self._min_mapping_path_m:
-                        raise RuntimeError(
-                            "frontier exploration ended before mapping-path threshold "
-                            f"({evidence.mapping_path_m:.2f}m < "
-                            f"{self._min_mapping_path_m:.2f}m)"
-                        )
-                completion_reason = exploration_completion_reason(
-                    status=evidence.explore_status,
-                    completion_status=self._exploration_completion_status,
-                    elapsed_s=elapsed,
-                    min_runtime_s=self._exploration_min_runtime_s,
-                    known_cells=stats.get("known_cells", 0),
-                    occupied_cells=stats.get("occupied_cells", 0),
-                    min_known_cells=self._min_known_map_cells,
-                    min_occupied_cells=self._min_occupied_map_cells,
-                    mapping_path_m=evidence.mapping_path_m,
-                    min_mapping_path_m=self._min_mapping_path_m,
-                    seconds_since_map_growth=(
-                        time.monotonic() - evidence.last_map_growth_at
-                    ),
-                    stable_map_s=self._exploration_stable_map_s,
-                )
-                if completion_reason is not None:
-                    # 真实室内图常残留家具背后或墙外的不可达 frontier。覆盖达标且地图
-                    # 长时间不再增长时继续恢复只会空转，因此在可审计阈值处结束任务。
-                    self._mapping_evidence.completion_reason = completion_reason
-                    self.get_logger().info(
-                        f"frontier exploration complete reason={completion_reason}: "
-                        f"known={stats.get('known_cells', 0)} "
-                        f"occupied={stats.get('occupied_cells', 0)} "
-                        f"path={evidence.mapping_path_m:.2f}m"
-                    )
-                    return
-                exited, code = self._manager.explorer_exited_unexpectedly()
-                if exited:
-                    raise RuntimeError(
-                        f"frontier explorer exited unexpectedly code={code}"
-                    )
-                self._mapping_evidence.condition.wait(
-                    timeout=min(0.5, max(0.0, deadline - time.monotonic()))
-                )
-        evidence = self._mapping_evidence.snapshot()
-        stats = evidence.map_stats or {}
-        completion_reason = exploration_completion_reason(
-            status=evidence.explore_status,
-            completion_status=self._exploration_completion_status,
-            elapsed_s=time.monotonic() - started_at,
-            min_runtime_s=self._exploration_min_runtime_s,
-            known_cells=stats.get("known_cells", 0),
-            occupied_cells=stats.get("occupied_cells", 0),
-            min_known_cells=self._min_known_map_cells,
-            min_occupied_cells=self._min_occupied_map_cells,
-            mapping_path_m=evidence.mapping_path_m,
-            min_mapping_path_m=self._min_mapping_path_m,
-            seconds_since_map_growth=(
-                time.monotonic() - evidence.last_map_growth_at
-            ),
-            stable_map_s=self._exploration_stable_map_s,
-            time_budget_reached=True,
-        )
-        if completion_reason is not None:
-            self._mapping_evidence.completion_reason = completion_reason
-            self.get_logger().info(
-                f"frontier exploration complete reason={completion_reason}: "
-                f"known={stats.get('known_cells', 0)} "
-                f"occupied={stats.get('occupied_cells', 0)} "
-                f"path={evidence.mapping_path_m:.2f}m"
-            )
-            return
-        raise TimeoutError(
-            "frontier exploration did not complete before timeout "
-            f"known={stats.get('known_cells', 0)} "
-            f"occupied={stats.get('occupied_cells', 0)} "
-            f"path={evidence.mapping_path_m:.2f}m"
-        )
+        self._frontier_monitor.wait(request)
 
     def _wait_for_new_ready(self, generation: int) -> None:
         if self._dry_run:
