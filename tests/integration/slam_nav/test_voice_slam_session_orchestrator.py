@@ -343,7 +343,7 @@ def path_signature(path: NavPath) -> tuple[tuple[float, float], ...]:
 
 
 def path_relative_motion_positions(
-    path: NavPath, scenario: dict
+    node: SessionProbe, path: NavPath, scenario: dict
 ) -> tuple[list[list[float]], list[list[float]], dict[str, float]]:
     """按本次基准路径生成障碍运动，避免新地图或起点变化让固定坐标失效。"""
 
@@ -352,8 +352,62 @@ def path_relative_motion_positions(
     if len(poses) < 5:
         raise RuntimeError("baseline path is too short for a dynamic scenario")
     fraction = float(motion["path_fraction"])
-    index = max(2, min(len(poses) - 3, int((len(poses) - 1) * fraction)))
-    span = max(1, min(index, len(poses) - 1 - index, len(poses) // 30))
+    preferred_index = max(
+        2, min(len(poses) - 3, int((len(poses) - 1) * fraction))
+    )
+    minimum_clearance = float(
+        motion.get("minimum_anchor_lateral_clearance_m", 0.9)
+    )
+    maximum_clearance = float(
+        motion.get("anchor_search_max_clearance_m", 1.5)
+    )
+    lethal_cost = int(motion.get("anchor_lethal_cost", 253))
+
+    # 动态障碍必须放在存在侧向绕行空间的位置；狭窄门洞被完全封死时，
+    # 规划失败是物理上无解，并不能证明 Nav2 的动态重规划能力。
+    best: tuple[float, int, float, float] | None = None
+    stride = max(1, len(poses) // 80)
+    for candidate in range(2, len(poses) - 2, stride):
+        span = max(
+            1,
+            min(candidate, len(poses) - 1 - candidate, len(poses) // 30),
+        )
+        before = poses[candidate - span].pose.position
+        after = poses[candidate + span].pose.position
+        norm = math.hypot(after.x - before.x, after.y - before.y)
+        if norm < 1e-6:
+            continue
+        normal_x = -(after.y - before.y) / norm
+        normal_y = (after.x - before.x) / norm
+        anchor = poses[candidate].pose.position
+        side_clearances = []
+        for side in (-1.0, 1.0):
+            clearance = 0.0
+            offset = 0.3
+            while offset <= maximum_clearance + 1e-6:
+                cost = node.cost_at(
+                    anchor.x + side * normal_x * offset,
+                    anchor.y + side * normal_y * offset,
+                )
+                if cost < 0 or cost >= lethal_cost:
+                    break
+                clearance = offset
+                offset += 0.2
+            side_clearances.append(clearance)
+        lateral_clearance = max(side_clearances)
+        score = (lateral_clearance, -abs(candidate - preferred_index))
+        if best is None or score > (best[0], best[1]):
+            best = (lateral_clearance, -abs(candidate - preferred_index), candidate, span)
+
+    if best is None or best[0] < minimum_clearance:
+        available = 0.0 if best is None else best[0]
+        raise RuntimeError(
+            "baseline path has no safe dynamic-replan anchor: "
+            f"lateral_clearance={available:.2f}m required={minimum_clearance:.2f}m"
+        )
+    lateral_clearance, _, index, span = best
+    index = int(index)
+    span = int(span)
     before = poses[index - span].pose.position
     after = poses[index + span].pose.position
     norm = math.hypot(after.x - before.x, after.y - before.y)
@@ -390,6 +444,7 @@ def path_relative_motion_positions(
         "y": float(anchor.y),
         "tangent_x": tangent_x,
         "tangent_y": tangent_y,
+        "lateral_clearance_m": lateral_clearance,
     }
 
 
@@ -455,18 +510,40 @@ def run_showcase_dynamic_navigation(
     """在同一张新地图上验证可视障碍→typed track→costmap→Nav2 重规划。"""
 
     scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
-    goal = scenario["goal"]
+    goals = [scenario["goal"], *scenario.get("fallback_goals", [])]
     thresholds = scenario["thresholds"]
     translation = scenario["map_to_world_translation"]
     world_name = str(scenario["world_name"])
     entity_name = str(scenario["entity_name"])
+    failures: list[str] = []
+    selected = None
+    for candidate_goal in goals:
+        try:
+            candidate_path = request_path(
+                node,
+                float(candidate_goal["x"]),
+                float(candidate_goal["y"]),
+            )
+            motion = path_relative_motion_positions(
+                node, candidate_path, scenario
+            )
+            selected = (candidate_goal, candidate_path, motion)
+            break
+        except RuntimeError as error:
+            failures.append(f'{candidate_goal.get("name", "unnamed")}: {error}')
+            node.get_logger().warning(
+                "dynamic scenario route unsuitable; trying fallback: "
+                + failures[-1]
+            )
+    if selected is None:
+        raise RuntimeError(
+            "no reachable route with dynamic-replan clearance: "
+            + " | ".join(failures)
+        )
+    goal, baseline_path, motion = selected
     goal_x = float(goal["x"])
     goal_y = float(goal["y"])
-
-    baseline_path = request_path(node, goal_x, goal_y)
-    warmup_positions, navigation_positions, motion_anchor = (
-        path_relative_motion_positions(baseline_path, scenario)
-    )
+    warmup_positions, navigation_positions, motion_anchor = motion
     pose_updates = 0
 
     def publish_position(position: list[float]) -> None:

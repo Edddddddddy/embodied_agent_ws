@@ -6,10 +6,16 @@
   "frame_id": "map",
   "map_to_world_translation": {"x": -4.15, "y": -3.15},
   "goal": {"name": "meeting_room", "x": 7.15, "y": 0.05},
+  "fallback_goals": [
+    {"name": "entrance", "x": 0.0, "y": 2.95},
+    {"name": "living_room", "x": 1.35, "y": 0.4}
+  ],
   "prediction_horizon_s": 1.0,
   "path_relative_motion": {
     "path_fraction": 0.45,
-    "speed_mps": 0.5
+    "speed_mps": 0.5,
+    "minimum_anchor_lateral_clearance_m": 0.9,
+    "anchor_search_max_clearance_m": 1.5
   },
   "warmup": {
     "sample_count": 4,
