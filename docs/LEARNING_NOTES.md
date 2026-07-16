@@ -197,7 +197,9 @@ bash scripts/acceptance_test.sh gazebo
   `parse_mapping_bootstrap_route()`、`ShowcaseSessionStateMachine.validate()`、`transition()`。
 - `src/embodied_slam_tools/embodied_slam_tools/showcase_session_node.py`：
   `_run_automatic_mission()`、`_wait_for_frontier_completion()`、`_save_map()`、`_start_navigation()`、
-  `_run_agent_text_action()`、`StageProcessManager`。
+  `_run_agent_text_action()`。
+- `src/embodied_slam_tools/embodied_slam_tools/stage_process_manager.py`：
+  `StageProcessManager` 隔离 launch、Explore Lite、map saver 与进程树回收副作用。
 - `src/embodied_simulation/src/nav2_places.cpp`、`nav2_robot_executor.cpp`：
   `Nav2Places::to_pose_stamped()`、`send_navigate_goal()`、`send_follow_goal()`。
 - `src/embodied_simulation/src/nav2_result_policy.cpp`：
