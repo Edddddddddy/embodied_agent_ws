@@ -453,22 +453,27 @@ def _classify_nav2_failure(parsed: dict) -> dict[str, str]:
     missed_waypoints = str(parsed.get("missed_waypoints", "")).strip()
     combined = " ".join([status, action, error_msg, error_code])
 
-    if status == "succeeded":
-        return {"failure_class": "none", "retry_hint": "no retry needed"}
+    # 显式取消表示上层主动终止任务，missed_waypoints 只是取消后的附带结果，
+    # 应保留 canceled 语义，便于区分“用户叫停”和“路线业务失败”。
     if "cancel" in combined:
         return {
             "failure_class": "canceled",
             "retry_hint": "确认是否由语音 stop/cancel_navigation 或人工取消触发。",
         }
-    if "timeout" in combined or "timed" in combined:
-        return {
-            "failure_class": "timeout",
-            "retry_hint": "检查目标点距离、Nav2 超时参数和机器人是否被障碍物卡住。",
-        }
+    # Nav2 WaypointFollower 在 stop_on_failure=false 时允许 Action 以 SUCCEEDED
+    # 结束，同时用 missed_waypoints 报告未抵达目标；漏点判断必须位于成功判断
+    # 之前，避免把“协议执行结束”误写成“业务巡检完成”。
     if missed_waypoints and missed_waypoints not in {"0", "[]", "none"}:
         return {
             "failure_class": "waypoint_missed",
             "retry_hint": "检查 waypoint 顺序、地图目标点和局部避障是否导致某些点被跳过。",
+        }
+    if status == "succeeded":
+        return {"failure_class": "none", "retry_hint": "no retry needed"}
+    if "timeout" in combined or "timed" in combined:
+        return {
+            "failure_class": "timeout",
+            "retry_hint": "检查目标点距离、Nav2 超时参数和机器人是否被障碍物卡住。",
         }
     if "planner" in combined or "planning" in combined or "compute_path" in combined:
         return {

@@ -104,8 +104,28 @@ pytest -q src/embodied_agent_core/test src/embodied_voice_frontend/test src/embo
 
 ```bash
 source scripts/activate.sh
-source install/setup.bash
+embodied_workspace_doctor true   # 自动建图/导航任务需要 Explore Lite 时
 ```
+
+`activate.sh` 已加载 `install/setup.bash`，不要重复 source。公共入口会从自身路径推导并 export
+`WORKSPACE`。同一终端从主仓库切到 worktree 时，旧 `WORKSPACE` 会被安全拒绝：
+
+```bash
+unset WORKSPACE
+cd /path/to/feature-worktree
+source scripts/activate.sh
+```
+
+若看到 `WORKSPACE 与当前入口所属仓库不一致`，不要强行 source 主仓库 install。只有 CI 明确需要
+跨目录覆盖时才同时设置：
+
+```bash
+export WORKSPACE=/absolute/repo
+export EMBODIED_ALLOW_WORKSPACE_OVERRIDE=true
+```
+
+自动任务启动前的 doctor 会检查两个核心 package prefix、`RUN_AUTOMATIC_MISSION` 生成接口和
+`explore_lite` 都属于当前 install；失败输出本身就是修复命令。
 
 ## 4. GitHub CLI 与 git push
 
@@ -179,6 +199,15 @@ bash scripts/acceptance_test.sh continuous-endpoint
 bash scripts/acceptance_test.sh continuous-mock
 bash scripts/acceptance_test.sh continuous-multi-command
 bash scripts/acceptance_test.sh voice-readiness
+```
+
+自动建图导航：
+
+```bash
+bash scripts/acceptance_test.sh slam-nav-showcase-stage
+bash scripts/acceptance_test.sh slam-autonomous-mission-stage
+# 完整功能收口时再跑重型门禁，不为零散编辑频繁触发 CI：
+bash scripts/acceptance_test.sh slam-autonomous-mission
 ```
 
 C++/仿真：

@@ -69,7 +69,8 @@ flowchart LR
 
 完整文件/函数调用关系见
 [语音到仿真代码走读](docs/VOICE_TO_SIMULATION_CODE_WALKTHROUGH.md) 和
-[最终架构图](docs/FINAL_ARCHITECTURE_DIAGRAMS.md)。
+[系统架构、接口与调用关系](docs/ARCHITECTURE_AND_KNOWLEDGE.md)。全部文档从
+[文档中心](docs/README.md) 进入。
 
 ## 环境与构建
 
@@ -77,11 +78,14 @@ flowchart LR
 
 ```bash
 cd /home/ubuntu/embodied_agent_ws
-bash scripts/bootstrap.sh                 # 首次部署
+bash scripts/bootstrap.sh                 # 首次部署：依赖、构建、pinned Explore Lite
 source scripts/activate.sh
-colcon build --symlink-install
-source install/setup.bash
+embodied_workspace_doctor true            # 自动建图主演示部署检查
 ```
+
+公共入口会从脚本自身推导 repo/worktree 并 export `WORKSPACE`，不会再静默加载主工作区的旧
+`install`。同一终端切换 worktree 时先 `unset WORKSPACE`；CI 若有意跨目录覆盖，还需设置
+`EMBODIED_ALLOW_WORKSPACE_OVERRIDE=true`，避免把残留变量误当成配置。
 
 在线模式：
 
@@ -184,17 +188,24 @@ bash scripts/acceptance_test.sh slam-autonomous-mission
 bash scripts/acceptance_test.sh slam-session-orchestrator
 ```
 
-主演示不是固定路线回放：Explore Lite 从在线占据栅格提取 frontier，以信息增益和路径代价选点，
-再通过 Nav2 `NavigateToPose` 自主探索；无可达 frontier 后，编排器自动保存 YAML/PGM、按序关闭
+主演示不是整图固定路线回放：机器人先通过同一 Agent→ActionGuard→Action 链执行一段可审计的
+自动脱离充电角路线，到中央门洞后由 Explore Lite 从在线占据栅格提取 frontier，以信息增益和
+路径代价选点，再通过 Nav2 `NavigateToPose` 自主探索；无可达 frontier 后，编排器自动保存 YAML/PGM、按序关闭
 建图进程、以保存地图启动 AMCL/Nav2，并自动执行“去入口”和“依次去厨房、办公室”。
+若 300 秒时间预算到期但地图仍在增长，只有已知/占用栅格阈值均达标时才以
+`time_budget_coverage` 保存当前地图；覆盖不足仍失败，不会把超时本身当成功。
 `/slam/session_state` 和
 `/slam/manage_session` 分别提供 typed
 状态与可反馈 Action；说“停下/急停/取消自动任务”会终止探索或导航并停车。现场若来不及完整探索，使用
 `bash scripts/voice_slam_nav_showcase.sh navigation-static offline` 加载同源确定性地图；原来的
 `mapping/save/navigation` 命令保留为故障回退。
 自动任务要求已知栅格不少于 6,000、占用栅格不少于 150，并验证入口单点导航、厨房/办公室
-多航点巡检和最终 `/cmd_vel=0`；报告写入
+多航点巡检和最终 `/cmd_vel=0`。多航点只有在 Nav2 Action 成功、`error_code=0` 且
+`missed_waypoints=0` 时才通过，避免把部分到达误报为完成。项目通过 launch-time `RewrittenYaml`
+将 WSL/Gazebo 进度检查调整为 0.10 m/30 s，不修改 `/opt/ros`；报告写入
 `logs/showcase/autonomous_runtime/automatic_mission_report.json`。旧路线门禁继续额外验证 10 m 路程。
+最近一次本地重型回归生成 12,348 个已知栅格、799 个占用栅格，入口/厨房/办公室均成功，
+多航点 `missed_waypoints=0`；数值会随仿真时序略有变化，应以报告门槛而非固定数值判定。
 场景由一份 YAML 同时生成 Gazebo world、静态占据栅格和两套坐标对齐的语义地点，详细步骤与
 验收边界见 [真实感语音 SLAM/Nav2 演示](docs/VOICE_SLAM_NAV_SHOWCASE.md)。
 
@@ -480,17 +491,17 @@ CONTINUOUS_SAMPLE_LOG=logs/asr_nlu_samples.jsonl \
 
 ## 文档入口
 
+- [文档中心与推荐阅读路径](docs/README.md)
 - [15 分钟汇报与代码走读](docs/PROJECT_PRESENTATION_15MIN.md)
 - [运行时证据状态](docs/RUNTIME_EVIDENCE_STATUS.md)
 - [语音到仿真完整调用链](docs/VOICE_TO_SIMULATION_CODE_WALKTHROUGH.md)
-- [最终架构图与时序图](docs/FINAL_ARCHITECTURE_DIAGRAMS.md)
+- [架构图与时序图（可视化附录）](docs/FINAL_ARCHITECTURE_DIAGRAMS.md)
 - [架构与知识点](docs/ARCHITECTURE_AND_KNOWLEDGE.md)
 - [SLAM、GTSAM、定位导航](docs/SLAM_NAVIGATION_ENGINEERING.md)
 - [真实感语音 SLAM/Nav2 演示](docs/VOICE_SLAM_NAV_SHOWCASE.md)
 - [真实数据 SLAM 评估](docs/REAL_WORLD_SLAM_EVALUATION.md)
 - [学习笔记](docs/LEARNING_NOTES.md)
 - [测试与验收手册](docs/TESTING_AND_ACCEPTANCE.md)
-- [项目不足与优化路线](docs/PROJECT_GAPS_AND_OPTIMIZATION.md)
 - [版本记录与路线图](docs/CHANGELOG_AND_ROADMAP.md)
 - [ROS 2 / C++ 简历稿](docs/interview/04-ros2-cpp-resume.md)
 - [Codex WSL + PowerShell 开发 Skill](docs/CODEX_WSL_POWERSHELL_SKILL.md)

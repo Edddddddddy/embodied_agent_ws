@@ -1,5 +1,8 @@
 # 项目代码知识图谱使用说明
 
+> 定位：本地开发辅助工具说明。图索引可能过期，源码、typed interface、
+> [架构文档](ARCHITECTURE_AND_KNOWLEDGE.md) 和自动测试始终具有更高权威性。
+
 本项目使用 `codebase-memory-mcp` 为 ROS2/C++/Python 混合代码建立本地知识图谱，目标是在后续开发中减少反复 `rg/read` 全仓搜索带来的 token 消耗，并更快定位“某个功能在哪些文件、哪些函数互相调用、改动会影响哪些模块”。
 
 ## 当前安装状态

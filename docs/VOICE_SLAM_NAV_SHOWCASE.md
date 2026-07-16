@@ -35,8 +35,8 @@
 - `worlds/showcase_apartment.sdf.xacro`：Gazebo 视觉与碰撞几何；
 - `maps/showcase_apartment.yaml/.pgm`：现场保底用静态地图；
 - `maps/showcase_apartment_slam_frame.yaml`：自动门禁用的完整 SLAM 坐标系地图；
-- `config/showcase_places.yaml`：静态地图/Gazebo 世界坐标下的语义地点；
-- `config/showcase_mapping_places.yaml`：以建图起点为原点的语义地点。
+- `src/embodied_simulation/config/showcase_places.yaml`：静态地图/Gazebo 世界坐标下的语义地点；
+- `src/embodied_simulation/config/showcase_mapping_places.yaml`：以建图起点为原点的语义地点。
 
 这样避免了“修改墙体后忘记改地图”和“地图正确但目标点落在家具里”两类演示故障。仓库测试还会
 按 TurtleBot3 膨胀半径验证所有地点处于同一可达自由空间。
@@ -68,13 +68,32 @@ STARTING_MAPPING → MAPPING → AUTOMATIC_MAPPING → SAVING_MAP → MAP_SAVED
 - `/slam/session_state`：`SlamSessionState`，transient-local 的当前阶段快照；
 - `/slam/manage_session`：`ManageSlamSession` Action，支持自动任务、保存、启动导航、保存并启动、停止。
 
-自动探索由固定提交的 `m-explore-ros2/Explore Lite` 提取未知—已知边界，并将目标发送给 Nav2；
+自动任务先按 `automatic_exploration.bootstrap_route` 自动脱离充电角；`parse_mapping_bootstrap_route()`
+只允许 move/turn，`_run_agent_text_action()` 让每一步继续经过 Agent、ActionGuard 和 ROS 2 Action。
+到中央门洞后，固定提交的 `m-explore-ros2/Explore Lite` 提取未知—已知边界并将目标发送给 Nav2；
 它不直接发布 `/cmd_vel`。探索结束后的语义导航仍通过 Agent 生成 typed `RobotCommand`，经过 C++
 ActionGuard、ROS 2 Action 和 `Nav2RobotExecutor`，没有绕过项目控制面。地图保存和进程切换放在
 独立 worker 中，ROS Action/订阅回调不会被 `map_saver_cli` 阻塞。停止阶段
 先通知父脚本，让其 trap 有序关闭 launch/monitor；超时后才升级进程组信号。保存失败会回到
-`MAPPING` 供用户重试，阶段切换失败才进入 `FAILED`。SLAM/导航动作仍走原有
-`RobotCommand → ActionGuard → ExecuteRobotCommand`，系统意图没有绕过安全控制面。
+`MAPPING` 供用户重试，阶段切换失败才进入 `FAILED`。需要准确区分：高层“开始自动任务”由编排器
+校验；bootstrap move/turn 经过 ActionGuard，而后续 frontier goal 由 Explore Lite 直接交给
+Nav2。frontier 本身不经过机器人动作 ActionGuard，但受
+状态机、任务超时、Nav2 costmap/planner/controller 和取消逻辑约束。存图后的语义导航才重新进入
+`RobotCommand → ActionGuard → ExecuteRobotCommand` 主链。
+
+自动任务的前后调用关系为：
+
+```text
+SessionOrchestratorNode._on_asr_final()
+→ parse_session_command()
+→ _enqueue() → _worker_loop() → _execute_request()
+→ _run_automatic_mission()
+→ parse_mapping_bootstrap_route() → _run_agent_text_action(move/turn)
+→ StageProcessManager.start("mapping") / start_explorer()
+→ _wait_for_frontier_completion()
+→ _save_map() → _start_navigation()
+→ _run_agent_text_action()
+```
 
 各阶段启动都等待 `/system/readiness` 的新一代 ready 消息。Gazebo、Agent、AMCL/Nav2 并行冷启动
 会跨越数秒，组件健康又是 transient-local 状态事件而不是高频心跳，因此语音 Nav2 launch 使用
@@ -84,9 +103,10 @@ ActionGuard、ROS 2 Action 和 `Nav2RobotExecutor`，没有绕过项目控制面
 
 ```bash
 cd ~/embodied_agent_ws
+# 新 clone 先执行：bash scripts/bootstrap.sh
 source scripts/activate.sh
+embodied_workspace_doctor true
 python3 scripts/generate_showcase_scene.py --check
-bash scripts/setup_frontier_exploration.sh
 bash scripts/acceptance_test.sh slam-nav-showcase-stage
 bash scripts/acceptance_test.sh slam-autonomous-mission-stage
 bash scripts/acceptance_test.sh wsl-microphone-preflight
@@ -156,7 +176,8 @@ bash scripts/acceptance_test.sh slam-nav-showcase
 占用栅格、入口导航和厨房/办公室巡检成功，并验证最终停车。报告路径是
 `logs/showcase/autonomous_runtime/automatic_mission_report.json`。旧固定路线回归报告仍保留 15 步和
 10 m 路径阈值。自动门禁用文本 topic 代替真人发声以保持回归可重复；
-`auto offline` 人工验收才是麦克风证据。两者复用相同 Agent、typed Action、ActionGuard 和 executor。
+`auto offline` 人工验收才是麦克风证据。两者复用相同编排器、Explore Lite、Nav2 和阶段安全检查；
+只有存图后的语义导航复用 `RobotCommand → ActionGuard → ExecuteRobotCommand` 控制链。
 
 Agent 对 `move/turn` 保持 12 秒快速故障超时，对 `navigate_to/follow_waypoints` 单独使用 330 秒长任务
 超时；底层 Nav2 executor 仍有自己的 300 秒 Action 超时。这样 Nav2 可进行规划与恢复，又不会让

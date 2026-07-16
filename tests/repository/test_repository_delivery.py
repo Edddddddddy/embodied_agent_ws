@@ -135,6 +135,30 @@ def test_real_asr_sample_eval_loop_entrypoints_remain_available():
     assert (ROOT / "scripts" / "evaluate_asr_nlu_eval_candidates.py").is_file()
     assert (ROOT / "training" / "robot_instruction_eval.jsonl").is_file()
 
+
+def test_nav2_showcase_relaxes_progress_check_without_editing_system_params():
+    """WSL/Gazebo 低实时率下，项目覆盖应避免默认 0.5m/10s 的进度假失败。"""
+
+    launch = (
+        ROOT
+        / "src"
+        / "embodied_simulation"
+        / "launch"
+        / "voice_nav2_turtlebot3.launch.py"
+    ).read_text(encoding="utf-8")
+    package_xml = (
+        ROOT / "src" / "embodied_simulation" / "package.xml"
+    ).read_text(encoding="utf-8")
+
+    assert "RewrittenYaml" in launch
+    assert '"required_movement_radius": nav2_progress_radius' in launch
+    assert '"movement_time_allowance": nav2_progress_timeout' in launch
+    assert '"stop_on_failure": "true"' in launch
+    assert 'DeclareLaunchArgument("nav2_progress_radius", default_value="0.10")' in launch
+    assert 'DeclareLaunchArgument("nav2_progress_timeout", default_value="30.0")' in launch
+    assert "<exec_depend>nav2_common</exec_depend>" in package_xml
+    assert "<exec_depend>nav2_bringup</exec_depend>" in package_xml
+
 def test_sherpa_asr_deployment_entrypoints_remain_available():
     """离线 ASR 真实部署必须有轻量入口，不能只依赖完整离线大脚本。
 

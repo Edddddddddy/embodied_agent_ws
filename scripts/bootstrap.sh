@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-WORKSPACE="${WORKSPACE:-/home/ubuntu/embodied_agent_ws}"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+source "$SCRIPT_DIR/lifecycle_utils.sh"
+embodied_resolve_workspace "${BASH_SOURCE[0]}"
 
 sudo apt-get update
 sudo apt-get install -y \
@@ -26,5 +28,11 @@ source /opt/ros/jazzy/setup.bash
 set -u
 cd "$WORKSPACE"
 colcon build --symlink-install
+
+# 自动建图是当前主演示，不再让用户完成基础构建后才在运行期发现 explorer 缺失。
+# 可在仅开发语音模块时显式设为 false，缩短无网络环境的 bootstrap。
+if [[ "${EMBODIED_INSTALL_FRONTIER:-true}" == "true" ]]; then
+  WORKSPACE="$WORKSPACE" bash "$WORKSPACE/scripts/setup_frontier_exploration.sh"
+fi
 
 echo "Bootstrap complete. Run: source $WORKSPACE/scripts/activate.sh"

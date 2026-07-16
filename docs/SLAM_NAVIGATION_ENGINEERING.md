@@ -34,7 +34,7 @@ Gazebo LaserScan + 参考里程计
 | 受控里程计漂移 | `src/embodied_slam/src/drift_model.cpp`：`DriftModel::update/reset` | 尺度误差、每米航向偏置和高斯噪声均可配置；固定 seed 让两个后端收到可重复输入 |
 | 漂移 TF/传感器隔离 | `odom_drift_injector_node.cpp`：`on_odometry/on_scan` | 创建 `slam_odom -> slam_base_link -> slam_laser` 独立 TF 树，不污染 Gazebo 参考 `/odom` |
 | 固定闭环路线 | `closed_loop_controller.cpp`、`closed_loop_driver_node.cpp`：`update/step` | 同一四边形路线用于 Ceres/GTSAM A/B；雷达近障停车仍保留 |
-| Ceres 基线 | `config/slam_mapping_ceres.yaml` | 使用 slam_toolbox 官方默认支持的 Ceres + Huber，作为稳定参照 |
+| Ceres 基线 | `src/embodied_slam/config/slam_mapping_ceres.yaml` | 使用 slam_toolbox 官方默认支持的 Ceres + Huber，作为稳定参照 |
 | GTSAM 深模块 | `gtsam_pose_graph.cpp`：`GtsamPoseGraphOptimizer::optimize` | 用纯 Pose2/constraint 接口隔离 GTSAM，支持 none/Huber/Cauchy、硬门控和逐回环 switch |
 | ScanSolver Adapter | `gtsam_scan_solver.cpp`：`AddNode/AddConstraint/Compute` | 将 karto 节点、相对位姿和协方差适配为 GTSAM Prior/Between factors，通过 pluginlib 注入 slam_toolbox |
 | 固定图后端消融 | `gtsam_graph_optimize.cpp`、`run_gtsam_robust_kernel_ablation.py` | 累计去重的前端图只生成一次，四种后端复用相同 SHA256 输入，隔离异步前端波动 |
@@ -51,7 +51,7 @@ Gazebo LaserScan + 参考里程计
 | 证据固化 | `build_openloris_experiment_manifest.py`：`build_manifest` | 将数据/配置/commit/日志/指标哈希绑定，防止脱离上下文引用数字 |
 | 地图复用 | `localization_navigation.launch.py` | 关闭 SLAM，加载保存的 YAML/PGM，启动官方 Nav2/AMCL 生命周期栈 |
 | 定位规划验收 | `test_slam_localization_navigation.py` | 明确等待 `map->odom` 和 BT Navigator ACTIVE，再检查 plan、Action result、odom 与零速 |
-| 动态目标跟踪 | `dynamic_obstacle_tracker.cpp`：`DynamicObstacleTracker::update` | 对标准 `PoseArray` 检测做最近邻关联、常速度估计、指数平滑、置信度累积和超时淘汰 |
+| 动态目标跟踪 | `dynamic_obstacle_tracker.cpp`：`DynamicObstacleTracker::update` | 对标准 `PoseArray` 检测做全局门控关联，并在 CurrentOnly、常速度、Kalman、IMM 四种模型间消融，统一处理置信度和超时淘汰 |
 | 运动预测深模块 | `constant_velocity_predictor.cpp`：`predict_constant_velocity` | 与 ROS 解耦的纯函数；按时间步生成未来占用圆，并随预测时域膨胀不确定性半径 |
 | Nav2 预测层 | `predicted_obstacle_layer.cpp`：`on_obstacles/updateBounds/updateCosts` | pluginlib Layer 将未来轨迹写入全局 costmap；旧 bounds 参与清除，空观测仍保持 costmap current |
 | 动态避障验收 | `test_predicted_dynamic_obstacle_navigation.py` | 测量 track 速度、未来 cell cost、重规划前后路径净空、Nav2 result、里程和零速 |
@@ -150,11 +150,12 @@ PoseArray detections
   -> NavFn/BT Navigator 重规划 -> controller
 ```
 
-这里只采用可解释的常速度模型，不把它包装成复杂学习算法。优势是 CPU 开销小、参数可解释、
-可独立单测；缺点是急转、急停和多人交叉时预测误差大。相比只把当前检测点写入 obstacle layer，
-预测层能在行人尚未走到机器人直线路径前提前让路。相比 TEB/MPPI 内部的时空轨迹优化，当前
-实现作用在全局二维代价地图，接入简单但时间维被压平；后续可以把 track 送入支持时空障碍
-的局部控制器，但当前先通过统一跟踪器 seam 完成四种运动模型消融。
+跟踪器提供 CurrentOnly、常速度、Kalman 和 IMM 四种可解释模型，并通过固定输入做消融。
+代价层当前仍按发布的位置与速度做常速度外推：优势是 CPU 开销小、参数清楚、可独立单测；
+缺点是急转、急停和多人交叉时预测误差较大。相比只把当前检测点写入 obstacle layer，预测层
+能在行人尚未走到机器人直线路径前提前让路。相比 TEB/MPPI 内部的时空轨迹优化，当前实现
+作用在全局二维代价地图，接入简单但时间维被压平；后续可发布协方差或多模态轨迹并接入支持
+时空障碍的局部控制器。
 
 ### 4.1 current-only / CV / Kalman / IMM 消融
 
@@ -250,7 +251,77 @@ bash scripts/acceptance_test.sh openloris-slam-ab
 完整方法和 OpenLORIS 数据边界见
 [REAL_WORLD_SLAM_EVALUATION.md](REAL_WORLD_SLAM_EVALUATION.md)。
 
-## 8. 事实边界和下一步
+## 8. 自动 frontier 建图到定位导航
+
+自动建图不是“启动 SLAM 后按固定路线走一圈”。当前实现只在充电角执行一段固定、可审计且受
+ActionGuard 保护的脱角原语；进入开阔区后，未知区域由 frontier 自主选点。地图估计、探索决策、
+运动规划和阶段切换被分成所有权明确的模块：
+
+```text
+/scan + odom + tf
+→ SLAM Toolbox 更新 /map
+→ parse_mapping_bootstrap_route() 解析安全脱角原语
+→ _run_agent_text_action() 经 Agent/ActionGuard/ROS 2 Action 执行
+→ Explore Lite 检测 unknown/free 边界并选择 frontier
+→ Nav2 NavigateToPose 规划、控制、避障
+→ 无可达 frontier / 地图 plateau
+→ map_saver 生成 YAML/PGM
+→ 关闭 SLAM，启动 map_server + AMCL
+→ map→odom ready
+→ Nav2RobotExecutor 执行语义地点和巡检
+```
+
+关键代码前后关系：
+
+| 功能 | 文件与函数 | 上游 | 下游 |
+| --- | --- | --- | --- |
+| 高层意图 | `showcase_session_node.py:SessionOrchestratorNode._on_asr_final()` | `/agent/asr_final` | `parse_session_command()`、`_enqueue()` |
+| 状态编排 | 同文件 `_worker_loop()`、`_start_mapping()`、`_execute_request()`、`_run_automatic_mission()` | command queue | mapping/bootstrap/explorer/save/navigation 阶段 |
+| 初始脱角 | `showcase_session.py:parse_mapping_bootstrap_route()`、编排器 `_run_agent_text_action()` | mission YAML 的 7 段 move/turn | ActionGuard → ROS 2 Action；完成后才启动 explorer |
+| 进程生命周期 | `StageProcessManager.start()`、`start_explorer()`、`save_map()` | orchestrator | launch、Explore Lite、map_saver |
+| 探索结束判定 | `_wait_for_frontier_completion()` | `/map`、explorer 进程和超时 | `_save_map()` |
+| 定位切换 | `_start_navigation()` | 保存地图 | map_server、AMCL、Nav2 readiness |
+| 语义巡检 | `_run_agent_text_action()` | mission plan 文本 | Agent→Guard→Action→Nav2 executor |
+
+### 8.1 frontier 的核心原理
+
+在占据栅格中，frontier 是“已知自由栅格与未知栅格的边界”。Explore Lite 聚类边界点，对候选区域
+计算可达性、潜在信息收益和路径代价，并把目标作为 Nav2 Action 发送。地图增长后旧 frontier 会消失，
+新 frontier 会出现，因此它是闭环重规划，不是预先写死 waypoints。项目固定第三方 commit，并由
+`scripts/setup_frontier_exploration.sh` 构建，避免演示时依赖漂移。
+
+探索 goal 不经过机器人动作 ActionGuard：它由 Explore Lite 直接交给 Nav2，受 costmap、planner、
+controller、recovery、任务超时和取消约束。存图后的“去入口/巡检厨房办公室”重新进入
+`RobotCommand → ActionGuard → ExecuteRobotCommand → Nav2RobotExecutor`。两条安全链不同，不能在
+汇报中混为一谈。
+
+### 8.2 与其他方案的区别
+
+| 方案 | 负责什么 | 与当前方案的区别 |
+| --- | --- | --- |
+| 固定路线/teleop | 给底盘轨迹 | 可复现但不根据未知区域决策，只适合控制回归 |
+| Explore Lite + SLAM Toolbox | 2D frontier 决策 + 2D 激光图优化 | 当前默认，部署轻、可解释、适合 TurtleBot3 |
+| Cartographer | 子图、scan matching、pose graph | 能替换 SLAM 后端，但本身不等于自动探索任务 |
+| ORB-SLAM3 | 视觉/视觉惯性位姿与地图 | 适合相机场景，仍需探索、占据地图和 Nav2 接口层 |
+| Nav2 | 目标到路径/速度 | 不负责发现未知区域，也不负责保存/切换地图 |
+
+因此“跑起 Cartographer/ORB-SLAM3”不能直接宣称完成自动建图导航；至少还要证明探索目标生成、地图
+增长、地图保存、定位切换、规划结果、障碍层和最终停车。
+
+### 8.3 完成判定与安全停止
+
+无可达 frontier 是主要完成信号，地图已知栅格 plateau、最小已知/占用栅格和总超时用于防止第三方
+节点异常时无限等待。取消事件会停止 explorer/Nav2 goal，进程管理器先温和终止进程组，超时才升级
+信号。每次自动门禁还必须验证最终 `/cmd_vel=0`，避免“报告成功但机器人仍在运动”。
+
+对应门禁：
+
+```bash
+bash scripts/acceptance_test.sh slam-autonomous-mission-stage  # 状态机和取消
+bash scripts/acceptance_test.sh slam-autonomous-mission        # 真 Gazebo/frontier/SLAM/Nav2
+```
+
+## 9. 事实边界和下一步
 
 - 已完成：仿真受控漂移、闭环建图、Ceres/GTSAM 后端、地图保存、AMCL、目标规划和预测动态避障。
 - 未完成：真实传感器标定误差、轮滑与跨设备/跨序列泛化；长走廊和动态遮挡已有单序列分段证据，

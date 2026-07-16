@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
-WORKSPACE="${WORKSPACE:-/home/ubuntu/embodied_agent_ws}"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+# 统一由脚本位置推导仓库根目录，避免 feature worktree 静默加载主工作区 install。
+source "$SCRIPT_DIR/lifecycle_utils.sh"
+embodied_resolve_workspace "${BASH_SOURCE[0]}"
 LEVEL="${1:-mock}"
 
 usage() {
@@ -470,6 +473,7 @@ case "$LEVEL" in
     colcon test-result --test-result-base build/embodied_slam --verbose
     ;;
   slam-nav-showcase-stage)
+    embodied_workspace_doctor true
     python3 scripts/generate_showcase_scene.py --check
     python3 -m pytest -q tests/repository/test_showcase_scene.py
     PYTHONPATH="$WORKSPACE/src/embodied_agent_core${PYTHONPATH:+:$PYTHONPATH}" \
@@ -494,6 +498,7 @@ case "$LEVEL" in
     WORKSPACE="$WORKSPACE" bash scripts/smoke_test_voice_slam_automatic_cancel.sh
     ;;
   slam-autonomous-mission)
+    embodied_workspace_doctor true
     WORKSPACE="$WORKSPACE" bash scripts/smoke_test_voice_slam_automatic_mission_gazebo.sh
     ;;
   slam-session-orchestrator)

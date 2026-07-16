@@ -17,8 +17,8 @@ OpenLORIS ROS 1 bag (/odom + /scan + /tf_static)
 
 | 文件 | 职责 |
 | --- | --- |
-| `src/embodied_slam_tools/.../replay_node.py` | ROS 1/2 bag → ROS 2 clock/TF/LaserScan/Odometry |
-| `src/embodied_slam_tools/.../trajectory_recorder.py` | 组合 `map→odom→base` 并输出 TUM |
+| `src/embodied_slam_tools/embodied_slam_tools/replay_node.py` | ROS 1/2 bag → ROS 2 clock/TF/LaserScan/Odometry |
+| `src/embodied_slam_tools/embodied_slam_tools/trajectory_recorder.py` | 组合 `map→odom→base` 并输出 TUM |
 | `src/embodied_slam/launch/openloris_mapping.launch.py` | recorder、slam_toolbox、replay 生命周期编排 |
 | `scripts/setup_openloris_groundtruth.py` | 下载、SHA256 校验、按序列安全解压真值 |
 | `scripts/setup_openloris_rosbag.py` | 断点续传、固定对象校验、只提取指定 bag、记录来源 |

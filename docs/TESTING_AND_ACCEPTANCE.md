@@ -1,165 +1,349 @@
 # 测试与验收手册
 
-本文只回答三个问题：改完代码该跑什么、现场演示怎样判定通过、失败先看哪一层。全部入口以
-公共入口以 `bash scripts/acceptance_test.sh --help` 为准；全部高级和兼容模式以
-`bash scripts/acceptance_test.sh --help-all` 为准。README 只保留最常用命令。
+本文是项目唯一的验收契约。它说明每条命令的前置条件、实际覆盖的函数/接口、PASS 条件、证据和
+失败定位；算法原理分别放在学习笔记和 SLAM 专题文档中。
 
-## 1. 证据分层
+## 1. 先区分五种证据
 
-| 层级 | 证明内容 | 不能证明 |
+| 层级 | 证明什么 | 不能证明什么 |
 | --- | --- | --- |
-| repository/unit | 纯算法、接口、文件和参数契约 | ROS graph、真实设备 |
-| mock ROS | topic/action/lifecycle/队列时序 | 麦克风、模型精度、物理仿真 |
-| local runtime | 在线 API、离线模型、声学 Provider | Gazebo 运动 |
-| Gazebo/Nav2 | TF、雷达、里程计、规划控制、停车 | 实体机器人 |
-| live microphone | 当前声卡/噪声下连续控制体验 | 多场景统计泛化 |
-| public rosbag | 指定序列上的真实轨迹误差 | 未测试环境的性能 |
+| 单元/仓库契约 | 函数、schema、路径和文档契约正确 | ROS 节点真的连通 |
+| stage/mock | 状态机、队列、Action 接线可重复 | 当前麦克风、模型、Gazebo 可用 |
+| Gazebo 重型 | ROS、物理仿真、SLAM/Nav2 形成闭环 | 实体硬件可靠 |
+| 真人语音 | 当前声卡、VAD/ASR、Agent 和控制闭环 | 长期统计准确率 |
+| 公开 bag/实体设备 | 数据适配或真实硬件证据 | 未跑过的环境和传感器 |
 
-所有报告写入 `logs/`，不提交大型模型、bag、地图临时产物或用户音频。
+报告里出现 `passed: true` 只对报告声明的 `evidence_kind` 有效。禁止用 mock 通过冒充真人语音，
+也禁止用 Gazebo 通过冒充 UART/SPI 实机。
 
-## 2. 提交前推荐顺序
+## 2. 环境准备
 
-### 2.1 日常门禁
+首次部署：
 
 ```bash
+cd /home/ubuntu/embodied_agent_ws
+bash scripts/bootstrap.sh
 source scripts/activate.sh
-bash scripts/acceptance_test.sh architecture-facts
-bash scripts/acceptance_test.sh core
-bash tests/integration/test_acceptance_cli.sh
 ```
 
-`architecture-facts` 校验 `docs/evidence/architecture_facts.{json,md}` 是否仍与当前 package、CI 矩阵、
-CLI 路由、release-gate 和 Agent 节点源码一致。需要刷新时运行
-`python3 scripts/generate_architecture_facts.py`，不要手工修改生成报告。
-
-语音/队列修改追加：
+`bootstrap.sh` 默认完成系统/Python 依赖、colcon 构建和固定版本 Explore Lite 安装。日常新终端只需：
 
 ```bash
-bash scripts/acceptance_test.sh continuous-endpoint
-bash scripts/acceptance_test.sh continuous-multi-command
-bash scripts/acceptance_test.sh continuous-queue-full
-bash scripts/acceptance_test.sh voice-readiness
+cd /home/ubuntu/embodied_agent_ws
+unset WORKSPACE                    # 可选：验证自动 worktree 推导
+source scripts/activate.sh
+bash scripts/acceptance_test.sh --help
 ```
 
-ROS 2/C++ 控制修改追加：
+公共入口通过 `scripts/lifecycle_utils.sh:embodied_resolve_workspace()` 从自身位置推导仓库根目录并
+export `WORKSPACE`。同一终端切换 worktree 时先 `unset WORKSPACE`；有意跨目录覆盖需要同时设置
+`EMBODIED_ALLOW_WORKSPACE_OVERRIDE=true`，避免把残留变量误当成配置。
+
+完整主演示部署检查：
+
+```bash
+embodied_workspace_doctor true
+```
+
+它必须确认：
+
+- 当前 `install/setup.bash` 存在；
+- `embodied_agent_interfaces` 与 `embodied_slam_tools` prefix 位于当前工作区；
+- `ManageSlamSession.Goal.RUN_AUTOMATIC_MISSION` 已生成；
+- `explore_lite` 位于当前工作区 install。
+
+若失败，按输出的“修复”命令执行，不要靠重复 source 猜测。
+
+## 3. 推荐门禁顺序
+
+### 3.1 每次改代码：快速门禁
+
+```bash
+bash scripts/acceptance_test.sh core
+bash scripts/acceptance_test.sh continuous-multi-command
+bash scripts/acceptance_test.sh slam-autonomous-mission-stage
+```
+
+### 3.2 合并前：机器人阶段门禁
+
+```bash
+bash scripts/acceptance_test.sh robotics-gate
+bash scripts/acceptance_test.sh nav2-stage
+bash scripts/acceptance_test.sh slam-nav-showcase-stage
+bash scripts/acceptance_test.sh slam-evaluation-stage
+bash scripts/acceptance_test.sh dynamic-obstacle-stage
+```
+
+### 3.3 演示前：本机真实门禁
+
+```bash
+bash scripts/acceptance_test.sh wsl-microphone-preflight
+bash scripts/acceptance_test.sh continuous-offline
+bash scripts/acceptance_test.sh gazebo
+HEADLESS=false USE_RVIZ=true \
+  bash scripts/acceptance_test.sh voice-slam-workplace-demo offline
+```
+
+在线演示再补：
+
+```bash
+bash scripts/acceptance_test.sh continuous-online
+```
+
+## 4. 自动测试矩阵
+
+| 命令 | 被测关键代码/接口 | PASS 条件 | 主要证据 |
+| --- | --- | --- | --- |
+| `core` | repository tests、Agent pytest、C++ gtest | 全部测试为零失败 | pytest/colcon 输出 |
+| `continuous-multi-command` | `CommandNLU.parse()`→`AgentControlPlane.enqueue_command()`→queue | 一句多动作按 command_id 顺序完成 | queue/execution events |
+| `slam-autonomous-mission-stage` | `_run_automatic_mission()` dry-run Adapter | 状态到 COMPLETED，cancel 回到 MAPPING，零速 | `automatic_mission_dry_run.json` |
+| `nav2-stage` | `Nav2Places`、Nav2 bridge、队列 | navigate/patrol/cancel 顺序正确 | Action/result probe |
+| `slam-nav-showcase-stage` | 场景 generator、语义地点、launch contract | world/map/places 同源且哈希/坐标合法 | audit 输出 |
+| `slam-evaluation-stage` | ATE/RPE/回环评估器 | fixture 指标和阈值满足契约 | JSON/Markdown report |
+| `dynamic-obstacle-stage` | association、CV/Kalman/IMM、costmap seam | 固定输入消融满足阈值 | ablation reports |
+| `gazebo` | typed Action→BT→Gazebo executor | `/cmd_vel` 与 odom 变化，最终零速 | integration probe |
+| `embodied_workspace_doctor true` | resolver、ROS package prefix、Action contract | 所有部署检查 PASS | 终端检查表 |
+
+## 5. 语音控制验收
+
+### 5.1 麦克风预检
+
+```bash
+bash scripts/acceptance_test.sh wsl-microphone-preflight
+```
+
+PASS：列出 WSLg Pulse source，3 秒采样 `rms` 明显高于阈值，结果为 PASS。若 peak/rms 几乎为零，
+先修 Windows 麦克风权限和 `PULSE_SERVER`，此时调 ASR 没有意义。
+
+### 5.2 离线连续语音
+
+```bash
+bash scripts/acceptance_test.sh continuous-offline
+```
+
+推荐话术：
+
+```text
+小智
+向右转，然后向前走一秒
+左转九十度
+绕圈
+走正方形
+停下
+退出控制
+```
+
+关键调用：
+
+```text
+AudioFrontendNode endpoint
+→ OfflineAgentNode._on_audio() / _on_speech_ended()
+→ AsrEndpointRuntime.request()
+→ OfflineAgentNode._accept_transcript()
+→ AgentApplicationRuntime.accept_transcript()
+→ AgentControlPlane / CommandNLU / queue
+→ /agent/action_candidate
+```
+
+PASS 条件：
+
+- 至少看到 `[asr]`、`[queue]`、`[exec]`、`[result]`；
+- 一句多命令拆成多个 command_id，按序执行；
+- 动作执行期间的新命令进入队列而不是丢失；
+- `停下/急停` 抢占当前动作并清普通队列；
+- `退出控制` 后 session sleeping；
+- 最终 `/cmd_vel` 线速度、角速度都为 0。
+
+### 5.3 在线连续语音
+
+```bash
+bash scripts/acceptance_test.sh continuous-online
+```
+
+前置：`.env` 中存在有效 API key，网络可达。PASS 条件与离线一致；额外观察 provider retry、首
+token 和 TTS 指标。在线 ASR/LLM 的外部波动不应导致队列乱序或绕过 ActionGuard。
+
+### 5.4 常见语音现象如何定位
+
+| 现象 | 先看 | 调整/修复 |
+| --- | --- | --- |
+| audio rms/peak 为零 | Pulse source、Windows 权限 | 先跑 `wsl-microphone-preflight` |
+| 有 audio、无 ASR final | `/audio/speech_ended`、VAD 状态 | 选 `quiet/normal/noisy_room`，检查 endpoint |
+| “左转90度”只成“左转” | endpoint/commit event | 增大 silence/commit delay；短命令补全应给 feedback |
+| ASR final 有、无动作 | `/agent/nlu_parse`、recognition feedback | 检查否定/缺槽位/低置信度 fallback |
+| 第二条命令丢失 | queue/execution events | 检查 queue full、TTL、重复 final、command_id |
+| 看似卡住 | Action feedback/result、readiness | 区分等待 Action、provider、生命周期未激活 |
+
+### 5.5 成熟 VAD、KWS 与现场校准
+
+默认 `VAD_PROVIDER=auto` 按 Silero→WebRTC→energy 降级。需要复现实例依赖时：
+
+```bash
+bash scripts/setup_voice_vad_runtime.sh webrtc
+bash scripts/acceptance_test.sh webrtc-vad-sidecar
+bash scripts/acceptance_test.sh silero-vad-runtime
+bash scripts/setup_voice_kws_runtime.sh openwakeword
+bash scripts/acceptance_test.sh openwakeword-sidecar
+```
+
+`setup_voice_vad_runtime.sh webrtc` 等价于在项目 venv 安装可选依赖
+`embodied_voice_frontend[webrtc-vad]` 并做运行时检查；优先用封装脚本，避免漏掉 smoke。
+
+Sherpa KWS 可用：
+
+```bash
+bash scripts/setup_voice_kws_runtime.sh sherpa
+source logs/sherpa_kws.env
+bash scripts/acceptance_test.sh sherpa-kws-sidecar
+```
+
+这些 sidecar 是可替换 provider，
+不改变下游 session/queue/Action 接口；缺依赖时必须明确降级，不能把 energy VAD 冒充成熟模型。
+
+现场调参先生成可复制建议：
+
+```bash
+bash scripts/acceptance_test.sh voice-calibration-report
+```
+
+报告中的 `recommended_environment`、`next_command` 和 `logs/voice_calibration.env` 是下一次运行的
+输入；可用 `APPLY_VOICE_CALIBRATION=true` 应用。不要只看一次 peak 就手工猜阈值。
+
+## 6. 自动建图、定位与导航主演示
+
+### 6.1 轻量前置
+
+```bash
+embodied_workspace_doctor true
+bash scripts/acceptance_test.sh slam-nav-showcase-stage
+bash scripts/acceptance_test.sh slam-autonomous-mission-stage
+```
+
+stage 的状态序列至少覆盖 mapping、exploring、saving、localizing、patrolling、completed，并验证
+紧急停止。dry-run 只证明状态机，不证明真实地图质量。
+
+### 6.2 真人一句话主演示
+
+```bash
+HEADLESS=false USE_RVIZ=true \
+  bash scripts/acceptance_test.sh voice-slam-workplace-demo offline
+```
+
+说：
+
+```text
+小智，开始自动巡检建图
+```
+
+核心函数链：
+
+```text
+SessionOrchestratorNode._on_asr_final()
+→ parse_session_command()
+→ _enqueue() → _worker_loop() → _execute_request()
+→ _run_automatic_mission()
+→ StageProcessManager.start("mapping") / start_explorer()
+→ _wait_for_frontier_completion()
+→ _save_map()
+→ _start_navigation()
+→ _run_agent_text_action()
+```
+
+现场必须观察：
+
+1. Gazebo 是 `showcase_apartment` 四区域场景，机器人和激光雷达存在；
+2. 机器人先自动脱离左下角充电位，随后 RViz `/map` 从未知逐渐变为已知，frontier goal 会变化；
+3. `/slam/session_state` 按阶段推进，不是固定路线脚本输出；
+4. 生成非空 YAML/PGM；
+5. SLAM 阶段退出后，map_server/AMCL/Nav2 就绪，`map→odom` 存在；
+6. 入口单点导航与厨房/办公室多航点巡检收到成功 result；
+7. 最终 `/cmd_vel=0`。
+
+任一步失败，任务应停止并给出阶段/原因；不能在 map 未保存时假装进入导航。
+探索结束日志还应给出 `no_frontiers`、`coverage_plateau` 或 `time_budget_coverage`；后者必须
+同时满足地图覆盖阈值，覆盖未达标的普通 timeout 必须 FAIL。
+
+### 6.3 无麦克风重型门禁
+
+```bash
+bash scripts/acceptance_test.sh slam-autonomous-mission
+```
+
+它用确定性文本触发同一真实 Gazebo、frontier、SLAM、map_saver、AMCL 和 Nav2 运行时，隔离云
+服务和声学波动。报告：
+
+```text
+logs/showcase/autonomous_runtime/automatic_mission_report.json
+```
+
+PASS 至少要求 `automatic_mission=true`、`map_saved=true`、final phase COMPLETED、已知/占用栅格
+达到脚本阈值、导航/巡检成功、最终速度为零。多航点结果还必须同时满足
+`ResultCode=SUCCEEDED`、`error_code=0`、`missed_waypoints=0`；Nav2 仅返回协议 `SUCCEEDED`
+但存在漏点时按失败处理，不能把“尝试完全部目标”误报为“到达全部目标”。
+
+### 6.4 失败隔离与保底
+
+- `bash scripts/voice_slam_nav_showcase.sh mapping offline`：只定位建图问题；
+- 另一个终端 `bash scripts/voice_slam_nav_showcase.sh save`：只定位 map_saver；
+- `bash scripts/voice_slam_nav_showcase.sh navigation offline`：加载本次地图定位导航；
+- `bash scripts/voice_slam_nav_showcase.sh navigation-static offline`：加载同源静态地图。
+
+这些入口是故障隔离或现场保底。`navigation-static` 成功不能算自动建图成功，固定 mapping route 也
+不能算 frontier 自主探索成功。
+
+## 7. C++/ROS 2 专项验收
+
+```bash
+colcon test --packages-select \
+  embodied_agent_cpp embodied_simulation embodied_slam embodied_navigation \
+  --event-handlers console_direct+
+colcon test-result --verbose
+```
+
+重点覆盖：
+
+- `ActionValidator::validate()` 白名单、范围和危险组合；
+- `ActionScheduler::enqueue()` FIFO、stop 抢占、失败清队列、结果关联；
+- `CommandBehaviorTree::tick()` 安全阻断、执行、cancel；
+- Gazebo/Nav2 executor 的 cancel 与零速；
+- SLAM backend、回环门控和动态障碍算法 fixture。
+
+单独运行 typed Action 生命周期：
 
 ```bash
 bash scripts/acceptance_test.sh cpp-action-client
 bash scripts/acceptance_test.sh cpp-action-scheduler
 bash scripts/acceptance_test.sh cpp-action-bridge-lifecycle
-colcon test --packages-select embodied_agent_cpp embodied_simulation --event-handlers console_direct+
-colcon test-result --verbose
 ```
 
-### 2.2 发布和演示 gate
-
-```bash
-bash scripts/acceptance_test.sh release-gate
-# logs/acceptance_report.json
-
-bash scripts/acceptance_test.sh demo-gate
-# logs/demo_acceptance_report.json
-
-bash scripts/acceptance_test.sh robotics-gate
-# logs/robotics_acceptance_report.json
-```
-
-聚合报告中的 `evidence_kind` 会区分 CI、mock、C++ ROS、本机真实模型、Gazebo 和公开 bag
-证据。`robotics-gate` 固定覆盖连续多命令、Nav2 stage、SLAM 指标、OpenLORIS fixture 和动态
-障碍 stage，并在第一步校验架构事实；自动 gate 通过后仍要按修改范围运行下面的重型/人工验收。
-
-默认帮助只列出 12 个推荐公共入口；高级、诊断和兼容模式使用：
-
-```bash
-bash scripts/acceptance_test.sh --help-all
-```
-
-## 3. 在线与离线 Agent
-
-### 在线最小 token
-
-```bash
-bash scripts/acceptance_test.sh online
-bash scripts/acceptance_test.sh gazebo-voice-online
-```
-
-仅发送短请求；若失败先检查 `.env` 中 `DASHSCOPE_API_KEY`、网络和账户额度。
-
-### 离线分层
+## 8. 离线运行时验收
 
 ```bash
 bash scripts/acceptance_test.sh sherpa-asr-preflight
 bash scripts/acceptance_test.sh sherpa-asr-smoke
 bash scripts/acceptance_test.sh llama-cpp-preflight
 bash scripts/acceptance_test.sh llama-cpp-smoke
-bash scripts/acceptance_test.sh offline-sherpa-typed
-bash scripts/acceptance_test.sh offline
-```
-
-延迟证据分开测：
-
-```bash
 bash scripts/acceptance_test.sh offline-latency
-bash scripts/acceptance_test.sh offline-voice-e2e-report
-bash scripts/acceptance_test.sh llama-decode-benchmark
-```
-
-`offline-latency` 测 warm LLM 首 token 和短句整句合成；`offline-voice-e2e-report` 测
-speech endpoint 到第一块 PCM。两者不能混用。SummerTTS 命令行 provider 每句重新启动进程，
-不是低延迟默认路径；常驻服务用 `tts_provider:=summer_ros`：
-
-```bash
 bash scripts/acceptance_test.sh summer-tts-service
-bash scripts/acceptance_test.sh summer-tts-cache-audit
-ros2 launch embodied_offline_agent offline_agent.launch.py tts_provider:=summer_ros
 ```
 
-## 4. Gazebo、Nav2、SLAM
-
-### 真实感语音建图与导航主演示
+前后调用关系：clean PCM→Sherpa stream decode→transcript→llama.cpp stream→sentence chunk→TTS
+producer→双缓冲播放 consumer。ASR、LLM、TTS 分项通过不等于真实语音 E2E 通过；完整证据使用：
 
 ```bash
-# 快速静态门禁
-bash scripts/acceptance_test.sh slam-nav-showcase-stage
-
-# 会话编排轻量门禁：typed 状态机和 Action，不启动 Gazebo
-bash scripts/acceptance_test.sh slam-session-orchestrator-stage
-
-# 单进程重型门禁：真实 Gazebo/SLAM/map_saver/AMCL/Nav2，文本代替真人语音
-bash scripts/acceptance_test.sh slam-session-orchestrator
-
-# 原有分阶段重型回归
-bash scripts/acceptance_test.sh slam-nav-showcase-mapping
-bash scripts/acceptance_test.sh slam-nav-showcase
-
-# 真实麦克风单终端主演示
-HEADLESS=false USE_RVIZ=true \
-  bash scripts/acceptance_test.sh voice-slam-workplace-demo offline
+bash scripts/acceptance_test.sh offline-voice-e2e-report
 ```
 
-人工验收按终端打印的 15 步办公巡检话术执行，并且必须看到：mapping 阶段 `/map` 持续更新且
-语音动作真实改变 `/odom`；说“保存地图并开始
-导航”后 `/slam/session_state` 依次进入保存、切换和 `NAVIGATING`；YAML/PGM 非空；AMCL 建立
-`map→odom`；机器人先到入口，再依次到厨房和办公室，Action 成功后 `/cmd_vel` 归零。自动重型
-报告还要求建图路径 ≥10 m、已知栅格 ≥6,000、占用栅格 ≥150，但它的 ASR 输入仍是文本注入，
-不算麦克风证据。
-完整探索不足时只能使用 `navigation-static` 保底，不能把同源静态地图表述成“本次语音建图结果”。见
-[VOICE_SLAM_NAV_SHOWCASE.md](VOICE_SLAM_NAV_SHOWCASE.md)。
+模型体积、tokens/s、首 token、TTS 时延必须以当前生成报告为准，不复制历史宣传数字。
 
-### 动作与导航
+SummerTTS 命令行 provider 用于隔离验证第三方二进制和模型；配置 `tts_provider:=summer_ros` 的
+常驻 C++ service 用于
+避免逐句进程/模型加载并验证缓存命中。两者证明的是 Adapter 与服务化接入，当前低延迟默认链仍以
+Sherpa-TTS 为主，不能把缓存命中耗时写成 SummerTTS 首次真实合成耗时。
 
-```bash
-bash scripts/acceptance_test.sh gazebo
-bash scripts/acceptance_test.sh navigation-demo
-bash scripts/acceptance_test.sh nav2-stage
-bash scripts/acceptance_test.sh nav2-turtlebot3
-bash scripts/acceptance_test.sh nav2-resilience
-```
+## 9. SLAM 与动态障碍专项
 
-判定：Action 成功或给出明确失败码；`/odom` 与目标一致；取消/结束后 `/cmd_vel` 线速度和角速度
-均归零。`nav2-resilience` 还要求障碍注入后路径净空增加，地图外目标返回 aborted。
-
-### 建图到定位规划
+工程闭环：
 
 ```bash
 bash scripts/acceptance_test.sh mapping-stage
@@ -169,104 +353,14 @@ bash scripts/acceptance_test.sh slam-ab-benchmark
 bash scripts/acceptance_test.sh slam-navigation
 ```
 
-判定：固定路线与漂移输入可比；Ceres/GTSAM 都降低 ATE/闭环误差；地图分辨率 0.05 m 且覆盖
-达标；新进程加载地图后 AMCL 发布 `map→odom`，Nav2 到达目标并停车。
-
-### ATE/RPE 与公开数据
+公开数据和算法评估：
 
 ```bash
 bash scripts/acceptance_test.sh slam-evaluation-stage
-bash scripts/acceptance_test.sh openloris-groundtruth
 bash scripts/acceptance_test.sh openloris-replay-stage
-
-# 推荐先用约 1.25 GB 的首序列快速模式完成真实数据闭环。
-OPENLORIS_RANGE_ONLY=true bash scripts/acceptance_test.sh openloris-rosbag-setup
-
-# 短序列失败边界：office1-7 Range 下载约 1.43 GB。
-bash scripts/acceptance_test.sh openloris-loop-evidence
-
-# 本地重型实验：真实 office1-7 的 6 组 accepted-edge 前端阈值消融。
-bash scripts/acceptance_test.sh openloris-loop-sweep
-
-# 真值预筛选（小下载）与 corridor1-1 正式 2D 长回环证据（11.23 GB raw bag）。
-bash scripts/acceptance_test.sh openloris-sequence-ranking
-bash scripts/acceptance_test.sh openloris-long-loop-evidence
-
-# 固定图后端鲁棒性与几何一致性门控；不重新回放 11 GB 原包。
-bash scripts/acceptance_test.sh openloris-robust-kernel-ablation
-bash scripts/acceptance_test.sh openloris-loop-consistency-ablation
-bash scripts/acceptance_test.sh openloris-scan-overlap-ablation
-
-# 可切换约束仍复用同一固定图；分别跑两条序列后做多序列来源与指标门禁。
-GTSAM_INCLUDE_SWITCHABLE_CONSTRAINTS=true \
-  GTSAM_ABLATION_OUTPUT_DIR=logs/openloris/corridor1-1/switchable_constraint_ablation \
-  bash scripts/run_gtsam_robust_kernel_ablation.sh
-OPENLORIS_SEQUENCE=corridor1-2 GTSAM_INCLUDE_SWITCHABLE_CONSTRAINTS=true \
-  GTSAM_ABLATION_OUTPUT_DIR=logs/openloris/corridor1-2/switchable_constraint_ablation \
-  bash scripts/run_gtsam_robust_kernel_ablation.sh
-python3 scripts/compare_gtsam_switchable_sequences.py \
-  --report corridor1-1 logs/openloris/corridor1-1/switchable_constraint_ablation/comparison.json \
-  --report corridor1-2 logs/openloris/corridor1-2/switchable_constraint_ablation/comparison.json \
-  --output-json logs/openloris/gtsam_switchable_multisequence.json \
-  --output-markdown logs/openloris/gtsam_switchable_multisequence.md
-
-# 发布级来源审计再下载完整约 9.27 GB 归档。
-bash scripts/acceptance_test.sh openloris-rosbag-setup
-
-bash scripts/acceptance_test.sh openloris-bag-preflight
-bash scripts/acceptance_test.sh openloris-slam-ab
 ```
 
-`slam-evaluation-stage` 只验证指标数学；`openloris-replay-stage` 只用小 fixture 验证 ROS 1/2
-读取、单调 `/clock`、TF、重复 odom 过滤、双后端启动与干净退出，两者都不代表真实精度。
-真实 A/B 必须使用同一 bag 和前端参数，并检查匹配率、ATE RMSE/P95、1 秒 RPE、路径长度比、
-最差窗口、终点漂移、回访恢复率、运动类别误差和两个 manifest 的哈希来源。验收报告必须保留
-`archive_verification`，不能把 Range 快速模式表述为完整归档 SHA256 已验证。方法见
-[REAL_WORLD_SLAM_EVALUATION.md](REAL_WORLD_SLAM_EVALUATION.md)。
-
-`openloris-loop-evidence` 还要求生成 `revisit_catalog.json`、GTSAM accepted constraint JSONL 和
-`gtsam_loop_constraints.json`。最终轨迹回访恢复率与 accepted-edge event recall 必须分开讲：前者
-可以在没有非局部图边时仍然很高，不能据此宣称回环前端成功。
-
-`openloris-loop-sweep` 首次运行会从公开 bag 流式复制 `/odom`、`/scan`、`/tf_static`，生成带
-来源哈希的约 5 MB SLAM-only bag；后续可复用校验通过的 profile 结果。验收要求 6 组 manifest、
-参数哈希、bag 哈希和轨迹覆盖可比，并生成 `logs/openloris/office1-7/loop_sweep/comparison.json`。
-当前真实结果是 6 组均有 46 条相邻边、0 条非局部边、event recall 0；这是有效的失败边界证据，
-不是测试失败。每个 profile 还必须生成 `gtsam_frontend.jsonl` 和
-`gtsam_frontend_report.json`，并满足“诊断图节点数 = accepted graph edge 数 + 1”、JSONL 全部可
-解析、closure begin/end 平衡。`failure_boundary` 用于区分 candidate generation、coarse、fine、
-constraint insertion 和 accepted loop；没有 matcher callback 时不能猜成“响应阈值太高”。
-
-`openloris-long-loop-evidence` 的通过含义是证据链完整，不是保证算法性能达标：默认推荐
-`corridor1-1`，显式选择 `corridor1-2` 时则要求同一传感器契约、至少 100 m/90 s 和真实回访；
-range/bag 大小与 SHA256 通过；派生 bag
-绑定原包哈希；轨迹覆盖达标；按 360° LiDAR 位置口径存在 2 次至少相隔 60 秒的真值回访；
-frontend trace 与 accepted-edge 报告均可解析。event recall 允许为 0，因为“真实回环存在但前端
-未恢复”本身就是不能篡改的有效负结果。
-
-`openloris-loop-consistency-ablation` 要求五组读取同一 graph SHA256、输入节点/约束数和真值匹配数。
-门控组可以少用约束，但必须同时报告 `constraints_used` 和 `consistency_rejected_constraints`；公平性
-检查比较的是不可变输入图，不会把主动拒绝异常边误判为换了数据。当前 2 m / π/4 门控拒绝 23 条边，
-但该数值只对 `corridor1-1` 构成证据，门控仍默认关闭。
-
-`openloris-scan-overlap-ablation` 还要求派生 bag、固定图和真值文件已存在。验收器先以时间戳关联
-`/scan`，从 `/tf_static` 求出 `laser -> base_link` 变换，再为全部 858 条非局部边写入可选 overlap
-字段。四组必须共享增强图 SHA256、1834/2751 图规模和 1828 个真值匹配位姿；任何门控组出现
-`scan_overlap_unavailable_constraints > 0` 都判失败。当前 0.65/1 m 双证据组额外拒绝 11 条边，
-但参数默认关闭，PASS 表示证据和公平性完整，不表示该阈值已跨场景泛化。
-
-`openloris-scan-overlap-multisequence` 聚合 `corridor1-1/1-2` 两份 comparison。PASS 只表示输入
-来自不同固定图、阈值一致、报告完整且扫描证据无缺失；是否启用由 `release_decision` 单独给出。
-当前第二序列四组 ATE/P95 完全相同，因此即使平均 ATE 改善，决策仍必须是
-`keep_disabled_collect_more_sequences`。
-
-可切换约束多序列 PASS 要求：至少两份不同 graph SHA、相同 switch prior/threshold、每份源报告
-通过、Switchable+Cauchy 逐序列不劣于 Cauchy，并且既观察到被压低的边，也观察到保持开启的边。
-当前加权 ATE 为 0.9196 m，较 Gaussian/Cauchy 下降 43.28%/15.57%，80/859 条边低于 0.5；
-PASS 只证明固定图后端消融成立。在线 `gtsam_enable_switchable_loop_constraints` 仍为 false，且不得
-把 switch 数量表述为前端 false-positive 数量。
-
-### 动态障碍
+动态障碍：
 
 ```bash
 bash scripts/acceptance_test.sh dynamic-obstacle-stage
@@ -274,238 +368,30 @@ bash scripts/acceptance_test.sh dynamic-obstacle-navigation
 bash scripts/acceptance_test.sh dynamic-obstacle-navigation-ablation
 ```
 
-判定：tracker 输出稳定 ID/速度；未来位置在 costmap 成为 lethal cost；路径净空提升；track TTL
-清除后机器人能继续规划并最终停车。
+详细指标口径见 [SLAM 与导航工程笔记](SLAM_NAVIGATION_ENGINEERING.md) 和
+[真实数据 SLAM 评估](REAL_WORLD_SLAM_EVALUATION.md)，本文不重复算法教程。
 
-`dynamic-obstacle-stage` 自动生成 `logs/dynamic_obstacle_model_ablation.json/.md`，要求四种模型
-使用相同 91 帧输入、没有轨迹丢失，并验证 CV 相对 current-only 的预测收益、IMM 在该固定机动
-场景中的预测/遮挡误差和停车过冲。它还生成
-`logs/dynamic_obstacle_association_ablation.json/.md`：同一个双目标冲突输入分别运行
-`greedy_nearest` 与 `global_nearest`，要求全局门限分配更新 2/2 个既有身份、无碎片轨迹，且身份
-位置误差严格小于贪心基线。第三份
-`logs/dynamic_obstacle_uncertainty_ablation.json/.md` 固定一条低协方差、一条高协方差轨迹，
-要求 Euclidean 基线暴露身份交换，而 Mahalanobis/NIS 恢复 2/2 身份、零未匹配，并验证米制硬门
-不因协方差增大而失效。这是实验模式证据；真实检测协方差未标定前，运行参数默认 Euclidean。
-`dynamic-obstacle-navigation-ablation` 是本地重型证据：四轮
-分别重新启动 Gazebo/Nav2，全部要求 future cell lethal、路径净空提升、导航成功和最终零速。
-它依赖 `slam-benchmark` 生成的地图，不进入 GitHub CI。四份报告必须携带一致的场景、地图栅格
-和 Nav2 参数 SHA256；任一哈希不同，汇总器判 FAIL。场景输入是确定性的 typed `PoseArray`，
-因此这是“合成感知输入 + Gazebo/Nav2 真实规划控制”的闭环证据，不是物理动态 actor 证据。
+## 10. 失败清理与重复运行
 
-## 5. 真实麦克风连续验收
-
-### 5.1 前置检查和校准
+验收脚本应通过 trap/进程组清理节点。若上次异常退出，先检查而不是盲目启动第二套：
 
 ```bash
-bash scripts/acceptance_test.sh wsl-microphone-preflight
-bash scripts/acceptance_test.sh voice-calibration-report
+ros2 node list
+ros2 topic info /cmd_vel
+ps -ef | grep -E 'gz sim|nav2|slam_toolbox|explore' | grep -v grep
 ```
 
-校准报告包含 `recommended_environment`、`next_command`，并生成：
+WSL 出现 `Failed init_port fastrtps_port7000` 时，确认通过 `source scripts/activate.sh` 加载了
+`scripts/ros_dds_env.sh`；默认 Fast DDS 使用 UDPv4，避免 SHM 锁冲突。
 
-```text
-logs/audio_calibration.json
-logs/voice_calibration_report.json
-logs/voice_calibration.env
-```
+## 11. 合并与发布标准
 
-应用推荐值：
+一个完整功能完成后再触发 GitHub CI：
 
-```bash
-APPLY_VOICE_CALIBRATION=true \
-CONTINUOUS_SAMPLE_LOG=logs/asr_nlu_samples.jsonl \
-  bash scripts/acceptance_test.sh continuous-offline
-```
+1. feature 分支运行相关单元、stage 和至少一个真实门禁；
+2. `git diff --check`，确认未提交密钥、模型和 `logs/`；
+3. PR 合并到 `dev`；
+4. CI 通过且本机演示通过后，里程碑 PR 合并到 `main`；
+5. release 说明必须区分自动证据与人工证据。
 
-### 5.2 固定话术和 PASS 标准
-
-```text
-小智
-向右转，然后向前走一秒
-后退一秒
-绕圈
-走正方形
-停下
-退出控制
-```
-
-通过标准：
-
-- 终端持续显示 session、ASR、queue、execution、action result，而不是静默等待。
-- 一句话中的多个动作带相同 batch，按 command/request ID 依次完成。
-- 执行中收到的普通命令进入 FIFO；`停下/急停` 取消当前 action 并清队列。
-- `退出控制` 后进入 sleeping；最终 `/cmd_vel` 为 0。
-
-在线补充：
-
-```bash
-bash scripts/acceptance_test.sh continuous-online
-```
-
-五分钟留证：
-
-```bash
-bash scripts/acceptance_test.sh continuous-voice-evidence offline
-# 或分终端运行 continuous-offline + continuous-voice-benchmark offline
-# 在线模式同理，把 offline 替换为 online
-```
-
-每种模式分别生成 `continuous_voice_<mode>_live_report.json` 与
-`voice_benchmark_<mode>_report.json`，不会互相覆盖。报告记录识别率、动作准确率/成功率、
-误触发、queue reject、ignored/retry、P50/P95 延迟和最终零速；未达门槛也必须落盘。
-
-两种模式完成后生成事实汇总：
-
-```bash
-bash scripts/acceptance_test.sh runtime-evidence-summary
-# logs/runtime_evidence_summary.json
-```
-
-汇总中的 `proven/failed/missing` 不能互相替代；180 秒旧报告不会被升级成 5 分钟证据，
-mock/fixture 也不会被标记为真人麦克风证据。
-
-### 5.3 VAD/KWS 可选运行时
-
-连续语音默认 `VAD_PROVIDER=auto`：Silero → WebRTC → energy。安装和验收：
-
-```bash
-bash scripts/setup_voice_vad_runtime.sh webrtc
-bash scripts/acceptance_test.sh webrtc-vad-sidecar
-bash scripts/acceptance_test.sh silero-vad-runtime
-# Python extra 名称：embodied_voice_frontend[webrtc-vad]
-```
-
-声学唤醒可选：
-
-```bash
-bash scripts/setup_voice_kws_runtime.sh openwakeword
-bash scripts/setup_voice_kws_runtime.sh sherpa
-source logs/sherpa_kws.env
-bash scripts/acceptance_test.sh sherpa-kws-sidecar
-```
-
-这些 Provider 不是基础 CI 强依赖；缺模型时必须降级并打印原因。
-
-## 6. 故障定位
-
-### 音频有日志但 ASR 为 0
-
-1. 跑 `wsl-microphone-preflight`，确认 Pulse source 不是 monitor。
-2. 看 `rms/peak/speech`；静音也 speech=true 表示阈值过低，讲话仍 false 表示阈值过高。
-3. 应用校准 `recommended_environment`；再调整 `SPEECH_START_THRESHOLD`。
-4. 漏掉“九十度/一秒”时增大 `SPEECH_END_SILENCE_S` 或 `ASR_COMMIT_DELAY_MS`。
-
-### ASR 正确但动作没执行
-
-按顺序看：`/agent/nlu_parse` → `/agent/action_candidate` → `/robot/action_command_typed` →
-Action feedback/result → `/cmd_vel`。被拒绝时看 ActionGuard reason；旧 result 不应唤醒新 command ID。
-
-### FastDDS SHM 锁
-
-项目默认由 `scripts/ros_dds_env.sh` 设置 `FASTDDS_BUILTIN_TRANSPORTS=UDPv4`。如仍有残留：
-
-```bash
-CLEANUP_CONFIRM=true bash scripts/cleanup_simulation_processes.sh
-```
-
-若日志为 `Calculated port number is too high`，问题不是 SHM，而是 `ROS_DOMAIN_ID > 232`。
-项目脚本的 PID 取模公式由仓库测试统一检查；手工覆盖时也应使用 `0..232`。
-
-### Gazebo 没有小车
-
-不要只启动 Agent launch。使用 `continuous-offline/online` 或 `nav2-turtlebot3` 一键入口，并检查
-`ros2 topic echo --once /clock`、`/scan`、`/odom` 和 `ros2 action list`。
-
-## 7. 完成度边界
-
-- 自动 mock、真实模型、Gazebo、真实麦克风和公开 rosbag 是五类不同证据，不能相互替代。
-- 当前真实硬件是 Adapter/mock；Gazebo PASS 不等于 UART/SPI 实机 PASS。
-- LoRA dry-run 只验证入口；`lora-q8-comparison` 会独占两个端口重跑 43 条对照并进行哈希审计。
-  合成 holdout 分数不等于真实麦克风准确率，动作、协议、严格总分与 fallback 必须分栏。
-- OpenLORIS 小 fixture 只验证接口；office 短序列使用 OptiTrack，market 长序列使用官方离线
-  LiDAR-SLAM 真值，证据独立性不同。任何序列 accepted 非局部回环为 0 时都不能宣称前端成功。
-- 完整功能完成后再 push/开 PR 触发 GitHub CI，避免为文档碎片频繁运行 CI。
-## 8. OpenLORIS 候选级回环检索
-
-准备好 `corridor1-1`、`corridor1-2` 的派生 bag、真值和固定图后运行：
-
-```bash
-bash scripts/acceptance_test.sh openloris-lidar-loop-candidates
-```
-
-PASS 证明两条独立数据契约、候选评分和多序列公平性检查成立。它不会启动 Gazebo，也不会把候选
-写入图；应同时查看 `docs/evidence/lidar_loop_candidates_multisequence.md` 中的 Recall、Precision
-和 shadow-only 发布结论。
-
-## 9. OpenLORIS 影子扫描匹配
-
-在候选级验收完成后运行：
-
-```bash
-bash scripts/acceptance_test.sh openloris-lidar-shadow-matches
-```
-
-该入口提取两条序列的确定性 LaserScan corpus 与 `/odom` 偏航先验，把 Top-10 候选送入 C++
-粗到细 ICP，再用官方轨迹离线统计 precision、conditional recall、相对位姿误差和事件恢复。
-`PASS` 只表示数据覆盖、哈希、固定 profile 和跨序列公平性契约成立；是否允许下一阶段图边消融由
-`docs/evidence/lidar_shadow_matches_multisequence.json` 的 `release_decision` 单独决定。当前状态是
-`shadow_only_improve_geometric_verification`，`direct_graph_edge_insertion_enabled=false`。
-
-## 10. OpenLORIS 局部子地图 A/B
-
-先完成上一节、保留确定性 scan corpus 和 pair 文件，再运行：
-
-```bash
-bash scripts/acceptance_test.sh openloris-lidar-submap-ablation
-```
-
-该入口用短时 `/odom` 将中心帧前后各一帧变换到中心坐标系，形成三帧局部子地图；候选集合、
-真值、ICP 配置和评估 profile 与单帧基线保持一致。`PASS` 只证明两序列 A/B 输入契约公平、报告
-完整，不表示算法可进入正式位姿图。最终必须检查
-`docs/evidence/lidar_submap_ablation_multisequence.json`：当前
-`guarded_graph_edge_ablation_ready=false`、`direct_graph_edge_insertion_enabled=false`。
-
-固定门槛要求每条序列同时达到 precision ≥ 80%、conditional recall ≥ 15%、平移中位误差
-≤ 0.5 m。相对单帧有改善但未满足绝对门槛时，仍保持 shadow-only。
-
-该入口还会把每个 query 中不读取真值的最高质量候选送入
-`lidar_loop_temporal_replay`。它与 ROS 门控共用纯 C++
-`LidarLoopTemporalConsistency`，默认要求连续 4 帧满足查询间隔、回访时间差和相对位姿变化门限。
-验收同时读取 `docs/evidence/lidar_temporal_ablation_multisequence.json`：两条序列必须使用相同配置，
-且每条序列 precision 都不能下降。当前聚合 precision 为 13.21% → 31.25%，conditional recall 为
-12.57% → 2.99%。因此 `PASS` 只表示精度/召回消融与 fail-closed 策略成立，不授权写入位姿图。
-
-同一入口还会生成 `docs/evidence/lidar_sequence_ablation_multisequence.json`。多假设模式不会先贪心
-丢弃 Top-K，而是并行维护最多 64 条轨迹，固定要求 3 次连续。验收要求两条序列相对单轨都提升
-precision，聚合假接受减少且保留真约束不下降；当前聚合 precision 31.25%→45.45%、假接受
-11→6、真约束 5→5。由于 conditional recall 仍为 2.99%，发布状态只能是
-`shadow_only_precision_improved`。
-
-## 11. LiDAR 在线回环候选、几何验证与约束门控
-
-```bash
-bash scripts/acceptance_test.sh lidar-loop-runtime
-```
-
-该入口不下载 bag、不启动 Gazebo。它启动 `lidar_loop_candidate_node`、
-`lidar_loop_verifier_node`、`lidar_loop_constraint_gate_node`，以及显式开启写入接口但没有扫描图的
-instrumented slam_toolbox 测试实例。探针驱动完整 Lifecycle：configure 后在 inactive 状态发布扫描，
-确认不会产生输出；activate 后发布合成 LaserScan/Odometry，确认采样/历史隔离、确定性 ID、
-typed `LidarLoopCandidateArray`，以及 scan-to-submap ICP/重叠率门限结果。探针要求查询端和候选端
-都至少贡献两帧，并检查消息中的 `query_submap_scans/candidate_submap_scans`，防止只修改模式名称。
-它还会分别强制候选、查询扫描、查询里程计乱序到达，验证跨 topic pending 恢复；最后执行
-无后续输入的缺帧场景，确认 500 ms steady-clock 超时会冲刷 pending。约束门先把单次 accepted
-geometry 标为 `sequence_hypothesis_started`，只有 3 组连续 typed verification 后才产生
-`policy_approved=true, commit_requested=false, reason=shadow_mode`，并拒绝重复 pair；
-后端 Adapter 必须拒绝 shadow 决策以及无法关联到 Karto processed scan 的伪造 commit。最后执行
-deactivate/cleanup/reactivate，确认描述子索引、扫描/里程计缓存、pending、门控历史和决策序号
-均被清空。
-
-PASS 证明在线候选、几何验证、两阶段门控、DDS 接口和生命周期契约成立，也证明默认 shadow
-决策不能越过后端 commit 边界；它不证明真实图边写入能改善地图。几何 `accepted=true` 仍只是
-候选证据，正式开启实验写图仍由真实多序列 precision/recall、时序一致性和后端消融决定。
-局部子图只使用短时邻帧里程计做坐标变换，不用长程里程计平移猜测闭环位姿；默认关联容差为
-50 ms、子图时间窗为 0.75 s。Standalone launch 默认订阅 `/odom`，建图基线显式改为
-`/slam/odom`，因此不会借用真值轨迹。
-建图 launch 可用 `enable_loop_candidate_shadow:=false` 关闭旁路而不影响原有 SLAM 基线。
-`enable_loop_constraint_commit:=true` 仅为实验接口，默认 false；当前发布门结论要求保持关闭。
+最终交付记录应至少包含：commit、环境、执行命令、PASS/FAIL、报告路径、已知边界和复现步骤。

@@ -53,6 +53,31 @@ def is_automatic_mission_cancel_text(text: str) -> bool:
     )
 
 
+def parse_mapping_bootstrap_route(config: dict) -> list[tuple[str, str, str]]:
+    """读取自动脱离角落的短路线，并限制为可被 Guard 审计的运动原语。"""
+
+    raw_route = config.get("bootstrap_route", [])
+    if not isinstance(raw_route, list):
+        raise ValueError("automatic_exploration.bootstrap_route must be a list")
+    route: list[tuple[str, str, str]] = []
+    for index, raw_step in enumerate(raw_route):
+        if not isinstance(raw_step, dict):
+            raise ValueError(f"bootstrap_route[{index}] must be a mapping")
+        text = str(raw_step.get("text", "")).strip()
+        action = str(raw_step.get("action", "")).strip()
+        label = str(raw_step.get("label", text)).strip()
+        if not text or not label:
+            raise ValueError(f"bootstrap_route[{index}] requires label/text")
+        if action not in {"move", "turn"}:
+            # bootstrap 只负责从充电角落进入开放区；目标点导航仍必须等地图保存、
+            # AMCL/Nav2 切换完成后执行，不能在未知地图阶段偷跑语义导航。
+            raise ValueError(
+                f"bootstrap_route[{index}].action must be move/turn"
+            )
+        route.append((label, text, action))
+    return route
+
+
 def exploration_completion_reason(
     *,
     status: str,
@@ -65,6 +90,7 @@ def exploration_completion_reason(
     min_occupied_cells: int,
     seconds_since_map_growth: float,
     stable_map_s: float,
+    time_budget_reached: bool = False,
 ) -> str | None:
     """融合探索器事件和地图覆盖平台期，返回可审计的结束原因。"""
 
@@ -77,6 +103,10 @@ def exploration_completion_reason(
         return "no_frontiers"
     if coverage_ready and seconds_since_map_growth >= stable_map_s:
         return "coverage_plateau"
+    # 探索时间预算不是“必须清空所有 frontier”。当可验收覆盖已经达成时，
+    # 保存仍在增长的当前地图比无限追逐家具背后的边界更符合任务语义。
+    if coverage_ready and time_budget_reached:
+        return "time_budget_coverage"
     return None
 
 

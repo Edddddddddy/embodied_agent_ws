@@ -4,6 +4,7 @@ from embodied_slam_tools.showcase_session import (
     ShowcaseSessionStateMachine,
     exploration_completion_reason,
     is_automatic_mission_cancel_text,
+    parse_mapping_bootstrap_route,
     parse_session_command,
 )
 
@@ -83,6 +84,53 @@ def test_exploration_can_finish_by_native_status_or_coverage_plateau():
         seconds_since_map_growth=2.0,
         **values,
     ) is None
+
+
+def test_exploration_time_budget_accepts_only_threshold_complete_map():
+    values = {
+        "status": "exploration_in_progress",
+        "completion_status": "exploration_complete",
+        "elapsed_s": 300.0,
+        "min_runtime_s": 45.0,
+        "occupied_cells": 200,
+        "min_known_cells": 6000,
+        "min_occupied_cells": 150,
+        "seconds_since_map_growth": 0.0,
+        "stable_map_s": 20.0,
+        "time_budget_reached": True,
+    }
+    assert exploration_completion_reason(
+        known_cells=7000,
+        **values,
+    ) == "time_budget_coverage"
+    assert exploration_completion_reason(
+        known_cells=5999,
+        **values,
+    ) is None
+
+
+def test_mapping_bootstrap_route_accepts_only_safe_motion_primitives():
+    route = parse_mapping_bootstrap_route(
+        {
+            "bootstrap_route": [
+                {"label": "离开充电位", "text": "前进三秒", "action": "move"},
+                {"label": "转向走廊", "text": "左转九十度", "action": "turn"},
+            ]
+        }
+    )
+    assert route == [
+        ("离开充电位", "前进三秒", "move"),
+        ("转向走廊", "左转九十度", "turn"),
+    ]
+
+    try:
+        parse_mapping_bootstrap_route(
+            {"bootstrap_route": [{"text": "去办公室", "action": "navigate_to"}]}
+        )
+    except ValueError as exc:
+        assert "move/turn" in str(exc)
+    else:
+        raise AssertionError("unsafe bootstrap action must be rejected")
 
 
 def test_state_machine_requires_mapping_then_save_before_navigation():

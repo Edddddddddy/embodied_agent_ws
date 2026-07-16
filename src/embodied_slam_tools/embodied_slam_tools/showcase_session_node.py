@@ -43,6 +43,7 @@ from .showcase_session import (
     ShowcaseSessionStateMachine,
     exploration_completion_reason,
     is_automatic_mission_cancel_text,
+    parse_mapping_bootstrap_route,
     parse_session_command,
 )
 
@@ -317,6 +318,12 @@ class SessionOrchestratorNode(Node):
         )
         self._exploration_completion_status = str(
             automatic_config.get("completion_status", "exploration_complete")
+        )
+        self._mapping_bootstrap_route = parse_mapping_bootstrap_route(
+            automatic_config
+        )
+        self._mapping_bootstrap_action_timeout_s = float(
+            automatic_config.get("bootstrap_action_timeout_s", 45.0)
         )
         acceptance = self._mission_plan.get("acceptance", {})
         self._min_known_map_cells = int(acceptance.get("min_known_map_cells", 0))
@@ -669,7 +676,33 @@ class SessionOrchestratorNode(Node):
                 self._explore_condition.wait(
                     timeout=min(0.5, max(0.0, deadline - time.monotonic()))
                 )
-        raise TimeoutError("frontier exploration did not complete before timeout")
+        stats = self._map_stats or {}
+        completion_reason = exploration_completion_reason(
+            status=self._explore_status,
+            completion_status=self._exploration_completion_status,
+            elapsed_s=time.monotonic() - started_at,
+            min_runtime_s=self._exploration_min_runtime_s,
+            known_cells=stats.get("known_cells", 0),
+            occupied_cells=stats.get("occupied_cells", 0),
+            min_known_cells=self._min_known_map_cells,
+            min_occupied_cells=self._min_occupied_map_cells,
+            seconds_since_map_growth=time.monotonic() - self._last_map_growth_at,
+            stable_map_s=self._exploration_stable_map_s,
+            time_budget_reached=True,
+        )
+        if completion_reason is not None:
+            self._exploration_completion_reason = completion_reason
+            self.get_logger().info(
+                f"frontier exploration complete reason={completion_reason}: "
+                f"known={stats.get('known_cells', 0)} "
+                f"occupied={stats.get('occupied_cells', 0)}"
+            )
+            return
+        raise TimeoutError(
+            "frontier exploration did not complete before timeout "
+            f"known={stats.get('known_cells', 0)} "
+            f"occupied={stats.get('occupied_cells', 0)}"
+        )
 
     def _wait_for_new_ready(self, generation: int) -> None:
         if self._dry_run:
@@ -899,9 +932,37 @@ class SessionOrchestratorNode(Node):
 
         self._transition(
             SessionPhase.AUTOMATIC_MAPPING,
+            detail="mapping bootstrap route running",
+        )
+        self._feedback(request, 0.03)
+        route_size = len(self._mapping_bootstrap_route)
+        for index, (label, text, expected_action) in enumerate(
+            self._mapping_bootstrap_route
+        ):
+            if request.canceled:
+                raise AutomaticMissionCancelled("automatic mission canceled")
+            self._transition(
+                SessionPhase.AUTOMATIC_MAPPING,
+                detail=f"mapping bootstrap {index + 1}/{route_size}: {label}",
+            )
+            # 充电角落附近的 frontier 容易集中在外墙边缘。先通过与普通语音完全
+            # 相同的 Agent→Guard→Action 链进入中央通道，再交给 Explore Lite；
+            # 这是可审计的自动脱困原语，不是绕过安全层直接写 /cmd_vel。
+            self._run_agent_text_action(
+                request,
+                text=text,
+                expected_action=expected_action,
+                timeout_s=self._mapping_bootstrap_action_timeout_s,
+            )
+            self._feedback(
+                request,
+                0.03 + (0.17 * (index + 1) / max(1, route_size)),
+            )
+
+        self._transition(
+            SessionPhase.AUTOMATIC_MAPPING,
             detail="frontier exploration running",
         )
-        self._feedback(request, 0.05)
         with self._explore_condition:
             self._explore_status = ""
             self._best_known_map_cells = 0
