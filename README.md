@@ -65,6 +65,7 @@ flowchart LR
 | `embodied_simulation` | Gazebo、BT、pluginlib Executor、Nav2 bridge |
 | `embodied_slam` | 漂移模型、闭环控制、GTSAM ScanSolver plugin |
 | `embodied_navigation` | 全局数据关联、动态目标跟踪/运动预测、Nav2 costmap plugin |
+| `embodied_slam_tools` | 语音 SLAM 会话状态机、frontier 自动任务、存图/定位阶段进程编排与证据探针 |
 
 完整文件/函数调用关系见
 [语音到仿真代码走读](docs/VOICE_TO_SIMULATION_CODE_WALKTHROUGH.md) 和
@@ -165,27 +166,35 @@ bash scripts/acceptance_test.sh nav2-turtlebot3
 真实感语音 SLAM/Nav2 主演示（四区域公寓/办公室，不依赖在线模型资产）：
 
 ```bash
+# 首次安装固定提交的 Explore Lite frontier 运行时
+bash scripts/setup_frontier_exploration.sh
+
 # 轻量门禁：状态机、typed Action、场景与语义地点契约
 bash scripts/acceptance_test.sh slam-nav-showcase-stage
+bash scripts/acceptance_test.sh slam-autonomous-mission-stage
 
-# 单终端主演示：终端会打印可复现的办公巡检话术
+# 单终端主演示：启动后只需说“小智，开始自动巡检建图”
 HEADLESS=false USE_RVIZ=true \
   bash scripts/acceptance_test.sh voice-slam-workplace-demo offline
 
-# 无麦克风的真实重型门禁：Gazebo 探索→存图→AMCL/Nav2→实际移动
+# 无麦克风的真实重型门禁：frontier 探索→存图→AMCL/Nav2→语义巡检
+bash scripts/acceptance_test.sh slam-autonomous-mission
+
+# 旧的确定性路线回归仍保留，用于区分探索算法与控制链故障
 bash scripts/acceptance_test.sh slam-session-orchestrator
 ```
 
-主演示不是两秒直行的冒烟测试：它按 15 个普通语音动作依次覆盖客厅、厨房、中央走廊和办公室，
-随后说“保存地图并开始导航”。编排器会保存 YAML/PGM、按序关闭建图进程并以保存地图启动
-AMCL/Nav2；进入导航后说“去入口”“依次去厨房、办公室”。`/slam/session_state` 和
+主演示不是固定路线回放：Explore Lite 从在线占据栅格提取 frontier，以信息增益和路径代价选点，
+再通过 Nav2 `NavigateToPose` 自主探索；无可达 frontier 后，编排器自动保存 YAML/PGM、按序关闭
+建图进程、以保存地图启动 AMCL/Nav2，并自动执行“去入口”和“依次去厨房、办公室”。
+`/slam/session_state` 和
 `/slam/manage_session` 分别提供 typed
-状态与可反馈 Action。现场若来不及完整探索，使用
+状态与可反馈 Action；说“停下/急停/取消自动任务”会终止探索或导航并停车。现场若来不及完整探索，使用
 `bash scripts/voice_slam_nav_showcase.sh navigation-static offline` 加载同源确定性地图；原来的
 `mapping/save/navigation` 命令保留为故障回退。
-无麦克风重型门禁要求建图路径不少于 10 m、已知栅格不少于 6,000、占用栅格不少于 150，并验证
-入口单点导航与厨房/办公室多航点巡检；报告写入
-`logs/showcase/orchestrated_runtime/workplace_mission_report.json`。
+自动任务要求已知栅格不少于 6,000、占用栅格不少于 150，并验证入口单点导航、厨房/办公室
+多航点巡检和最终 `/cmd_vel=0`；报告写入
+`logs/showcase/autonomous_runtime/automatic_mission_report.json`。旧路线门禁继续额外验证 10 m 路程。
 场景由一份 YAML 同时生成 Gazebo world、静态占据栅格和两套坐标对齐的语义地点，详细步骤与
 验收边界见 [真实感语音 SLAM/Nav2 演示](docs/VOICE_SLAM_NAV_SHOWCASE.md)。
 

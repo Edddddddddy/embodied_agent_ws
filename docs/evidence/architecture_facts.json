@@ -1,6 +1,6 @@
 {
   "acceptance_cli": {
-    "advanced_help_mode_count": 131,
+    "advanced_help_mode_count": 133,
     "public_mode_count": 13,
     "public_modes": [
       "continuous-multi-command",
@@ -17,7 +17,7 @@
       "slam-nav-showcase-stage",
       "voice-slam-workplace-demo"
     ],
-    "router_mode_count": 131,
+    "router_mode_count": 133,
     "undocumented_router_modes": []
   },
   "ci": {
@@ -167,8 +167,8 @@
   "repository_scale": {
     "offline_agent_node_lines": 677,
     "online_agent_node_lines": 544,
-    "scripts_recursive_file_count": 193,
-    "scripts_top_level_file_count": 193
+    "scripts_recursive_file_count": 198,
+    "scripts_top_level_file_count": 198
   },
   "ros_packages": {
     "ci_count": 12,

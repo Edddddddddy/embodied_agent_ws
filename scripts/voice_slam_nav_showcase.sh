@@ -12,6 +12,7 @@ MAPPING_PLACES="$WORKSPACE/src/embodied_simulation/config/showcase_mapping_place
 MISSION_SPEC="$WORKSPACE/src/embodied_simulation/config/showcase_workplace_mission.yaml"
 SESSION_DIR="${SHOWCASE_SESSION_DIR:-$WORKSPACE/logs/showcase}"
 SAVED_MAP_PREFIX="${SHOWCASE_MAP_PREFIX:-$SESSION_DIR/voice_built_map}"
+FRONTIER_NAV2_PARAMS="$SESSION_DIR/frontier_nav2_params.yaml"
 
 usage() {
   cat <<'EOF'
@@ -30,9 +31,9 @@ Terminal 2（mapping 仍运行时）：
   bash scripts/voice_slam_nav_showcase.sh navigation-static offline
 
 推荐演示顺序：
-  1. 推荐 auto：按终端打印的办公巡检路线，用普通语音动作探索四个区域。
-  2. 说“保存地图并开始导航”，编排器自动存图、停止 mapping 并启动 AMCL/Nav2。
-  3. 进入 NAVIGATING 后说“去入口”“依次去厨房、办公室”。
+  1. 推荐 auto：说“小智，开始自动巡检建图”。
+  2. 系统自主探索 frontier，结束后自动存图并启动 AMCL/Nav2。
+  3. 系统自动执行“去入口”“依次去厨房、办公室”。
 
 mapping/save/navigation 仍保留为手工故障回退。
 
@@ -54,7 +55,9 @@ import yaml
 
 mission = yaml.safe_load(Path(sys.argv[1]).read_text(encoding="utf-8"))
 print(f"[showcase] 任务：{mission['description']}")
-print("[showcase] 建图话术（每条执行完成后再说下一条）：")
+print("[showcase] 推荐：只说一条“小智，开始自动巡检建图”")
+print("[showcase] 系统将自主探索、保存地图、切换定位并执行语义巡检。")
+print("[showcase] 手工故障回退话术（只有自动探索异常时才逐条使用）：")
 for index, step in enumerate(mission["mapping_route"], 1):
     print(f"  {index:02d}. {step['text']}  # {step['label']}")
 print("  16. 保存地图并开始导航")
@@ -106,6 +109,13 @@ case "$COMMAND" in
   mapping)
     echo "[showcase] 阶段 1/3：真实感室内场景 + SLAM Toolbox 在线建图"
     echo "[showcase] 另开终端运行 save 后，再 Ctrl+C 结束本阶段。"
+    activate
+    # Nav2 默认 0.25 m 目标容差可能让近处 frontier 在机器人尚未移动时即成功，
+    # 造成 Explore Lite 重复投递同一目标。这里只给建图阶段生成 0.08 m 配置；
+    # 切到 navigation 后不再传该文件，自动恢复 Nav2 官方容差。
+    python3 "$WORKSPACE/scripts/prepare_frontier_nav2_params.py" \
+      --output "$FRONTIER_NAV2_PARAMS"
+    export NAV2_PARAMS_FILE="$FRONTIER_NAV2_PARAMS"
     run_voice_stage true "$STATIC_MAP" "embodied_simulation/GazeboRobotExecutor" \
       "$MAPPING_PLACES" 0.0 0.0 0.0
     ;;

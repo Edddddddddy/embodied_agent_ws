@@ -39,6 +39,9 @@ wsl.exe -d Ubuntu-24.04 --cd /home/ubuntu/embodied_agent_ws bash -lc 'source scr
 ```
 
 - 不把 `| head` 写在 `wsl.exe ...` 外面；PowerShell 会把它当成自己的管道。
+- 即使 `|` 看似位于 `bash -lc` 字符串内，只要还嵌套了双引号正则，也不要直接执行。例如
+  `grep -E "explore|gz sim|nav2"` 曾被外层拆开，并意外执行 `gz sim`，留下孤儿 Gazebo server。
+  改为多次 `grep`/`pgrep -af NAME`，或把诊断逻辑写入仓库脚本后调用。
 - 带复杂正则的搜索优先拆成多次固定字符串 `git grep`，不要让 PowerShell、WSL Bash、
   grep 三层同时解释引号。
 - 多个互不依赖的简单检查由工具层分别调用；不要为省一行把 `&&` 拼到 PowerShell 命令中。
@@ -53,6 +56,16 @@ wsl.exe -d Ubuntu-24.04 --cd /home/ubuntu/embodied_agent_ws bash -lc 'source scr
 wsl.exe -d Ubuntu-24.04 --cd /home/ubuntu/embodied_agent_ws bash scripts/acceptance_test.sh continuous-multi-command
 wsl.exe -d Ubuntu-24.04 --cd /home/ubuntu/embodied_agent_ws bash scripts/acceptance_test.sh navigation-demo
 ```
+
+Gazebo 重型测试重跑前先确认没有孤儿 server；多个默认 partition 的 server 会让 entity 创建、
+bridge 和 `/odom` 落到不同进程，表现为“创建成功但 odom/TF 永远不存在”：
+
+```powershell
+wsl.exe -d Ubuntu-24.04 -- pgrep -af "gz sim"
+wsl.exe -d Ubuntu-24.04 -- pgrep -af voice_slam_session_orchestrator
+```
+
+只终止本次测试明确记录的 PID/进程组，不使用全局 `pkill`，避免伤到用户正在运行的演示。
 
 ## 2. 搜索文件
 
