@@ -16,7 +16,7 @@ def test_architecture_contracts_are_derived_from_current_repository():
 
     assert facts["ros_packages"]["count"] == 12
     assert facts["ros_packages"]["names"] == facts["ros_packages"]["ci_names"]
-    assert facts["acceptance_cli"]["public_mode_count"] == 14
+    assert facts["acceptance_cli"]["public_mode_count"] == 7
     assert all(facts["contracts"].values())
     assert all(facts["release_gate"]["robotics_coverage"].values())
     assert facts["ci"]["feature_push_deduplicated"] is True

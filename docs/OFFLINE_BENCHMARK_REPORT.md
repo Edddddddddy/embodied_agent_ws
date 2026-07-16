@@ -33,7 +33,7 @@ logs/offline_evidence_audit.json
 演示前如果要补充真实延迟和 Sherpa ASR/TTS benchmark：
 
 ```bash
-python3 scripts/generate_offline_showcase_report.py --run-latency --run-llama-bench --run-instruction-following --run-asr-tts --run-voice-e2e
+python3 tools/evaluation/generate_offline_showcase_report.py --run-latency --run-llama-bench --run-instruction-following --run-asr-tts --run-voice-e2e
 ```
 
 ## 1. 环境信息
@@ -59,7 +59,7 @@ bash scripts/acceptance_test.sh llama-cpp-smoke
 bash scripts/acceptance_test.sh llama-decode-benchmark
 bash scripts/acceptance_test.sh offline-latency
 bash scripts/acceptance_test.sh offline-voice-e2e-report
-bash scripts/benchmark_offline.sh
+bash scripts/acceptance_test.sh offline
 bash scripts/acceptance_test.sh instruction-parser-eval
 bash scripts/acceptance_test.sh instruction-following-eval
 bash scripts/acceptance_test.sh lora-q8-comparison
@@ -75,8 +75,8 @@ bash scripts/acceptance_test.sh lora-q8-comparison
 | LLM warm turn 首 token | ≤ 1000ms | P50 496.90ms，P95 544.79ms | `offline-latency` / `--run-latency` |
 | Sherpa 短句整句合成 | ≤ 600ms | 178.94ms | `offline-latency` / `--run-latency` |
 | llama.cpp CPU decode | ≥ 8.6 tokens/s | 16.4276 tokens/s（8 threads） | `llama-decode-benchmark` |
-| ASR realtime factor | < 1.0 | 0.0620 | `benchmark_offline.sh` / `--run-asr-tts` |
-| TTS realtime factor | < 1.0 | 0.9004 | `benchmark_offline.sh` / `--run-asr-tts` |
+| ASR realtime factor | < 1.0 | 0.0620 | `acceptance_test.sh offline` / `--run-asr-tts` |
+| TTS realtime factor | < 1.0 | 0.9004 | `acceptance_test.sh offline` / `--run-asr-tts` |
 | 真实 Agent 端点→首 PCM | < 3500ms | 707.53ms | `offline-voice-e2e-report` / `--run-voice-e2e` |
 | 真实 Agent LLM 首 token | ≤ 1000ms | 120.61ms | `offline-voice-e2e-report` |
 | 伪流式首文本→首 PCM | 记录即可 | 315.08ms | `offline-voice-e2e-report` |
@@ -119,8 +119,8 @@ bash scripts/acceptance_test.sh instruction-following-lora-candidates
 新增样例后至少跑：
 
 ```bash
-python3 scripts/validate_instruction_eval_dataset.py
-python3 scripts/evaluate_instruction_parser.py --minimum 0.95
+python3 tools/evaluation/validate_instruction_eval_dataset.py
+python3 tools/evaluation/evaluate_instruction_parser.py --minimum 0.95
 ```
 
 当前评估集覆盖基础移动/转向、短命令补全、ASR 错词归一化、多命令队列、组合动作、

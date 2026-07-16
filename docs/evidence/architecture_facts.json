@@ -1,22 +1,15 @@
 {
   "acceptance_cli": {
     "advanced_help_mode_count": 134,
-    "public_mode_count": 14,
+    "public_mode_count": 7,
     "public_modes": [
-      "continuous-multi-command",
       "continuous-offline",
       "continuous-online",
       "core",
-      "dynamic-obstacle-navigation",
-      "dynamic-obstacle-stage",
       "gazebo",
       "nav2-stage",
-      "openloris-replay-stage",
       "robotics-gate",
-      "slam-evaluation-stage",
-      "slam-nav-e2e",
-      "slam-nav-showcase-stage",
-      "voice-slam-workplace-demo"
+      "slam-nav-e2e"
     ],
     "router_mode_count": 134,
     "undocumented_router_modes": []
@@ -37,10 +30,11 @@
     "advanced_modes_are_routable": true,
     "ci_matrix_matches_ros_packages": true,
     "ci_push_and_pr_only_dev_main": true,
-    "public_mode_count_is_14": true,
+    "public_mode_count_is_7": true,
     "public_modes_are_routable": true,
     "release_gates_use_current_workspace": true,
-    "robotics_profile_covers_required_gates": true
+    "robotics_profile_covers_required_gates": true,
+    "shell_entry_is_thin": true
   },
   "evidence_boundary": "本报告只证明仓库结构、CI/CLI 契约和静态覆盖关系；不证明真实麦克风成功率、模型精度、Gazebo 物理运动或真实场景 SLAM 泛化。",
   "release_gate": {
@@ -51,7 +45,7 @@
           "name": "python_repository_and_agent_units"
         },
         {
-          "command": "bash tests/integration/test_acceptance_cli.sh && bash scripts/acceptance_test.sh instruction-eval-dataset && bash scripts/acceptance_test.sh instruction-parser-eval",
+          "command": "bash tests/integration/control/test_acceptance_cli.sh && bash scripts/acceptance_test.sh instruction-eval-dataset && bash scripts/acceptance_test.sh instruction-parser-eval",
           "name": "cli_and_instruction_parser"
         },
         {
@@ -69,7 +63,7 @@
       ],
       "demo": [
         {
-          "command": "bash tests/integration/test_acceptance_cli.sh",
+          "command": "bash tests/integration/control/test_acceptance_cli.sh",
           "name": "demo_cli_readiness"
         },
         {
@@ -95,7 +89,7 @@
           "name": "repository_and_offline_unit"
         },
         {
-          "command": "bash tests/integration/test_acceptance_cli.sh",
+          "command": "bash tests/integration/control/test_acceptance_cli.sh",
           "name": "acceptance_cli"
         },
         {
@@ -168,8 +162,8 @@
   "repository_scale": {
     "offline_agent_node_lines": 686,
     "online_agent_node_lines": 550,
-    "scripts_recursive_file_count": 199,
-    "scripts_top_level_file_count": 199
+    "scripts_recursive_file_count": 134,
+    "scripts_top_level_file_count": 134
   },
   "ros_packages": {
     "ci_count": 12,

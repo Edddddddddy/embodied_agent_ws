@@ -46,7 +46,7 @@ fi
 PIDS+=("$!")
 
 if ! timeout 25 env USER_MEMORY_DIR="$USER_MEMORY_DIR" \
-  python3 "$WORKSPACE/tests/integration/test_speaker_memory_mock.py"; then
+  bash "$WORKSPACE/tests/integration/run_probe.sh" "$WORKSPACE/tests/integration/voice/test_speaker_memory_mock.py"; then
   cat "$LOG_FILE" >&2
   exit 1
 fi

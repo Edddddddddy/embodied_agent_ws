@@ -10,6 +10,8 @@ import subprocess
 
 import pytest
 
+from repository_test_support import acceptance_handler_source
+
 
 ROOT = Path(__file__).resolve().parents[2]
 ACTIVATE = ROOT / "scripts" / "activate.sh"
@@ -190,7 +192,6 @@ def test_public_demo_entrypoints_share_workspace_resolver():
 
     for relative in (
         "scripts/activate.sh",
-        "scripts/acceptance_test.sh",
         "scripts/bootstrap.sh",
         "scripts/setup_frontier_exploration.sh",
         "scripts/voice_slam_nav_showcase.sh",
@@ -200,9 +201,12 @@ def test_public_demo_entrypoints_share_workspace_resolver():
         assert 'embodied_resolve_workspace "${BASH_SOURCE[0]}"' in text, relative
         assert "WORKSPACE=\"${WORKSPACE:-/home/ubuntu/embodied_agent_ws}\"" not in text
 
+    acceptance = (ROOT / "scripts/acceptance_test.sh").read_text(encoding="utf-8")
+    assert 'WORKSPACE="$(cd -- "$SCRIPT_DIR/.." && pwd -P)"' in acceptance
+    assert "/home/ubuntu/embodied_agent_ws" not in acceptance
+
 
 def test_autonomous_slam_entries_run_workspace_doctor():
-    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(encoding="utf-8")
     showcase = (ROOT / "scripts" / "voice_slam_nav_showcase.sh").read_text(
         encoding="utf-8"
     )
@@ -211,6 +215,10 @@ def test_autonomous_slam_entries_run_workspace_doctor():
     assert "embodied_workspace_doctor()" in helper
     assert "RUN_AUTOMATIC_MISSION" in helper
     assert "ros2 pkg prefix explore_lite" in helper
-    assert "slam-nav-showcase-stage)\n    embodied_workspace_doctor true" in acceptance
-    assert "slam-autonomous-mission)\n    embodied_workspace_doctor true" in acceptance
+    assert "embodied_workspace_doctor true" in acceptance_handler_source(
+        "slam-nav-showcase-stage"
+    )
+    assert "embodied_workspace_doctor true" in acceptance_handler_source(
+        "slam-autonomous-mission"
+    )
     assert "embodied_workspace_doctor true" in showcase

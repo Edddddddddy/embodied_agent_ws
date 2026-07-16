@@ -60,7 +60,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-if ! timeout 900 python3 tests/integration/test_voice_slam_session_orchestrator.py \
+if ! timeout 900 bash tests/integration/run_probe.sh tests/integration/slam_nav/test_voice_slam_session_orchestrator.py \
   --output "$REPORT" \
   --transition-timeout 860 \
   --evidence-kind gazebo_frontier_slam_map_saver_amcl_nav2_dynamic_replan \

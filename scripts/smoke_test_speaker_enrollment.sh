@@ -29,7 +29,7 @@ setsid ros2 run embodied_voice_frontend speaker_identity --ros-args \
 PIDS+=("$!")
 
 if ! timeout 25 env SPEAKER_ENROLL_DIR="$SPEAKER_ENROLL_DIR" \
-  python3 "$WORKSPACE/tests/integration/test_speaker_enrollment.py"; then
+  bash "$WORKSPACE/tests/integration/run_probe.sh" "$WORKSPACE/tests/integration/voice/test_speaker_enrollment.py"; then
   cat "$LOG_FILE" >&2
   exit 1
 fi

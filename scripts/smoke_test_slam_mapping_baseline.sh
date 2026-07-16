@@ -33,7 +33,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if ! python3 tests/integration/test_slam_mapping_baseline.py \
+if ! bash tests/integration/run_probe.sh tests/integration/slam_nav/test_slam_mapping_baseline.py \
     --timeout "${SLAM_BASELINE_TIMEOUT:-150}" \
     --settle "${SLAM_BASELINE_SETTLE:-5}" \
     --solver "$SLAM_SOLVER" \

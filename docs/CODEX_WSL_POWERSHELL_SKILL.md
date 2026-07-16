@@ -188,7 +188,7 @@ gh pr checks --watch
 
 ```bash
 pytest -q tests/repository
-bash tests/integration/test_acceptance_cli.sh
+bash tests/integration/control/test_acceptance_cli.sh
 pytest -q src/embodied_agent_core/test src/embodied_voice_frontend/test src/embodied_offline_agent/test
 ```
 

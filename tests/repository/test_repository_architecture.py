@@ -1,6 +1,12 @@
 """仓库架构、强类型接口与生命周期边界约束。"""
 
-from repository_test_support import BRINGUP_ROOT, CORE_ROOT, ROOT, VOICE_FRONTEND_ROOT
+from repository_test_support import (
+    BRINGUP_ROOT,
+    CORE_ROOT,
+    ROOT,
+    VOICE_FRONTEND_ROOT,
+    assert_acceptance_modes,
+)
 
 
 def test_repository_contracts_remain_split_by_architecture_topic():
@@ -203,8 +209,7 @@ def test_robot_action_transport_is_fully_typed_without_legacy_json_adapter():
 
     command_msg = (interfaces / "RobotCommand.msg").read_text(encoding="utf-8")
     assert "bool priority" in command_msg
-    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(encoding="utf-8")
-    assert "cpp-action-scheduler" in acceptance
+    assert_acceptance_modes("cpp-action-scheduler")
 
 
 def test_cpp_runtime_modules_and_typed_bridge_lifecycle_contract():
@@ -415,9 +420,6 @@ def test_cpp_typed_action_demo_client_remains_available():
     )
     demo_client = demo_client_path.read_text(encoding="utf-8")
     smoke_script = ROOT / "scripts" / "smoke_test_cpp_action_client.sh"
-    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
-        encoding="utf-8"
-    )
     learning = (ROOT / "docs" / "LEARNING_NOTES.md").read_text(encoding="utf-8")
     presentation = (ROOT / "docs" / "PROJECT_PRESENTATION_15MIN.md").read_text(
         encoding="utf-8"
@@ -430,7 +432,7 @@ def test_cpp_typed_action_demo_client_remains_available():
     assert "rclcpp_action::create_client<ExecuteRobotCommand>" in demo_client
     assert "feedback_callback" in demo_client
     assert "result_callback" in demo_client
-    assert "cpp-action-client" in acceptance
+    assert_acceptance_modes("cpp-action-client")
     assert "typed_action_demo_client" in smoke_script.read_text(encoding="utf-8")
     assert "typed_action_demo_client.cpp" in learning
     assert "typed_action_demo_client.cpp" in presentation
@@ -815,12 +817,11 @@ def test_online_and_offline_agents_have_real_lifecycle_resource_ownership():
     for launch in (online_launch, offline_launch):
         assert '"agent_lifecycle_autostart": False' in launch
 
-    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
-        encoding="utf-8"
-    )
-    assert "agent-lifecycle" in acceptance
+    assert_acceptance_modes("agent-lifecycle")
     assert (ROOT / "scripts" / "smoke_test_agent_lifecycle.sh").is_file()
-    assert (ROOT / "tests" / "integration" / "test_agent_lifecycle.py").is_file()
+    assert (
+        ROOT / "tests" / "integration" / "control" / "test_agent_lifecycle.py"
+    ).is_file()
 
 def test_agent_turn_metrics_use_one_strongly_typed_ros_contract():
     """在线/离线指标必须共享 schema，禁止重新引入双 topic 或 JSON wire。"""

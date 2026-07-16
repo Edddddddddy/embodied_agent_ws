@@ -30,7 +30,7 @@ CORE_COMMANDS: tuple[tuple[str, str], ...] = (
     ),
     (
         "cli_and_instruction_parser",
-        "bash tests/integration/test_acceptance_cli.sh && "
+        "bash tests/integration/control/test_acceptance_cli.sh && "
         "bash scripts/acceptance_test.sh instruction-eval-dataset && "
         "bash scripts/acceptance_test.sh instruction-parser-eval",
     ),
@@ -58,7 +58,7 @@ FULL_COMMANDS: tuple[tuple[str, str], ...] = (
         "repository_and_offline_unit",
         "pytest -q tests/repository src/embodied_offline_agent/test",
     ),
-    ("acceptance_cli", "bash tests/integration/test_acceptance_cli.sh"),
+    ("acceptance_cli", "bash tests/integration/control/test_acceptance_cli.sh"),
     ("instruction_parser_eval", "bash scripts/acceptance_test.sh instruction-parser-eval"),
     ("continuous_mock", "bash scripts/acceptance_test.sh continuous-mock"),
     ("continuous_multi_command", "bash scripts/acceptance_test.sh continuous-multi-command"),
@@ -75,7 +75,7 @@ FULL_COMMANDS: tuple[tuple[str, str], ...] = (
 DEMO_COMMANDS: tuple[tuple[str, str], ...] = (
     (
         "demo_cli_readiness",
-        "bash tests/integration/test_acceptance_cli.sh",
+        "bash tests/integration/control/test_acceptance_cli.sh",
     ),
     (
         "voice_provider_readiness",

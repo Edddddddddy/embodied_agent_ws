@@ -312,7 +312,7 @@ bash scripts/acceptance_test.sh openloris-loop-consistency-ablation
 # 固定图增加每条回环独立 switch；默认不改变在线配置。
 GTSAM_INCLUDE_SWITCHABLE_CONSTRAINTS=true \
   GTSAM_ABLATION_OUTPUT_DIR=logs/openloris/corridor1-1/switchable_constraint_ablation \
-  bash scripts/run_gtsam_robust_kernel_ablation.sh
+  bash tools/evaluation/run_gtsam_robust_kernel_ablation.sh
 
 # 用原始 LaserScan + 静态 TF 为已接受约束补充重叠证据，并做双证据消融。
 bash scripts/acceptance_test.sh openloris-scan-overlap-ablation

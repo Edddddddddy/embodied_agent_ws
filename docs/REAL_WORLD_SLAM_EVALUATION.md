@@ -20,20 +20,20 @@ OpenLORIS ROS 1 bag (/odom + /scan + /tf_static)
 | `src/embodied_slam_tools/embodied_slam_tools/replay_node.py` | ROS 1/2 bag → ROS 2 clock/TF/LaserScan/Odometry |
 | `src/embodied_slam_tools/embodied_slam_tools/trajectory_recorder.py` | 组合 `map→odom→base` 并输出 TUM |
 | `src/embodied_slam/launch/openloris_mapping.launch.py` | recorder、slam_toolbox、replay 生命周期编排 |
-| `scripts/setup_openloris_groundtruth.py` | 下载、SHA256 校验、按序列安全解压真值 |
-| `scripts/setup_openloris_rosbag.py` | 断点续传、固定对象校验、只提取指定 bag、记录来源 |
-| `scripts/evaluate_slam_trajectory.py` | 时间同步、SE(2) 对齐、指标与报告 |
-| `scripts/analyze_openloris_revisits.py` | 从独立真值聚合回访事件，先验证序列是否适合回环实验 |
-| `scripts/rank_openloris_revisit_sequences.py` | 在下载大型 bag 前批量比较方向敏感/360° LiDAR 回访与长序列门槛 |
-| `scripts/evaluate_loop_constraints.py` | accepted 非局部图边的 precision、false-loop 与事件 recall |
-| `scripts/extract_openloris_review_frames.py` | 稀疏提取 RGB 联络表，辅助人工标注走廊/动态遮挡区间 |
-| `scripts/analyze_slam_degradation.py` | 共享同一对齐，按直行/转弯/静止及人工标注区间拆分误差 |
-| `scripts/build_openloris_experiment_manifest.py` | 绑定 bag/配置/commit/指标/日志哈希 |
-| `scripts/compare_openloris_backends.py` | 检查 A/B 输入可比性并描述指标差异 |
+| `tools/evaluation/setup_openloris_groundtruth.py` | 下载、SHA256 校验、按序列安全解压真值 |
+| `tools/evaluation/setup_openloris_rosbag.py` | 断点续传、固定对象校验、只提取指定 bag、记录来源 |
+| `tools/evaluation/evaluate_slam_trajectory.py` | 时间同步、SE(2) 对齐、指标与报告 |
+| `tools/evaluation/analyze_openloris_revisits.py` | 从独立真值聚合回访事件，先验证序列是否适合回环实验 |
+| `tools/evaluation/rank_openloris_revisit_sequences.py` | 在下载大型 bag 前批量比较方向敏感/360° LiDAR 回访与长序列门槛 |
+| `tools/evaluation/evaluate_loop_constraints.py` | accepted 非局部图边的 precision、false-loop 与事件 recall |
+| `tools/evaluation/extract_openloris_review_frames.py` | 稀疏提取 RGB 联络表，辅助人工标注走廊/动态遮挡区间 |
+| `tools/evaluation/analyze_slam_degradation.py` | 共享同一对齐，按直行/转弯/静止及人工标注区间拆分误差 |
+| `tools/evaluation/build_openloris_experiment_manifest.py` | 绑定 bag/配置/commit/指标/日志哈希 |
+| `tools/evaluation/compare_openloris_backends.py` | 检查 A/B 输入可比性并描述指标差异 |
 | `gtsam_graph_optimize.cpp` | 在无 ROS 回放的情况下重放同一位姿图并输出 TUM 轨迹 |
 | `run_gtsam_robust_kernel_ablation.py` | 固定图 SHA256，比较 Gaussian/Huber/Cauchy 并生成报告 |
-| `tests/repository/test_slam_trajectory_evaluation.py` | 数学与异常时间轴回归测试 |
-| `tests/integration/test_rosbag_trajectory_adapter_runtime.py` | 可选 rosbags 真实读写测试 |
+| `tests/evaluation/test_slam_trajectory_evaluation.py` | 数学与异常时间轴回归测试 |
+| `tests/integration/slam_nav/test_rosbag_trajectory_adapter_runtime.py` | 可选 rosbags 真实读写测试 |
 
 ## 2. 数据集选择
 

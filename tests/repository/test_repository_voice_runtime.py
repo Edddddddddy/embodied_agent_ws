@@ -8,6 +8,7 @@ from repository_test_support import (
     ROOT,
     VOICE_FRONTEND_ROOT,
     _python_literal,
+    assert_acceptance_modes,
 )
 
 
@@ -247,9 +248,6 @@ def test_webrtc_vad_sidecar_remains_integrated_as_optional_voice_provider():
     preflight = (ROOT / "scripts" / "voice_provider_preflight.py").read_text(
         encoding="utf-8"
     )
-    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
-        encoding="utf-8"
-    )
     continuous = (ROOT / "scripts" / "continuous_voice_control.sh").read_text(
         encoding="utf-8"
     )
@@ -276,9 +274,9 @@ def test_webrtc_vad_sidecar_remains_integrated_as_optional_voice_provider():
     assert (ROOT / "scripts" / "silero_ros_runtime_probe.py").is_file()
     assert (ROOT / "scripts" / "smoke_test_silero_vad_runtime.sh").is_file()
     assert (ROOT / "scripts" / "smoke_test_webrtc_vad_sidecar.sh").is_file()
-    assert "voice-vad-runtime-dry-run" in acceptance
-    assert "webrtc-vad-sidecar" in acceptance
-    assert "silero-vad-runtime" in acceptance
+    assert_acceptance_modes(
+        "voice-vad-runtime-dry-run", "webrtc-vad-sidecar", "silero-vad-runtime"
+    )
     assert "setup_voice_vad_runtime.sh webrtc" in acceptance_doc
     assert "webrtc-vad-sidecar" in acceptance_doc
     assert "silero-vad-runtime" in acceptance_doc
@@ -300,9 +298,6 @@ def test_acoustic_keyword_wake_runtime_entrypoints_remain_available():
     preflight = (ROOT / "scripts" / "voice_provider_preflight.py").read_text(
         encoding="utf-8"
     )
-    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
-        encoding="utf-8"
-    )
     acceptance_doc = (ROOT / "docs" / "TESTING_AND_ACCEPTANCE.md").read_text(
         encoding="utf-8"
     )
@@ -315,8 +310,7 @@ def test_acoustic_keyword_wake_runtime_entrypoints_remain_available():
     assert "kws:sherpa_onnx_package_missing" in preflight
     assert (ROOT / "scripts" / "setup_voice_kws_runtime.sh").is_file()
     assert (ROOT / "scripts" / "smoke_test_sherpa_kws_sidecar.sh").is_file()
-    assert "voice-kws-runtime-dry-run" in acceptance
-    assert "sherpa-kws-sidecar" in acceptance
+    assert_acceptance_modes("voice-kws-runtime-dry-run", "sherpa-kws-sidecar")
     assert "setup_voice_kws_runtime.sh openwakeword" in acceptance_doc
     assert "setup_voice_kws_runtime.sh sherpa" in acceptance_doc
     assert "source logs/sherpa_kws.env" in acceptance_doc
