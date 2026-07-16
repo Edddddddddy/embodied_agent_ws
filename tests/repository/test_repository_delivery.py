@@ -600,3 +600,22 @@ def test_nav2_live_evidence_script_keeps_control_and_scoring_together():
     assert "DRY RUN" in evidence
     assert "export ROS_DOMAIN_ID" in evidence
     assert "kill -TERM -- \"-$CONTROL_PID\"" in evidence
+
+
+def test_entry_documents_stay_concise_and_point_to_authoritative_guides():
+    """入口只负责导航；细节必须留在权威专题文档，防止 README 再次膨胀。"""
+
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    docs_index = (ROOT / "docs" / "README.md").read_text(encoding="utf-8")
+
+    assert len(readme.splitlines()) <= 220
+    assert len(docs_index.splitlines()) <= 100
+
+    for required in (
+        "## 核心架构",
+        "## 推荐演示",
+        "## 测试与验收",
+        "TESTING_AND_ACCEPTANCE.md",
+        "LEARNING_NOTES.md",
+    ):
+        assert required in readme
