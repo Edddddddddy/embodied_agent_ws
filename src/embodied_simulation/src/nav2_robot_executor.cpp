@@ -249,7 +249,10 @@ private:
       ActionExecutionState::kRunning,
       "nav2:follow_waypoints:sending waypoints=" + join(waypoints, ","));
     FollowWaypoints::Goal goal;
-    goal.number_of_loops = std::max<std::uint32_t>(1U, loops);
+    // RobotCommand 约定的是“总遍历轮数”，而 Nav2 FollowWaypoints 约定的是
+    // “首轮之后额外重复几次”。因此 1 轮必须下发 0，避免巡检路线多走一遍。
+    const auto total_traversals = std::max<std::uint32_t>(1U, loops);
+    goal.number_of_loops = total_traversals - 1U;
     try {
       for (const auto & waypoint : waypoints) {
         auto pose = places_.to_pose_stamped(waypoint);

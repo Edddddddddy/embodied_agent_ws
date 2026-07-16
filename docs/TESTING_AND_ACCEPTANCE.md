@@ -203,11 +203,13 @@ bash scripts/acceptance_test.sh sherpa-kws-sidecar
 现场调参先生成可复制建议：
 
 ```bash
-bash scripts/acceptance_test.sh voice-calibration-report
+VOICE_CALIBRATION_COLLECT=true \
+  bash scripts/acceptance_test.sh voice-calibration-report
 ```
 
 报告中的 `recommended_environment`、`next_command` 和 `logs/voice_calibration.env` 是下一次运行的
-输入；可用 `APPLY_VOICE_CALIBRATION=true` 应用。不要只看一次 peak 就手工猜阈值。
+输入；可用 `APPLY_VOICE_CALIBRATION=true` 应用。默认不带 `VOICE_CALIBRATION_COLLECT=true`
+时使用合成 low-gain 样本，只用于自动回归。不要只看一次 peak 就手工猜阈值。
 
 ## 6. 自动建图、定位与导航主演示
 
@@ -229,11 +231,35 @@ HEADLESS=false USE_RVIZ=true \
   bash scripts/acceptance_test.sh voice-slam-workplace-demo offline
 ```
 
+voice-SLAM 入口默认自动加载 `logs/voice_calibration.env`，并在 WSLg/Pulse 可用时优先使用 Pulse
+capture bridge；它不应再与已经调通的 `continuous-offline` 使用两套麦克风参数。首次使用或输入
+电平变化后先运行：
+
+```bash
+VOICE_CALIBRATION_COLLECT=true \
+  bash scripts/acceptance_test.sh voice-calibration-report
+```
+
 说：
 
 ```text
 小智，开始自动巡检建图
 ```
+
+若 ASR final 精确截断为“开始自动”，白名单会恢复这条自动任务；“开始”、单独“自动”和完整识别
+出的其他意图不会被模糊触发。若其他长句也被声学模型截成完全相同的 final，文本层无法区分；
+终端应同时打印 partial/final，便于识别这一边界。
+
+若需要先隔离麦克风/ASR、证明后半段真实机器人闭环，保持 Terminal 1 演示运行，并在 Terminal 2
+执行：
+
+```bash
+bash scripts/voice_slam_nav_showcase.sh trigger-auto
+```
+
+此入口通过 typed `/slam/manage_session` Action 发送 `RUN_AUTOMATIC_MISSION`，不是文本 topic 或
+旧 JSON 命令。它只绕过声学触发，不能计为真人语音 PASS；后续 Explore Lite、SLAM、map_saver、
+AMCL/Nav2 和语义巡检仍是同一真实运行时。
 
 核心函数链：
 

@@ -119,11 +119,38 @@ HEADLESS=false USE_RVIZ=true \
   bash scripts/acceptance_test.sh voice-slam-workplace-demo offline
 ```
 
+该入口与 `continuous-offline` 使用同一套真实麦克风策略：默认自动加载
+`logs/voice_calibration.env`；WSLg Pulse 可用时由 Pulse bridge 从 `@DEFAULT_SOURCE@` 采集，并关闭
+重复的 PortAudio capture。校准文件不存在时先运行：
+
+```bash
+VOICE_CALIBRATION_COLLECT=true \
+  bash scripts/acceptance_test.sh voice-calibration-report
+```
+
+不带 `VOICE_CALIBRATION_COLLECT=true` 时使用合成 low-gain 样本，仅用于自动回归。
+
+显式环境变量优先于校准文件，现场排障可设置 `CONTINUOUS_PRINT_CONFIG=true` 核对 profile、VAD、
+endpoint/commit delay、Pulse bridge 与实际 capture 状态。
+
 启动完成后说一条高层任务即可：
 
 ```text
 小智，开始自动巡检建图
 ```
+
+离线小模型偶尔会把这条领域长句的 final 精确截断为“开始自动”。系统只对白名单中的这个精确
+短句恢复自动任务，并可用最新 partial 补回“巡检建图”；“开始”、单独“自动”或完整识别出的其他
+意图不会触发任务。若另一条长句也被 ASR 截成完全相同的 final，文本层无法区分，现场需结合
+partial 日志确认。若声学链仍不稳定，保持 Terminal 1 运行，在 Terminal 2 使用 typed 备用入口：
+
+```bash
+bash scripts/voice_slam_nav_showcase.sh trigger-auto
+```
+
+该命令向 `/slam/manage_session` 发送 `RUN_AUTOMATIC_MISSION`，等待任务结果并输出进度。它只绕过
+麦克风/ASR 触发层；frontier 探索、地图保存、AMCL/Nav2 切换以及单点/多点导航与语音触发路径
+完全相同，因此适合证明机器人闭环，不属于真人 ASR 证据。
 
 机器人会持续选择 frontier 并通过 Nav2 规划、局部控制和代价地图避障。无可达 frontier 后，系统
 自动保存地图、重启到 AMCL 定位模式，并顺序完成入口、厨房和办公室任务。建图模式将 Nav2
@@ -177,7 +204,12 @@ bash scripts/acceptance_test.sh slam-nav-showcase
 `logs/showcase/autonomous_runtime/automatic_mission_report.json`。旧固定路线回归报告仍保留 15 步和
 10 m 路径阈值。自动门禁用文本 topic 代替真人发声以保持回归可重复；
 `auto offline` 人工验收才是麦克风证据。两者复用相同编排器、Explore Lite、Nav2 和阶段安全检查；
-只有存图后的语义导航复用 `RobotCommand → ActionGuard → ExecuteRobotCommand` 控制链。
+建图 bootstrap 原语与存图后的语义导航都复用
+`RobotCommand → ActionGuard → ExecuteRobotCommand` 控制链，不直接写 `/cmd_vel`。
+
+完整重型门禁的关键结果应同时满足：入口 `NavigateToPose` 成功；厨房/办公室
+`FollowWaypoints` 的 ROS Action 状态成功、`error_code=0` 且 `missed_waypoints=0`；最后一帧
+`/cmd_vel` 的线速度和角速度均为 0。只看到地图文件或机器人移动不能算整条任务通过。
 
 Agent 对 `move/turn` 保持 12 秒快速故障超时，对 `navigate_to/follow_waypoints` 单独使用 330 秒长任务
 超时；底层 Nav2 executor 仍有自己的 300 秒 Action 超时。这样 Nav2 可进行规划与恢复，又不会让

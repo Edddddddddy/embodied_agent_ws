@@ -89,6 +89,100 @@ def test_continuous_nav2_voice_control_low_gain_profile_lowers_vad_and_disables_
     assert "aec_enabled:=false" in result.stdout
 
 
+def test_nav2_voice_control_reuses_calibration_and_wsl_pulse_bridge(tmp_path):
+    calibration = tmp_path / "voice_calibration.env"
+    calibration.write_text(
+        "\n".join(
+            [
+                "export VOICE_CONTROL_PROFILE=low_gain",
+                "export SPEECH_START_THRESHOLD=0.0016",
+                "export ASR_COMMIT_DELAY_MS=525",
+                "export VAD_PROVIDER=energy",
+                "export KWS_PROVIDER=openwakeword",
+                "export AEC_ENABLED=false",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    for key in (
+        "VOICE_CONTROL_PROFILE",
+        "SPEECH_START_THRESHOLD",
+        "ASR_COMMIT_DELAY_MS",
+        "VAD_PROVIDER",
+        "AEC_ENABLED",
+    ):
+        env.pop(key, None)
+    env.update(
+        {
+            "WORKSPACE": str(ROOT),
+            "CONTINUOUS_PRINT_CONFIG": "true",
+            "APPLY_VOICE_CALIBRATION": "true",
+            "VOICE_CALIBRATION_ENV": str(calibration),
+            "PULSE_CAPTURE_BRIDGE": "auto",
+            "PULSE_SERVER": "unix:/mnt/wslg/PulseServer",
+            "KWS_PROVIDER": "sherpa",
+        }
+    )
+
+    result = subprocess.run(
+        ["bash", str(ROOT / "scripts" / "continuous_nav2_voice_control.sh"), "offline"],
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+
+    assert "VOICE_CONTROL_PROFILE=low_gain" in result.stdout
+    assert "VOICE_CALIBRATION_ENV=" in result.stdout
+    assert "applied=true" in result.stdout
+    assert "SPEECH_START_THRESHOLD=0.0016" in result.stdout
+    assert "ASR_COMMIT_DELAY_MS=525" in result.stdout
+    assert "KWS_PROVIDER=sherpa" in result.stdout
+    assert "PULSE_CAPTURE_BRIDGE=auto（active=true" in result.stdout
+    assert "capture_enabled:=false" in result.stdout
+
+
+def test_nav2_voice_control_disables_pulse_bridge_without_microphone():
+    env = os.environ.copy()
+    env.update(
+        {
+            "WORKSPACE": str(ROOT),
+            "CONTINUOUS_PRINT_CONFIG": "true",
+            "NAV2_MICROPHONE_ENABLED": "false",
+            "NAV2_CAPTURE_ENABLED": "false",
+            "PULSE_CAPTURE_BRIDGE": "auto",
+            "PULSE_SERVER": "unix:/mnt/wslg/PulseServer",
+            "VAD_PROVIDER": "energy",
+        }
+    )
+
+    result = subprocess.run(
+        ["bash", str(ROOT / "scripts" / "continuous_nav2_voice_control.sh"), "offline"],
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+
+    assert "MICROPHONE_ENABLED=false" in result.stdout
+    assert "PULSE_CAPTURE_BRIDGE=auto（active=false" in result.stdout
+
+
+def test_nav2_voice_control_health_checks_pulse_before_launch():
+    script = (ROOT / "scripts" / "continuous_nav2_voice_control.sh").read_text(
+        encoding="utf-8"
+    )
+
+    bridge_call = script.index("start_pulse_capture_bridge\nbuild_launch_args")
+    launch_call = script.index('setsid ros2 launch "${LAUNCH_ARGS[@]}"')
+    assert bridge_call < launch_call
+    assert 'kill -0 "$PULSE_BRIDGE_PID"' in script
+    assert "PulseAudio capture bridge startup failed" in script
+
+
 def test_continuous_nav2_voice_control_rejects_unknown_mode():
     env = os.environ.copy()
     env.update({"WORKSPACE": str(ROOT), "CONTINUOUS_PRINT_CONFIG": "true"})

@@ -50,6 +50,47 @@ def test_endpoint_is_deduplicated_and_delayed_before_commit():
     assert observed[-2:] == [("commit", "speech_ended"), "provider_commit"]
 
 
+def test_legacy_endpoint_is_still_deduplicated_after_dds_scheduling_jitter():
+    _FakeTimer.created.clear()
+    now = [10.0]
+    duplicates = []
+    runtime = AsrEndpointRuntime(
+        delay_ms=450,
+        blocked=lambda: False,
+        commit=lambda: None,
+        on_endpoint=lambda _source, _delay: None,
+        on_commit=lambda _source: None,
+        on_duplicate=duplicates.append,
+        clock=lambda: now[0],
+        timer_factory=_FakeTimer,
+    )
+
+    assert runtime.request("speech_ended") is True
+    now[0] += 0.2
+    assert runtime.request("silence_timeout") is False
+    assert duplicates == ["silence_timeout"]
+
+
+def test_same_endpoint_source_can_commit_consecutive_utterances():
+    _FakeTimer.created.clear()
+    now = [10.0]
+    endpoints = []
+    runtime = AsrEndpointRuntime(
+        delay_ms=100,
+        blocked=lambda: False,
+        commit=lambda: None,
+        on_endpoint=lambda source, _delay: endpoints.append(source),
+        on_commit=lambda _source: None,
+        clock=lambda: now[0],
+        timer_factory=_FakeTimer,
+    )
+
+    assert runtime.request("speech_ended") is True
+    now[0] += 0.12
+    assert runtime.request("speech_ended") is True
+    assert endpoints == ["speech_ended", "speech_ended"]
+
+
 def test_busy_gate_and_close_prevent_late_provider_access():
     _FakeTimer.created.clear()
     blocked = [True]

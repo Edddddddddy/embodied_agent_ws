@@ -15,6 +15,7 @@ MISSION_SPEC="$WORKSPACE/src/embodied_simulation/config/showcase_workplace_missi
 SESSION_DIR="${SHOWCASE_SESSION_DIR:-$WORKSPACE/logs/showcase}"
 SAVED_MAP_PREFIX="${SHOWCASE_MAP_PREFIX:-$SESSION_DIR/voice_built_map}"
 FRONTIER_NAV2_PARAMS="$SESSION_DIR/frontier_nav2_params.yaml"
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-30}"
 
 usage() {
   cat <<'EOF'
@@ -27,6 +28,9 @@ Terminal 1：
 
 Terminal 2（mapping 仍运行时）：
   bash scripts/voice_slam_nav_showcase.sh save
+
+若长句 ASR 被截断，可在 Terminal 2 使用 typed 备用入口：
+  bash scripts/voice_slam_nav_showcase.sh trigger-auto
 
 其他：
   bash scripts/voice_slam_nav_showcase.sh audit
@@ -103,12 +107,18 @@ case "$COMMAND" in
     # 在拉起 Gazebo 前先失败，避免用户等到状态机内部才看到 explorer 或旧 Action 报错。
     embodied_workspace_doctor true
     print_mission_plan
+    echo "[showcase] ROS_DOMAIN_ID=$ROS_DOMAIN_ID"
     echo "[showcase] 单终端自动编排：办公巡检建图 -> 保存 -> AMCL -> 多目标 Nav2"
     exec ros2 run embodied_slam_tools voice_slam_session_orchestrator --ros-args \
       -p "workspace:=$WORKSPACE" \
       -p "mode:=$MODE" \
       -p "map_prefix:=$SAVED_MAP_PREFIX" \
       -p "dry_run:=${SHOWCASE_ORCHESTRATOR_DRY_RUN:-false}"
+    ;;
+  trigger-auto)
+    activate
+    echo "[showcase] ROS_DOMAIN_ID=$ROS_DOMAIN_ID；等待 mapping ready 后发送 typed Action。"
+    exec python3 "$WORKSPACE/scripts/trigger_automatic_slam_mission.py"
     ;;
   mapping)
     echo "[showcase] 阶段 1/3：真实感室内场景 + SLAM Toolbox 在线建图"

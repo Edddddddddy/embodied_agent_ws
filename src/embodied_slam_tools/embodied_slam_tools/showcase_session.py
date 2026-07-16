@@ -39,8 +39,17 @@ class SessionSnapshot:
     detail: str = ""
 
 
+_TRUNCATED_AUTOMATIC_MISSION_FINALS = frozenset({"开始自动"})
+
+
 def normalize_session_text(text: str) -> str:
     return re.sub(r"[\s，。！？!?、,；;：:]", "", text).lower()
+
+
+def is_truncated_automatic_mission_text(text: str) -> bool:
+    """识别已知的短 final，但只接受完整相等，避免普通“开始……”被误触发。"""
+
+    return normalize_session_text(text) in _TRUNCATED_AUTOMATIC_MISSION_FINALS
 
 
 def is_automatic_mission_cancel_text(text: str) -> bool:
@@ -114,7 +123,7 @@ def parse_session_command(text: str) -> SessionCommand | None:
     """只识别高确定性的系统命令，普通聊天和机器人动作继续交给 Agent。"""
 
     normalized = normalize_session_text(text)
-    if any(
+    if is_truncated_automatic_mission_text(normalized) or any(
         phrase in normalized
         for phrase in (
             "开始自动巡检建图",

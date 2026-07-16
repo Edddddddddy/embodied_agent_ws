@@ -181,12 +181,23 @@ bash scripts/acceptance_test.sh slam-autonomous-mission-stage
 HEADLESS=false USE_RVIZ=true \
   bash scripts/acceptance_test.sh voice-slam-workplace-demo offline
 
+# 若现场 ASR 长句被截断，在主演示仍运行时从 Terminal 2 发送 typed Action
+bash scripts/voice_slam_nav_showcase.sh trigger-auto
+
 # 无麦克风的真实重型门禁：frontier 探索→存图→AMCL/Nav2→语义巡检
 bash scripts/acceptance_test.sh slam-autonomous-mission
 
 # 旧的确定性路线回归仍保留，用于区分探索算法与控制链故障
 bash scripts/acceptance_test.sh slam-session-orchestrator
 ```
+
+主演示会自动复用 `logs/voice_calibration.env`，并在 WSLg 可用时优先由 Pulse bridge 从
+`@DEFAULT_SOURCE@` 采集，避免普通连续语音可用而 SLAM 演示误用近静音 PortAudio source。完整识别
+仍推荐说“小智，开始自动巡检建图”；如果 ASR final **精确截断为**“开始自动”，会按安全白名单
+恢复为自动任务，但不会把“开始”或完整识别出的其他语义文本做模糊泛化。若 ASR 把另一条更长
+语句也错误截成完全相同的“开始自动”，文本层无法消除该声学歧义，因此现场应核对 partial/final。
+`trigger-auto` 只绕过麦克风/ASR 高层触发，后续仍执行同一编排器、Explore Lite、存图、
+AMCL/Nav2 和动作安全链，不能用它冒充真人语音识别证据。
 
 主演示不是整图固定路线回放：机器人先通过同一 Agent→ActionGuard→Action 链执行一段可审计的
 自动脱离充电角路线，到中央门洞后由 Explore Lite 从在线占据栅格提取 frontier，以信息增益和
@@ -475,7 +486,8 @@ bash scripts/acceptance_test.sh --help-all
 
 ```bash
 bash scripts/acceptance_test.sh wsl-microphone-preflight
-bash scripts/acceptance_test.sh voice-calibration-report
+VOICE_CALIBRATION_COLLECT=true \
+  bash scripts/acceptance_test.sh voice-calibration-report
 # 输出 logs/audio_calibration.json、logs/voice_calibration_report.json
 # 和可 source 的 logs/voice_calibration.env
 
@@ -483,6 +495,9 @@ APPLY_VOICE_CALIBRATION=true \
 CONTINUOUS_SAMPLE_LOG=logs/asr_nlu_samples.jsonl \
   bash scripts/acceptance_test.sh continuous-offline
 ```
+
+不带 `VOICE_CALIBRATION_COLLECT=true` 的命令使用合成 low-gain 样本，只用于 CI/算法回归，
+不能替代当前麦克风的现场采集。
 
 重点参数是 `VOICE_CONTROL_PROFILE`、`SPEECH_START_THRESHOLD`、`SPEECH_END_SILENCE_S` 和
 `ASR_COMMIT_DELAY_MS`。当前门禁把 LLM 首 token 目标设为 `≤ 1000ms`，Sherpa 短反馈整句

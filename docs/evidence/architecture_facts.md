@@ -11,8 +11,8 @@
 | 公开验收入口 | 13 |
 | 高级帮助入口 | 133 |
 | CLI router mode | 133 |
-| `scripts/` 顶层文件 | 198 |
-| `scripts/` 递归文件 | 198 |
+| `scripts/` 顶层文件 | 199 |
+| `scripts/` 递归文件 | 199 |
 | online Agent 主节点行数 | 544 |
 | offline Agent 主节点行数 | 677 |
 | 自定义 msg/srv/action 总数 | 37 |

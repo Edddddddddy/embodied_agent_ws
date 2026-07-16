@@ -24,7 +24,7 @@ class AsrEndpointRuntime:
         on_commit: Callable[[str], None],
         on_duplicate: Callable[[str], None] | None = None,
         on_error: Callable[[Exception], None] | None = None,
-        duplicate_window_s: float = 0.05,
+        duplicate_window_s: float = 0.25,
         clock: Callable[[], float] = time.monotonic,
         timer_factory=threading.Timer,
     ):
@@ -40,6 +40,7 @@ class AsrEndpointRuntime:
         self._timer_factory = timer_factory
         self._lock = threading.Lock()
         self._last_request_at = float("-inf")
+        self._last_request_source: str | None = None
         self._closed = False
         self._generation = 0
         self._timers: set[object] = set()
@@ -53,10 +54,17 @@ class AsrEndpointRuntime:
             if self._closed:
                 return False
             now = self._clock()
-            if now - self._last_request_at < self._duplicate_window_s:
+            # WebRTC 兼容层会为同一端点依次发布 speech_ended 与
+            # silence_timeout；只压掉这种跨 topic 镜像。相同 source 的下一条
+            # endpoint 代表新 utterance，即使用户说得很快也不能吞掉。
+            if (
+                source != self._last_request_source
+                and now - self._last_request_at < self._duplicate_window_s
+            ):
                 self._on_duplicate(source)
                 return False
             self._last_request_at = now
+            self._last_request_source = source
             generation = self._generation
 
         self._on_endpoint(source, self._delay_ms)
@@ -118,6 +126,7 @@ class AsrEndpointRuntime:
                 return
             self._generation += 1
             self._last_request_at = float("-inf")
+            self._last_request_source = None
             timers = tuple(self._timers)
             self._timers.clear()
         for timer in timers:
