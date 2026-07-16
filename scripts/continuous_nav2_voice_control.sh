@@ -143,6 +143,8 @@ SYSTEM_READINESS_STALE_TIMEOUT_S="${SYSTEM_READINESS_STALE_TIMEOUT_S:-30.0}"
 
 source "$WORKSPACE/scripts/activate.sh"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((140 + $$ % 80))}"
+export GZ_PARTITION="${GZ_PARTITION:-embodied_agent_${ROS_DOMAIN_ID}}"
+export IGN_PARTITION="${IGN_PARTITION:-$GZ_PARTITION}"
 
 if [[ "$MODE" != "offline" && "$MODE" != "online" ]]; then
   echo "Usage: $0 {offline|online}" >&2
@@ -274,6 +276,7 @@ print_configuration() {
   build_launch_args
   cat <<EOF
 ROS_DOMAIN_ID=$ROS_DOMAIN_ID，Nav2 连续语音导航模式=$MODE
+GZ_PARTITION=$GZ_PARTITION（隔离 Gazebo Transport，避免残留世界抢占 /clock）
 PROVIDER_MODE=$PROVIDER_MODE
 MICROPHONE_ENABLED=$MICROPHONE_ENABLED
 CAPTURE_ENABLED=$CAPTURE_ENABLED

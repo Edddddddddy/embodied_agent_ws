@@ -178,6 +178,7 @@ token 和 TTS 指标。在线 ASR/LLM 的外部波动不应导致队列乱序或
 | “左转90度”只成“左转” | endpoint/commit event | 增大 silence/commit delay；短命令补全应给 feedback |
 | ASR final 有、无动作 | `/agent/nlu_parse`、recognition feedback | 检查否定/缺槽位/低置信度 fallback |
 | 第二条命令丢失 | queue/execution events | 检查 queue full、TTL、重复 final、command_id |
+| `executing 0%` 持续不变 | `/clock`、`GZ_PARTITION`、Gazebo warning | `/clock` 必须推进；检查是否有旧 `gz sim` 抢占全局 clock |
 | 看似卡住 | Action feedback/result、readiness | 区分等待 Action、provider、生命周期未激活 |
 
 ### 5.5 成熟 VAD、KWS 与现场校准
@@ -421,6 +422,15 @@ ps -ef | grep -E 'gz sim|nav2|slam_toolbox|explore' | grep -v grep
 
 WSL 出现 `Failed init_port fastrtps_port7000` 时，确认通过 `source scripts/activate.sh` 加载了
 `scripts/ros_dds_env.sh`；默认 Fast DDS 使用 UDPv4，避免 SHM 锁冲突。
+
+Gazebo Transport 不受 `ROS_DOMAIN_ID` 隔离。项目入口会自动设置
+`GZ_PARTITION=embodied_agent_<ROS_DOMAIN_ID>`，并在仿真 readiness 中要求 `/clock` 至少推进
+0.1 秒。如果仍看到 `Found additional publishers on /clock` 或 Action 长期 `executing 0%`，说明
+有旧进程显式使用了相同 partition，可执行：
+
+```bash
+CLEANUP_CONFIRM=true bash scripts/cleanup_simulation_processes.sh
+```
 
 ## 11. 合并与发布标准
 

@@ -136,6 +136,11 @@ bash scripts/acceptance_test.sh wsl-microphone-preflight
 bash scripts/acceptance_test.sh continuous-offline
 ```
 
+仿真入口按 `ROS_DOMAIN_ID` 自动设置独立 `GZ_PARTITION`，并在 readiness 中确认 `/clock`
+持续推进。若反馈长期停在 `executing 0%`，不要继续等待：先检查终端是否出现
+`Found additional publishers on /clock`，必要时运行
+`CLEANUP_CONFIRM=true bash scripts/cleanup_simulation_processes.sh` 清理旧 Gazebo server。
+
 正式长稳留证使用 5 分钟入口，online/offline 分别写报告：
 
 ```bash

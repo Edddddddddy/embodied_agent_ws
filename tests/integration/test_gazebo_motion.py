@@ -12,6 +12,7 @@ from embodied_agent_interfaces.msg import (
     BehaviorTreeStatus,
     RobotActionAck,
     RobotCommand,
+    RobotCommandFeedback,
     RobotCommandResult,
 )
 from embodied_agent_core.runtime_status_transport import (
@@ -36,6 +37,7 @@ class GazeboProbe(Node):
         self.ack = None
         self.action_result = None
         self.move_result = None
+        self.move_max_progress = 0.0
         self.move_command_id = ""
         self.move_bt_result = None
         self.command_sequence = 0
@@ -44,6 +46,12 @@ class GazeboProbe(Node):
         self.create_subscription(RobotActionAck, "/robot/action_ack", self._on_ack, 10)
         self.create_subscription(
             RobotCommandResult, "/robot/action_result", self._on_result, 10
+        )
+        self.create_subscription(
+            RobotCommandFeedback,
+            "/robot/action_feedback",
+            self._on_feedback,
+            10,
         )
         self.create_subscription(BehaviorTreeStatus, "/robot/bt_status", self._on_bt, 10)
 
@@ -63,6 +71,13 @@ class GazeboProbe(Node):
         self.action_result = result_dict(message)
         if self.action_result.get("command_id") == self.move_command_id:
             self.move_result = self.action_result
+
+    def _on_feedback(self, message):
+        if message.command_id == self.move_command_id:
+            self.move_max_progress = max(
+                self.move_max_progress,
+                float(message.progress),
+            )
 
     def _on_bt(self, message):
         status = behavior_tree_status_to_dict(message)
@@ -127,6 +142,7 @@ def main():
                 or (
                     node.move_result is not None
                     and node.move_result.get("success") is True
+                    and node.move_max_progress > 0.05
                     and node.move_bt_result is not None
                     and node.move_bt_result.get("stage") == "confirm"
                 )
@@ -151,6 +167,7 @@ def main():
             "distance_m": round(distance, 3),
             "action_ack": node.ack,
             "move_action_result": node.move_result,
+            "move_max_progress": round(node.move_max_progress, 3),
             "move_bt_result": node.move_bt_result,
         }, ensure_ascii=False, indent=2))
     finally:

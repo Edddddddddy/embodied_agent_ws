@@ -131,6 +131,10 @@ SYSTEM_READINESS_TIMEOUT="${SYSTEM_READINESS_TIMEOUT:-35.0}"
 SIMULATION_CLEANUP_STALE="${SIMULATION_CLEANUP_STALE:-false}"
 source "$WORKSPACE/scripts/activate.sh"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((140 + $$ % 80))}"
+# ROS_DOMAIN_ID 不会隔离 Gazebo Transport；单独设置 partition 才能避免旧
+# gz sim 抢占 /clock 并让 use_sim_time 动作永远停在 0%。
+export GZ_PARTITION="${GZ_PARTITION:-embodied_agent_${ROS_DOMAIN_ID}}"
+export IGN_PARTITION="${IGN_PARTITION:-$GZ_PARTITION}"
 
 resolve_vad_provider() {
   if [[ "$VAD_PROVIDER_REQUESTED" != "auto" ]]; then
@@ -192,6 +196,7 @@ fi
 print_configuration() {
   cat <<EOF
 ROS_DOMAIN_ID=$ROS_DOMAIN_ID，连续语音控制模式=$MODE
+GZ_PARTITION=$GZ_PARTITION（隔离 Gazebo Transport，避免残留世界抢占 /clock）
 FASTDDS_BUILTIN_TRANSPORTS=${FASTDDS_BUILTIN_TRANSPORTS:-<unset>}（默认 UDPv4，用于规避 WSL FastDDS SHM 锁报错）
 EMBODIED_ALLOW_FASTDDS_SHM=${EMBODIED_ALLOW_FASTDDS_SHM:-false}
 
