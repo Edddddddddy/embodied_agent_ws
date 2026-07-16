@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import os
 from pathlib import Path
 import queue
@@ -43,6 +42,12 @@ except ImportError:  # 可选运行时由 setup_frontier_exploration.sh 安装�
     ExploreStatus = None
 
 from .mapping_evidence import MappingEvidenceTracker
+from .mission_executor import (
+    AutomaticMissionCancelled,
+    AutomaticMissionExecutor,
+    AutomaticMissionSpec,
+    CommandRequest,
+)
 from .stage_process_manager import StageProcessManager
 from .showcase_session import (
     SessionCommand,
@@ -72,41 +77,6 @@ def _get_lifecycle_state(client, timeout_s: float) -> int | None:
     if response is None:
         return None
     return int(response.current_state.id)
-
-
-def _wait_for_required_event(
-    event: threading.Event,
-    timeout_s: float,
-    is_canceled,
-    *,
-    poll_s: float = 0.05,
-) -> bool:
-    """可取消地等待运行时依赖；成功返回 True，超时返回 False。"""
-
-    deadline = time.monotonic() + max(0.0, timeout_s)
-    while True:
-        if is_canceled():
-            raise AutomaticMissionCancelled("automatic mission canceled")
-        remaining = deadline - time.monotonic()
-        if remaining <= 0.0:
-            return event.is_set()
-        if event.wait(timeout=min(poll_s, remaining)):
-            return True
-
-
-@dataclass
-class CommandRequest:
-    command: SessionCommand
-    source: str
-    goal_handle: object | None = None
-    completed: threading.Event = field(default_factory=threading.Event)
-    success: bool = False
-    message: str = ""
-    canceled: bool = False
-
-
-class AutomaticMissionCancelled(RuntimeError):
-    """用户急停或取消高层任务，不应被误报成系统故障。"""
 
 
 class SessionOrchestratorNode(Node):
@@ -143,7 +113,7 @@ class SessionOrchestratorNode(Node):
         explorer_config_name = str(
             automatic_config.get("config", "frontier_exploration.yaml")
         )
-        self._explorer_config_path = (
+        explorer_config_path = (
             workspace / "src/embodied_simulation/config" / explorer_config_name
         )
         self._exploration_timeout_s = float(
@@ -158,16 +128,16 @@ class SessionOrchestratorNode(Node):
         exploration_min_growth_cells = int(
             automatic_config.get("min_growth_cells", 40)
         )
-        self._mission_navigation_timeout_s = float(
+        mission_navigation_timeout_s = float(
             automatic_config.get("navigation_timeout_s", 330.0)
         )
         self._exploration_completion_status = str(
             automatic_config.get("completion_status", "exploration_complete")
         )
-        self._mapping_bootstrap_route = parse_mapping_bootstrap_route(
+        mapping_bootstrap_route = parse_mapping_bootstrap_route(
             automatic_config
         )
-        self._mapping_bootstrap_action_timeout_s = float(
+        mapping_bootstrap_action_timeout_s = float(
             automatic_config.get("bootstrap_action_timeout_s", 45.0)
         )
         acceptance = self._mission_plan.get("acceptance", {})
@@ -184,10 +154,10 @@ class SessionOrchestratorNode(Node):
         self._startup_timeout_s = float(
             self.declare_parameter("startup_timeout_s", 120.0).value
         )
-        self._scan_startup_timeout_s = float(
+        scan_startup_timeout_s = float(
             self.declare_parameter("scan_startup_timeout_s", 20.0).value
         )
-        if self._scan_startup_timeout_s <= 0.0:
+        if scan_startup_timeout_s <= 0.0:
             raise ValueError("scan_startup_timeout_s must be positive")
         stop_timeout_s = float(
             self.declare_parameter("stop_timeout_s", 15.0).value
@@ -206,6 +176,25 @@ class SessionOrchestratorNode(Node):
         )
         self._mapping_evidence = MappingEvidenceTracker(
             exploration_min_growth_cells
+        )
+        navigation = self._mission_plan.get("navigation_mission", {})
+        if not isinstance(navigation, dict):
+            raise ValueError("navigation_mission must be a YAML mapping")
+        self._automatic_mission_executor = AutomaticMissionExecutor(
+            self,
+            self._manager,
+            self._mapping_evidence,
+            AutomaticMissionSpec(
+                explorer_config_path=explorer_config_path,
+                bootstrap_route=tuple(mapping_bootstrap_route),
+                scan_startup_timeout_s=scan_startup_timeout_s,
+                bootstrap_action_timeout_s=(
+                    mapping_bootstrap_action_timeout_s
+                ),
+                navigation_timeout_s=mission_navigation_timeout_s,
+                navigate_text=str(navigation["navigate_text"]),
+                patrol_text=str(navigation["patrol_text"]),
+            ),
         )
         self._dry_run = dry_run
         self._state_lock = threading.RLock()
@@ -357,7 +346,7 @@ class SessionOrchestratorNode(Node):
             f"map_saved={message.map_saved} detail={message.detail}"
         )
 
-    def _transition(self, phase: SessionPhase, **kwargs) -> None:
+    def transition(self, phase: SessionPhase, **kwargs) -> None:
         with self._state_lock:
             self._fsm.transition(phase, **kwargs)
         self._publish_state()
@@ -405,7 +394,7 @@ class SessionOrchestratorNode(Node):
         self._agent_text_pub.publish(String(data="停下"))
         self._manager.stop_explorer()
 
-    def _run_agent_text_action(
+    def run_agent_action(
         self,
         request: CommandRequest,
         *,
@@ -470,7 +459,7 @@ class SessionOrchestratorNode(Node):
                 f"{expected_action} failed status={result.status}: {result.message}"
             )
 
-    def _wait_for_frontier_completion(self, request: CommandRequest) -> None:
+    def wait_for_frontier(self, request: CommandRequest) -> None:
         if self._dry_run:
             deadline = time.monotonic() + self._dry_run_exploration_delay_s
             while time.monotonic() < deadline:
@@ -596,7 +585,7 @@ class SessionOrchestratorNode(Node):
                 )
         raise TimeoutError("stage did not publish ready SystemReadiness before timeout")
 
-    def _wait_for_navigation_action_servers(self, request: CommandRequest) -> None:
+    def wait_navigation_ready(self, request: CommandRequest) -> None:
         """通用 readiness 之后再验证 Nav2 的两个长任务 Action 已真正激活。"""
 
         if self._dry_run:
@@ -740,7 +729,7 @@ class SessionOrchestratorNode(Node):
         result.state = self._state_message()
         return result
 
-    def _feedback(self, request: CommandRequest, progress: float) -> None:
+    def feedback(self, request: CommandRequest, progress: float) -> None:
         if request.goal_handle is None:
             return
         feedback = ManageSlamSession.Feedback()
@@ -750,171 +739,61 @@ class SessionOrchestratorNode(Node):
 
     def _start_mapping(self) -> None:
         generation = self._readiness_generation()
-        self._transition(SessionPhase.STARTING_MAPPING, detail="starting mapping stage")
+        self.transition(SessionPhase.STARTING_MAPPING, detail="starting mapping stage")
         self._manager.start("mapping")
         self._wait_for_new_ready(generation)
-        self._transition(SessionPhase.MAPPING, detail="mapping ready; explore by voice")
+        self.transition(SessionPhase.MAPPING, detail="mapping ready; explore by voice")
 
-    def _save_map(self, request: CommandRequest) -> None:
+    def save_map(self, request: CommandRequest) -> None:
         if self._fsm.snapshot.map_saved:
             request.message = "map already saved"
             return
-        self._transition(SessionPhase.SAVING_MAP, detail="saving /map")
-        self._feedback(request, 0.35)
+        self.transition(SessionPhase.SAVING_MAP, detail="saving /map")
+        self.feedback(request, 0.35)
         try:
             yaml_path = self._manager.save_map()
         except Exception as exc:
             # 保存失败不杀死仍可用的 mapping stage，允许用户修正后重新说“保存地图”。
-            self._transition(
+            self.transition(
                 SessionPhase.MAPPING,
                 detail=f"map save failed: {exc}",
                 map_saved=False,
                 map_yaml_path="",
             )
             raise
-        self._transition(
+        self.transition(
             SessionPhase.MAP_SAVED,
             detail="map saved; ready to start navigation",
             map_saved=True,
             map_yaml_path=yaml_path,
         )
-        self._feedback(request, 0.55)
+        self.feedback(request, 0.55)
 
-    def _start_navigation(self, request: CommandRequest) -> None:
+    def start_navigation(self, request: CommandRequest) -> None:
         if self._fsm.snapshot.phase == SessionPhase.NAVIGATING:
             request.message = "navigation already active"
             return
-        self._transition(
+        self.transition(
             SessionPhase.SWITCHING_TO_NAVIGATION,
             detail="stopping mapping stage",
         )
-        self._feedback(request, 0.65)
+        self.feedback(request, 0.65)
         self._manager.stop()
         generation = self._readiness_generation()
-        self._transition(
+        self.transition(
             SessionPhase.STARTING_NAVIGATION,
             detail="starting saved-map AMCL/Nav2 stage",
         )
         # 进程切换很快时 transient-local state topic 只保证新订阅者拿到“最新状态”，
         # 不保证测试或 UI 一定调度到每个中间快照；Action feedback 因此同步承载阶段进度。
-        self._feedback(request, 0.8)
+        self.feedback(request, 0.8)
         self._manager.start("navigation")
         self._wait_for_new_ready(generation)
-        self._transition(
+        self.transition(
             SessionPhase.NAVIGATING,
             detail="navigation ready; semantic goals accepted",
         )
-        self._feedback(request, 1.0)
-
-    def _run_automatic_mission(self, request: CommandRequest) -> None:
-        """一次高层命令完成 frontier 探索、存图、重定位和语义巡航。"""
-
-        # bootstrap 和 frontier 都属于本次建图里程，但跳变由证据层过滤。
-        self._mapping_evidence.begin_mapping_path()
-
-        self._transition(
-            SessionPhase.AUTOMATIC_MAPPING,
-            detail="waiting for first LiDAR scan",
-        )
-        self._feedback(request, 0.03)
-        if not self._dry_run and not _wait_for_required_event(
-            self._mapping_evidence.scan_ready,
-            self._scan_startup_timeout_s,
-            lambda: request.canceled,
-        ):
-            # 不降低底层 scan freshness 安全阈值；启动竞态应由编排层等待解决。
-            raise TimeoutError(
-                "mapping stage did not publish /scan before bootstrap timeout"
-            )
-        self._transition(
-            SessionPhase.AUTOMATIC_MAPPING,
-            detail="mapping bootstrap route running",
-        )
-        route_size = len(self._mapping_bootstrap_route)
-        for index, (label, text, expected_action) in enumerate(
-            self._mapping_bootstrap_route
-        ):
-            if request.canceled:
-                raise AutomaticMissionCancelled("automatic mission canceled")
-            self._transition(
-                SessionPhase.AUTOMATIC_MAPPING,
-                detail=f"mapping bootstrap {index + 1}/{route_size}: {label}",
-            )
-            # 充电角落附近的 frontier 容易集中在外墙边缘。先通过与普通语音完全
-            # 相同的 Agent→Guard→Action 链进入中央通道，再交给 Explore Lite；
-            # 这是可审计的自动脱困原语，不是绕过安全层直接写 /cmd_vel。
-            self._run_agent_text_action(
-                request,
-                text=text,
-                expected_action=expected_action,
-                timeout_s=self._mapping_bootstrap_action_timeout_s,
-            )
-            self._feedback(
-                request,
-                0.03 + (0.17 * (index + 1) / max(1, route_size)),
-            )
-
-        self._transition(
-            SessionPhase.AUTOMATIC_MAPPING,
-            detail="frontier exploration running",
-        )
-        self._mapping_evidence.reset_exploration()
-        self._manager.start_explorer(self._explorer_config_path)
-        try:
-            self._wait_for_frontier_completion(request)
-        finally:
-            self._manager.stop_explorer()
-            self._mapping_evidence.finish_mapping_path()
-        evidence = self._mapping_evidence.snapshot()
-        stats = evidence.map_stats or {}
-        self._transition(
-            SessionPhase.MAPPING,
-            detail=(
-                "frontier exploration complete "
-                f"reason={evidence.exploration_completion_reason or 'unknown'} "
-                f"known={stats.get('known_cells', 0)} "
-                f"occupied={stats.get('occupied_cells', 0)} "
-                f"path={evidence.mapping_path_m:.2f}m"
-            ),
-        )
-        self._feedback(request, 0.5)
-
-        self._save_map(request)
-        if request.canceled:
-            raise AutomaticMissionCancelled("automatic mission canceled")
-        self._start_navigation(request)
-        self._wait_for_navigation_action_servers(request)
-        self._transition(
-            SessionPhase.AUTOMATIC_NAVIGATING,
-            detail="automatic semantic navigation running",
-        )
-        self._feedback(request, 0.82)
-
-        navigation = self._mission_plan.get("navigation_mission", {})
-        self._run_agent_text_action(
-            request,
-            text=str(navigation["navigate_text"]),
-            expected_action="navigate_to",
-            timeout_s=self._mission_navigation_timeout_s,
-        )
-        self._feedback(request, 0.9)
-        self._run_agent_text_action(
-            request,
-            text=str(navigation["patrol_text"]),
-            expected_action="follow_waypoints",
-            timeout_s=self._mission_navigation_timeout_s,
-        )
-        self._transition(
-            SessionPhase.MISSION_COMPLETED,
-            # 最终状态保留探索结束原因；中间 MAPPING 状态发布很快，监控端可能
-            # 因调度时序错过它，验收证据不能依赖一个短暂 topic 快照。
-            detail=(
-                "automatic mapping and navigation mission completed "
-                f"exploration_reason="
-                f"{self._mapping_evidence.completion_reason or 'unknown'}"
-            ),
-        )
-        self._feedback(request, 1.0)
+        self.feedback(request, 1.0)
 
     def _execute_request(self, request: CommandRequest) -> None:
         # 入队与真正执行之间可能已完成上一条阶段转换；执行前再次验证，防止
@@ -929,12 +808,12 @@ class SessionOrchestratorNode(Node):
         self._active_request = request
         try:
             if request.command == SessionCommand.RUN_AUTOMATIC_MISSION:
-                self._run_automatic_mission(request)
+                self._automatic_mission_executor.run(request)
             if request.command in {
                 SessionCommand.SAVE_MAP,
                 SessionCommand.SAVE_AND_START_NAVIGATION,
             }:
-                self._save_map(request)
+                self.save_map(request)
             if request.canceled:
                 request.message = "canceled before stage switch"
                 return
@@ -942,11 +821,11 @@ class SessionOrchestratorNode(Node):
                 SessionCommand.START_NAVIGATION,
                 SessionCommand.SAVE_AND_START_NAVIGATION,
             }:
-                self._start_navigation(request)
+                self.start_navigation(request)
             if request.command == SessionCommand.STOP_SESSION:
-                self._transition(SessionPhase.STOPPING, detail="stopping session")
+                self.transition(SessionPhase.STOPPING, detail="stopping session")
                 self._manager.stop()
-                self._transition(SessionPhase.STOPPED, detail="session stopped")
+                self.transition(SessionPhase.STOPPED, detail="session stopped")
             request.success = True
             if not request.message:
                 request.message = "session command completed"
@@ -957,7 +836,7 @@ class SessionOrchestratorNode(Node):
                 if self._manager.stage == "navigation"
                 else SessionPhase.MAPPING
             )
-            self._transition(recovery_phase, detail=request.message)
+            self.transition(recovery_phase, detail=request.message)
             self.get_logger().warning(request.message)
         except Exception as exc:
             request.message = str(exc)
@@ -967,16 +846,14 @@ class SessionOrchestratorNode(Node):
                     if self._manager.stage == "navigation"
                     else SessionPhase.MAPPING
                 )
-                self._transition(
+                self.transition(
                     recovery_phase,
                     detail=f"automatic mission failed: {exc}",
                 )
             elif self._fsm.snapshot.phase != SessionPhase.MAPPING:
-                self._transition(SessionPhase.FAILED, detail=f"session failed: {exc}")
+                self.transition(SessionPhase.FAILED, detail=f"session failed: {exc}")
             self.get_logger().error(request.message)
         finally:
-            if request.command == SessionCommand.RUN_AUTOMATIC_MISSION:
-                self._mapping_evidence.finish_mapping_path()
             self._active_request = None
             self._operation_active.clear()
             request.completed.set()
@@ -985,7 +862,7 @@ class SessionOrchestratorNode(Node):
         try:
             self._start_mapping()
         except Exception as exc:
-            self._transition(SessionPhase.FAILED, detail=f"mapping startup failed: {exc}")
+            self.transition(SessionPhase.FAILED, detail=f"mapping startup failed: {exc}")
         while not self._stopping.is_set():
             try:
                 request = self._requests.get(timeout=0.2)
@@ -1003,7 +880,7 @@ class SessionOrchestratorNode(Node):
             SessionPhase.STOPPED,
             SessionPhase.FAILED,
         }:
-            self._transition(
+            self.transition(
                 SessionPhase.FAILED,
                 detail=f"{self._manager.stage or 'stage'} process exited code={code}",
             )

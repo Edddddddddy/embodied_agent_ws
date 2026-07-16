@@ -261,7 +261,7 @@ ActionGuard 保护的脱角原语；进入开阔区后，未知区域由 frontie
 /scan + odom + tf
 → SLAM Toolbox 更新 /map
 → parse_mapping_bootstrap_route() 解析安全脱角原语
-→ _run_agent_text_action() 经 Agent/ActionGuard/ROS 2 Action 执行
+→ run_agent_action() 经 Agent/ActionGuard/ROS 2 Action 执行
 → Explore Lite 检测 unknown/free 边界并选择 frontier
 → Nav2 NavigateToPose 规划、控制、避障
 → 无可达 frontier / 地图 plateau
@@ -276,13 +276,13 @@ ActionGuard 保护的脱角原语；进入开阔区后，未知区域由 frontie
 | 功能 | 文件与函数 | 上游 | 下游 |
 | --- | --- | --- | --- |
 | 高层意图 | `showcase_session_node.py:SessionOrchestratorNode._on_asr_final()` | `/agent/asr_final` | `parse_session_command()`、`_enqueue()` |
-| 状态编排 | 同文件 `_worker_loop()`、`_start_mapping()`、`_execute_request()`、`_run_automatic_mission()` | command queue | mapping/bootstrap/explorer/save/navigation 阶段 |
-| 初始脱角 | `showcase_session.py:parse_mapping_bootstrap_route()`、编排器 `_run_agent_text_action()` | mission YAML 的 7 段 move/turn | ActionGuard → ROS 2 Action；完成后才启动 explorer |
+| 状态编排 | 同文件 `_worker_loop()`、`_start_mapping()`、`_execute_request()`、`AutomaticMissionExecutor.run()` | command queue | mapping/bootstrap/explorer/save/navigation 阶段 |
+| 初始脱角 | `showcase_session.py:parse_mapping_bootstrap_route()`、编排器 `run_agent_action()` | mission YAML 的 7 段 move/turn | ActionGuard → ROS 2 Action；完成后才启动 explorer |
 | 进程生命周期 | `stage_process_manager.py:StageProcessManager.start()`、`start_explorer()`、`save_map()` | orchestrator | launch、Explore Lite、map_saver |
 | 建图证据 | `mapping_evidence.py:MappingEvidenceTracker` | `/map`、`/odom`、`/scan`、`/explore/status` | 覆盖阈值、路径长度、frontier 结束判定 |
-| 探索结束判定 | `_wait_for_frontier_completion()` | `/map`、explorer 进程和超时 | `_save_map()` |
-| 定位切换 | `_start_navigation()` | 保存地图 | map_server、AMCL、Nav2 readiness |
-| 语义巡检 | `_run_agent_text_action()` | mission plan 文本 | Agent→Guard→Action→Nav2 executor |
+| 探索结束判定 | `wait_for_frontier()` | `/map`、explorer 进程和超时 | `save_map()` |
+| 定位切换 | `start_navigation()` | 保存地图 | map_server、AMCL、Nav2 readiness |
+| 语义巡检 | `run_agent_action()` | mission plan 文本 | Agent→Guard→Action→Nav2 executor |
 
 ### 8.1 frontier 的核心原理
 

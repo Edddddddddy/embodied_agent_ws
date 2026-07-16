@@ -7,11 +7,11 @@ from lifecycle_msgs.msg import State
 from lifecycle_msgs.srv import GetState
 import pytest
 
-from embodied_slam_tools.showcase_session_node import (
+from embodied_slam_tools.mission_executor import (
     AutomaticMissionCancelled,
-    _get_lifecycle_state,
-    _wait_for_required_event,
+    wait_for_required_event,
 )
+from embodied_slam_tools.showcase_session_node import _get_lifecycle_state
 
 
 class _LifecycleClient:
@@ -49,15 +49,15 @@ def test_wait_for_required_event_accepts_ready_dependency():
     event = threading.Event()
     event.set()
 
-    assert _wait_for_required_event(event, 0.1, lambda: False)
+    assert wait_for_required_event(event, 0.1, lambda: False)
 
 
 def test_wait_for_required_event_reports_timeout():
-    assert not _wait_for_required_event(
+    assert not wait_for_required_event(
         threading.Event(), 0.001, lambda: False, poll_s=0.001
     )
 
 
 def test_wait_for_required_event_honors_cancel_before_readiness():
     with pytest.raises(AutomaticMissionCancelled):
-        _wait_for_required_event(threading.Event(), 1.0, lambda: True)
+        wait_for_required_event(threading.Event(), 1.0, lambda: True)

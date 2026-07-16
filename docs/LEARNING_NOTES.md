@@ -195,9 +195,11 @@ bash scripts/acceptance_test.sh gazebo
 - `src/embodied_simulation/config/frontier_exploration.yaml`、`showcase_workplace_mission.yaml`。
 - `src/embodied_slam_tools/embodied_slam_tools/showcase_session.py`：`parse_session_command()`、
   `parse_mapping_bootstrap_route()`、`ShowcaseSessionStateMachine.validate()`、`transition()`。
+- `src/embodied_slam_tools/embodied_slam_tools/mission_executor.py`：
+  `AutomaticMissionExecutor.run()` 封装自动探索、存图、定位切换和语义巡航事务。
 - `src/embodied_slam_tools/embodied_slam_tools/showcase_session_node.py`：
-  `_run_automatic_mission()`、`_wait_for_frontier_completion()`、`_save_map()`、`_start_navigation()`、
-  `_run_agent_text_action()`。
+  `wait_for_frontier()`、`save_map()`、`start_navigation()`、
+  `run_agent_action()`。
 - `src/embodied_slam_tools/embodied_slam_tools/mapping_evidence.py`：
   `MappingEvidenceTracker` 原子收集地图增长、真实里程、LiDAR 首帧和探索结束状态。
 - `src/embodied_slam_tools/embodied_slam_tools/stage_process_manager.py`：
@@ -213,11 +215,11 @@ bash scripts/acceptance_test.sh gazebo
 
 ```text
 _on_asr_final() → parse_session_command() → _enqueue() → _worker_loop()
-→ _execute_request() → _run_automatic_mission()
-→ _run_agent_text_action(move/turn bootstrap route)
+→ _execute_request() → AutomaticMissionExecutor.run()
+→ run_agent_action(move/turn bootstrap route)
 → StageProcessManager.start_explorer() → /explore/status + /map
-→ _wait_for_frontier_completion() → _save_map() → _start_navigation()
-→ _run_agent_text_action() → Agent/Guard/Action → NavigateToPose/FollowWaypoints
+→ wait_for_frontier() → save_map() → start_navigation()
+→ run_agent_action() → Agent/Guard/Action → NavigateToPose/FollowWaypoints
 → evaluate_follow_waypoints_result() → success / blocked + missed detail
 ```
 
