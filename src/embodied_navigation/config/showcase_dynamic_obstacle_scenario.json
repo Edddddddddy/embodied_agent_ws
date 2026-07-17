@@ -17,6 +17,11 @@
     "minimum_anchor_lateral_clearance_m": 0.9,
     "anchor_search_max_clearance_m": 1.5
   },
+  "route_selection": {
+    "dynamic_path_retry_attempts": 3,
+    "retry_interval_s": 0.5,
+    "reset_wait_s": 1.2
+  },
   "warmup": {
     "sample_count": 4,
     "interval_s": 0.32

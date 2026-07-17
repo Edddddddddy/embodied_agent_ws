@@ -33,8 +33,19 @@ MISSION_PLAN="$WORKSPACE/src/embodied_simulation/config/showcase_workplace_missi
 WORLD_FILE="$WORKSPACE/src/embodied_simulation/worlds/showcase_apartment.sdf.xacro"
 DYNAMIC_SCENARIO="$WORKSPACE/src/embodied_navigation/config/showcase_dynamic_obstacle_scenario.json"
 NODE_LOG="$SESSION_DIR/runtime.log"
+GATE_TIMEOUT_S="${SLAM_NAV_GATE_TIMEOUT_S:-900}"
+TRANSITION_TIMEOUT_S="${SLAM_NAV_TRANSITION_TIMEOUT_S:-860}"
+PROGRESS_HEARTBEAT_S="${SLAM_NAV_PROGRESS_HEARTBEAT_S:-15}"
 mkdir -p "$SESSION_DIR"
 rm -f "$MAP_PREFIX.yaml" "$MAP_PREFIX.pgm" "$REPORT"
+
+echo "SLAM/Nav2 end-to-end acceptance"
+echo "  session: $SESSION_ID"
+echo "  scene: showcase_apartment"
+echo "  stages: frontier SLAM -> fresh map -> AMCL/Nav2 -> semantic patrol -> dynamic replan"
+echo "  heartbeat: ${PROGRESS_HEARTBEAT_S}s"
+echo "  evidence: $REPORT"
+echo "  runtime log: $NODE_LOG"
 
 if ! ros2 pkg prefix explore_lite >/dev/null 2>&1; then
   echo "MISSING: Explore Lite. Run: bash scripts/setup_frontier_exploration.sh" >&2
@@ -60,9 +71,13 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-if ! timeout 900 bash tests/integration/run_probe.sh tests/integration/slam_nav/test_voice_slam_session_orchestrator.py \
+if ! timeout "$GATE_TIMEOUT_S" bash tests/integration/run_probe.sh tests/integration/slam_nav/test_voice_slam_session_orchestrator.py \
   --output "$REPORT" \
-  --transition-timeout 860 \
+  --transition-timeout "$TRANSITION_TIMEOUT_S" \
+  --gate-timeout-s "$GATE_TIMEOUT_S" \
+  --progress-heartbeat-s "$PROGRESS_HEARTBEAT_S" \
+  --runtime-log "$NODE_LOG" \
+  --summary-only \
   --evidence-kind gazebo_frontier_slam_map_saver_amcl_nav2_dynamic_replan \
   --session-id "$SESSION_ID" \
   --session-start-ns "$SESSION_START_NS" \
@@ -70,8 +85,10 @@ if ! timeout 900 bash tests/integration/run_probe.sh tests/integration/slam_nav/
   --mission-plan "$MISSION_PLAN" \
   --dynamic-scenario "$DYNAMIC_SCENARIO" \
   --automatic-mission; then
-  echo "---- automatic orchestrator log (last 400 lines) ----" >&2
-  tail -n 400 "$NODE_LOG" >&2
+  FAILURE_LOG_LINES="${SLAM_NAV_FAILURE_LOG_LINES:-120}"
+  echo "---- automatic orchestrator log (last ${FAILURE_LOG_LINES} lines) ----" >&2
+  echo "Full runtime log: $NODE_LOG" >&2
+  tail -n "$FAILURE_LOG_LINES" "$NODE_LOG" >&2
   exit 1
 fi
 
@@ -108,7 +125,13 @@ assert follow_results
 assert all("missed_waypoints=0" in item["message"] for item in follow_results)
 assert abs(report["final_cmd_vel"]["linear_x"]) < 1e-6
 assert abs(report["final_cmd_vel"]["angular_z"]) < 1e-6
-print(json.dumps(report, ensure_ascii=False, indent=2))
+print(
+    "Verified evidence: "
+    f"map={report['map']['known_cells']}/{report['map']['occupied_cells']} cells, "
+    f"mapping_path={report['mapping_path_m']:.3f}m, "
+    f"frontiers={report['frontier_goal_count']}, "
+    f"unique_dynamic_plans={report['dynamic_navigation']['unique_plan_count']}"
+)
 PY
 
 echo "PASS: one intent -> autonomous frontier SLAM -> saved map -> AMCL/Nav2 patrol"

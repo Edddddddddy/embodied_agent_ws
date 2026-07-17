@@ -184,6 +184,8 @@ def test_showcase_dynamic_obstacle_scenario_binds_visible_actor_and_new_map_fram
     )
     assert scenario["warmup"]["sample_count"] >= 4
     assert scenario["navigation"]["sample_count"] >= 4
+    assert scenario["route_selection"]["dynamic_path_retry_attempts"] >= 2
+    assert scenario["route_selection"]["reset_wait_s"] > 1.0
     assert scenario["thresholds"]["minimum_unique_navigation_plans"] >= 2
 
 

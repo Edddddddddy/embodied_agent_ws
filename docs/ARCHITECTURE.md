@@ -208,6 +208,11 @@ Agent bridge、安全节点和关键机器人组件按 configure→activate→de
 文件和最终速度。报告通常写入 `logs/`。mock 报告证明控制逻辑，Gazebo 报告证明仿真闭环，真人
 麦克风报告证明当前声学环境；三者不可互换。
 
+重型门禁把高频 ROS 输出写入 `runtime.log`，由 `tools/acceptance/progress.py` 的
+`AcceptanceProgress` 向终端发布低频心跳和阶段里程碑。`SessionProbe._on_state()` 将
+`SlamSessionState` 映射为 6 个演示阶段；完整 JSON 留在证据文件，终端只打印摘要。这样既避免
+数万行 ROS 日志淹没关键信息，也避免长等待看起来像进程卡死。
+
 ## 9. 部署一致性
 
 所有公共入口先调用 `scripts/lifecycle_utils.sh:embodied_resolve_workspace()`，从入口脚本自身推导当前

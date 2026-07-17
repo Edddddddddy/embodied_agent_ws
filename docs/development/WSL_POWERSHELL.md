@@ -49,6 +49,10 @@ wsl.exe -d Ubuntu-24.04 --cd /home/ubuntu/embodied_agent_ws bash -lc 'source scr
   `for` 循环。变量可能在 PowerShell、`wsl.exe` 和 `bash -lc` 三层传递中丢失，最终把空参数
   交给脚本。验收模式应使用独立的固定命令；确实需要循环时，把循环写进仓库中的 `.sh`
   文件并直接执行该文件。
+- 同样不要在一条 Windows 包装命令里先赋值 `SESSION_DIR=...`，随后又拼接
+  `$SESSION_DIR/report.json` 或在 `trap` 中引用 `$LAUNCH_PID`。外层可能在 Bash 执行前展开变量，
+  导致文件意外写到根目录或清理空进程组。长生命周期任务应使用仓库脚本管理变量、trap 和 PID；
+  临时诊断则拆成“启动一个 PTY session”和“使用固定路径运行探针”两个调用。
 
 例如，下列固定调用比跨 Shell 动态循环更容易审计退出码：
 
@@ -207,8 +211,12 @@ bash scripts/acceptance_test.sh voice-readiness
 bash scripts/acceptance_test.sh slam-nav-showcase-stage
 bash scripts/acceptance_test.sh slam-autonomous-mission-stage
 # 完整功能收口时再跑重型门禁，不为零散编辑频繁触发 CI：
-bash scripts/acceptance_test.sh slam-autonomous-mission
+bash scripts/acceptance_test.sh slam-nav-e2e
 ```
+
+`slam-nav-e2e` 是稳定公开入口，真实执行 frontier SLAM、新地图保存、AMCL/Nav2 语义巡航和
+动态障碍重规划，通常需要 3～5 分钟。先用 `bash scripts/acceptance_test.sh --help` 确认当前分支
+已注册该模式；若帮助中没有它，说明终端仍停留在旧分支或旧工作树，而不是 ROS 运行时故障。
 
 C++/仿真：
 
