@@ -22,7 +22,7 @@ setsid ros2 run embodied_simulation simulation_control_node \
   --ros-args -p action_timeout_s:=3.0 >>"$LOG_FILE" 2>&1 &
 PIDS+=("$!")
 
-if ! timeout 25 bash "$WORKSPACE/tools/acceptance/run_probe.sh" "$WORKSPACE/tests/integration/control/test_lifecycle_pipeline.py"; then
+if ! timeout 25 bash "$WORKSPACE/tools/acceptance/run_probe.sh" "$WORKSPACE/tools/acceptance/probes/control/lifecycle_pipeline.py"; then
   cat "$LOG_FILE" >&2
   exit 1
 fi

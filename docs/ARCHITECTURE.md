@@ -235,6 +235,18 @@ Agent bridge、安全节点和关键机器人组件按 configure→activate→de
 环境策略；`.venv`、ROS overlay 和 domain 必须由上游 handler/smoke 在调用前激活。
 
 ```text
+tests/                           pytest 断言与 fixture；voice/slam_nav 遗留 probe 迁移中
+tools/acceptance/probes/control 可执行 typed Action/Lifecycle/Gazebo Adapter
+tools/acceptance/probes/slam_nav canonical SLAM/Nav2 E2E Adapter 与编排
+scripts/smoke_test_*.sh          环境、domain、进程和日志生命周期
+```
+
+已迁移的 control 域和 canonical SLAM/Nav2 E2E 不再让“测试工具”与“被 pytest 执行的测试”共用
+`test_*.py` 名称；voice/slam_nav 的较小遗留 probe 按领域继续迁移。运行时 probe 可以被 repository
+test 静态检查，但不得反向导入 `tests.*`；跨 probe 的 typed 消息构造统一复用
+`typed_action_probe_utils.py` 和生产 transport，避免验收链形成第二套协议。
+
+```text
 session_orchestrator.py（唯一可执行入口与顶层会话编排）
   ├→ cli.py（ROS-free 参数 Interface）
   ├→ session_observer.py（SessionObserver typed ROS Adapter）

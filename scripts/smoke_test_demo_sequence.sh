@@ -35,7 +35,7 @@ trap cleanup EXIT
 activate_lifecycle_node action_guard
 python3 "$WORKSPACE/scripts/system_readiness_check.py" \
   --timeout 15 --profile demo
-if ! timeout 35 bash "$WORKSPACE/tools/acceptance/run_probe.sh" "$WORKSPACE/tests/integration/control/test_demo_sequence.py"; then
+if ! timeout 35 bash "$WORKSPACE/tools/acceptance/run_probe.sh" "$WORKSPACE/tools/acceptance/probes/control/demo_sequence.py"; then
   cat "$LOG_FILE" >&2
   exit 1
 fi

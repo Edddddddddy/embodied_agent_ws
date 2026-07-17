@@ -7,7 +7,7 @@ import rclpy
 from embodied_agent_interfaces.msg import RobotCommand, SpeakerEnrollRequest, SpeakerIdentity
 from embodied_agent_core.speaker_transport import identity_payload_to_message
 from std_msgs.msg import String
-from tests.integration.typed_action_test_utils import candidate_dict
+from tools.acceptance.typed_action_probe_utils import candidate_dict
 
 
 def _spin_until(node, predicate, timeout_s=8.0):

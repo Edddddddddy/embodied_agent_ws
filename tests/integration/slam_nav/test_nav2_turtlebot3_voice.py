@@ -27,7 +27,7 @@ from rclpy.time import Time
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
 from tf2_ros import Buffer, TransformListener
-from tests.integration.typed_action_test_utils import candidate_dict, result_dict
+from tools.acceptance.typed_action_probe_utils import candidate_dict, result_dict
 
 
 class Nav2TurtleBot3VoiceProbe(Node):

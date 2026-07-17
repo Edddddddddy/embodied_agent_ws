@@ -167,7 +167,15 @@ def _audit_scripts(blockers: list[str]) -> dict[str, Any]:
         "nav2_preflight": WORKSPACE / "scripts" / "smoke_test_nav2_preflight.sh",
         "nav2_turtlebot3": WORKSPACE / "scripts" / "smoke_test_nav2_turtlebot3_voice.sh",
         "nav2_live_check": WORKSPACE / "scripts" / "continuous_nav2_voice_evidence.sh",
-        "nav2_probe": WORKSPACE / "tests" / "integration" / "test_nav2_turtlebot3_voice.py",
+        # 该 probe 尚在 SLAM/Nav2 领域迁移队列中；路径必须包含领域目录，
+        # 否则资产审计会把一个存在的验收程序误报为缺失。
+        "nav2_probe": (
+            WORKSPACE
+            / "tests"
+            / "integration"
+            / "slam_nav"
+            / "test_nav2_turtlebot3_voice.py"
+        ),
     }
     missing = [name for name, path in required.items() if not path.is_file()]
     for name in missing:

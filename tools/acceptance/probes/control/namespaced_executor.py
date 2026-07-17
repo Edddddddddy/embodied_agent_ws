@@ -11,7 +11,7 @@ from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from embodied_agent_interfaces.msg import BehaviorTreeStatus, RobotCommand, RobotCommandResult
 from embodied_agent_core.runtime_status_transport import behavior_tree_status_to_dict
-from tests.integration.typed_action_test_utils import result_dict
+from tools.acceptance.typed_action_probe_utils import result_dict
 
 
 class NamespacedProbe(Node):

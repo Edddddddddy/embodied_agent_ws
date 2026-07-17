@@ -16,7 +16,7 @@ from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
-from tests.integration.typed_action_test_utils import candidate_message
+from tools.acceptance.typed_action_probe_utils import candidate_message
 
 
 class SimulationProbe(Node):

@@ -21,8 +21,8 @@ if [[ ! -f "$PROBE" ]]; then
   exit 2
 fi
 
-# Probe 可能依赖 ROS executor，也可能位于 tests/integration；runner 只拥有一致的
-# Python 启动语义，不拥有环境激活或 PASS 判定。-u 确保重型门禁输出实时可见，
+# Runner 只拥有一致的 Python 启动语义，不拥有环境激活、进程编排或 PASS 判定。
+# -u 确保重型门禁输出实时可见，
 # 避免管道/重定向下因 stdout 缓冲看起来“卡住”。
 export PYTHONPATH="$WORKSPACE${PYTHONPATH:+:$PYTHONPATH}"
 exec python3 -u "$PROBE" "$@"

@@ -46,7 +46,7 @@ setsid ros2 run "$PACKAGE" "$EXECUTABLE" --ros-args \
 PID=$!
 
 if ! bash "$WORKSPACE/tools/acceptance/run_probe.sh" \
-  "$WORKSPACE/tests/integration/control/test_agent_lifecycle.py" --agent-name "$NODE_NAME"; then
+  "$WORKSPACE/tools/acceptance/probes/control/agent_lifecycle.py" --agent-name "$NODE_NAME"; then
   cat "$TMP_DIR/agent.log" >&2
   exit 1
 fi

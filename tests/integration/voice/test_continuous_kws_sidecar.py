@@ -13,7 +13,7 @@ from embodied_agent_core.runtime_status_transport import kws_event_to_dict
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from std_msgs.msg import String
-from tests.integration.typed_action_test_utils import candidate_dict, result_dict
+from tools.acceptance.typed_action_probe_utils import candidate_dict, result_dict
 
 
 class ContinuousKwsProbe(Node):
