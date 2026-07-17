@@ -82,11 +82,6 @@ accept_slam_autonomous_mission_stage() {
   WORKSPACE="$WORKSPACE" bash scripts/smoke_test_voice_slam_automatic_cancel.sh
 }
 
-accept_slam_autonomous_mission() {
-  embodied_workspace_doctor true
-  WORKSPACE="$WORKSPACE" bash scripts/smoke_test_voice_slam_automatic_mission_gazebo.sh
-}
-
 accept_slam_nav_e2e() {
   embodied_workspace_doctor true
   WORKSPACE="$WORKSPACE" bash scripts/smoke_test_voice_slam_automatic_mission_gazebo.sh
@@ -139,7 +134,7 @@ accept_continuous_nav2_online() {
 }
 
 accept_voice_slam_workplace_demo() {
-  CHECK_MODE="${2:-offline}"
+  CHECK_MODE="${1:-offline}"
   if [[ "$CHECK_MODE" != "offline" && "$CHECK_MODE" != "online" ]]; then
     echo "Usage: ${ACCEPTANCE_PROGRAM:-acceptance_test.sh} voice-slam-workplace-demo {offline|online}" >&2
     exit 2
@@ -148,7 +143,7 @@ accept_voice_slam_workplace_demo() {
 }
 
 accept_continuous_nav2_evidence() {
-  CHECK_MODE="${2:-offline}"
+  CHECK_MODE="${1:-offline}"
   if [[ "$CHECK_MODE" != "offline" && "$CHECK_MODE" != "online" ]]; then
     echo "Usage: ${ACCEPTANCE_PROGRAM:-acceptance_test.sh} continuous-nav2-evidence {offline|online}" >&2
     exit 2
@@ -157,7 +152,7 @@ accept_continuous_nav2_evidence() {
 }
 
 accept_continuous_nav2_live_check() {
-  CHECK_MODE="${2:-offline}"
+  CHECK_MODE="${1:-offline}"
   if [[ "$CHECK_MODE" != "offline" && "$CHECK_MODE" != "online" ]]; then
     echo "Usage: ${ACCEPTANCE_PROGRAM:-acceptance_test.sh} continuous-nav2-live-check {offline|online}" >&2
     exit 2
@@ -181,7 +176,7 @@ accept_continuous_nav2_live_check() {
 }
 
 accept_continuous_nav2_live_report() {
-  REPORT_PATH="${2:-}"
+  REPORT_PATH="${1:-}"
   if [[ -z "$REPORT_PATH" ]]; then
     echo "Usage: ${ACCEPTANCE_PROGRAM:-acceptance_test.sh} continuous-nav2-live-report REPORT_FILE" >&2
     exit 2

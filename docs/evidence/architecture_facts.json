@@ -1,6 +1,6 @@
 {
   "acceptance_cli": {
-    "advanced_help_mode_count": 134,
+    "advanced_help_mode_count": 133,
     "public_mode_count": 7,
     "public_modes": [
       "continuous-offline",
@@ -11,7 +11,7 @@
       "robotics-gate",
       "slam-nav-e2e"
     ],
-    "router_mode_count": 134,
+    "router_mode_count": 133,
     "undocumented_router_modes": []
   },
   "ci": {
