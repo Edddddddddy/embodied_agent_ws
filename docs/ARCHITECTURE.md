@@ -40,13 +40,17 @@ flowchart LR
   Scheduler --> Action["ExecuteRobotCommand Action"]
   Action --> BT["CommandBehaviorTree"]
   BT --> Plugin["pluginlib RobotExecutor"]
-  Plugin --> Gazebo["GazeboRobotExecutor"]
-  Plugin --> Nav2["Nav2RobotExecutor"]
-  Gazebo --> Sensors["/scan / odom / tf"]
+  Plugin --> GazeboExec["GazeboRobotExecutor"]
+  Plugin --> Nav2Exec["Nav2RobotExecutor"]
+  GazeboExec --> Gazebo["Gazebo"]
+  Nav2Exec --> Nav2Stack["Nav2 Action servers\nplanner / controller / costmap"]
+  Nav2Stack -->|/cmd_vel| Gazebo
+  Gazebo --> Sensors["Gazebo sensors\n/scan / odom / tf"]
   Sensors --> Slam["SLAM Toolbox / GTSAM 实验"]
+  Sensors --> Nav2Stack
   Slam --> Map["/map → map_saver"]
   Map --> Localization["map_server + AMCL"]
-  Localization --> Nav2
+  Localization --> Nav2Stack
 ```
 
 ## 3. 包与所有权
@@ -73,7 +77,7 @@ Agent。代价是接口和状态更多，因此用 typed schema、统一事件�
 
 | 层 | 输入 | 关键文件与符号 | 关键处理 | 输出 / 下游 | 失败语义 |
 | --- | --- | --- | --- | --- | --- |
-| 音频 | PCM | `src/embodied_agent_cpp/src/audio_frontend_node.cpp`：`AudioFrontendNode` | AEC、能量/VAD、静音 endpoint | `/audio/clean`、`/audio/speech_ended` | readiness/VAD 状态说明未听到或未成句 |
+| 音频 | PCM | `src/embodied_agent_cpp/src/audio_frontend_node.cpp`：`AudioFrontendNode` | AEC、能量/VAD、静音 endpoint | `/audio/clean_pcm`、`/audio/speech_ended` | readiness/VAD 状态说明未听到或未成句 |
 | 在线 Agent | clean audio | `online_agent_node.py`：`_on_speech_ended()`、`_accept_transcript()` | provider commit、流式 ASR | `AgentApplicationRuntime.accept_transcript()` | provider error/retry，不生成假动作 |
 | 离线 Agent | clean audio | `offline_agent_node.py`：`_on_audio()`、`_on_speech_ended()`、`_accept_transcript()` | ZipFormer stream、延迟 commit | 同一共享应用层 | 模型/资产错误写 readiness |
 | 应用层 | transcript | `agent_application_runtime.py`：`accept_transcript()`、`_run_preparsed_turn()` | 串起会话、队列、NLU 与 turn | 控制面 decision 或 LLM turn | 过滤、拒绝、重试均发布原因 |
@@ -110,13 +114,24 @@ stop/急停是例外：立即取消活动 goal、清空普通队列并发零速�
 
 自动任务由 `embodied_slam_tools` 编排，不把 shell 进程切换散落在 Agent 内：
 
+节点初始化只执行一次，先冻结配置和装配模块，再由 worker 启动 mapping stage：
+
+```text
+SessionOrchestratorNode.__init__()
+→ MissionConfiguration.load()       # YAML/默认值/阈值一次性收紧
+→ 装配 ProcessManager / Evidence / FrontierMonitor / MissionExecutor
+→ _worker.start()
+→ _worker_loop()
+→ _start_mapping()                  # 启动 SLAM/建图并等待 readiness
+```
+
+命令事务发生在 mapping ready 之后，ASR 或 Action 只负责提交请求，专用 worker 顺序执行：
+
 ```text
 SessionOrchestratorNode._on_asr_final()
 → parse_session_command()
 → _enqueue()
-→ _worker_loop()
-→ MissionConfiguration.load()       # YAML/默认值/阈值一次性收紧
-→ _start_mapping()                  # 先启动 SLAM/建图阶段
+→ _worker_loop() 取出 CommandRequest
 → _execute_request()
 → AutomaticMissionExecutor.run()
 → AgentActionGateway.run()          # bootstrap 语义动作与 typed result 关联

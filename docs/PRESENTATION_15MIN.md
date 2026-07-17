@@ -1,6 +1,8 @@
 # 15 分钟项目汇报与代码演示
 
-目标：用一句语音展示“自动建图 → 保存本次地图 → AMCL/Nav2 → 语义巡检 → 动态障碍重规划”，并能打开关键代码解释设计。项目正式验收对象是 Gazebo/TurtleBot3，不把 UART/SPI seam 说成实机交付。
+目标：用一句语音展示“自动建图 → 保存本次地图 → AMCL/Nav2 → 语义巡检”，再用同场景的
+`slam-nav-e2e` 报告讲解确定性动态障碍重规划，并能打开关键代码解释设计。项目正式验收对象是
+Gazebo/TurtleBot3，不把 UART/SPI seam 说成实机交付。
 
 ## 1. 演示前准备
 
@@ -59,13 +61,19 @@ Audio/VAD → ASR → Continuous Session + NLU/LLM
 → ExecuteRobotCommand → BT/pluginlib → Gazebo/Nav2
 ```
 
-代码锚点：`src/embodied_agent_interfaces/msg/RobotCommand.msg`、`action/ExecuteRobotCommand.action`。强调 typed 接口支持字段校验、rosbag、Action feedback/cancel/result，已删除 JSON 控制协议。
+代码锚点：`src/embodied_agent_interfaces/msg/RobotCommand.msg`、
+`src/embodied_agent_interfaces/action/ExecuteRobotCommand.action`。强调 typed 接口支持字段校验、
+rosbag、Action feedback/cancel/result，已删除 JSON 控制协议。
 
 ### 3.3 语音前端（2:15–3:30）
 
 打开：
 - `src/embodied_agent_cpp/src/audio_frontend_node.cpp`：PCM、增强、VAD 事件。
-- `src/embodied_agent_core/embodied_agent_core/streaming_asr.py`：partial/final 与 commit。
+- `src/embodied_agent_core/embodied_agent_core/asr_endpoint_runtime.py`：
+  `AsrEndpointRuntime` 管理 endpoint 去重、代次、延迟提交，以及恢复说话时取消待触发 timer。
+- `src/embodied_online_agent/embodied_online_agent/online_agent_node.py` 与
+  `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py`：
+  `_commit_asr_endpoint()` 把共享决策适配到在线/离线 ASR provider。
 - `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py`：Sherpa provider 接入。
 
 讲法：VAD endpoint 与 ASR final 是两个时刻；尾静音和 commit delay 保护数字/量词，短命令补全只作用于明确控制语义。
@@ -79,6 +87,7 @@ Audio/VAD → ASR → Continuous Session + NLU/LLM
 打开：
 - `src/embodied_agent_cpp/src/action_guard_node.cpp:ActionGuardNode::on_candidate()`；
 - `src/embodied_agent_cpp/src/action_scheduler.cpp`；
+- `src/embodied_simulation/src/robot_command_policy.cpp:is_executable_robot_command()`；
 - `src/embodied_simulation/src/simulation_control_node.cpp`。
 
 ActionGuard 做白名单、限幅和字段互斥；Scheduler 用 command_id 关联 active goal，急停先 cancel 再清队列。readiness 只有 Agent→Guard→Scheduler 两段 DDS 均匹配才 ready，避免首条 volatile 命令在 discovery 窗口丢失。
@@ -103,11 +112,22 @@ Explore Lite 在 free/unknown 边界聚类候选并通过 Nav2 到达；SLAM Too
 
 ### 3.8 存图、定位与语义巡检（9:45–11:15）
 
-map saver 生成本次 YAML/PGM 后完全关闭 mapping stage，只加载报告中的新地图，启动 map_server、AMCL 和 Nav2。`wait_navigation_ready()` 检查 NavigateToPose/FollowWaypoints server 与 lifecycle ACTIVE。C++ `Nav2RobotExecutor` 将入口/厨房/办公室转换成 PoseStamped。
+map saver 生成本次 YAML/PGM 后完全关闭 mapping stage，再从本会话的 `map_prefix` 加载刚保存的
+YAML，启动 map_server、AMCL 和 Nav2。报告只在事后记录地图来源，不参与运行配置。
+`wait_navigation_ready()` 检查 NavigateToPose/FollowWaypoints server 与 lifecycle ACTIVE。C++
+`Nav2RobotExecutor` 将入口/厨房/办公室转换成 PoseStamped。
 
 ### 3.9 后端优化、回环与动态障碍（11:15–12:45）
 
 打开 `src/embodied_slam` 的 pose graph/GTSAM 与 loop verification，及 `src/embodied_navigation` 的 tracker/predicted costmap。
+
+真人语音主演示会启用预测代价层，但不自动注入测试用 `crossing_cart`。确定性横穿、typed detection、
+路径变化与安全间距由 `slam-nav-e2e` 的以下代码产生：
+
+- `tests/integration/slam_nav/test_voice_slam_session_orchestrator.py`：
+  `run_showcase_dynamic_navigation()`；
+- `tools/acceptance/dynamic_route.py`：`select_replannable_route()`；
+- `tools/acceptance/slam_nav_evidence.py`：`evaluate_dynamic_navigation()`。
 
 讲法：回环不是相似就加边，而是候选检索→几何/scan-overlap 验证→一致性门→鲁棒核/可切换约束→图优化。动态障碍由观测关联、速度估计、未来占用投影进入 costmap；Nav2 仍负责最终规划控制。公开 bag/Gazebo 结果不能冒充真实场地漂移。
 

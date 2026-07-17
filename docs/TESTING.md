@@ -113,7 +113,10 @@ logs/acceptance/slam_nav/<session_id>/runtime.log
 logs/acceptance/slam_nav/<session_id>/voice_built_map.{yaml,pgm}
 ```
 
-失败也必须生成带 `error`、最后状态和零速度的 JSON，不能只表现为卡住。
+进入 E2E 探针后的运行期失败必须生成带 `error`、最后状态和最后观测速度的 JSON，不能只表现为卡住。
+只有成功报告才要求 `final_cmd_vel_zero=true`；失败报告中的速度用于诊断，不能当作已安全停车的证明。
+如果 workspace doctor、依赖或 launch preflight 在探针启动前失败，终端会直接返回非零并指出缺失项，
+此时不会伪造一份 session 报告。
 
 ## 6. 真人语音验收
 
@@ -143,7 +146,14 @@ HEADLESS=false USE_RVIZ=true \
   bash scripts/acceptance_test.sh voice-slam-workplace-demo offline
 ```
 
-只说 `小智，开始自动巡检建图`。应看到地图增长、frontier、存图、AMCL/Nav2 切换、三个语义地点与动态障碍重规划。
+只说 `小智，开始自动巡检建图`。应看到地图增长、frontier、存图、AMCL/Nav2 切换和三个语义地点。
+该高级交互入口可用 `--help-all` 发现。它会启用 predicted costmap layer，但不自动注入验收专用的
+`crossing_cart` 或 synthetic detection，因此人工主演示的 PASS 是建图、定位和语义巡检完成，
+不把“代价层已加载”说成“已经观察到动态重规划”。需要可重复的横穿、路径变化和安全间距证据时运行：
+
+```bash
+bash scripts/acceptance_test.sh slam-nav-e2e
+```
 
 ## 7. 故障定位
 

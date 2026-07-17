@@ -30,9 +30,19 @@ flowchart LR
     ACTION --> GUARD["C++ ActionGuard + Scheduler"]
     GUARD --> BT["BehaviorTree.CPP"]
     BT --> EXEC["pluginlib Executor"]
-    EXEC --> NAV2["Gazebo / Nav2"]
-    NAV2 --> SLAM["SLAM / AMCL / Dynamic Costmap"]
-    NAV2 --> RESULT["Action result / diagnostics / evidence"]
+    EXEC --> GZEXEC["GazeboRobotExecutor"]
+    EXEC --> NAVEXEC["Nav2RobotExecutor"]
+    GZEXEC --> GAZEBO["Gazebo"]
+    NAVEXEC --> NAVSTACK["Nav2 Action servers\nplanner / controller / costmap"]
+    NAVSTACK -->|/cmd_vel| GAZEBO
+    GAZEBO --> SENSORS["Gazebo sensors\nscan / odom / tf"]
+    SENSORS --> SLAM["SLAM Toolbox"]
+    SLAM --> MAP["map_saver → saved map"]
+    MAP --> LOCALIZE["map_server + AMCL"]
+    LOCALIZE --> NAVSTACK
+    SENSORS --> NAVSTACK
+    GZEXEC --> RESULT["Action result / diagnostics / evidence"]
+    NAVSTACK --> RESULT
 ```
 
 关键原则：Agent 负责意图，ActionGuard 负责安全策略，executor 负责副作用；所有长动作使用 typed Action 关联 `command_id`，不再使用 JSON 控制协议。
@@ -42,12 +52,16 @@ flowchart LR
 | 路径 | 作用 |
 | --- | --- |
 | `src/embodied_agent_interfaces` | 自定义 msg/action/service |
+| `src/embodied_agent_middleware` | QoS 与 DDS 通信语义 |
 | `src/embodied_agent_core` | 会话、NLU、队列、参数与公共运行时 |
+| `src/embodied_agent_bringup` | 公共 launch 参数与 Lifecycle 启动拓扑 |
+| `src/embodied_voice_frontend` | VAD、KWS、声纹等可替换输入 Adapter |
 | `src/embodied_online_agent` | 在线 Agent Lifecycle 节点 |
 | `src/embodied_offline_agent` | 离线 ASR/llama.cpp/TTS Agent |
 | `src/embodied_agent_cpp` | C++ ActionGuard、调度、音频与硬件 seam |
 | `src/embodied_simulation` | BT、pluginlib、Gazebo/Nav2 executor 与场景 |
-| `src/embodied_slam*` | SLAM 后端、回环、自动建图会话与证据 |
+| `src/embodied_slam` | SLAM 后端、回环与公开 bag 实验 |
+| `src/embodied_slam_tools` | 自动建图任务、阶段进程和验收证据 |
 | `src/embodied_navigation` | 动态障碍跟踪、预测和 Nav2 costmap plugin |
 | `scripts` | 稳定部署、主演示和 smoke runner |
 | `tools/acceptance` | 验收模式注册表与领域 handler |
@@ -99,7 +113,7 @@ bash scripts/acceptance_test.sh slam-nav-e2e
 
 证据位于 `logs/acceptance/slam_nav/<session_id>/slam_nav_e2e_report.json` 和 `runtime.log`。
 
-### 2. 真实语音自动建图与导航
+### 2. 真实语音自动建图与导航（高级交互演示）
 
 ```bash
 bash scripts/acceptance_test.sh voice-slam-workplace-demo offline
@@ -108,6 +122,9 @@ bash scripts/acceptance_test.sh voice-slam-workplace-demo online
 ```
 
 推荐话术：`小智，开始自动巡检建图`。紧急停止：`停下` 或 `取消自动任务`。
+该入口通过 `--help-all` 发现，负责真人语音触发建图、存图、AMCL/Nav2 和语义巡检；它会加载
+预测代价层，但不自动注入测试用 `crossing_cart`。确定性的动态障碍横穿与重规划证据由
+`slam-nav-e2e` 的验收探针生成。
 
 ### 3. 长时间连续语音控制
 
