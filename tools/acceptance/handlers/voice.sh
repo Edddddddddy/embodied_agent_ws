@@ -317,7 +317,7 @@ accept_continuous_online() {
 }
 
 accept_continuous_voice_evidence() {
-  CHECK_MODE="${2:-offline}"
+  CHECK_MODE="${1:-offline}"
   if [[ "$CHECK_MODE" != "offline" && "$CHECK_MODE" != "online" ]]; then
     echo "Usage: ${ACCEPTANCE_PROGRAM:-acceptance_test.sh} continuous-voice-evidence {offline|online}" >&2
     exit 2
@@ -326,7 +326,7 @@ accept_continuous_voice_evidence() {
 }
 
 accept_continuous_live_check() {
-  CHECK_MODE="${2:-offline}"
+  CHECK_MODE="${1:-offline}"
   if [[ "$CHECK_MODE" != "offline" && "$CHECK_MODE" != "online" ]]; then
     echo "Usage: ${ACCEPTANCE_PROGRAM:-acceptance_test.sh} continuous-live-check {offline|online}" >&2
     exit 2
@@ -343,7 +343,7 @@ accept_continuous_live_check() {
 }
 
 accept_continuous_live_report() {
-  REPORT_PATH="${2:-}"
+  REPORT_PATH="${1:-}"
   if [[ -z "$REPORT_PATH" ]]; then
     echo "Usage: ${ACCEPTANCE_PROGRAM:-acceptance_test.sh} continuous-live-report REPORT_FILE" >&2
     exit 2

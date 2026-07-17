@@ -173,6 +173,8 @@ repository contract、stage、Gazebo、真人麦克风和公开 bag 分层证明
 - `src/embodied_simulation/src/simulation_ros_io.cpp`：ACK、BT status、health、diagnostics。
 - `scripts/showcase_release_gate.py`：`GateCommand`、`_run_command()`、`main()`。
 - `scripts/generate_architecture_facts.py`：`build_facts()`、`render_markdown()`。
+- `tools/acceptance/catalog.py`：`HandlerDomain`、`AcceptanceMode`；显式保存 mode 的领域所有权。
+- `tools/acceptance/runner.py`：`BashModeRunner.run()`；隔离 Python 路由与 Bash/ROS 环境副作用。
 - `scripts/acceptance_test.sh`、`tests/repository/`、各包 `test/`、`tests/integration/`。
 
 ### 【上游 → 处理 → 下游】
@@ -194,6 +196,12 @@ typed events + TF/map/odom/cmd_vel
 
 只看 INFO 日志难做断言；只做单测不能证明 DDS/TF/Gazebo；只做重型 E2E 反馈慢。测试金字塔让
 单测定位、stage 验接口、重型/真人/公开数据提供最终证据。
+
+验收 CLI 采用 catalog → runner → domain handler 三层 Module：catalog 只声明事实，runner 只做环境
+Adapter，handler 才执行 ROS 副作用。每条 mode 必须显式指定 `HandlerDomain`，避免名称里增加
+`nav2`、`slam` 或 `benchmark` 后静默改变路由；runner 只把用户参数交给 handler，因此 `$1` 的
+含义稳定且可用真实 Bash fixture 测试。与在顶层 shell 写大型 `case` 相比，这个 seam 让帮助、
+路由、参数保真和副作用可以分别验证。
 
 ### 【失败/安全边界】
 

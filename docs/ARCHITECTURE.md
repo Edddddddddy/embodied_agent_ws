@@ -237,6 +237,10 @@ Agent bridge、安全节点和关键机器人组件按 configure→activate→de
 `build_automatic_mission_report()` 统一判断新地图时效、frontier、AMCL/Nav2、完整 waypoint、
 动态净空和最终零速度。证据模块不导入 rclpy/nav_msgs，因此阈值与失败语义可以在 CI 中快速单测。
 
+验收命令本身由 `tools/acceptance/catalog.py` 显式声明 `HandlerDomain`，再由
+`BashModeRunner.run()` 选择唯一领域 handler。mode 名不参与路由推断，也不会作为隐藏位置参数传入
+Bash；因此重命名不会静默改变执行库，handler 的 `$1` 始终表示首个用户参数。
+
 ## 9. 部署一致性
 
 所有公共入口先调用 `scripts/lifecycle_utils.sh:embodied_resolve_workspace()`，从入口脚本自身推导当前

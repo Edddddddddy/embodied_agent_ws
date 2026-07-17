@@ -286,7 +286,7 @@ accept_instruction_following_lora_review() {
 }
 
 accept_continuous_voice_benchmark() {
-  CHECK_MODE="${2:-offline}"
+  CHECK_MODE="${1:-offline}"
   if [[ "$CHECK_MODE" != "offline" && "$CHECK_MODE" != "online" ]]; then
     echo "Usage: ${ACCEPTANCE_PROGRAM:-acceptance_test.sh} continuous-voice-benchmark {offline|online}" >&2
     exit 2
@@ -336,7 +336,7 @@ accept_continuous_voice_benchmark() {
 }
 
 accept_voice_benchmark_report() {
-  REPORT_PATH="${2:-}"
+  REPORT_PATH="${1:-}"
   if [[ -z "$REPORT_PATH" ]]; then
     echo "Usage: ${ACCEPTANCE_PROGRAM:-acceptance_test.sh} voice-benchmark-report REPORT_FILE" >&2
     exit 2

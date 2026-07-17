@@ -45,7 +45,8 @@ class BashModeRunner:
             if mode.requires_ros_environment
             else ":"
         )
-        # 用户参数只通过 Bash 的位置参数传入，不拼接进命令文本，避免空格或特殊字符改变路由。
+        # mode.name 只属于 Python catalog，不伪装成 Bash 的隐藏 `$1`。
+        # 用户参数通过 argv 原样传入，避免空格或特殊字符改变路由或被再次执行。
         script = f"""set -euo pipefail
 export WORKSPACE="$1"
 shift
@@ -66,7 +67,6 @@ source "$WORKSPACE/{mode.handler_library}"
                 script,
                 "acceptance-runner",
                 str(self._workspace),
-                mode.name,
                 *arguments,
             ],
             cwd=self._workspace,

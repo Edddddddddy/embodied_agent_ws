@@ -1,19 +1,23 @@
 from __future__ import annotations
 
 import io
+import inspect
 import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Sequence
 
+from tools.acceptance import catalog as acceptance_catalog
 from tools.acceptance.catalog import (
     MODE_BY_NAME,
     MODES,
     PUBLIC_MODE_NAMES,
     AcceptanceMode,
+    HandlerDomain,
 )
 from tools.acceptance.cli import main
+from tools.acceptance.runner import BashModeRunner
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -42,16 +46,45 @@ def test_public_surface_is_small_stable_and_ordered():
     assert {mode.name for mode in MODES if mode.public} == set(PUBLIC_MODE_NAMES)
 
 
-def test_every_registered_mode_has_one_shell_handler():
-    implemented: set[str] = set()
+def test_acceptance_mode_requires_an_explicit_handler_domain():
+    """路由是 catalog 契约，不能再根据 mode 名中的 nav2/slam 等词猜测。"""
+    domain_parameter = inspect.signature(AcceptanceMode).parameters["domain"]
+
+    assert domain_parameter.default is inspect.Parameter.empty
+    assert not hasattr(acceptance_catalog, "_handler_domain")
+    assert all(
+        len(spec) == 7 and isinstance(spec[-1], HandlerDomain)
+        for spec in acceptance_catalog._MODE_SPECS
+    )
+
+
+def test_every_registered_mode_has_one_handler_in_its_declared_library():
+    implementations: dict[str, set[str]] = {}
     for library in {mode.handler_library for mode in MODES}:
-        source = (ROOT / library).read_text(encoding="utf-8")
-        implemented.update(
+        library_path = ROOT / library
+        source = library_path.read_text(encoding="utf-8")
+        subprocess.run(["bash", "-n", str(library_path)], check=True)
+        implementations[library] = set(
             re.findall(r"^(accept_[a-z0-9_]+)\(\) \{", source, re.M)
         )
 
     assert len(MODE_BY_NAME) == len(MODES)
-    assert {mode.handler for mode in MODES} == implemented
+    for mode in MODES:
+        owners = sorted(
+            library
+            for library, handlers in implementations.items()
+            if mode.handler in handlers
+        )
+        assert owners == [mode.handler_library]
+    assert {mode.handler for mode in MODES} == set().union(
+        *implementations.values()
+    )
+
+
+def test_legacy_slam_alias_is_not_a_second_e2e_fact_source():
+    assert "slam-autonomous-mission" not in MODE_BY_NAME
+    assert "slam-autonomous-mission-stage" in MODE_BY_NAME
+    assert "slam-nav-e2e" in MODE_BY_NAME
 
 
 def test_integration_probe_runner_is_utf8_shell_source():
@@ -66,8 +99,16 @@ def test_integration_probe_runner_is_utf8_shell_source():
 def test_literal_integration_probe_paths_resolve_to_tracked_files():
     """场景启动器不能继续引用重组前已经不存在的 probe 路径。"""
     missing: list[str] = []
-    pattern = re.compile(r'\$WORKSPACE/(tests/integration/[^"\s]+\.py)')
-    for script in sorted((ROOT / "scripts").glob("*.sh")):
+    pattern = re.compile(
+        r"(?<![A-Za-z0-9_.-])"
+        r"((?:tests/integration|scripts|tools)/[A-Za-z0-9_./-]+\.(?:py|sh))"
+    )
+    scripts = list((ROOT / "scripts").glob("*.sh"))
+    scripts.extend(
+        ROOT / library for library in {mode.handler_library for mode in MODES}
+    )
+    scripts.append(ROOT / "tools/acceptance/handlers/common.sh")
+    for script in sorted(scripts):
         source = script.read_text(encoding="utf-8")
         for relative_path in pattern.findall(source):
             if not (ROOT / relative_path).is_file():
@@ -88,6 +129,40 @@ def test_cli_dispatches_arguments_through_injected_runner():
 
     assert status == 17
     assert runner.calls == [("continuous-nav2-evidence", ["offline"])]
+
+
+def test_bash_runner_exposes_only_user_arguments_to_handler(tmp_path):
+    """mode 名属于 Python 路由元数据，不能泄漏成 Bash handler 的隐藏 `$1`。"""
+    mode = AcceptanceMode(
+        name="sample-mode",
+        description="test fixture",
+        handler="accept_sample_mode",
+        category="internal",
+        public=False,
+        requires_ros_environment=False,
+        domain=HandlerDomain.CONTROL,
+    )
+    common = tmp_path / "tools/acceptance/handlers/common.sh"
+    common.parent.mkdir(parents=True)
+    common.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+    (tmp_path / mode.handler_library).write_text(
+        "accept_sample_mode() { printf '%s\\n' \"$#\" \"$@\" > \"$WORKSPACE/arguments.txt\"; }\n",
+        encoding="utf-8",
+    )
+
+    status = BashModeRunner(tmp_path).run(
+        mode,
+        ["offline", "two words", "$(touch must-not-run)"],
+    )
+
+    assert status == 0
+    assert (tmp_path / "arguments.txt").read_text(encoding="utf-8").splitlines() == [
+        "3",
+        "offline",
+        "two words",
+        "$(touch must-not-run)",
+    ]
+    assert not (tmp_path / "must-not-run").exists()
 
 
 def test_cli_help_and_unknown_mode_do_not_execute_runner():

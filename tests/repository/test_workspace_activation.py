@@ -219,6 +219,6 @@ def test_autonomous_slam_entries_run_workspace_doctor():
         "slam-nav-showcase-stage"
     )
     assert "embodied_workspace_doctor true" in acceptance_handler_source(
-        "slam-autonomous-mission"
+        "slam-nav-e2e"
     )
     assert "embodied_workspace_doctor true" in showcase

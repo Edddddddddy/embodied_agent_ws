@@ -117,6 +117,7 @@
 | 架构事实与发布门禁防漂移 | 避免包数量、脚本/模式规模、节点行数和 CI/release-gate 覆盖随迭代再次失真 | 新增确定性 JSON/Markdown 架构报告和 repository contract；数量以每次构建生成的事实报告为准，不在历史文档中固化 |
 | 自动建图主演示部署收口 | 修复 worktree 静默加载主工作区旧 install、缺 Explore Lite 到运行期才失败的问题 | 公共入口从自身路径解析并 export `WORKSPACE`；激活器恢复 shell 选项；bootstrap 默认安装 pinned Explore Lite；stage/主演示前检查 package prefix 与自动任务 Action contract |
 | 顶层文档权威性收口 | 让部署、架构、调用链、验收和 15 分钟汇报与一句话自动任务一致 | README、架构、测试、学习和汇报文档统一写明文件、函数、上下游、设计原因和证据边界 |
+| 验收路由契约收敛 | 消除按 mode 名猜领域和隐藏位置参数造成的重命名、online/offline 参数漂移风险 | 全部 mode 显式声明 `HandlerDomain`；runner 只传用户参数；删除与 `slam-nav-e2e` 重复的旧重型别名 |
 
 ## 2. 历史阶段结论（非当前验收口径）
 
