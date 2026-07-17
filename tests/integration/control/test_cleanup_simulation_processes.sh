@@ -26,7 +26,7 @@ fi
 grep -q "PASS: stale Gazebo/ROS simulation processes terminated" <<<"$OUTPUT"
 
 # 编译/测试命令可能包含节点源码文件名，但不是运行中的 ROS 可执行文件。
-bash -c 'exec -a "python3 -m py_compile test_voice_slam_session_orchestrator.py" sleep 30' &
+bash -c 'exec -a "python3 -m py_compile session_orchestrator.py" sleep 30' &
 NON_TARGET_PID=$!
 sleep 0.1
 OUTPUT="$(bash scripts/cleanup_simulation_processes.sh)"

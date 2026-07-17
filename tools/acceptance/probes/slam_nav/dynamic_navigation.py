@@ -11,10 +11,12 @@ from pathlib import Path
 from lifecycle_msgs.msg import State
 import rclpy
 
-from tests.integration.slam_nav.test_voice_slam_session_orchestrator import (
-    SessionProbe,
-    lifecycle_states,
+from tools.acceptance.probes.slam_nav.dynamic_scenario import (
     run_showcase_dynamic_navigation,
+)
+from tools.acceptance.probes.slam_nav.session_observer import (
+    SessionObserver,
+    lifecycle_states,
     wait_until,
 )
 
@@ -27,7 +29,7 @@ def main() -> int:
     args = parser.parse_args()
 
     rclpy.init()
-    node = SessionProbe()
+    node = SessionObserver()
     executor = rclpy.executors.MultiThreadedExecutor(num_threads=2)
     executor.add_node(node)
     thread = threading.Thread(target=executor.spin, daemon=True)

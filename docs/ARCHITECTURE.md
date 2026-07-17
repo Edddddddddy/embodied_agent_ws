@@ -228,14 +228,25 @@ Agent bridge、安全节点和关键机器人组件按 configure→activate→de
 麦克风报告证明当前声学环境；三者不可互换。
 
 重型门禁把高频 ROS 输出写入 `runtime.log`，由 `tools/acceptance/progress.py` 的
-`AcceptanceProgress` 向终端发布低频心跳和阶段里程碑。`SessionProbe._on_state()` 将
-`SlamSessionState` 映射为 6 个演示阶段；完整 JSON 留在证据文件，终端只打印摘要。这样既避免
-数万行 ROS 日志淹没关键信息，也避免长等待看起来像进程卡死。
+`AcceptanceProgress` 向终端发布低频心跳和阶段里程碑。SLAM/Nav2 探针按职责拆为深 Module：
 
-`tools/acceptance/slam_nav_evidence.py` 是 E2E PASS 的单一事实源：ROS 探针只把 Path、track、
-地图和 Action result 转成普通值对象，`evaluate_dynamic_navigation()` 与
-`build_automatic_mission_report()` 统一判断新地图时效、frontier、AMCL/Nav2、完整 waypoint、
-动态净空和最终零速度。证据模块不导入 rclpy/nav_msgs，因此阈值与失败语义可以在 CI 中快速单测。
+```text
+session_orchestrator.py（唯一可执行入口与顶层会话编排）
+  ├→ cli.py（ROS-free 参数 Interface）
+  ├→ session_observer.py（SessionObserver typed ROS Adapter）
+  ├→ dynamic_scenario.py（动态障碍注入与 Nav2 重规划事务）
+  ├→ artifacts.py（地图哈希、失败报告与终端摘要）
+  └→ slam_nav_evidence.py（ROS-free PASS/FAIL 决策）
+```
+
+依赖只沿箭头方向流动：ROS Adapter 采集 topic、Action、Service 与 TF 事实，不拥有场景策略或验收
+阈值；场景 Module 组织一次可恢复的动态导航事务；编排器只连接这些 Interface。完整 JSON 留在证据
+文件，终端只打印里程碑和摘要，避免高频日志淹没关键状态或让长等待看起来像卡死。
+
+`tools/acceptance/slam_nav_evidence.py` 是 E2E PASS 的唯一事实源。其他 Module 只生产普通值对象，
+`evaluate_dynamic_navigation()` 与 `build_automatic_mission_report()` 统一判断新地图时效、frontier、
+AMCL/Nav2、完整 waypoint、动态净空和最终零速度。该纯证据 Module 不导入 rclpy/nav_msgs，阈值和
+失败语义可在 CI 中快速单测，也不会被终端日志或编排分支重复实现。
 
 验收命令本身由 `tools/acceptance/catalog.py` 显式声明 `HandlerDomain`，再由
 `BashModeRunner.run()` 选择唯一领域 handler。mode 名不参与路由推断，也不会作为隐藏位置参数传入

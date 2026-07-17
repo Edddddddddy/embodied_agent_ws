@@ -49,7 +49,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-if ! timeout 360 bash tests/integration/run_probe.sh tests/integration/slam_nav/test_voice_slam_session_orchestrator.py \
+if ! timeout 360 bash tests/integration/run_probe.sh tools/acceptance/probes/slam_nav/session_orchestrator.py \
   --output "$SESSION_REPORT" \
   --transition-timeout 180 \
   --evidence-kind gazebo_slam_map_saver_amcl_nav2 \

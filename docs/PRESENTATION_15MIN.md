@@ -121,11 +121,12 @@ YAML，启动 map_server、AMCL 和 Nav2。报告只在事后记录地图来源�
 
 打开 `src/embodied_slam` 的 pose graph/GTSAM 与 loop verification，及 `src/embodied_navigation` 的 tracker/predicted costmap。
 
-真人语音主演示会启用预测代价层，但不自动注入测试用 `crossing_cart`。确定性横穿、typed detection、
-路径变化与安全间距由 `slam-nav-e2e` 的以下代码产生：
+真人语音主演示会启用预测代价层，但不自动注入测试用 `crossing_cart`。`slam-nav-e2e` 的确定性横穿、
+typed detection、路径变化与安全间距由以下 Module 协作产生：
 
-- `tests/integration/slam_nav/test_voice_slam_session_orchestrator.py`：
-  `run_showcase_dynamic_navigation()`；
+- `tools/acceptance/probes/slam_nav/session_observer.py`：`SessionObserver` 采集 typed ROS 事实；
+- `tools/acceptance/probes/slam_nav/dynamic_scenario.py`：`run_showcase_dynamic_navigation()` 执行
+  障碍注入、重规划和失败恢复事务；
 - `tools/acceptance/dynamic_route.py`：`select_replannable_route()`；
 - `tools/acceptance/slam_nav_evidence.py`：`evaluate_dynamic_navigation()`。
 
@@ -134,6 +135,11 @@ YAML，启动 map_server、AMCL 和 Nav2。报告只在事后记录地图来源�
 ### 3.10 证据与总结（12:45–15:00）
 
 打开 `logs/acceptance/slam_nav/<session_id>/slam_nav_e2e_report.json`，依次指出：地图 SHA256/时间、frontier goal、建图里程、AMCL/TF、lifecycle、语义 Action result、动态安全间距/unique plans、最终零速度。
+
+代码只讲一条单向依赖：`session_orchestrator.py` 是唯一可执行入口并调用 ROS-free `cli.py` 参数
+Interface；`SessionObserver` 是 typed ROS Adapter，`dynamic_scenario.py` 管场景事务，`artifacts.py` 管地图哈希与
+摘要；只有 ROS-free `slam_nav_evidence.py` 能作出最终 PASS/FAIL。这样运行时采样、流程控制和验收标准
+不会互相反向依赖。
 
 > 项目价值在于把不确定语音与确定机器人控制解耦，并用强类型接口、状态机、生命周期、BT/pluginlib、Nav2 和可审计证据形成工程闭环。当前完成的是仿真平台；真实硬件、真实场地长期漂移和大规模训练仍是边界。
 
@@ -146,7 +152,7 @@ YAML，启动 map_server、AMCL 和 Nav2。报告只在事后记录地图来源�
 | 多命令如何排队 | `command_nlu.py`、`agent_control_plane.py` |
 | 结果会不会串台 | `AgentActionGateway`、`ActionScheduler` |
 | 如何自动建图 | `AutomaticMissionExecutor`、`FrontierExplorationMonitor` |
-| 如何证明不是旧地图 | `test_voice_slam_session_orchestrator.py` 的 provenance/checks |
+| 如何证明不是旧地图 | `artifacts.py:map_artifact_sha256()` + `slam_nav_evidence.py` 的 provenance/checks |
 | 回环怎么防误检 | loop verification、switchable constraint、GTSAM optimizer |
 | 动态障碍怎么影响规划 | tracker → prediction → PredictedObstacleLayer |
 | 为什么最终一定停车 | 急停、Action result、executor cleanup、报告零速检查 |

@@ -71,7 +71,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-if ! timeout "$GATE_TIMEOUT_S" bash tests/integration/run_probe.sh tests/integration/slam_nav/test_voice_slam_session_orchestrator.py \
+if ! timeout "$GATE_TIMEOUT_S" bash tests/integration/run_probe.sh tools/acceptance/probes/slam_nav/session_orchestrator.py \
   --output "$REPORT" \
   --transition-timeout "$TRANSITION_TIMEOUT_S" \
   --gate-timeout-s "$GATE_TIMEOUT_S" \
