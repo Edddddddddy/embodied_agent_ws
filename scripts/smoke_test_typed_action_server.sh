@@ -20,7 +20,7 @@ trap cleanup EXIT
 
 activate_lifecycle_node simulation_control
 
-if ! timeout 20 bash "$WORKSPACE/tests/integration/run_probe.sh" "$WORKSPACE/tests/integration/control/test_typed_action_server.py"; then
+if ! timeout 20 bash "$WORKSPACE/tools/acceptance/run_probe.sh" "$WORKSPACE/tests/integration/control/test_typed_action_server.py"; then
   cat "$LOG_FILE" >&2
   exit 1
 fi

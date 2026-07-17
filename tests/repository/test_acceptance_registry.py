@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import io
 import inspect
+import json
+import os
 import re
 import subprocess
 from dataclasses import dataclass, field
@@ -87,13 +89,63 @@ def test_legacy_slam_alias_is_not_a_second_e2e_fact_source():
     assert "slam-nav-e2e" in MODE_BY_NAME
 
 
-def test_integration_probe_runner_is_utf8_shell_source():
-    """被 Git 跟踪的验收入口必须能被编辑器和 shell 可靠读取。"""
-    runner = ROOT / "tests" / "integration" / "run_probe.sh"
+def test_acceptance_probe_runner_is_owned_by_tools_and_is_valid_shell():
+    """可执行验收基础设施属于 tools，不应继续伪装成 pytest 测试。"""
+    runner = ROOT / "tools" / "acceptance" / "run_probe.sh"
     source = runner.read_text(encoding="utf-8")
 
+    assert not (ROOT / "tests/integration/run_probe.sh").exists()
     assert "PYTHONPATH" in source
+    assert 'exec python3 -u "$PROBE" "$@"' in source
     subprocess.run(["bash", "-n", str(runner)], check=True)
+
+
+def test_acceptance_probe_runner_preserves_args_exit_code_and_python_path(tmp_path):
+    runner = ROOT / "tools" / "acceptance" / "run_probe.sh"
+    probe = tmp_path / "record_probe.py"
+    probe.write_text(
+        """import json
+import sys
+
+print(json.dumps({
+    "args": sys.argv[1:],
+    "root_on_path": %r in sys.path,
+    "existing_path_preserved": "/sentinel" in sys.path,
+    "unbuffered": sys.stdout.write_through,
+}))
+raise SystemExit(17)
+"""
+        % str(ROOT),
+        encoding="utf-8",
+    )
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = "/sentinel"
+
+    completed = subprocess.run(
+        ["bash", str(runner), str(probe), "two words", "第二个参数"],
+        cwd=tmp_path,
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 17
+    assert json.loads(completed.stdout) == {
+        "args": ["two words", "第二个参数"],
+        "root_on_path": True,
+        "existing_path_preserved": True,
+        "unbuffered": True,
+    }
+
+    # 相对路径必须基于仓库根，而不是调用者当前目录。
+    relative = subprocess.run(
+        ["bash", str(runner), "tests/repository/repository_test_support.py"],
+        cwd=tmp_path,
+        env=environment,
+        check=False,
+    )
+    assert relative.returncode == 0
 
 
 def test_literal_integration_probe_paths_resolve_to_tracked_files():

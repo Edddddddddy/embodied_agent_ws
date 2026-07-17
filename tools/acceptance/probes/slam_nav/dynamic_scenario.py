@@ -13,6 +13,10 @@ from nav2_msgs.action import NavigateToPose
 from nav_msgs.msg import Path as NavPath
 
 from tools.acceptance.dynamic_route import ReplanRouteRejected, select_replannable_route
+from tools.acceptance.dynamic_scenario_transaction import (
+    DynamicScenarioTransaction,
+    cancel_pending_navigation,
+)
 from tools.acceptance.probes.slam_nav.artifacts import robot_traveled_distance
 from tools.acceptance.probes.slam_nav.session_observer import (
     SessionObserver,
@@ -196,6 +200,55 @@ def run_showcase_dynamic_navigation(
     retry_attempts = int(route_policy.get("dynamic_path_retry_attempts", 3))
     retry_interval_s = float(route_policy.get("retry_interval_s", 0.5))
     reset_wait_s = float(route_policy.get("reset_wait_s", 1.2))
+    parking = scenario["parking_world_pose"]
+
+    def park_obstacle() -> None:
+        set_gazebo_entity_pose(
+            world_name=world_name,
+            entity_name=entity_name,
+            x=float(parking["x"]),
+            y=float(parking["y"]),
+            z=float(parking["z"]),
+        )
+
+    def verify_stopped() -> None:
+        wait_until(
+            lambda: abs(node.last_cmd_vel["linear_x"]) < 1e-3
+            and abs(node.last_cmd_vel["angular_z"]) < 1e-3,
+            8.0,
+            "dynamic navigation cleanup did not reach zero velocity",
+        )
+
+    def verify_scene_cleared() -> None:
+        wait_until(
+            lambda: node.latest_tracks is None
+            or not node.latest_tracks.obstacles,
+            5.0,
+            "dynamic tracker did not clear during transaction cleanup",
+        )
+        if last_predicted is None:
+            return
+        predicted_x, predicted_y = last_predicted
+        wait_until(
+            lambda: node.cost_at(predicted_x, predicted_y)
+            < thresholds.minimum_predicted_cost,
+            5.0,
+            "dynamic costmap did not clear during transaction cleanup",
+        )
+
+    # 事务从第一次障碍注入前建立。无论规划、Action 或证据评估在哪一步失败，
+    # 都必须取消活动 goal、归位实体、清空 tracker 输入并确认机器人停止。
+    transaction = DynamicScenarioTransaction(
+        park_obstacle=park_obstacle,
+        clear_detection=node.publish_empty_detection,
+        verify_scene_cleared=verify_scene_cleared,
+        verify_stopped=verify_stopped,
+        warning=node.get_logger().warning,
+        clear_attempts=3,
+        clear_settle_s=reset_wait_s,
+        clear_interval_s=0.2,
+        sleep=time.sleep,
+    )
 
     def publish_position(position: list[float]) -> None:
         nonlocal pose_updates
@@ -213,14 +266,7 @@ def run_showcase_dynamic_navigation(
         """清理上一候选的实体、track 与 costmap，再尝试备用语义目标。"""
 
         nonlocal pose_updates, last_predicted
-        parking = scenario["parking_world_pose"]
-        set_gazebo_entity_pose(
-            world_name=world_name,
-            entity_name=entity_name,
-            x=float(parking["x"]),
-            y=float(parking["y"]),
-            z=float(parking["z"]),
-        )
+        park_obstacle()
         # tracker 仅在收到新观测时清理 TTL；显式空检测让 costmap 擦除旧 bounds。
         time.sleep(reset_wait_s)
         for _ in range(3):
@@ -321,59 +367,71 @@ def run_showcase_dynamic_navigation(
             "predicted_cost": node.cost_at(predicted_x, predicted_y),
         }
 
-    selected, route_attempts = select_replannable_route(
-        goals, attempt=attempt_route, recover=recover_route
-    )
-    goal = selected["goal"]
-    goal_x = selected["goal_x"]
-    goal_y = selected["goal_y"]
-    baseline_path = selected["baseline_path"]
-    dynamic_path = selected["dynamic_path"]
-    warmup_positions = selected["warmup_positions"]
-    navigation_positions = selected["navigation_positions"]
-    motion_anchor = selected["motion_anchor"]
-    track = selected["track"]
-    predicted_x = selected["predicted_x"]
-    predicted_y = selected["predicted_y"]
-    predicted_cost = selected["predicted_cost"]
+    with transaction:
+        selected, route_attempts = select_replannable_route(
+            goals, attempt=attempt_route, recover=recover_route
+        )
+        goal = selected["goal"]
+        goal_x = selected["goal_x"]
+        goal_y = selected["goal_y"]
+        baseline_path = selected["baseline_path"]
+        dynamic_path = selected["dynamic_path"]
+        warmup_positions = selected["warmup_positions"]
+        navigation_positions = selected["navigation_positions"]
+        motion_anchor = selected["motion_anchor"]
+        track = selected["track"]
+        predicted_x = selected["predicted_x"]
+        predicted_y = selected["predicted_y"]
+        predicted_cost = selected["predicted_cost"]
 
-    if not node.navigation_client.wait_for_server(timeout_sec=20.0):
-        raise TimeoutError("NavigateToPose action server unavailable")
-    plan_start = len(node.navigation_plans)
-    odom_start = len(node.positions)
-    nav_goal = NavigateToPose.Goal()
-    nav_goal.pose.header.frame_id = "map"
-    nav_goal.pose.header.stamp = node.get_clock().now().to_msg()
-    nav_goal.pose.pose.position.x = goal_x
-    nav_goal.pose.pose.position.y = goal_y
-    nav_goal.pose.pose.orientation.w = 1.0
-    goal_future = node.navigation_client.send_goal_async(nav_goal)
-    wait_until(goal_future.done, 10.0, "dynamic NavigateToPose response timeout")
-    handle = goal_future.result()
-    if not handle.accepted:
-        raise RuntimeError("dynamic NavigateToPose goal rejected")
-    result_future = handle.get_result_async()
-    for position in navigation_positions:
-        publish_position(position)
-        time.sleep(float(scenario["navigation"]["interval_s"]))
-    time.sleep(float(scenario["navigation"].get("hold_s", 0.0)))
-    parking = scenario["parking_world_pose"]
-    set_gazebo_entity_pose(
-        world_name=world_name,
-        entity_name=entity_name,
-        x=float(parking["x"]),
-        y=float(parking["y"]),
-        z=float(parking["z"]),
-    )
-    pose_updates += 1
-    wait_until(result_future.done, timeout_s, "dynamic NavigateToPose result timeout")
-    nav_status = int(result_future.result().status)
-    wait_until(
-        lambda: abs(node.last_cmd_vel["linear_x"]) < 1e-3
-        and abs(node.last_cmd_vel["angular_z"]) < 1e-3,
-        8.0,
-        "dynamic navigation did not finish with zero velocity",
-    )
+        if not node.navigation_client.wait_for_server(timeout_sec=20.0):
+            raise TimeoutError("NavigateToPose action server unavailable")
+        plan_start = len(node.navigation_plans)
+        odom_start = len(node.positions)
+        nav_goal = NavigateToPose.Goal()
+        nav_goal.pose.header.frame_id = "map"
+        nav_goal.pose.header.stamp = node.get_clock().now().to_msg()
+        nav_goal.pose.pose.position.x = goal_x
+        nav_goal.pose.pose.position.y = goal_y
+        nav_goal.pose.pose.orientation.w = 1.0
+        goal_future = node.navigation_client.send_goal_async(nav_goal)
+        wait_until(goal_future.done, 10.0, "dynamic NavigateToPose response timeout")
+        handle = goal_future.result()
+        if not handle.accepted:
+            raise RuntimeError("dynamic NavigateToPose goal rejected")
+        result_future = None
+
+        def cancel_navigation() -> None:
+            if result_future is None:
+                # handle 已接受但 result future 创建失败时仍要先发 cancel；随后明确
+                # 报告“无法证明终态”，不能静默把活动 goal 留给外层进程清理。
+                cancel_future = handle.cancel_goal_async()
+                wait_until(
+                    cancel_future.done,
+                    8.0,
+                    "dynamic NavigateToPose cancel response timeout",
+                )
+                raise RuntimeError(
+                    "NavigateToPose result future unavailable after cancel"
+                )
+            cancel_pending_navigation(
+                goal_handle=handle,
+                result_future=result_future,
+                wait_until=wait_until,
+                timeout_s=8.0,
+            )
+
+        transaction.set_cancel_navigation(cancel_navigation)
+        result_future = handle.get_result_async()
+        for position in navigation_positions:
+            publish_position(position)
+            time.sleep(float(scenario["navigation"]["interval_s"]))
+        time.sleep(float(scenario["navigation"].get("hold_s", 0.0)))
+        park_obstacle()
+        pose_updates += 1
+        transaction.mark_obstacle_parked()
+        wait_until(result_future.done, timeout_s, "dynamic NavigateToPose result timeout")
+        nav_status = int(result_future.result().status)
 
     positions = node.positions[odom_start:]
     plans = node.navigation_plans[plan_start:]

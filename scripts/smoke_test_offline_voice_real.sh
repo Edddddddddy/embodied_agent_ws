@@ -46,7 +46,7 @@ if ! python3 "$WORKSPACE/scripts/activate_lifecycle_node.py" offline_agent \
   cat "$SERVER_LOG" >&2
   exit 1
 fi
-bash "$WORKSPACE/tests/integration/run_probe.sh" "$WORKSPACE/tests/integration/voice/test_offline_voice_e2e.py" --output "$REPORT" || {
+bash "$WORKSPACE/tools/acceptance/run_probe.sh" "$WORKSPACE/tests/integration/voice/test_offline_voice_e2e.py" --output "$REPORT" || {
   cat "$LAUNCH_LOG"; cat "$SERVER_LOG"; exit 1;
 }
 echo "PASS: real ZipFormer ASR -> llama.cpp -> Sherpa-TTS -> hardware mock; report=$REPORT"

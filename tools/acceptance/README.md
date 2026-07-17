@@ -7,9 +7,15 @@
 - `cli.py`：处理帮助、参数校验和模式选择，可注入 fake runner 做单元测试。
 - `runner.py`：按需激活 ROS 环境并调用领域 handler；Bash `$1` 始终是首个用户参数，mode 名不会
   作为隐藏参数泄漏到 handler。
+- `run_probe.sh`：可执行 Python probe 的统一启动 Interface；相对路径固定按仓库根解析，并使用
+  `python3 -u` 保证管道或重定向下实时输出，避免 stdout 缓冲造成重型验收“假卡死”。它不负责
+  激活 `.venv`、ROS overlay 或选择 domain，这些环境前置条件仍由调用它的 handler/smoke 脚本拥有。
 - `progress.py`：为重型门禁提供阶段里程碑和定时心跳；完整 ROS 输出仍写证据日志。
 - `dynamic_route.py`：在失败恢复后选择第一条真正可重规划的候选路线，并记录尝试审计。
-- `slam_nav_evidence.py`：无 ROS 的几何与 E2E 证据深模块，统一动态重规划和自动任务 PASS 语义。
+- `dynamic_scenario_transaction.py`：ROS-free 清理策略；通过回调依次取消导航、归位障碍、清空检测、
+  验证 tracker/costmap 已清除并确认零速度，且不会用清理错误覆盖原始场景异常。
+- `slam_nav_evidence.py`：无 ROS 的几何与 E2E 证据深模块，统一业务观测、阈值和报告 `passed`；
+  资源后置条件由事务在报告生成前独立强制。
 - `handlers/`：保留必须依赖 Bash/ROS setup 的 control、voice、slam_nav 实现。
 
 公开模式固定为 7 个。内部回归仍可通过 `--help-all` 发现，但不能写进新手必跑步骤。

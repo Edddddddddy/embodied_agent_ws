@@ -43,7 +43,7 @@ setsid ros2 run embodied_voice_frontend speaker_identity --ros-args \
 NODE_PID=$!
 
 if ! timeout 45 env SPEAKER_TEST_WAV="$WAV" SPEAKER_TEST_ID="$SPEAKER_ID" \
-  bash "$WORKSPACE/tests/integration/run_probe.sh" "$WORKSPACE/tests/integration/voice/test_sherpa_speaker_identity_ros.py"; then
+  bash "$WORKSPACE/tools/acceptance/run_probe.sh" "$WORKSPACE/tests/integration/voice/test_sherpa_speaker_identity_ros.py"; then
   cat "$LOG_FILE" >&2
   exit 1
 fi

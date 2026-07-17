@@ -38,6 +38,8 @@
   Nav2 参数副本，为 WSL/Gazebo 调整进度半径和时间窗，不修改系统安装文件。
 - `tools/acceptance/progress.py`：`AcceptanceProgress.start()`、`stage()`、`stop()`；把重型验收的
   ROS 状态压缩成可讲解的阶段和心跳，完整证据仍保存在 session 报告与 `runtime.log`。
+- `tools/acceptance/run_probe.sh`：把相对 probe 路径按仓库根解析并统一使用 `python3 -u`；无缓冲
+  输出解决日志经过管道/重定向时长时间不刷新的“假卡死”，环境激活仍由上游 handler 负责。
 - `tools/acceptance/slam_nav_evidence.py`：`evaluate_dynamic_navigation()`、
   `build_automatic_mission_report()`；以无 ROS 值对象集中定义动态净空、新地图、定位、完整巡航和
   最终停车的 PASS 条件。
@@ -162,9 +164,11 @@ bash scripts/acceptance_test.sh openloris-replay-stage
   `updateCosts()`、`reset()`。
 - `tools/acceptance/dynamic_route.py`：`select_replannable_route()` 把候选路线选择、失败恢复和
   `route_attempts` 审计集中为一个可单测策略。
+- `tools/acceptance/dynamic_scenario_transaction.py`：`DynamicScenarioTransaction.close()` 是 ROS-free
+  清理策略，拥有跨进程资源的清理顺序、幂等性与异常优先级。
 - `tools/acceptance/probes/slam_nav/dynamic_scenario.py`：
-  `run_showcase_dynamic_navigation()` 封装障碍放置、typed detection、Nav2 重规划与候选恢复事务；
-  只把观测交给纯证据 Module，不自行宣布 PASS。
+  `run_showcase_dynamic_navigation()` 在事务 Seam 上只提供 Nav2 取消、Gazebo 归位、空检测及
+  tracker/cost/速度验证 Adapter；只把观测交给纯证据 Module，不自行宣布 PASS。
 
 ### 【上游 → 处理 → 下游】
 
@@ -173,6 +177,8 @@ PoseArray / typed detections → global gated assignment
 → DynamicObstacleTracker::update() → track state/velocity/covariance/TTL
 → predict_constant_velocity() → DynamicObstacleArray
 → PredictedObstacleLayer → future lethal cost → Nav2 replan
+场景退出 → cancel goal → park entity → empty detections
+         → verify tracker/costmap clear → verify zero velocity
 ```
 
 ### 【为什么这样设计】
@@ -181,6 +187,8 @@ PoseArray / typed detections → global gated assignment
 costmap plugin 只消费统一轨迹；旧 bounds 被保留用于清除过期占用，避免留下永久“鬼墙”。验收路线
 不能只看 `ComputePathToPose` 是否返回成功，还必须比较注入障碍前后的最小净空；否则规划器返回同一路径
 也会被误报为“已重规划”。候选失败后的显式恢复保证下一候选不受上一条 track/cost 残留污染。
+事务策略与 ROS/Gazebo Adapter 分离后，普通 CI 可覆盖每个清理分支；运行层只负责把真实副作用接到
+回调 Interface，修改清理顺序时不必启动 Gazebo。
 
 ### 【与替代方案区别】
 
@@ -190,12 +198,16 @@ greedy nearest 简单但多目标会抢同一 track；全局门限关联更稳�
 ### 【失败/安全边界】
 
 重型导航证据使用确定性合成感知输入，不等于真实检测器或人群模型。二维 costmap 压平时间维会较
-保守；协方差未标定时不能包装成真实传感器收益。track TTL、旧 bounds 清理和最终急停都要验收。
+保守；协方差未标定时不能包装成真实传感器收益。动态场景退出必须按“取消导航、障碍归位、空检测、
+验证 tracker/costmap 清除、验证零速度”收口。若场景先失败，清理故障作为附加诊断而不能覆盖原始
+异常；若场景成功而清理失败，则门禁失败。track TTL、旧 bounds 清理和最终急停都要验收。
 
 ### 【对应测试】
 
 ```bash
 colcon test --packages-select embodied_navigation --event-handlers console_direct+
+pytest -q tests/repository/test_dynamic_scenario_transaction.py \
+  tests/repository/test_slam_nav_probe_structure.py
 bash scripts/acceptance_test.sh dynamic-obstacle-stage
 bash scripts/acceptance_test.sh dynamic-obstacle-navigation
 ```
