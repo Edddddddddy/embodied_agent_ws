@@ -23,12 +23,13 @@ from rclpy.action import ActionClient
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from tf2_msgs.msg import TFMessage
+from tools.acceptance.paths import repository_root
 from tools.acceptance.slam_nav_evidence import (
     path_clearance as evidence_path_clearance,
 )
 
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = repository_root()
 DEFAULT_SCENARIO = (
     ROOT
     / "src"

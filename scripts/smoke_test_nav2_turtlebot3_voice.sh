@@ -52,7 +52,7 @@ if [[ "${NAV2_RESILIENCE:-false}" == "true" ]]; then
 fi
 
 if ! timeout "${NAV2_TURTLEBOT3_TIMEOUT:-420}" \
-  bash "$WORKSPACE/tools/acceptance/run_probe.sh" "$WORKSPACE/tests/integration/slam_nav/test_nav2_turtlebot3_voice.py" \
+  bash "$WORKSPACE/tools/acceptance/run_probe.sh" "$WORKSPACE/tools/acceptance/probes/slam_nav/nav2_turtlebot3_voice.py" \
     "${PROBE_ARGS[@]}"; then
   cat "$LAUNCH_LOG" >&2
   exit 1

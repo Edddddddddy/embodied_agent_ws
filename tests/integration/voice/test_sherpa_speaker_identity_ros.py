@@ -16,9 +16,10 @@ from embodied_agent_core.ros_qos import audio_qos, event_qos, state_qos
 from embodied_agent_core.speaker_transport import identity_message_to_dict
 from rclpy.node import Node
 from std_msgs.msg import Empty, UInt8MultiArray
+from tools.acceptance.paths import repository_root
 
 
-WORKSPACE = Path(__file__).resolve().parents[3]
+WORKSPACE = repository_root()
 
 
 class SpeakerIdentityProbe(Node):

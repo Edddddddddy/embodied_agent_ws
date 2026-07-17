@@ -37,7 +37,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if ! bash tools/acceptance/run_probe.sh tests/integration/slam_nav/test_predicted_dynamic_obstacle_navigation.py \
+if ! bash tools/acceptance/run_probe.sh tools/acceptance/probes/slam_nav/predicted_dynamic_obstacle_navigation.py \
     --timeout "${DYNAMIC_NAVIGATION_TIMEOUT:-160}" --motion-model "$MOTION_MODEL" \
     --scenario "$SCENARIO_FILE" --map-file "$MAP_FILE" --params-file "$PARAMS_FILE" \
     --output "$REPORT_FILE"; then

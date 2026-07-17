@@ -10,8 +10,13 @@
 - `run_probe.sh`：可执行 Python probe 的统一启动 Interface；相对路径固定按仓库根解析，并使用
   `python3 -u` 保证管道或重定向下实时输出，避免 stdout 缓冲造成重型验收“假卡死”。它不负责
   激活 `.venv`、ROS overlay 或选择 domain，这些环境前置条件仍由调用它的 handler/smoke 脚本拥有。
+- `paths.py`：Python 验收工具共享的仓库根定位 Interface；`repository_root()` 从任意仓库内路径
+  向上查找 `scripts/acceptance_test.sh`、`tools/acceptance` 和 `src` 三个稳定标记，不依赖脆弱的
+  `parents[n]`。因此 probe 迁移目录或运行在 Git worktree 中时，日志、配置和地图路径不会静默漂移。
 - `probes/control/`：typed Action、Lifecycle、调度和 Gazebo 的独立 ROS graph 验收 Adapter；文件名
   不使用 `test_`，因为它们由 runner 执行而不是 pytest 断言。
+- `probes/slam_nav/`：mapping、localization、Nav2、动态障碍的可执行 ROS graph probe，以及 canonical
+  `slam-nav-e2e` 的会话编排 Module；各 probe 按需要复用仓库定位、typed transport 和证据边界。
 - `typed_action_probe_utils.py`：复用生产 transport 构造/读取 typed 消息，禁止 probe 手写第二套协议。
 - `progress.py`：为重型门禁提供阶段里程碑和定时心跳；完整 ROS 输出仍写证据日志。
 - `dynamic_route.py`：在失败恢复后选择第一条真正可重规划的候选路线，并记录尝试审计。
@@ -26,5 +31,7 @@
 一个 handler 只能归属一个领域库。需要兼容旧名称时优先迁移调用方，不得为同一重型 E2E 保留
 两个可独立输出 PASS 的入口。
 `tools/acceptance/probes` 不得导入 `tests.*`；依赖方向只能是测试验证工具，而不是运行工具依赖测试。
+Python probe 不得通过固定父目录层级推导仓库根；确需从模块位置寻找仓库资源时必须复用
+`paths.repository_root()`，CLI 已显式传入路径时则直接尊重调用者输入。
 运行时间超过 30 秒的模式必须输出可定位的日志路径，并使用 `AcceptanceProgress` 或等价机制提供
 周期心跳，避免“进程正常但终端无输出”的现场假卡死。

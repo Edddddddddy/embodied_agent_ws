@@ -13,6 +13,20 @@ from tools.acceptance.probes.slam_nav.artifacts import build_failure_report
 
 ROOT = Path(__file__).resolve().parents[2]
 PROBE_ROOT = ROOT / "tools" / "acceptance" / "probes" / "slam_nav"
+INTEGRATION_TEST_ROOT = ROOT / "tests" / "integration" / "slam_nav"
+
+MIGRATED_EXECUTABLE_PROBES = {
+    "continuous_navigation_natural.py",
+    "continuous_navigation_queue.py",
+    "dynamic_obstacle_tracker_ros.py",
+    "lidar_loop_runtime.py",
+    "nav2_bridge_sequence.py",
+    "nav2_turtlebot3_voice.py",
+    "navigation_sequence.py",
+    "predicted_dynamic_obstacle_navigation.py",
+    "slam_localization_navigation.py",
+    "slam_mapping_baseline.py",
+}
 
 
 def _imports(path: Path) -> set[str]:
@@ -44,6 +58,37 @@ def test_ros_executables_are_owned_by_tools_not_pytest_collection():
     assert not (
         ROOT / "tests/integration/slam_nav/test_showcase_dynamic_navigation.py"
     ).exists()
+
+
+def test_slam_nav_tests_and_runtime_probes_have_distinct_semantic_owners():
+    """pytest 文件只表达断言；会启动 ROS graph 的程序属于 acceptance tools。"""
+
+    test_modules = sorted(
+        path
+        for path in INTEGRATION_TEST_ROOT.glob("*.py")
+        if path.name != "__init__.py"
+    )
+    assert test_modules
+    for path in test_modules:
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(path))
+        assert path.name.startswith("test_")
+        assert "__main__" not in source
+        assert any(
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name.startswith("test_")
+            for node in tree.body
+        ), f"{path.name} 必须包含可由 pytest 收集的测试函数"
+
+    probe_modules = {
+        path.name for path in PROBE_ROOT.glob("*.py") if path.name != "__init__.py"
+    }
+    assert MIGRATED_EXECUTABLE_PROBES <= probe_modules
+    for name in MIGRATED_EXECUTABLE_PROBES:
+        assert not name.startswith("test_")
+        source = (PROBE_ROOT / name).read_text(encoding="utf-8")
+        assert 'if __name__ == "__main__"' in source
+        assert not (INTEGRATION_TEST_ROOT / f"test_{name}").exists()
 
 
 def test_probe_dependency_direction_has_no_test_or_cli_back_edges():

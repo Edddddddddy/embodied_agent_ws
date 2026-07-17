@@ -40,9 +40,19 @@
   ROS 状态压缩成可讲解的阶段和心跳，完整证据仍保存在 session 报告与 `runtime.log`。
 - `tools/acceptance/run_probe.sh`：把相对 probe 路径按仓库根解析并统一使用 `python3 -u`；无缓冲
   输出解决日志经过管道/重定向时长时间不刷新的“假卡死”，环境激活仍由上游 handler 负责。
+- `tools/acceptance/paths.py`：`repository_root()` 从任意仓库内路径向上查找稳定标记，供
+  `nav2_bridge_sequence.py`、`nav2_turtlebot3_voice.py` 和
+  `predicted_dynamic_obstacle_navigation.py` 等需要自行定位仓库资源的 probe 复用；不使用会随文件
+  迁移失效的 `parents[n]`。canonical E2E 的路径由 CLI 显式传入，不重复推导。
 - `tools/acceptance/slam_nav_evidence.py`：`evaluate_dynamic_navigation()`、
   `build_automatic_mission_report()`；以无 ROS 值对象集中定义动态净空、新地图、定位、完整巡航和
   最终停车的 PASS 条件。
+- `tools/acceptance/probes/slam_nav/`：可执行 ROS graph 验收 Adapter。`slam_mapping_baseline.py`、
+  `slam_localization_navigation.py`、`navigation_sequence.py` 验证建图→定位→导航主链；
+  `nav2_bridge_sequence.py`、`nav2_turtlebot3_voice.py` 验证 typed Agent→Nav2；
+  `dynamic_obstacle_tracker_ros.py`、`predicted_dynamic_obstacle_navigation.py` 验证动态障碍闭环；
+  `continuous_navigation_queue.py`、`continuous_navigation_natural.py` 验证连续语音队列；
+  `lidar_loop_runtime.py` 验证在线回环运行时。
 - `tools/acceptance/probes/slam_nav/cli.py`：`build_parser()` 定义 ROS-free 命令行 Interface。
 - `tools/acceptance/probes/slam_nav/session_observer.py`：`SessionObserver` 把 typed topic、Action、
   Service 与 TF 转为普通运行时事实，不判断 PASS。
@@ -76,6 +86,13 @@ Nav2 默认 0.5 m/10 s 的进度检查对低实时率 WSL 仿真过于临界，�
 `slam_nav_evidence.py` 根据新地图、TF/AMCL、Action result、动态规划和零速度等硬证据统一决定，
 不能用“日志还在刷”代替功能成功。依赖从顶层编排单向流向 typed ROS Adapter、场景事务、产物 I/O
 和纯证据 Module；它们不反向导入编排器。这样可在无 ROS 的 CI 中验证阈值，也把修改集中在对应职责。
+可执行 ROS graph probe 与 pytest 断言也必须分离：前者由 smoke 启动、订阅真实 topic/Action 并返回
+进程退出码，后者只在 `tests/` 中验证纯逻辑、资产和接口契约。否则 pytest 只导入带 `main()` 的文件
+也可能显示绿色，造成“测试通过”等同于“真实 ROS graph 已跑通”的错误结论。
+
+仓库根定位同样属于稳定性边界。固定 `Path(__file__).parents[3]` 把业务代码绑死在目录深度上，probe
+从 tests 移到 tools 后可能把日志写到错误位置却不立即报错；`repository_root()` 改用稳定标记向上查找，
+既支持目录演进与 Git worktree，也在不属于仓库时抛出明确异常，避免静默使用错误资源。
 
 ### 【与替代方案区别】
 
@@ -92,6 +109,7 @@ MAPPING 或 NAVIGATING 可恢复状态。`FollowWaypoints` 只有 `ResultCode=SU
 ### 【对应测试】
 
 ```bash
+pytest -q tests/repository/test_acceptance_paths.py
 bash scripts/acceptance_test.sh slam-nav-showcase-stage
 HEADLESS=false USE_RVIZ=true bash scripts/acceptance_test.sh voice-slam-workplace-demo offline
 ```

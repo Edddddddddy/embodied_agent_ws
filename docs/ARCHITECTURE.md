@@ -235,16 +235,22 @@ Agent bridge、安全节点和关键机器人组件按 configure→activate→de
 环境策略；`.venv`、ROS overlay 和 domain 必须由上游 handler/smoke 在调用前激活。
 
 ```text
-tests/                           pytest 断言与 fixture；voice/slam_nav 遗留 probe 迁移中
+tests/                           pytest 断言与 fixture；voice 遗留 probe 迁移中
 tools/acceptance/probes/control 可执行 typed Action/Lifecycle/Gazebo Adapter
-tools/acceptance/probes/slam_nav canonical SLAM/Nav2 E2E Adapter 与编排
+tools/acceptance/probes/slam_nav 可执行 mapping/localization/Nav2 probe 与 canonical E2E 编排
 scripts/smoke_test_*.sh          环境、domain、进程和日志生命周期
 ```
 
-已迁移的 control 域和 canonical SLAM/Nav2 E2E 不再让“测试工具”与“被 pytest 执行的测试”共用
-`test_*.py` 名称；voice/slam_nav 的较小遗留 probe 按领域继续迁移。运行时 probe 可以被 repository
-test 静态检查，但不得反向导入 `tests.*`；跨 probe 的 typed 消息构造统一复用
+control 与 slam_nav 域不再让“测试工具”与“被 pytest 执行的测试”共用 `test_*.py` 名称；voice 的
+较小遗留 probe 按同一边界继续迁移。运行时 probe 可以被 repository test 静态检查，但不得反向
+导入 `tests.*`；跨 probe 的 typed 消息构造统一复用
 `typed_action_probe_utils.py` 和生产 transport，避免验收链形成第二套协议。
+
+需要从模块位置寻找仓库资源的 Python probe，通过
+`tools/acceptance/paths.py:repository_root()` 定位仓库根。它从调用者给出的路径（默认是模块自身）
+向上搜索 `scripts/acceptance_test.sh`、`tools/acceptance`、`src` 三个稳定标记，找不到就显式失败，
+而不是用固定 `parents[n]` 猜测目录层级。这个 Interface 把文件布局变化隔离在一处，使 focused probe
+在主 worktree 与 Git worktree 中得到一致路径；canonical E2E 已由 CLI 显式传入路径，不重复猜测。
 
 ```text
 session_orchestrator.py（唯一可执行入口与顶层会话编排）

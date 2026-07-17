@@ -118,16 +118,17 @@ def test_slam_mapping_baseline_has_reproducible_inputs_and_evidence_entrypoints(
         ROOT / "src" / "embodied_simulation" / "worlds" / "slam_loop_demo.sdf.xacro",
         ROOT / "scripts" / "audit_slam_mapping_assets.py",
         ROOT / "scripts" / "smoke_test_slam_mapping_baseline.sh",
-        ROOT / "tests" / "integration" / "slam_nav" / "test_slam_mapping_baseline.py",
-        ROOT / "tests" / "integration" / "slam_nav" / "test_lidar_loop_runtime.py",
+        ROOT / "tools" / "acceptance" / "probes" / "slam_nav" / "slam_mapping_baseline.py",
+        ROOT / "tools" / "acceptance" / "probes" / "slam_nav" / "lidar_loop_runtime.py",
         ROOT / "scripts" / "smoke_test_lidar_loop_runtime.sh",
         package / "launch" / "localization_navigation.launch.py",
         ROOT / "scripts" / "smoke_test_slam_localization_navigation.sh",
         ROOT
-        / "tests"
-        / "integration"
+        / "tools"
+        / "acceptance"
+        / "probes"
         / "slam_nav"
-        / "test_slam_localization_navigation.py",
+        / "slam_localization_navigation.py",
         ROOT / "tools" / "evaluation" / "evaluate_slam_trajectory.py",
         ROOT / "tools" / "evaluation" / "extract_rosbag_trajectory.py",
         ROOT / "tools" / "evaluation" / "setup_openloris_groundtruth.py",
@@ -214,7 +215,7 @@ def test_slam_baseline_exposes_drift_and_loop_closure_as_measurable_variables():
         ROOT / "src" / "embodied_slam" / "src" / "odom_drift_injector_node.cpp"
     ).read_text(encoding="utf-8")
     probe = (
-        ROOT / "tests" / "integration" / "slam_nav" / "test_slam_mapping_baseline.py"
+        ROOT / "tools" / "acceptance" / "probes" / "slam_nav" / "slam_mapping_baseline.py"
     ).read_text(encoding="utf-8")
 
     assert "solver_plugins::CeresSolver" in config
