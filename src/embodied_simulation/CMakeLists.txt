@@ -29,6 +29,7 @@ add_library(simulation_control_core
   src/executor_diagnostics.cpp
   src/nav2_places.cpp
   src/node_configuration.cpp
+  src/robot_command_policy.cpp
   src/simulation_controller.cpp
 )
 set_target_properties(simulation_control_core PROPERTIES
@@ -110,6 +111,8 @@ if(BUILD_TESTING)
   target_link_libraries(test_active_action_runtime simulation_control_core)
   ament_add_gtest(test_command_behavior_tree test/test_command_behavior_tree.cpp)
   target_link_libraries(test_command_behavior_tree simulation_control_core)
+  ament_add_gtest(test_robot_command_policy test/test_robot_command_policy.cpp)
+  target_link_libraries(test_robot_command_policy simulation_control_core)
   ament_add_gtest(test_robot_executor_plugins test/test_robot_executor_plugins.cpp)
   target_link_libraries(test_robot_executor_plugins simulation_control_core)
   ament_target_dependencies(test_robot_executor_plugins pluginlib)

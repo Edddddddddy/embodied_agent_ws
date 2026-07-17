@@ -1,7 +1,6 @@
 #include <atomic>
 #include <algorithm>
 #include <chrono>
-#include <cmath>
 #include <cstdint>
 #include <functional>
 #include <fstream>
@@ -29,6 +28,7 @@
 #include "embodied_simulation/executor_diagnostics.hpp"
 #include "embodied_simulation/node_configuration.hpp"
 #include "embodied_simulation/robot_executor.hpp"
+#include "embodied_simulation/robot_command_policy.hpp"
 #include "embodied_simulation/simulation_controller.hpp"
 #include "embodied_simulation/simulation_control_factory.hpp"
 #include "embodied_simulation/simulation_ros_io.hpp"
@@ -256,58 +256,6 @@ private:
     return get_clock()->now().seconds();
   }
 
-  static bool supported_action_goal(
-    const embodied_agent_interfaces::msg::RobotCommand & command)
-  {
-    using Command = embodied_agent_interfaces::msg::RobotCommand;
-    if (command.action_type == Command::STOP) {
-      return true;
-    }
-    if (command.action_type == Command::SET_MODE) {
-      return command.mode == "manual" ||
-             command.mode == "obstacle_avoidance" ||
-             command.mode == "wall_following";
-    }
-    if (command.action_type == Command::WAVE) {
-      return command.count >= 1 && command.count <= 5;
-    }
-    if (command.action_type == Command::SET_LED) {
-      return command.color == "off" ||
-             command.color == "red" ||
-             command.color == "green" ||
-             command.color == "blue" ||
-             command.color == "yellow" ||
-             command.color == "white";
-    }
-    if (command.action_type == Command::MOVE) {
-      return std::isfinite(command.linear_x) &&
-             std::isfinite(command.angular_z) &&
-             std::isfinite(command.duration_s) &&
-             command.duration_s >= 0.0 && command.duration_s <= 10.0;
-    }
-    if (command.action_type == Command::TURN) {
-      return std::isfinite(command.angular_z) &&
-             std::isfinite(command.duration_s) &&
-             command.duration_s >= 0.0 && command.duration_s <= 10.0;
-    }
-    if (command.action_type == Command::NAVIGATE_TO) {
-      return !command.target.empty() &&
-             std::isfinite(command.duration_s) &&
-             command.duration_s >= 0.0 && command.duration_s <= 10.0;
-    }
-    if (command.action_type == Command::FOLLOW_WAYPOINTS) {
-      return !command.waypoints.empty() &&
-             command.number_of_loops >= 1 &&
-             command.number_of_loops <= 3 &&
-             std::isfinite(command.duration_s) &&
-             command.duration_s >= 0.0 && command.duration_s <= 10.0;
-    }
-    if (command.action_type == Command::CANCEL_NAVIGATION) {
-      return true;
-    }
-    return false;
-  }
-
   rclcpp_action::GoalResponse handle_goal(
     const rclcpp_action::GoalUUID &,
     std::shared_ptr<const ExecuteRobotCommand::Goal> goal)
@@ -316,7 +264,7 @@ private:
       RCLCPP_WARN(get_logger(), "rejected typed action goal while inactive");
       return rclcpp_action::GoalResponse::REJECT;
     }
-    if (!supported_action_goal(goal->command) && !behavior_tree_) {
+    if (!is_executable_robot_command(goal->command) && !behavior_tree_) {
       RCLCPP_WARN(get_logger(), "rejected unsupported typed action goal");
       return rclcpp_action::GoalResponse::REJECT;
     }

@@ -1,12 +1,13 @@
 #include "embodied_simulation/command_behavior_tree.hpp"
 
-#include <cmath>
 #include <memory>
 #include <utility>
 
 #include <behaviortree_cpp/action_node.h>
 #include <behaviortree_cpp/bt_factory.h>
 #include <behaviortree_cpp/condition_node.h>
+
+#include "embodied_simulation/robot_command_policy.hpp"
 
 namespace embodied_simulation
 {
@@ -22,56 +23,6 @@ constexpr char kDetailKey[] = "detail";
 
 using RobotCommand = embodied_agent_interfaces::msg::RobotCommand;
 
-bool valid_command(const RobotCommand & command)
-{
-  if (command.action_type == RobotCommand::STOP) {
-    return true;
-  }
-  if (command.action_type == RobotCommand::SET_MODE) {
-    return command.mode == "manual" ||
-           command.mode == "obstacle_avoidance" ||
-           command.mode == "wall_following";
-  }
-  if (command.action_type == RobotCommand::WAVE) {
-    return command.count >= 1 && command.count <= 5;
-  }
-  if (command.action_type == RobotCommand::SET_LED) {
-    return command.color == "off" ||
-           command.color == "red" ||
-           command.color == "green" ||
-           command.color == "blue" ||
-           command.color == "yellow" ||
-           command.color == "white";
-  }
-  if (command.action_type == RobotCommand::MOVE) {
-    return std::isfinite(command.linear_x) &&
-           std::isfinite(command.angular_z) &&
-           std::isfinite(command.duration_s) &&
-           command.duration_s >= 0.0 && command.duration_s <= 10.0;
-  }
-  if (command.action_type == RobotCommand::TURN) {
-    return std::isfinite(command.angular_z) &&
-           std::isfinite(command.duration_s) &&
-           command.duration_s >= 0.0 && command.duration_s <= 10.0;
-  }
-  if (command.action_type == RobotCommand::NAVIGATE_TO) {
-    return !command.target.empty() &&
-           std::isfinite(command.duration_s) &&
-           command.duration_s >= 0.0 && command.duration_s <= 10.0;
-  }
-  if (command.action_type == RobotCommand::FOLLOW_WAYPOINTS) {
-    return !command.waypoints.empty() &&
-           command.number_of_loops >= 1 &&
-           command.number_of_loops <= 3 &&
-           std::isfinite(command.duration_s) &&
-           command.duration_s >= 0.0 && command.duration_s <= 10.0;
-  }
-  if (command.action_type == RobotCommand::CANCEL_NAVIGATION) {
-    return true;
-  }
-  return false;
-}
-
 class ValidateCommandNode : public BT::ConditionNode
 {
 public:
@@ -83,7 +34,8 @@ public:
   BT::NodeStatus tick() override
   {
     const auto command = config().blackboard->get<RobotCommand>(kCommandKey);
-    if (!valid_command(command)) {
+    // BT 开关不能改变可执行命令集合；与 Action goal 入口共享同一策略模块。
+    if (!is_executable_robot_command(command)) {
       config().blackboard->set(kOutcomeKey, CommandTreeOutcome::kRejected);
       config().blackboard->set(kStageKey, std::string("validate"));
       config().blackboard->set(kDetailKey, std::string("invalid_command"));
