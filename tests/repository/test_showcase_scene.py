@@ -173,6 +173,15 @@ def test_showcase_dynamic_obstacle_scenario_binds_visible_actor_and_new_map_fram
     }
     assert scenario["path_relative_motion"]["path_fraction"] > 0.0
     assert scenario["path_relative_motion"]["path_fraction"] < 1.0
+    assert len(scenario["fallback_goals"]) >= 2
+    assert all(
+        {"name", "x", "y"}.issubset(goal)
+        for goal in [scenario["goal"], *scenario["fallback_goals"]]
+    )
+    assert (
+        scenario["path_relative_motion"]["minimum_anchor_lateral_clearance_m"]
+        >= 0.8
+    )
     assert scenario["warmup"]["sample_count"] >= 4
     assert scenario["navigation"]["sample_count"] >= 4
     assert scenario["thresholds"]["minimum_unique_navigation_plans"] >= 2

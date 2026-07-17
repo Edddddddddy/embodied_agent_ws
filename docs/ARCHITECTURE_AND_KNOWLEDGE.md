@@ -118,23 +118,22 @@ SessionOrchestratorNode._on_asr_final()
 → _worker_loop()
 → _start_mapping()                  # 先启动 SLAM/建图阶段
 → _execute_request()
-→ _run_automatic_mission()
-→ parse_mapping_bootstrap_route()
-→ _run_agent_text_action()          # 7 段受 ActionGuard 保护的脱角原语
+→ AutomaticMissionExecutor.run()
+→ AgentActionGateway.run()          # bootstrap 语义动作与 typed result 关联
 → StageProcessManager.start_explorer()
-→ _wait_for_frontier_completion()
-→ _save_map()
-→ _start_navigation()
-→ _run_agent_text_action()
+→ FrontierExplorationMonitor.wait()
+→ StageProcessManager.save_map()
+→ StageProcessManager.start("navigation")
+→ AgentActionGateway.run()          # NavigateToPose/FollowWaypoints
 ```
 
 | 阶段 | 方法与输入 | 关键技术 | 输出 / 下一阶段 | 终止条件 |
 | --- | --- | --- | --- | --- |
 | `STARTING` | 启动 Gazebo、SLAM Toolbox、Nav2 SLAM 模式 | lifecycle/readiness、同一场景坐标契约 | `/scan`、`/tf`、`/map` | 必要 topic/action 未就绪即失败 |
 | `EXPLORING` | bootstrap 完成后调用 `StageProcessManager.start_explorer()` | 初始脱角使用可审计 move/turn；未知区域使用 Explore Lite frontier、信息增益/路径代价、Nav2 goal | 已知栅格持续增长 | 无可达 frontier 或 plateau；超时失败 |
-| `SAVING` | `_save_map()` | `map_saver_cli`、YAML/PGM 原子证据检查 | 保存地图路径 | 文件缺失/空文件失败 |
-| `LOCALIZING` | `_start_navigation()` | 有序关闭 SLAM，map_server + AMCL，`map→odom` | Nav2 定位栈 ready | 生命周期/TF/Action 未就绪失败 |
-| `PATROLLING` | `_run_agent_text_action()` | 语义地点转 typed navigate/patrol command | NavigateToPose/FollowWaypoints result | 任一步失败停止后续巡检 |
+| `SAVING` | `StageProcessManager.save_map()` | `map_saver_cli`、YAML/PGM 原子证据检查 | 保存地图路径 | 文件缺失/空文件失败 |
+| `LOCALIZING` | `StageProcessManager.start("navigation")` | 有序关闭 SLAM，map_server + AMCL，`map→odom` | Nav2 定位栈 ready | 生命周期/TF/Action 未就绪失败 |
+| `PATROLLING` | `AgentActionGateway.run()` | 语义地点转 typed navigate/patrol command | NavigateToPose/FollowWaypoints result | 任一步失败停止后续巡检 |
 | `COMPLETED` | 汇总状态与报告 | map 指标、Action result、最终速度 | JSON 证据 | 最终 `/cmd_vel` 必须为零 |
 
 frontier 目标由 Explore Lite 直接交给 Nav2，不经 LLM ActionGuard；它仍受 Nav2 global/local

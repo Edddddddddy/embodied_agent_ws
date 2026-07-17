@@ -66,10 +66,10 @@ protected:
     typed_command_publisher_->on_activate();
     rejection_publisher_->on_activate();
     health_publisher_->on_activate();
-    downstream_ever_ready_ = false;
+    pipeline_ever_ready_ = false;
     publish_health(
       embodied_agent_interfaces::msg::ComponentHealth::STATE_STARTING,
-      "waiting_for_action_scheduler");
+      "waiting_for_action_pipeline_discovery");
     outbox_timer_->reset();
     RCLCPP_INFO(get_logger(), "ActionGuard activated");
     return CallbackReturn::SUCCESS;
@@ -166,21 +166,28 @@ private:
     }
     const bool downstream_ready =
       typed_command_publisher_->get_subscription_count() > 0;
+    const bool upstream_ready =
+      candidate_subscription_->get_publisher_count() > 0;
+    const bool pipeline_ready = upstream_ready && downstream_ready;
     const auto drain = outbox_->drain(
       downstream_ready,
       steady_now_seconds(), downstream_wait_timeout_s_);
-    if (downstream_ready) {
-      downstream_ever_ready_ = true;
+    if (pipeline_ready) {
+      pipeline_ever_ready_ = true;
       publish_health(
         embodied_agent_interfaces::msg::ComponentHealth::STATE_READY,
-        "action_scheduler_matched");
+        "agent_guard_scheduler_matched");
     } else {
+      // Lifecycle ACTIVE 只表示回调可运行；DDS discovery 完成前发布的 volatile
+      // 动作不会被补发。readiness 必须同时证明 Agent→Guard 和 Guard→Scheduler
+      // 两段端点已匹配，自动任务才能安全投递第一条非幂等运动命令。
+      const std::string detail = !upstream_ready ?
+        "waiting_for_agent_publisher" : "waiting_for_action_scheduler";
       publish_health(
-        downstream_ever_ready_ ?
+        pipeline_ever_ready_ ?
         embodied_agent_interfaces::msg::ComponentHealth::STATE_DEGRADED :
         embodied_agent_interfaces::msg::ComponentHealth::STATE_STARTING,
-        downstream_ever_ready_ ?
-        "action_scheduler_disconnected" : "waiting_for_action_scheduler");
+        pipeline_ever_ready_ ? "action_pipeline_disconnected" : detail);
     }
     for (const auto & command_id : drain.expired_command_ids) {
       std_msgs::msg::String rejection;
@@ -222,7 +229,7 @@ private:
   ActionValidator validator_;
   std::atomic_uint64_t command_sequence_{0};
   double downstream_wait_timeout_s_{3.0};
-  bool downstream_ever_ready_{false};
+  bool pipeline_ever_ready_{false};
   std::uint8_t last_health_state_{255};
   std::string last_health_detail_;
   double last_health_publish_s_{0.0};

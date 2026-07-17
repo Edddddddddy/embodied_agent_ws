@@ -650,6 +650,7 @@ def test_action_guard_buffers_only_the_dds_startup_window():
     assert "GuardedCommandOutbox" in node
     assert "downstream_wait_timeout_s" in node
     assert "get_subscription_count() > 0" in node
+    assert "get_publisher_count() > 0" in node
     assert "transient_local" not in node.lower()
 
 def test_python_and_cpp_nodes_share_one_qos_vocabulary():
