@@ -35,12 +35,18 @@ from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
 from tf2_msgs.msg import TFMessage
 from tests.integration.typed_action_test_utils import candidate_dict, result_dict
+from tools.acceptance.dynamic_route import (
+    ReplanRouteRejected,
+    select_replannable_route,
+)
+from tools.acceptance.progress import AcceptanceProgress
 import yaml
 
 
 class SessionProbe(Node):
-    def __init__(self) -> None:
+    def __init__(self, progress: AcceptanceProgress | None = None) -> None:
         super().__init__("voice_slam_session_probe")
+        self.progress = progress
         self.states: list[SlamSessionState] = []
         self.feedback_phases: list[int] = []
         self.candidates: list[dict] = []
@@ -171,6 +177,35 @@ class SessionProbe(Node):
         self.states.append(message)
         self.current_phase = int(message.phase)
         self.current_detail = str(message.detail)
+        if self.progress is None:
+            return
+        # 将内部状态机压缩成操作者真正关心的验收里程碑。重复状态由
+        # AcceptanceProgress 去重，避免 ROS transient-local 重投递刷屏。
+        milestone = {
+            SlamSessionState.STARTING_MAPPING: (1, "runtime_startup"),
+            SlamSessionState.MAPPING: (1, "runtime_startup"),
+            SlamSessionState.AUTOMATIC_MAPPING: (2, "frontier_slam"),
+            SlamSessionState.SAVING_MAP: (3, "map_save"),
+            SlamSessionState.MAP_SAVED: (3, "map_save"),
+            SlamSessionState.SWITCHING_TO_NAVIGATION: (
+                4,
+                "localization_and_semantic_nav",
+            ),
+            SlamSessionState.STARTING_NAVIGATION: (
+                4,
+                "localization_and_semantic_nav",
+            ),
+            SlamSessionState.NAVIGATING: (
+                4,
+                "localization_and_semantic_nav",
+            ),
+            SlamSessionState.AUTOMATIC_NAVIGATING: (
+                4,
+                "localization_and_semantic_nav",
+            ),
+        }.get(int(message.phase))
+        if milestone is not None:
+            self.progress.stage(*milestone, detail=str(message.detail))
 
     def _on_odom(self, message: Odometry) -> None:
         position = message.pose.pose.position
@@ -240,6 +275,13 @@ class SessionProbe(Node):
         pose.position.x = x
         pose.position.y = y
         pose.orientation.w = 1.0
+        self.detection_pub.publish(message)
+
+    def publish_empty_detection(self) -> None:
+        """推进 tracker TTL 并发布空轨迹，使下一候选不继承旧动态代价。"""
+
+        message = PoseArray()
+        message.header.frame_id = "map"
         self.detection_pub.publish(message)
 
     def cost_at(self, x: float, y: float) -> int:
@@ -515,36 +557,12 @@ def run_showcase_dynamic_navigation(
     translation = scenario["map_to_world_translation"]
     world_name = str(scenario["world_name"])
     entity_name = str(scenario["entity_name"])
-    failures: list[str] = []
-    selected = None
-    for candidate_goal in goals:
-        try:
-            candidate_path = request_path(
-                node,
-                float(candidate_goal["x"]),
-                float(candidate_goal["y"]),
-            )
-            motion = path_relative_motion_positions(
-                node, candidate_path, scenario
-            )
-            selected = (candidate_goal, candidate_path, motion)
-            break
-        except RuntimeError as error:
-            failures.append(f'{candidate_goal.get("name", "unnamed")}: {error}')
-            node.get_logger().warning(
-                "dynamic scenario route unsuitable; trying fallback: "
-                + failures[-1]
-            )
-    if selected is None:
-        raise RuntimeError(
-            "no reachable route with dynamic-replan clearance: "
-            + " | ".join(failures)
-        )
-    goal, baseline_path, motion = selected
-    goal_x = float(goal["x"])
-    goal_y = float(goal["y"])
-    warmup_positions, navigation_positions, motion_anchor = motion
     pose_updates = 0
+    last_predicted: tuple[float, float] | None = None
+    route_policy = scenario.get("route_selection", {})
+    retry_attempts = int(route_policy.get("dynamic_path_retry_attempts", 3))
+    retry_interval_s = float(route_policy.get("retry_interval_s", 0.5))
+    reset_wait_s = float(route_policy.get("reset_wait_s", 1.2))
 
     def publish_position(position: list[float]) -> None:
         nonlocal pose_updates
@@ -558,30 +576,139 @@ def run_showcase_dynamic_navigation(
         pose_updates += 1
         node.publish_detection(map_x, map_y)
 
-    for position in warmup_positions:
-        publish_position(position)
-        time.sleep(float(scenario["warmup"]["interval_s"]))
+    def recover_route(_goal: dict, error: ReplanRouteRejected) -> None:
+        """清掉上一候选的实体、track 与 costmap，再尝试备用语义目标。"""
 
-    wait_until(
-        lambda: node.latest_tracks is not None
-        and bool(node.latest_tracks.obstacles)
-        and node.latest_tracks.obstacles[0].confidence
-        >= float(thresholds["minimum_track_confidence"]),
-        5.0,
-        "typed dynamic track missing",
+        nonlocal pose_updates, last_predicted
+        parking = scenario["parking_world_pose"]
+        set_gazebo_entity_pose(
+            world_name=world_name,
+            entity_name=entity_name,
+            x=float(parking["x"]),
+            y=float(parking["y"]),
+            z=float(parking["z"]),
+        )
+        # tracker 只在新观测到来时执行 TTL 淘汰；等待超时后显式送空检测，
+        # 让 costmap plugin 收到“当前没有障碍”的有效观测并擦除旧 bounds。
+        time.sleep(reset_wait_s)
+        for _ in range(3):
+            node.publish_empty_detection()
+            time.sleep(0.2)
+        wait_until(
+            lambda: node.latest_tracks is not None
+            and not node.latest_tracks.obstacles,
+            5.0,
+            "dynamic tracker did not clear rejected route",
+        )
+        if last_predicted is not None:
+            old_x, old_y = last_predicted
+            wait_until(
+                lambda: node.cost_at(old_x, old_y)
+                < int(thresholds["minimum_predicted_cost"]),
+                5.0,
+                "dynamic costmap did not clear rejected route",
+            )
+        node.get_logger().warning(
+            f"dynamic route rejected; trying fallback: {error}"
+        )
+        pose_updates = 0
+        last_predicted = None
+
+    def attempt_route(candidate_goal: dict) -> dict:
+        nonlocal last_predicted
+        goal_x = float(candidate_goal["x"])
+        goal_y = float(candidate_goal["y"])
+        try:
+            baseline_path = request_path(node, goal_x, goal_y)
+            motion = path_relative_motion_positions(node, baseline_path, scenario)
+            warmup_positions, navigation_positions, motion_anchor = motion
+            for position in warmup_positions:
+                publish_position(position)
+                time.sleep(float(scenario["warmup"]["interval_s"]))
+            wait_until(
+                lambda: node.latest_tracks is not None
+                and bool(node.latest_tracks.obstacles)
+                and node.latest_tracks.obstacles[0].confidence
+                >= float(thresholds["minimum_track_confidence"]),
+                5.0,
+                "typed dynamic track missing",
+            )
+            track = node.latest_tracks.obstacles[0]
+            horizon = float(scenario["prediction_horizon_s"])
+            predicted_x = track.position.x + track.velocity.x * horizon
+            predicted_y = track.position.y + track.velocity.y * horizon
+            last_predicted = (predicted_x, predicted_y)
+            wait_until(
+                lambda: node.cost_at(predicted_x, predicted_y)
+                >= int(thresholds["minimum_predicted_cost"]),
+                5.0,
+                "predicted dynamic cost was not marked lethal",
+            )
+            errors: list[str] = []
+            dynamic_path = None
+            for attempt_index in range(1, retry_attempts + 1):
+                try:
+                    candidate_dynamic_path = request_path(node, goal_x, goal_y)
+                except RuntimeError as path_error:
+                    errors.append(f"attempt {attempt_index}: {path_error}")
+                else:
+                    baseline_clearance = path_clearance(
+                        baseline_path, predicted_x, predicted_y
+                    )
+                    candidate_clearance = path_clearance(
+                        candidate_dynamic_path, predicted_x, predicted_y
+                    )
+                    minimum_gain = float(
+                        thresholds["minimum_clearance_gain_m"]
+                    )
+                    if candidate_clearance >= baseline_clearance + minimum_gain:
+                        dynamic_path = candidate_dynamic_path
+                        break
+                    errors.append(
+                        f"attempt {attempt_index}: dynamic path clearance "
+                        f"{candidate_clearance:.3f}m did not exceed baseline "
+                        f"{baseline_clearance:.3f}m by {minimum_gain:.3f}m"
+                    )
+                if attempt_index < retry_attempts:
+                    time.sleep(retry_interval_s)
+            if dynamic_path is None:
+                raise ReplanRouteRejected("; ".join(errors))
+        except ReplanRouteRejected:
+            raise
+        except (AssertionError, RuntimeError, TimeoutError) as route_error:
+            raise ReplanRouteRejected(str(route_error)) from route_error
+        return {
+            "goal": candidate_goal,
+            "goal_x": goal_x,
+            "goal_y": goal_y,
+            "baseline_path": baseline_path,
+            "dynamic_path": dynamic_path,
+            "warmup_positions": warmup_positions,
+            "navigation_positions": navigation_positions,
+            "motion_anchor": motion_anchor,
+            "track": track,
+            "predicted_x": predicted_x,
+            "predicted_y": predicted_y,
+            "predicted_cost": node.cost_at(predicted_x, predicted_y),
+        }
+
+    selected, route_attempts = select_replannable_route(
+        goals,
+        attempt=attempt_route,
+        recover=recover_route,
     )
-    track = node.latest_tracks.obstacles[0]
-    horizon = float(scenario["prediction_horizon_s"])
-    predicted_x = track.position.x + track.velocity.x * horizon
-    predicted_y = track.position.y + track.velocity.y * horizon
-    wait_until(
-        lambda: node.cost_at(predicted_x, predicted_y)
-        >= int(thresholds["minimum_predicted_cost"]),
-        5.0,
-        "predicted dynamic cost was not marked lethal",
-    )
-    predicted_cost = node.cost_at(predicted_x, predicted_y)
-    dynamic_path = request_path(node, goal_x, goal_y)
+    goal = selected["goal"]
+    goal_x = selected["goal_x"]
+    goal_y = selected["goal_y"]
+    baseline_path = selected["baseline_path"]
+    dynamic_path = selected["dynamic_path"]
+    warmup_positions = selected["warmup_positions"]
+    navigation_positions = selected["navigation_positions"]
+    motion_anchor = selected["motion_anchor"]
+    track = selected["track"]
+    predicted_x = selected["predicted_x"]
+    predicted_y = selected["predicted_y"]
+    predicted_cost = selected["predicted_cost"]
     baseline_clearance = path_clearance(baseline_path, predicted_x, predicted_y)
     dynamic_clearance = path_clearance(dynamic_path, predicted_x, predicted_y)
 
@@ -652,6 +779,7 @@ def run_showcase_dynamic_navigation(
         "checks": checks,
         "scenario_id": scenario["scenario_id"],
         "goal": goal,
+        "route_attempts": route_attempts,
         "motion_anchor": {
             key: round(value, 4) for key, value in motion_anchor.items()
         },
@@ -727,6 +855,24 @@ def load_survey_plan(path: Path) -> tuple[list[dict], dict]:
     return route, acceptance
 
 
+def print_report(report: dict, *, summary_only: bool) -> None:
+    """终端默认只展示决策所需字段；完整证据始终写入 JSON 文件。"""
+
+    if not summary_only:
+        print(json.dumps(report, ensure_ascii=False, indent=2), flush=True)
+        return
+    summary = {
+        "passed": report.get("passed"),
+        "session_id": report.get("session_id"),
+        "final_phase": report.get("final_phase"),
+        "mapping_path_m": report.get("mapping_path_m"),
+        "frontier_goal_count": report.get("frontier_goal_count"),
+        "checks": report.get("checks"),
+        "error": report.get("error"),
+    }
+    print(json.dumps(summary, ensure_ascii=False, indent=2), flush=True)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
@@ -738,6 +884,14 @@ def main() -> None:
     parser.add_argument("--mission-plan", type=Path)
     parser.add_argument("--dynamic-scenario", type=Path)
     parser.add_argument("--dynamic-navigation-timeout", type=float, default=180.0)
+    parser.add_argument("--runtime-log", type=Path)
+    parser.add_argument("--gate-timeout-s", type=float, default=900.0)
+    parser.add_argument("--progress-heartbeat-s", type=float, default=15.0)
+    parser.add_argument(
+        "--summary-only",
+        action="store_true",
+        help="终端打印验收摘要，完整字段仅写入 --output",
+    )
     parser.add_argument("--explore-before-save", action="store_true")
     parser.add_argument(
         "--automatic-mission",
@@ -755,8 +909,28 @@ def main() -> None:
         help="通过 Agent 顺序执行工作场景 mapping_route，并验证地图覆盖与里程",
     )
     args = parser.parse_args()
+    progress = (
+        AcceptanceProgress(
+            label="slam-nav-e2e",
+            total_stages=6,
+            heartbeat_s=args.progress_heartbeat_s,
+        )
+        if args.automatic_mission
+        else None
+    )
+    progress_outcome = "FAIL"
     rclpy.init()
-    node = SessionProbe()
+    node = SessionProbe(progress=progress)
+    if progress is not None:
+        progress.start(
+            session_id=args.session_id or "unassigned",
+            timeout_s=args.gate_timeout_s,
+            log_path=str(args.runtime_log or args.output),
+            detail_supplier=lambda: (
+                f"phase={node.current_phase} "
+                f"detail={node.current_detail or '-'}"
+            ),
+        )
     executor = rclpy.executors.MultiThreadedExecutor(num_threads=2)
     executor.add_node(node)
     thread = threading.Thread(target=executor.spin, daemon=True)
@@ -894,11 +1068,24 @@ def main() -> None:
                 )
                 lifecycle = lifecycle_states(node)
                 if args.dynamic_scenario is not None:
+                    if progress is not None:
+                        progress.stage(
+                            5,
+                            "dynamic_obstacle_replan",
+                            "semantic patrol complete; injecting moving obstacle",
+                        )
                     dynamic_navigation = run_showcase_dynamic_navigation(
                         node,
                         args.dynamic_scenario,
                         timeout_s=args.dynamic_navigation_timeout,
                     )
+
+            if progress is not None:
+                progress.stage(
+                    6,
+                    "evidence_validation",
+                    "validating fresh map, localization, plans and final stop",
+                )
 
             map_yaml = Path(final_state.map_yaml_path) if final_state.map_yaml_path else None
             map_provenance = None
@@ -1038,9 +1225,10 @@ def main() -> None:
                 json.dumps(report, ensure_ascii=False, indent=2) + "\n",
                 encoding="utf-8",
             )
-            print(json.dumps(report, ensure_ascii=False, indent=2))
+            print_report(report, summary_only=args.summary_only)
             if not report["passed"]:
                 raise SystemExit(1)
+            progress_outcome = "PASS"
             return
 
         exploration_succeeded = None
@@ -1197,9 +1385,11 @@ def main() -> None:
             json.dumps(failure_report, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
-        print(json.dumps(failure_report, ensure_ascii=False, indent=2))
+        print_report(failure_report, summary_only=args.summary_only)
         raise
     finally:
+        if progress is not None:
+            progress.stop(progress_outcome)
         executor.shutdown()
         node.destroy_node()
         rclpy.shutdown()

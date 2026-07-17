@@ -83,6 +83,10 @@ bash scripts/acceptance_test.sh offline-runtime-versions
 bash scripts/acceptance_test.sh slam-nav-e2e
 ```
 
+该重型门禁通常需要约 3～5 分钟。终端会先打印 session、证据路径和 6 个阶段，并默认每 15 秒输出
+一次 `RUNNING elapsed=... phase=...` 心跳；持续出现心跳代表任务仍在运行，不是卡死。完整 ROS 日志
+写入当前 session 的 `runtime.log`，终端只保留进度和最终摘要。
+
 该命令必须从本次会话新建地图，不读取旧演示地图。通过标准：
 
 - Explore Lite 产生至少一个 frontier goal，机器人产生建图位移；

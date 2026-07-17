@@ -76,6 +76,17 @@ colcon test-result --verbose
 bash scripts/acceptance_test.sh slam-nav-e2e
 ```
 
+典型耗时约 3～5 分钟，最长门禁为 900 秒。启动后会立即给出 session、报告和运行日志路径；随后按
+`runtime_startup → frontier_slam → map_save → localization_and_semantic_nav →
+dynamic_obstacle_replan → evidence_validation` 输出里程碑，并每 15 秒打印心跳。只有心跳停止且进程
+退出/达到超时才算异常；不要把真实 frontier 探索期间的数十秒等待误判为卡住。
+
+调试时可缩短心跳间隔而不改变验收语义：
+
+```bash
+SLAM_NAV_PROGRESS_HEARTBEAT_S=5 bash scripts/acceptance_test.sh slam-nav-e2e
+```
+
 该入口只接受本次 session 新地图：
 
 ```text
@@ -143,7 +154,7 @@ HEADLESS=false USE_RVIZ=true \
 | 识别到但不执行 | session/nlu/queue | 检查 wake gate、queue full |
 | 首命令偶发丢失 | readiness、ActionGuard health | 等 Agent→Guard→Scheduler DDS 全匹配 |
 | 一直 executing 0% | Action feedback、Gazebo clock | 检查仿真时钟与 executor result |
-| SLAM 卡住 | session、explorer、map growth | 查显式 error，不无限重启 |
+| SLAM 看似卡住 | `[slam-nav-e2e] RUNNING`、session phase、runtime.log | 有心跳则继续等待；无心跳/超时再查 explorer、map growth 和显式 error |
 
 ```bash
 bash scripts/acceptance_test.sh voice-calibration-report

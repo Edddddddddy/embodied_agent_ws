@@ -33,6 +33,10 @@
   `evaluate_follow_waypoints_result()` 区分 Action 协议成功与多航点业务完整成功。
 - `src/embodied_simulation/launch/voice_nav2_turtlebot3.launch.py`：`RewrittenYaml` 生成项目级
   Nav2 参数副本，为 WSL/Gazebo 调整进度半径和时间窗，不修改系统安装文件。
+- `tools/acceptance/progress.py`：`AcceptanceProgress.start()`、`stage()`、`stop()`；把重型验收的
+  ROS 状态压缩成可讲解的阶段和心跳，完整证据仍保存在 session 报告与 `runtime.log`。
+- `tests/integration/slam_nav/test_voice_slam_session_orchestrator.py`：`SessionProbe._on_state()`、
+  `run_showcase_dynamic_navigation()`、`print_report()`；从 typed topic/Action 收集真实证据并输出摘要。
 
 ### 【上游 → 处理 → 下游】
 
@@ -57,6 +61,8 @@ Nav2 默认 0.5 m/10 s 的进度检查对低实时率 WSL 仿真过于临界，�
 0.10 m/30 s；这仍能发现真正卡死，又不会把低速有效运动误判为无进展。
 结束原因分为 `no_frontiers`、`coverage_plateau` 和 `time_budget_coverage`；最后一种只在
 300 秒预算到期且已知/占用栅格均达标时成立，因此“任务有时间上限”不等于“超时也算成功”。
+验收心跳与业务状态分离：心跳只证明探针仍存活，最终 PASS 仍必须由新地图、TF/AMCL、Action result、
+动态规划和零速度等硬证据共同决定，不能用“日志还在刷”代替功能成功。
 
 ### 【与替代方案区别】
 
@@ -143,6 +149,11 @@ bash scripts/acceptance_test.sh openloris-replay-stage
 - `src/embodied_navigation/src/constant_velocity_predictor.cpp`：`predict_constant_velocity()`。
 - `src/embodied_navigation/src/predicted_obstacle_layer.cpp`：`on_obstacles()`、`updateBounds()`、
   `updateCosts()`、`reset()`。
+- `tools/acceptance/dynamic_route.py`：`select_replannable_route()` 把候选路线选择、失败恢复和
+  `route_attempts` 审计集中为一个可单测策略。
+- `tests/integration/slam_nav/test_voice_slam_session_orchestrator.py`：
+  `run_showcase_dynamic_navigation()` 只接受“静态路径可达、预测代价已写入且新路径净空确有提升”
+  的候选；拒绝后停放 Gazebo 障碍、等待 track TTL 并确认旧 cost 清除，再尝试下一条路线。
 
 ### 【上游 → 处理 → 下游】
 
@@ -156,7 +167,9 @@ PoseArray / typed detections → global gated assignment
 ### 【为什么这样设计】
 
 数据关联和运动估计是两个问题：先保持身份，再比较模型。tracker 用统一 `update()` 隐藏四种模型，
-costmap plugin 只消费统一轨迹；旧 bounds 被保留用于清除过期占用，避免留下永久“鬼墙”。
+costmap plugin 只消费统一轨迹；旧 bounds 被保留用于清除过期占用，避免留下永久“鬼墙”。验收路线
+不能只看 `ComputePathToPose` 是否返回成功，还必须比较注入障碍前后的最小净空；否则规划器返回同一路径
+也会被误报为“已重规划”。候选失败后的显式恢复保证下一候选不受上一条 track/cost 残留污染。
 
 ### 【与替代方案区别】
 
