@@ -116,24 +116,33 @@ def test_live_voice_entrypoints_share_one_profile_resolver():
         assert 'case "$VOICE_CONTROL_PROFILE"' not in text
 
 
-def test_critical_full_chain_probes_remain_discoverable():
-    """关键场景必须可发现，但不再用 test_ 文件名掩盖运行时工具。"""
+def test_critical_runtime_probes_remain_discoverable():
+    """关键运行时场景必须由 acceptance tools 显式拥有。"""
 
     required = (
         "tools/acceptance/probes/control/agent_lifecycle.py",
         "tools/acceptance/probes/control/mock_executor_pipeline.py",
         "tools/acceptance/probes/control/typed_action_server.py",
-        "tests/integration/voice/test_gazebo_voice.py",
-        "tests/integration/voice/test_online_api.py",
-        "tests/integration/voice/test_recognition_retry.py",
-        "tests/integration/voice/test_continuous_multi_command.py",
-        "tests/integration/voice/test_continuous_live_check.py",
-        "tests/integration/voice/test_continuous_voice_control_script.py",
-        "tests/integration/voice/test_voice_provider_preflight.py",
-        "tests/integration/voice/test_offline_sherpa_typed_simulation.py",
+        "tools/acceptance/probes/voice/gazebo_voice.py",
+        "tools/acceptance/probes/voice/online_api.py",
+        "tools/acceptance/probes/voice/recognition_retry.py",
+        "tools/acceptance/probes/voice/continuous_multi_command.py",
+        "tools/acceptance/probes/voice/offline_sherpa_typed_simulation.py",
         "tools/acceptance/probes/slam_nav/navigation_sequence.py",
         "tools/acceptance/probes/slam_nav/nav2_bridge_sequence.py",
         "tools/acceptance/probes/slam_nav/nav2_turtlebot3_voice.py",
+    )
+    missing = [relative for relative in required if not (ROOT / relative).is_file()]
+    assert missing == [], missing
+
+
+def test_critical_pytest_contracts_remain_discoverable():
+    """脚本、provider 和评测契约仍由 pytest 收集，不承担运行时 main。"""
+
+    required = (
+        "tests/integration/voice/test_continuous_live_check.py",
+        "tests/integration/voice/test_continuous_voice_control_script.py",
+        "tests/integration/voice/test_voice_provider_preflight.py",
         "tests/evaluation/test_asr_nlu_samples_to_eval_candidates.py",
         "tests/evaluation/test_evaluate_asr_nlu_eval_candidates.py",
     )
@@ -233,10 +242,11 @@ def test_sherpa_asr_deployment_entrypoints_remain_available():
     typed_script = ROOT / "scripts" / "smoke_test_offline_sherpa_typed_simulation.sh"
     typed_probe = (
         ROOT
-        / "tests"
-        / "integration"
+        / "tools"
+        / "acceptance"
+        / "probes"
         / "voice"
-        / "test_offline_sherpa_typed_simulation.py"
+        / "offline_sherpa_typed_simulation.py"
     )
     assert setup_script.is_file()
     assert smoke_script.is_file()

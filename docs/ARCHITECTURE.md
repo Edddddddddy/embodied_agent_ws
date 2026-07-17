@@ -78,12 +78,14 @@ Agent。代价是接口和状态更多，因此用 typed schema、统一事件�
 | 层 | 输入 | 关键文件与符号 | 关键处理 | 输出 / 下游 | 失败语义 |
 | --- | --- | --- | --- | --- | --- |
 | 音频 | PCM | `src/embodied_agent_cpp/src/audio_frontend_node.cpp`：`AudioFrontendNode` | AEC、能量/VAD、静音 endpoint | `/audio/clean_pcm`、`/audio/speech_ended` | readiness/VAD 状态说明未听到或未成句 |
-| 在线 Agent | clean audio | `online_agent_node.py`：`_on_speech_ended()`、`_accept_transcript()` | provider commit、流式 ASR | `AgentApplicationRuntime.accept_transcript()` | provider error/retry，不生成假动作 |
-| 离线 Agent | clean audio | `offline_agent_node.py`：`_on_audio()`、`_on_speech_ended()`、`_accept_transcript()` | ZipFormer stream、延迟 commit | 同一共享应用层 | 模型/资产错误写 readiness |
-| 应用层 | transcript | `agent_application_runtime.py`：`accept_transcript()`、`_run_preparsed_turn()` | 串起会话、队列、NLU 与 turn | 控制面 decision 或 LLM turn | 过滤、拒绝、重试均发布原因 |
+| ROS I/O | audio/event/result | `agent_ros_io.py`：`AgentRosIo`；`ros_topics.py`：`AgentTopicContract` | 集中 topic、QoS、Lifecycle publisher 与回调装配 | 在线/离线节点回调 | 接线差异不进入业务层 |
+| 在线 Agent | clean audio | `online_agent_node.py`：`_on_speech_ended()`、`_on_asr_final()` | endpoint commit、partial/final 稳定化、在线 ASR | `AgentApplicationRuntime.accept_transcript()` | provider error/retry，不生成假动作 |
+| 离线 Agent | clean audio | `offline_agent_node.py`：`_on_audio()`、`_run_asr()`、`_on_asr_final()` | ZipFormer 队列、延迟 commit、partial/final 稳定化 | 同一共享应用层 | 模型/资产错误写 readiness |
+| 应用/并发层 | transcript/queue item | `agent_application_runtime.py`：`accept_transcript()`、`run_queued_turn()`；`agent_execution_runtime.py`：`_run_worker()` | 串起会话、队列、NLU、turn，并拥有 busy/worker/Lifecycle 停止语义 | 控制面 decision 或 model turn | 过滤、拒绝、过期和执行失败均发布原因 |
 | 控制面 | 文本 | `agent_control_plane.py`：`accept_transcript()`、`enqueue_command()` | wake/session、去重、TTL、批次入队 | `CommandNLU.parse()`、执行队列 | queue full/expired/duplicate 可观测 |
-| NLU | 一句文本 | `command_nlu.py`：`CommandNLU.parse()` | 多命令、槽位、否定句、短命令补全 | 一组 `NluCommand` | 低置信度交给 LLM；危险句拒绝 |
-| LLM/TTS | fallback 文本 | `streaming_turn.py`：`StreamingTurnRuntime` | tagged stream、动作选择、分句 TTS | speech chunk 和动作 candidate | 动作仍必须进入 Guard |
+| NLU | 一句文本 | `command_nlu.py`：`CommandNLU.parse()` | 多命令、槽位、否定句、短命令补全 | 领域 `ParsedCommand`；观测侧转为 `NluCommand.msg` | 低置信度交给 LLM；危险句拒绝 |
+| LLM/TTS | fallback 文本 | `online_turn_runtime.py` / `offline_turn_runtime.py`；`streaming_turn.py` | provider 流、tagged parser、分句或双缓冲 TTS | speech chunk 和领域动作 | 动作仍必须进入 Guard |
+| 动作发布 | 领域动作 | `action_sequence.py`：`SequentialActionPublisher.publish()`；`ros_action_transport.py` | 分配 command_id、需要时按结果串行、转换 `RobotCommand` | `/agent/action_candidate` | cancel/超时/旧 result 不释放下一项 |
 | 安全层 | `RobotCommand` | `action_guard_node.cpp`：`ActionGuardNode::on_candidate()`；`action_validator.cpp` | 白名单、速度/时长/目标限制、TTL | guarded command/outbox | rejected ACK，不下发 Action |
 | 调度层 | guarded command | `action_scheduler.cpp`：`ActionScheduler::enqueue()` | FIFO、stop 抢占、command_id/result 关联 | Action goal/cancel | 失败可清队列，最终请求停车 |
 | 执行层 | `ExecuteRobotCommand` goal | `robot_command_policy.cpp`：`is_executable_robot_command()`；`command_behavior_tree.cpp`：`CommandBehaviorTree::tick()` | 统一执行契约→safety→execute→result | pluginlib `RobotExecutor` | 非法命令、cancel、watchdog、haltTree |
@@ -109,6 +111,10 @@ ActionGuard，因此 fallback 不会绕过安全边界。
 同一句“右转，然后前进”会生成同一 `batch_id` 下的多个 `command_id`；执行期间到达的新命令进入
 FIFO。只有当前 command_id 的 Action result 才释放下一项，避免旧 result 或重复消息误唤醒队列。
 stop/急停是例外：立即取消活动 goal、清空普通队列并发零速。
+
+结果回路同样属于主链：`/robot/action_result` 由 `AgentRosIo` 转交节点 `_on_action_result()`，再经
+`AgentApplicationRuntime.notify_action_result()` 到 `SequentialActionPublisher.notify_result()`。
+动作发布与结果消费共用 `command_id`，因此 DDS 到达顺序不能把上一条结果误配给下一条命令。
 
 ## 5. 自动建图导航链
 
@@ -235,15 +241,16 @@ Agent bridge、安全节点和关键机器人组件按 configure→activate→de
 环境策略；`.venv`、ROS overlay 和 domain 必须由上游 handler/smoke 在调用前激活。
 
 ```text
-tests/                           pytest 断言与 fixture；voice 遗留 probe 迁移中
+tests/                           pytest/GTest 断言、fixture、脚本与仓库契约
 tools/acceptance/probes/control 可执行 typed Action/Lifecycle/Gazebo Adapter
 tools/acceptance/probes/slam_nav 可执行 mapping/localization/Nav2 probe 与 canonical E2E 编排
+tools/acceptance/probes/voice    可执行 ROS/provider/API runtime Adapter
 scripts/smoke_test_*.sh          环境、domain、进程和日志生命周期
 ```
 
-control 与 slam_nav 域不再让“测试工具”与“被 pytest 执行的测试”共用 `test_*.py` 名称；voice 的
-较小遗留 probe 按同一边界继续迁移。运行时 probe 可以被 repository test 静态检查，但不得反向
-导入 `tests.*`；跨 probe 的 typed 消息构造统一复用
+control、slam_nav、voice 域不再让“测试工具”与“被 pytest 执行的测试”共用 `test_*.py` 名称。
+运行时 probe 可以被 repository test 静态检查，但不得反向导入 `tests.*`；跨 probe 的 typed 消息
+构造统一复用
 `typed_action_probe_utils.py` 和生产 transport，避免验收链形成第二套协议。
 
 需要从模块位置寻找仓库资源的 Python probe，通过

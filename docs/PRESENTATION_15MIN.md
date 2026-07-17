@@ -74,13 +74,19 @@ rosbag、Action feedback/cancel/result，已删除 JSON 控制协议。
 - `src/embodied_online_agent/embodied_online_agent/online_agent_node.py` 与
   `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py`：
   `_commit_asr_endpoint()` 把共享决策适配到在线/离线 ASR provider。
-- `src/embodied_offline_agent/embodied_offline_agent/offline_agent_node.py`：Sherpa provider 接入。
+- `src/embodied_offline_agent/embodied_offline_agent/providers/sherpa_asr.py`：
+  `SherpaZipformerAsr.push_audio()/commit()` 的离线 provider Adapter。
 
 讲法：VAD endpoint 与 ASR final 是两个时刻；尾静音和 commit delay 保护数字/量词，短命令补全只作用于明确控制语义。
 
 ### 3.4 Agent、NLU 与连续队列（3:30–5:00）
 
-打开 `src/embodied_agent_core/embodied_agent_core/agent_control_plane.py` 和 `command_nlu.py`。说明一次唤醒后的 session gate、重复/filler 过滤、batch_id、FIFO/TTL、执行中继续入队、急停抢占。低置信度才回退 LLM；安全不依赖 LLM 自觉。
+打开 `agent_application_runtime.py:AgentApplicationRuntime.accept_transcript()`、
+`agent_control_plane.py:AgentControlPlane.accept_transcript()/enqueue_command()`、
+`agent_execution_runtime.py:AgentExecutionRuntime._run_worker()` 和 `command_nlu.py:CommandNLU.parse()`。
+说明一次唤醒后的 session gate、重复/filler 过滤、batch_id、FIFO/TTL、执行中继续入队、急停抢占。
+结果通过 `SequentialActionPublisher.notify_result()` 按 `command_id` 释放下一项；低置信度才回退 LLM，
+安全不依赖 LLM 自觉。
 
 ### 3.5 C++ 安全与执行（5:00–6:30）
 

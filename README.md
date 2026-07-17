@@ -64,9 +64,9 @@ flowchart LR
 | `src/embodied_slam_tools` | 自动建图任务、阶段进程和验收证据 |
 | `src/embodied_navigation` | 动态障碍跟踪、预测和 Nav2 costmap plugin |
 | `scripts` | 稳定部署、主演示和 smoke runner |
-| `tools/acceptance` | 验收注册表、领域 handler、可执行 probe、证据判定与清理事务 |
+| `tools/acceptance` | 验收注册表、领域 handler、ROS/provider/API runtime probe、证据判定与清理事务 |
 | `tools/evaluation` | 数据集、SLAM、回环、LoRA/Q8 与消融工具 |
-| `tests` | repository、voice/control/slam_nav integration、evaluation |
+| `tests` | pytest/GTest 断言、脚本与仓库契约、确定性 evaluation；不保存 runtime probe |
 
 ## 环境与部署
 

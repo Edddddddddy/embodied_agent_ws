@@ -73,6 +73,8 @@ speech/action 标签，并把可说句子交给 Qwen TTS；provider 差异不侵
   `OpenAiCompatibleLlm.stream()`。
 - `src/embodied_online_agent/embodied_online_agent/providers/qwen_tts.py`：
   `QwenRealtimeTts.synthesize()`。
+- `src/embodied_online_agent/embodied_online_agent/online_turn_runtime.py`：
+  `OnlineStreamingTurnRuntime.run()`；拥有 token→分句→TTS 线程与 turn 收口。
 - `src/embodied_agent_core/embodied_agent_core/streaming_turn.py`：`StreamingTurnRuntime.feed()`、`finish()`。
 
 ### 【上游 → 处理 → 下游】
@@ -82,6 +84,7 @@ speech/action 标签，并把可说句子交给 Qwen TTS；provider 差异不侵
 → QwenRealtimeAsr.push_audio()/commit()
 → OnlineAgentNode._on_asr_final()
 → AgentApplicationRuntime.accept_transcript()
+→ OnlineStreamingTurnRuntime.run()
 → OpenAiCompatibleLlm.stream()
 → StreamingTurnRuntime.feed()/finish()
 → QwenRealtimeTts.synthesize() + typed action candidate
@@ -89,9 +92,10 @@ speech/action 标签，并把可说句子交给 Qwen TTS；provider 差异不侵
 
 ### 【为什么这样设计】
 
-节点负责 ROS/Lifecycle 接线，provider 负责云协议，`StreamingTurnRuntime` 负责标签协议、分句和动作
-选择。API SDK 更新不会迫使会话、记忆、队列和 ActionGuard 一起变化。token 和可说句子分开，便于
-分别观察首 token、首音频和完整动作。
+节点负责 ROS/Lifecycle 接线，provider 负责云协议，`OnlineStreamingTurnRuntime` 负责一个在线 turn
+的线程和资源收口，`StreamingTurnRuntime` 只负责无 I/O 的标签协议、分句和动作选择。API SDK 更新
+不会迫使会话、记忆、队列和 ActionGuard 一起变化。token 和可说句子分开，便于分别观察首 token、
+首音频和完整动作。
 
 ### 【与替代方案区别】
 
@@ -185,21 +189,65 @@ TTL、duplicate/filler 过滤和 command ID 保证长期控制不乱序。
   `AgentControlPlane.accept_transcript()`、`enqueue_command()`。
 - `src/embodied_agent_core/embodied_agent_core/agent_application_runtime.py`：
   `AgentApplicationRuntime.accept_transcript()`、`run_queued_turn()`、私有 `_run_preparsed_turn()`。
+- `src/embodied_agent_core/embodied_agent_core/agent_ros_io.py`：`AgentRosIo`、`AgentRosCallbacks`；
+  集中在线/离线共用的 topic、QoS、Lifecycle publisher 和 subscription。
+- `src/embodied_agent_core/embodied_agent_core/ros_topics.py`：`AgentTopicContract`。
+- `src/embodied_agent_core/embodied_agent_core/ros_agent_events.py`：
+  `RosAgentEventPublisher.publish_control_decision()`、`publish_enqueue_decision()`。
+- `src/embodied_agent_core/embodied_agent_core/transcript_stabilizer.py`：
+  `TranscriptStabilizer.observe_partial()`、`finalize()`。
 - `src/embodied_agent_core/embodied_agent_core/command_nlu.py`：`CommandNLU.parse()`。
 - `src/embodied_agent_core/embodied_agent_core/command_completion.py`、`command_fallback.py`。
-- `src/embodied_agent_core/embodied_agent_core/agent_execution_runtime.py`：`AgentExecutionRuntime`。
+- `src/embodied_agent_core/embodied_agent_core/agent_execution_runtime.py`：
+  `AgentExecutionRuntime._run_worker()`、`stop()`。
+- `src/embodied_agent_core/embodied_agent_core/action_sequence.py`：
+  `SequentialActionPublisher.publish()`、`notify_result()`、`cancel()`。
+- `src/embodied_agent_core/embodied_agent_core/agent_lifecycle_runtime.py`：
+  `AgentLifecycleRuntime.bind()`、`activate()`、`deactivate()`。
+- `src/embodied_agent_bringup/embodied_agent_bringup/voice_frontend_launch_contract.py`：
+  `voice_frontend_nodes()`；在线/离线 launch 共用前端装配契约。
 
 ### 【上游 → 处理 → 下游】
 
 ```text
-ASR final
+AudioFrontendNode::processing_loop()
+→ /audio/clean_pcm + /audio/speech_started|speech_ended
+→ AgentRosIo subscription callback
+→ OnlineAgentNode._on_clean_audio() 或 OfflineAgentNode._on_audio()
+→ AsrEndpointRuntime.request()/resume_utterance()
+→ ASR provider.commit()
+→ node._on_asr_partial()/_on_asr_final()
+→ TranscriptStabilizer.finalize()
 → AgentApplicationRuntime.accept_transcript()
 → AgentControlPlane.accept_transcript()
-→ wake/session、normalization、completion、NLU batch
-→ enqueue_command() → run_queued_turn()
-→ _run_preparsed_turn() 或 provider turn
-→ publish_actions()
-→ 等待同 command_id 的 Action result
+→ wake/session、normalization、completion、priority decision
+→ AgentControlPlane.enqueue_command() → AgentExecutionRuntime._run_worker()
+→ AgentApplicationRuntime.run_queued_turn()
+→ _run_preparsed_turn() 或 Online/OfflineStreamingTurnRuntime.run()
+→ AgentApplicationRuntime.publish_actions()
+→ SequentialActionPublisher.publish()
+→ node._publish_action_candidate()
+→ action_command_to_message() → AgentRosIo.publish_action_candidate()
+→ /agent/action_candidate → C++ ActionGuard/Scheduler/ExecuteRobotCommand
+```
+
+动作完成后走独立结果回路，只有相同 `command_id` 才能释放下一项：
+
+```text
+/robot/action_result
+→ AgentRosIo callback
+→ node._on_action_result()
+→ AgentApplicationRuntime.notify_action_result()
+→ SequentialActionPublisher.notify_result()
+→ 当前等待结束 → FIFO 消费下一命令
+```
+
+可观测事件是旁路而不是日志字符串协议：
+
+```text
+RosAgentEventPublisher
+→ /agent/session_state + /agent/recognition_feedback + /agent/nlu_parse
+→ /agent/command_queue + /agent/command_execution
 ```
 
 ### 【为什么这样设计】
@@ -208,17 +256,36 @@ ASR final
 顺序，batch ID 表示同一句多动作，command/request ID 关联结果。高置信度 NLU 直接执行，低置信度
 才交给 LLM，兼顾延迟和泛化。
 
+`AgentApplicationRuntime` 是 online/offline 唯一 transcript 用例入口；节点只保留 provider 与音频差异。
+`AgentRosIo` 把 topic 字符串、typed message 和 QoS 集中成 Facade：高频 PCM 使用 best-effort 避免可靠
+传输反压，控制事件使用 reliable。`AgentExecutionRuntime` 则拥有 worker、background turn、busy 和
+Lifecycle 静默后置条件，防止节点 deactivate 后线程仍发布动作。
+
+endpoint delay 与 `TranscriptStabilizer` 是两层不同保护：前者避免过早请求 ASR final，后者在 provider
+final 过短时利用仍在有效窗口内的 partial 恢复尾部。`SequentialActionPublisher` 不信任 DDS 到达顺序，
+而是按 `command_id` 等待结果；`RosAgentEventPublisher` 把每个拒绝、入队和执行状态发布为 typed 事件，
+现场 monitor 不需要解析 INFO 文本。
+
+运行时 probe 不能把“发现 audio subscription”当作 Agent 已就绪：Lifecycle 节点在 configure 阶段就可能
+创建 DDS 端点，但此时回调会主动忽略音频。真实音频探针还必须观察 transient-local 的
+`/agent/state=listening`，再发布 PCM，并用当前 `/audio/speech_ended` 触发 commit；旧
+`silence_timeout` 只服务关闭主 endpoint 的兼容部署。
+
 ### 【与替代方案区别】
 
 - 按“然后/再”切字符串：难处理否定、自然表达和组合动作。
 - 小型字符模型 + 槽位规则：轻量可解释，领域外泛化有限。
 - 全部 function calling：能力强，在线成本和延迟高，离线小模型协议不稳。
 - 并行动作：吞吐高，移动、转向和导航无法安全并发。
+- online/offline 节点各自维护 topic/QoS/线程：初期直接，但接口和停止语义会逐渐漂移；共享 Facade 与
+  应用运行时增加一层抽象，换来同一套测试和 Lifecycle 后置条件。
 
 ### 【失败/安全边界】
 
 `停下/急停` 不排队，必须取消 active goal 并清 pending；计划 STOP 不能误当用户急停。过期命令
-不得很久后执行，旧 result 不得唤醒下一 command ID。否定句和疑问句不应猜测执行。
+不得很久后执行，旧 result 不得唤醒下一 command ID。否定句和疑问句不应猜测执行。Lifecycle
+deactivate/cleanup 必须等待 ASR endpoint、连续 worker、LLM/TTS turn 静默；返回失败就不能声称资源
+已安全释放。
 
 ### 【对应测试】
 
@@ -261,7 +328,13 @@ clean PCM + speech_ended
 ### 【为什么这样设计】
 
 声纹会在 turn 期间异步更新。入队时冻结 `UserContextSnapshot`，可保证 prompt、偏好和 interaction
-属于同一用户。记忆只记录最终被策略接受的动作，不让被安全层拦截的模型输出污染画像。
+属于同一用户。语义策略已阻止的模型动作不会进入 interaction；当前画像仍会保存候选动作及
+`success` 字段，且 `command_counts` 不按成功状态过滤，因此不能表述为“只学习 C++ 安全层最终接受
+的动作”。若要让习惯统计只反映成功执行，必须在 Action result 回来后再提交或在存储层过滤失败记录。
+
+`SpeakerIdentity` 是需要晚加入订阅者也能得到的状态，因此生产端使用 transient-local
+`state_qos()`；测试 publisher 也必须提供相同 durability。probe 同时复用 `AgentTopicContract`，
+避免把 `/audio/tts_pcm` 手写成不存在的旧 topic，造成 DDS 已启动但永远无数据的假卡死。
 
 ### 【与替代方案区别】
 

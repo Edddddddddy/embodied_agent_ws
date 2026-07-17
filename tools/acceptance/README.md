@@ -17,6 +17,8 @@
   不使用 `test_`，因为它们由 runner 执行而不是 pytest 断言。
 - `probes/slam_nav/`：mapping、localization、Nav2、动态障碍的可执行 ROS graph probe，以及 canonical
   `slam-nav-e2e` 的会话编排 Module；各 probe 按需要复用仓库定位、typed transport 和证据边界。
+- `probes/voice/`：连续会话、KWS、声纹、在线 API 和离线 provider 的 runtime 验收 Adapter；并非
+  每个 probe 都启动 ROS graph，但都由 runner/handler 执行，不能用 pytest 收集结果替代真实运行。
 - `typed_action_probe_utils.py`：复用生产 transport 构造/读取 typed 消息，禁止 probe 手写第二套协议。
 - `progress.py`：为重型门禁提供阶段里程碑和定时心跳；完整 ROS 输出仍写证据日志。
 - `dynamic_route.py`：在失败恢复后选择第一条真正可重规划的候选路线，并记录尝试审计。
