@@ -37,7 +37,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if ! bash tests/integration/run_probe.sh tests/integration/slam_nav/test_slam_localization_navigation.py \
+if ! bash tools/acceptance/run_probe.sh tests/integration/slam_nav/test_slam_localization_navigation.py \
     --timeout "${SLAM_NAVIGATION_TIMEOUT:-140}" --output "$REPORT_FILE"; then
   echo "---- localization/navigation launch log (last 200 lines) ----" >&2
   tail -n 200 "$LAUNCH_LOG" >&2

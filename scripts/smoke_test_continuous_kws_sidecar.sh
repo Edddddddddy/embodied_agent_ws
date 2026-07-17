@@ -61,7 +61,7 @@ fi
 PIDS+=("$!")
 
 activate_lifecycle_node action_guard
-if ! timeout 35 bash "$WORKSPACE/tests/integration/run_probe.sh" "$WORKSPACE/tests/integration/voice/test_continuous_kws_sidecar.py"; then
+if ! timeout 35 bash "$WORKSPACE/tools/acceptance/run_probe.sh" "$WORKSPACE/tests/integration/voice/test_continuous_kws_sidecar.py"; then
   cat "$LOG_FILE" >&2
   exit 1
 fi

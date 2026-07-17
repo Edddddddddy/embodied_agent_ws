@@ -27,7 +27,7 @@ python "$WORKSPACE/scripts/simulation_readiness_check.py" \
   --timeout 35.0 --json
 
 if ! REQUIRE_TYPED_ACTION_RESULT=true \
-  bash "$WORKSPACE/tests/integration/run_probe.sh" "$WORKSPACE/tests/integration/control/test_gazebo_motion.py"
+  bash "$WORKSPACE/tools/acceptance/run_probe.sh" "$WORKSPACE/tests/integration/control/test_gazebo_motion.py"
 then
   cat "$LOG_FILE" >&2
   exit 1

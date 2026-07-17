@@ -29,7 +29,7 @@ cleanup() {
 trap cleanup EXIT
 
 if ! REQUIRE_TYPED_ACTION_RESULT=true \
-  bash "$WORKSPACE/tests/integration/run_probe.sh" "$WORKSPACE/tests/integration/voice/test_gazebo_voice.py"; then
+  bash "$WORKSPACE/tools/acceptance/run_probe.sh" "$WORKSPACE/tests/integration/voice/test_gazebo_voice.py"; then
   cat "$LAUNCH_LOG" >&2
   exit 1
 fi

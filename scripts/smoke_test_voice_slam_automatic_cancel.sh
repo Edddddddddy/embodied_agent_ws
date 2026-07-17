@@ -24,7 +24,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-if ! timeout 30 bash tests/integration/run_probe.sh tools/acceptance/probes/slam_nav/session_orchestrator.py \
+if ! timeout 30 bash tools/acceptance/run_probe.sh tools/acceptance/probes/slam_nav/session_orchestrator.py \
   --output "$REPORT" \
   --cancel-automatic-mission; then
   echo "---- automatic cancel orchestrator log ----" >&2

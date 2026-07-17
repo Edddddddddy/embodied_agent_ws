@@ -16,7 +16,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if ! bash tests/integration/run_probe.sh tests/integration/slam_nav/test_dynamic_obstacle_tracker_ros.py; then
+if ! bash tools/acceptance/run_probe.sh tests/integration/slam_nav/test_dynamic_obstacle_tracker_ros.py; then
   cat "$LOG_FILE" >&2
   exit 1
 fi

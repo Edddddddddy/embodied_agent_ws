@@ -230,23 +230,32 @@ Agent bridge、安全节点和关键机器人组件按 configure→activate→de
 重型门禁把高频 ROS 输出写入 `runtime.log`，由 `tools/acceptance/progress.py` 的
 `AcceptanceProgress` 向终端发布低频心跳和阶段里程碑。SLAM/Nav2 探针按职责拆为深 Module：
 
+`tools/acceptance/run_probe.sh` 是 Python probe 的统一启动 Interface：相对路径基于仓库根解析，
+`python3 -u` 让经过 `tee`/重定向的阶段输出也立即可见，避免 stdout 缓冲造成“假卡死”。它不拥有
+环境策略；`.venv`、ROS overlay 和 domain 必须由上游 handler/smoke 在调用前激活。
+
 ```text
 session_orchestrator.py（唯一可执行入口与顶层会话编排）
   ├→ cli.py（ROS-free 参数 Interface）
   ├→ session_observer.py（SessionObserver typed ROS Adapter）
-  ├→ dynamic_scenario.py（动态障碍注入与 Nav2 重规划事务）
+  ├→ dynamic_scenario.py（Nav2/Gazebo/检测 ROS Adapter）
+  │    └→ dynamic_scenario_transaction.py（ROS-free 清理策略）
   ├→ artifacts.py（地图哈希、失败报告与终端摘要）
   └→ slam_nav_evidence.py（ROS-free PASS/FAIL 决策）
 ```
 
 依赖只沿箭头方向流动：ROS Adapter 采集 topic、Action、Service 与 TF 事实，不拥有场景策略或验收
-阈值；场景 Module 组织一次可恢复的动态导航事务；编排器只连接这些 Interface。完整 JSON 留在证据
-文件，终端只打印里程碑和摘要，避免高频日志淹没关键状态或让长等待看起来像卡死。
+阈值；`DynamicScenarioTransaction` 通过注入回调固定执行“取消 Nav2 goal → Gazebo 障碍归位 →
+发布空检测 → 验证 tracker/costmap 清除 → 验证零速度”。`dynamic_scenario.py` 在这个 Seam 上只做
+ROS/Gazebo Adapter，不复制清理顺序或异常优先级。场景已失败时，清理错误只作为附加诊断，最先发生
+的原始异常继续向上传播；场景成功但清理后置条件失败时，门禁必须失败。编排器只连接这些 Interface。
+完整 JSON 留在证据文件，终端只打印里程碑和摘要，避免高频日志淹没关键状态或让长等待看起来卡死。
 
-`tools/acceptance/slam_nav_evidence.py` 是 E2E PASS 的唯一事实源。其他 Module 只生产普通值对象，
-`evaluate_dynamic_navigation()` 与 `build_automatic_mission_report()` 统一判断新地图时效、frontier、
-AMCL/Nav2、完整 waypoint、动态净空和最终零速度。该纯证据 Module 不导入 rclpy/nav_msgs，阈值和
-失败语义可在 CI 中快速单测，也不会被终端日志或编排分支重复实现。
+`tools/acceptance/slam_nav_evidence.py` 是业务观测、阈值与报告 `passed` 的唯一事实源。其他 Module
+只生产普通值对象，`evaluate_dynamic_navigation()` 与 `build_automatic_mission_report()` 统一判断
+新地图时效、frontier、AMCL/Nav2、完整 waypoint、动态净空和最终零速度。该纯证据 Module 不导入
+rclpy/nav_msgs，阈值和失败语义可在 CI 中快速单测，也不会被终端日志或编排分支重复实现；事务则在
+报告生成前独立强制资源后置条件，清理失败时不会生成伪 PASS。
 
 验收命令本身由 `tools/acceptance/catalog.py` 显式声明 `HandlerDomain`，再由
 `BashModeRunner.run()` 选择唯一领域 handler。mode 名不参与路由推断，也不会作为隐藏位置参数传入

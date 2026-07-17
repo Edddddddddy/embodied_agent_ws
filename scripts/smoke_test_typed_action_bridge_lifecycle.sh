@@ -39,7 +39,7 @@ done
 grep -q "rejected command while lifecycle inactive: command_id=inactive-command" "$LOG_FILE"
 
 activate_lifecycle_node typed_action_bridge
-timeout 15 bash "$WORKSPACE/tests/integration/run_probe.sh" "$WORKSPACE/tests/integration/control/test_typed_action_bridge_lifecycle.py" \
+timeout 15 bash "$WORKSPACE/tools/acceptance/run_probe.sh" "$WORKSPACE/tests/integration/control/test_typed_action_bridge_lifecycle.py" \
   --command-id first-activation
 
 timeout 12 python3 "$WORKSPACE/scripts/activate_lifecycle_node.py" \
@@ -49,7 +49,7 @@ timeout 12 python3 "$WORKSPACE/scripts/activate_lifecycle_node.py" \
 timeout 12 python3 "$WORKSPACE/scripts/activate_lifecycle_node.py" \
   typed_action_bridge --target-state inactive
 activate_lifecycle_node typed_action_bridge
-timeout 15 bash "$WORKSPACE/tests/integration/run_probe.sh" "$WORKSPACE/tests/integration/control/test_typed_action_bridge_lifecycle.py" \
+timeout 15 bash "$WORKSPACE/tools/acceptance/run_probe.sh" "$WORKSPACE/tests/integration/control/test_typed_action_bridge_lifecycle.py" \
   --command-id reactivated
 
 echo "PASS: typed Action bridge inactive reject -> activate -> cleanup -> reactivate"

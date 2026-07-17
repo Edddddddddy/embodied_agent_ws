@@ -72,7 +72,7 @@ else
   fi
 fi
 
-if ! bash "$WORKSPACE/tests/integration/run_probe.sh" "$WORKSPACE/tests/integration/control/test_mock_online_pipeline.py"; then
+if ! bash "$WORKSPACE/tools/acceptance/run_probe.sh" "$WORKSPACE/tests/integration/control/test_mock_online_pipeline.py"; then
   echo "FAIL: mock online Agent pipeline did not complete."
   cat "$TMP_DIR/launch.log"
   exit 1

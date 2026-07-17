@@ -68,6 +68,25 @@ def test_probe_dependency_direction_has_no_test_or_cli_back_edges():
     )
 
 
+def test_dynamic_scenario_transaction_policy_remains_ros_free():
+    imports = _imports(
+        ROOT / "tools/acceptance/dynamic_scenario_transaction.py"
+    )
+
+    assert not any(
+        name.startswith(
+            (
+                "rclpy",
+                "action_msgs",
+                "geometry_msgs",
+                "nav2_msgs",
+                "nav_msgs",
+            )
+        )
+        for name in imports
+    )
+
+
 def test_probe_modules_remain_bounded_deep_modules():
     limits = {
         "session_observer.py": 450,

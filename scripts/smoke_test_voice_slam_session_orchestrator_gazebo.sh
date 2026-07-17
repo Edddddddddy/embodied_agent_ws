@@ -49,7 +49,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-if ! timeout 360 bash tests/integration/run_probe.sh tools/acceptance/probes/slam_nav/session_orchestrator.py \
+if ! timeout 360 bash tools/acceptance/run_probe.sh tools/acceptance/probes/slam_nav/session_orchestrator.py \
   --output "$SESSION_REPORT" \
   --transition-timeout 180 \
   --evidence-kind gazebo_slam_map_saver_amcl_nav2 \
@@ -62,7 +62,7 @@ fi
 test -s "$MAP_PREFIX.yaml"
 test -s "$MAP_PREFIX.pgm"
 
-if ! timeout 420 bash tests/integration/run_probe.sh tests/integration/slam_nav/test_nav2_turtlebot3_voice.py \
+if ! timeout 420 bash tools/acceptance/run_probe.sh tests/integration/slam_nav/test_nav2_turtlebot3_voice.py \
   --initial-x 0.0 --initial-y 0.0 --initial-yaw 0.0 \
   --navigate-text "去入口" \
   --patrol-text "依次去厨房、办公室" \
