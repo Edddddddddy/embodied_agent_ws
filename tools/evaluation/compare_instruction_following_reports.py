@@ -129,8 +129,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline", required=True)
     parser.add_argument("--tuned", required=True)
-    parser.add_argument("--output", default="docs/evidence/lora_q8_instruction_comparison.json")
-    parser.add_argument("--markdown", default="docs/evidence/lora_q8_instruction_comparison.md")
+    parser.add_argument("--output", default="docs/evidence/offline/lora_q8_instruction_comparison.json")
+    parser.add_argument("--markdown", default="docs/evidence/offline/lora_q8_instruction_comparison.md")
     args = parser.parse_args()
     try:
         report = compare_reports(_load(_resolve(args.baseline)), _load(_resolve(args.tuned)))

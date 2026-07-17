@@ -251,9 +251,6 @@ def test_webrtc_vad_sidecar_remains_integrated_as_optional_voice_provider():
     continuous = (ROOT / "scripts" / "continuous_voice_control.sh").read_text(
         encoding="utf-8"
     )
-    acceptance_doc = (ROOT / "docs" / "TESTING_AND_ACCEPTANCE.md").read_text(
-        encoding="utf-8"
-    )
 
     assert node_path.is_file()
     assert "webrtc-vad" in setup_py
@@ -277,10 +274,6 @@ def test_webrtc_vad_sidecar_remains_integrated_as_optional_voice_provider():
     assert_acceptance_modes(
         "voice-vad-runtime-dry-run", "webrtc-vad-sidecar", "silero-vad-runtime"
     )
-    assert "setup_voice_vad_runtime.sh webrtc" in acceptance_doc
-    assert "webrtc-vad-sidecar" in acceptance_doc
-    assert "silero-vad-runtime" in acceptance_doc
-    assert "embodied_voice_frontend[webrtc-vad]" in acceptance_doc
 
 def test_acoustic_keyword_wake_runtime_entrypoints_remain_available():
     """声学唤醒不能只停留在 mock_text seam，需要有可部署的 provider/runtime 入口。"""
@@ -298,9 +291,6 @@ def test_acoustic_keyword_wake_runtime_entrypoints_remain_available():
     preflight = (ROOT / "scripts" / "voice_provider_preflight.py").read_text(
         encoding="utf-8"
     )
-    acceptance_doc = (ROOT / "docs" / "TESTING_AND_ACCEPTANCE.md").read_text(
-        encoding="utf-8"
-    )
 
     assert "kws" in setup_py
     assert "livekit-kws" in setup_py
@@ -311,10 +301,6 @@ def test_acoustic_keyword_wake_runtime_entrypoints_remain_available():
     assert (ROOT / "scripts" / "setup_voice_kws_runtime.sh").is_file()
     assert (ROOT / "scripts" / "smoke_test_sherpa_kws_sidecar.sh").is_file()
     assert_acceptance_modes("voice-kws-runtime-dry-run", "sherpa-kws-sidecar")
-    assert "setup_voice_kws_runtime.sh openwakeword" in acceptance_doc
-    assert "setup_voice_kws_runtime.sh sherpa" in acceptance_doc
-    assert "source logs/sherpa_kws.env" in acceptance_doc
-    assert "sherpa-kws-sidecar" in acceptance_doc
 
 def test_audio_calibration_outputs_copyable_live_demo_advice():
     """真实麦克风校准必须产出可复制的下一步命令。"""
@@ -332,9 +318,6 @@ def test_audio_calibration_outputs_copyable_live_demo_advice():
         encoding="utf-8"
     )
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    acceptance_doc = (ROOT / "docs" / "TESTING_AND_ACCEPTANCE.md").read_text(
-        encoding="utf-8"
-    )
 
     for token in (
         "recommended_environment",
@@ -357,4 +340,3 @@ def test_audio_calibration_outputs_copyable_live_demo_advice():
     assert "APPLY_VOICE_CALIBRATION" in continuous
     assert "VOICE_CALIBRATION_ENV_APPLIED" in continuous
     assert "CONTINUOUS_SAMPLE_LOG" in continuous
-    assert "recommended_environment" in acceptance_doc

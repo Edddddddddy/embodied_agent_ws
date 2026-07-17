@@ -387,9 +387,9 @@ def test_offline_runtime_versions_are_pinned_and_documented():
         encoding="utf-8"
     )
     version_probe = ROOT / "scripts" / "offline_runtime_versions.py"
-    version_doc = ROOT / "docs" / "OFFLINE_RUNTIME_VERSIONS.md"
+    voice_notes = ROOT / "docs" / "learning" / "VOICE_AGENT.md"
     version_text = version_probe.read_text(encoding="utf-8")
-    doc_text = version_doc.read_text(encoding="utf-8")
+    notes_text = voice_notes.read_text(encoding="utf-8")
 
     expected_llama = "0eca4d490e591d4e93058d07540cf47278a72577"
     expected_summer = "c90e0e8d31e09c98199ab9b5a605af74c179f811"
@@ -397,13 +397,14 @@ def test_offline_runtime_versions_are_pinned_and_documented():
 
     assert_acceptance_modes("offline-runtime-versions")
     assert version_probe.is_file()
-    assert version_doc.is_file()
+    assert voice_notes.is_file()
     assert expected_llama in setup_offline
     assert expected_summer in setup_summer
     assert expected_sherpa in setup_offline
     for expected in (expected_llama, expected_summer, expected_sherpa):
         assert expected in version_text
-        assert expected in doc_text
+    for runtime_name in ("llama.cpp", "SummerTTS", "Sherpa"):
+        assert runtime_name in notes_text
 
 def test_offline_latency_gate_remains_available_and_documented():
     """组件延迟和真实 Agent E2E 必须分开测量，不能把整句合成冒充首音频。"""
@@ -411,9 +412,6 @@ def test_offline_latency_gate_remains_available_and_documented():
     latency_probe = ROOT / "scripts" / "offline_latency_targets.py"
     latency_smoke = ROOT / "scripts" / "smoke_test_offline_latency.sh"
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    testing_doc = (ROOT / "docs" / "TESTING_AND_ACCEPTANCE.md").read_text(
-        encoding="utf-8"
-    )
 
     assert_acceptance_modes("offline-latency", "offline-voice-e2e-report")
     assert "smoke_test_offline_latency.sh" in acceptance_handler_source(
@@ -430,52 +428,28 @@ def test_offline_latency_gate_remains_available_and_documented():
     assert "≤ 1000ms" in readme
     assert "≤ 600ms" in readme
     assert "offline-voice-e2e-report" in readme
-    assert "SummerTTS 命令行 provider" in testing_doc
-    assert "tts_provider:=summer_ros" in testing_doc
 
 def test_job_presentation_doc_remains_discoverable():
-    """求职展示版必须有稳定的汇报入口，方便按代码讲完整链路。"""
+    """汇报入口与三册学习笔记构成唯一知识入口。"""
 
-    presentation = ROOT / "docs" / "PROJECT_PRESENTATION_15MIN.md"
-    diagrams = ROOT / "docs" / "FINAL_ARCHITECTURE_DIAGRAMS.md"
-    walkthrough = ROOT / "docs" / "VOICE_TO_SIMULATION_CODE_WALKTHROUGH.md"
+    docs = ROOT / "docs"
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    learning_notes = (ROOT / "docs" / "LEARNING_NOTES.md").read_text(encoding="utf-8")
-    presentation_text = presentation.read_text(encoding="utf-8")
-    diagrams_text = diagrams.read_text(encoding="utf-8")
-    walkthrough_text = walkthrough.read_text(encoding="utf-8")
-
-    assert presentation.is_file()
-    assert diagrams.is_file()
-    assert walkthrough.is_file()
-    assert "PROJECT_PRESENTATION_15MIN.md" in readme
-    assert "FINAL_ARCHITECTURE_DIAGRAMS.md" in readme
-    assert "VOICE_TO_SIMULATION_CODE_WALKTHROUGH.md" in readme
-    assert "VOICE_TO_SIMULATION_CODE_WALKTHROUGH.md" in learning_notes
-    assert "VOICE_TO_SIMULATION_CODE_WALKTHROUGH.md" in presentation_text
-    assert "15 分钟项目汇报" in presentation_text
-    assert "FINAL_ARCHITECTURE_DIAGRAMS.md" in presentation_text
-    assert "从语音输入到仿真执行的代码走读地图" in presentation_text
-    assert "最终系统架构图" in diagrams_text
-    assert "端到端数据流图" in diagrams_text
-    assert "flowchart TB" in diagrams_text
-    assert "sequenceDiagram" in diagrams_text
-    assert "C++ ActionGuard" in diagrams_text
-    assert "typed_action_demo_client" in diagrams_text
-    assert "offline_showcase_report" in diagrams_text
-    assert "语音输入到仿真执行" in walkthrough_text
-    assert "ContinuousCommandQueue" in walkthrough_text
-    assert "CommandNLU.parse()" in walkthrough_text
-    assert "ExecuteRobotCommand" in walkthrough_text
-    assert "evidence_kind" in walkthrough_text
-    for required in (
-        "continuous-offline",
-        "continuous-multi-command",
-        "ActionGuard",
-        "BehaviorTree",
-        "SummerTTS",
-    ):
-        assert required in presentation_text
+    required = (
+        docs / "ARCHITECTURE.md",
+        docs / "TESTING.md",
+        docs / "PRESENTATION_15MIN.md",
+        docs / "learning" / "VOICE_AGENT.md",
+        docs / "learning" / "ROS2_CPP_CONTROL.md",
+        docs / "learning" / "SLAM_NAV2.md",
+    )
+    assert all(path.is_file() for path in required)
+    assert all(path.name in readme for path in required)
+    presentation = required[2].read_text(encoding="utf-8")
+    architecture = required[0].read_text(encoding="utf-8")
+    for token in ("15 分钟项目汇报", "AgentActionGateway", "GTSAM", "验收证据"):
+        assert token in presentation
+    for token in ("flowchart LR", "ExecuteRobotCommand", "FrontierExplorationMonitor"):
+        assert token in architecture
 
 def test_showcase_hardening_artifacts_remain_discoverable():
     """缺点收口阶段的展示硬化产物不能在后续整理中丢失。"""
@@ -488,9 +462,9 @@ def test_showcase_hardening_artifacts_remain_discoverable():
     eval_validator = ROOT / "tools" / "evaluation" / "validate_instruction_eval_dataset.py"
     parser_eval = ROOT / "tools" / "evaluation" / "evaluate_instruction_parser.py"
     eval_dataset = ROOT / "training" / "robot_instruction_eval.jsonl"
-    interview_doc = ROOT / "docs" / "INTERVIEW_QA.md"
-    gaps_doc = ROOT / "docs" / "PROJECT_GAPS_AND_OPTIMIZATION.md"
-    benchmark_doc = ROOT / "docs" / "OFFLINE_BENCHMARK_REPORT.md"
+    presentation_doc = ROOT / "docs" / "PRESENTATION_15MIN.md"
+    voice_notes = ROOT / "docs" / "learning" / "VOICE_AGENT.md"
+    evidence_index = ROOT / "docs" / "evidence" / "README.md"
 
     for path in (
         release_gate,
@@ -500,9 +474,9 @@ def test_showcase_hardening_artifacts_remain_discoverable():
         eval_validator,
         parser_eval,
         eval_dataset,
-        interview_doc,
-        gaps_doc,
-        benchmark_doc,
+        presentation_doc,
+        voice_notes,
+        evidence_index,
     ):
         assert path.is_file()
 
@@ -524,7 +498,7 @@ def test_showcase_hardening_artifacts_remain_discoverable():
     assert "OFFLINE_EVIDENCE_REQUIRE_INSTRUCTION_FOLLOWING" in audit_handler
     assert "logs/acceptance_report.json" in readme
     assert "logs/demo_acceptance_report.json" in readme
-    assert "离线模型 Benchmark 与展示报告" in readme
+    assert "## 事实边界" in readme
     offline_report_text = offline_showcase_report.read_text(encoding="utf-8")
     assert "offline_deployment_showcase" in offline_report_text
     assert "model_inventory" in offline_report_text
@@ -567,9 +541,9 @@ def test_showcase_hardening_artifacts_remain_discoverable():
     assert "minimum_effective" in following_eval
     assert "instruction_following_lora_candidate_export" in lora_export
     assert "review_required" in lora_export
-    assert "ActionGuard" in interview_doc.read_text(encoding="utf-8")
-    assert "真实语音稳定性" in gaps_doc.read_text(encoding="utf-8")
-    assert "instruction-following-eval" in benchmark_doc.read_text(encoding="utf-8")
+    assert "ActionGuard" in presentation_doc.read_text(encoding="utf-8")
+    assert "continuous-offline" in voice_notes.read_text(encoding="utf-8")
+    assert "Offline" in evidence_index.read_text(encoding="utf-8")
     dataset_lines = [
         line
         for line in eval_dataset.read_text(encoding="utf-8").splitlines()
@@ -603,19 +577,30 @@ def test_nav2_live_evidence_script_keeps_control_and_scoring_together():
 
 
 def test_entry_documents_stay_concise_and_point_to_authoritative_guides():
-    """入口只负责导航；细节必须留在权威专题文档，防止 README 再次膨胀。"""
+    """顶层只保留三份权威文档，学习内容按领域分册。"""
 
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    docs_index = (ROOT / "docs" / "README.md").read_text(encoding="utf-8")
-
+    top_level = {path.name for path in (ROOT / "docs").glob("*.md")}
     assert len(readme.splitlines()) <= 220
-    assert len(docs_index.splitlines()) <= 100
-
+    assert top_level == {"ARCHITECTURE.md", "TESTING.md", "PRESENTATION_15MIN.md"}
     for required in (
-        "## 核心架构",
-        "## 推荐演示",
-        "## 测试与验收",
-        "TESTING_AND_ACCEPTANCE.md",
-        "LEARNING_NOTES.md",
+        "## 核心架构", "## 推荐演示", "## 测试与验收",
+        "ARCHITECTURE.md", "TESTING.md", "PRESENTATION_15MIN.md",
+        "VOICE_AGENT.md", "ROS2_CPP_CONTROL.md", "SLAM_NAV2.md",
     ):
         assert required in readme
+
+
+def test_evidence_is_partitioned_by_capability():
+    """运行证据按能力分区，避免新的扁平快照重新堆积。"""
+
+    evidence = ROOT / "docs" / "evidence"
+    for category in ("voice", "offline", "slam", "navigation"):
+        assert (evidence / category / "README.md").is_file()
+
+    flat_runtime_snapshots = (
+        list(evidence.glob("gtsam_*"))
+        + list(evidence.glob("lidar_*"))
+        + list(evidence.glob("lora_*"))
+    )
+    assert flat_runtime_snapshots == []

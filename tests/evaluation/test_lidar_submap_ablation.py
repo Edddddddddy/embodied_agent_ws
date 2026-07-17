@@ -94,7 +94,7 @@ def test_ablation_rejects_different_effective_point_sampling():
 
 
 def test_published_submap_evidence_remains_shadow_only():
-    path = ROOT / "docs" / "evidence" / "lidar_submap_ablation_multisequence.json"
+    path = ROOT / "docs" / "evidence" / "slam" / "lidar_submap_ablation_multisequence.json"
     assert path.exists()
     report = json.loads(path.read_text(encoding="utf-8"))
     assert report["passed"] is True

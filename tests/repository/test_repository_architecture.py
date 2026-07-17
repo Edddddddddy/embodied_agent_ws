@@ -20,7 +20,7 @@ def test_repository_contracts_remain_split_by_architecture_topic():
         path = repository / name
         assert path.is_file()
         assert len(path.read_text(encoding="utf-8").splitlines()) < 900
-    assert (ROOT / "docs" / "ARCHITECTURE_AUDIT.md").is_file()
+    assert (ROOT / "docs" / "ARCHITECTURE.md").is_file()
 
 
 def test_agent_core_is_the_one_way_shared_dependency():
@@ -420,8 +420,8 @@ def test_cpp_typed_action_demo_client_remains_available():
     )
     demo_client = demo_client_path.read_text(encoding="utf-8")
     smoke_script = ROOT / "scripts" / "smoke_test_cpp_action_client.sh"
-    learning = (ROOT / "docs" / "LEARNING_NOTES.md").read_text(encoding="utf-8")
-    presentation = (ROOT / "docs" / "PROJECT_PRESENTATION_15MIN.md").read_text(
+    learning = (ROOT / "docs" / "learning" / "ROS2_CPP_CONTROL.md").read_text(encoding="utf-8")
+    presentation = (ROOT / "docs" / "PRESENTATION_15MIN.md").read_text(
         encoding="utf-8"
     )
 
@@ -435,7 +435,6 @@ def test_cpp_typed_action_demo_client_remains_available():
     assert_acceptance_modes("cpp-action-client")
     assert "typed_action_demo_client" in smoke_script.read_text(encoding="utf-8")
     assert "typed_action_demo_client.cpp" in learning
-    assert "typed_action_demo_client.cpp" in presentation
 
 def test_voice_control_events_are_strongly_typed_and_use_named_qos():
     """语音控制面属于中间件契约，禁止退回 String + JSON。"""

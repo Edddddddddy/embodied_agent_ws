@@ -129,7 +129,7 @@ bash scripts/acceptance_test.sh slam-nav-e2e
 bash scripts/acceptance_test.sh robotics-gate
 ```
 
-`--help-all` 仅用于维护内部回归和实验模式。测试分层与人工验收细则见 [TESTING_AND_ACCEPTANCE.md](docs/TESTING_AND_ACCEPTANCE.md)。
+`--help-all` 仅用于维护内部回归和实验模式。测试分层与人工验收细则见 [TESTING.md](docs/TESTING.md)。
 
 典型自动门禁：
 
@@ -164,15 +164,12 @@ bash scripts/acceptance_test.sh offline-voice-e2e-report
 
 ## 文档
 
-- [项目文档索引](docs/README.md)
-- [架构与模块职责](docs/ARCHITECTURE_AND_KNOWLEDGE.md)
-- [测试与验收](docs/TESTING_AND_ACCEPTANCE.md)
-- [学习笔记与关键代码](docs/LEARNING_NOTES.md)
-- [15 分钟汇报](docs/PROJECT_PRESENTATION_15MIN.md)
-- [语音到仿真代码走读](docs/VOICE_TO_SIMULATION_CODE_WALKTHROUGH.md)
-- [最终架构图](docs/FINAL_ARCHITECTURE_DIAGRAMS.md)
-- [SLAM/Nav2 工程说明](docs/SLAM_NAVIGATION_ENGINEERING.md)
-- [离线模型 Benchmark 与展示报告](docs/OFFLINE_BENCHMARK_REPORT.md)
+- [架构与调用关系](docs/ARCHITECTURE.md)
+- [测试与验收](docs/TESTING.md)
+- [15 分钟汇报](docs/PRESENTATION_15MIN.md)
+- [语音 Agent 学习笔记](docs/learning/VOICE_AGENT.md)
+- [ROS 2/C++ 控制学习笔记](docs/learning/ROS2_CPP_CONTROL.md)
+- [SLAM/Nav2 学习笔记](docs/learning/SLAM_NAV2.md)
 
 ## 事实边界
 

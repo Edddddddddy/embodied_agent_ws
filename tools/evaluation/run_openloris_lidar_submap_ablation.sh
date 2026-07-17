@@ -29,10 +29,10 @@ for sequence in "${sequence_list[@]}"; do
   output_dir="$LOG_ROOT/$sequence/lidar_shadow_matches"
   groundtruth="$ROOT/groundtruth/$sequence/groundtruth.txt"
   candidates="$LOG_ROOT/$sequence/lidar_loop_candidates/candidates.jsonl"
-  baseline="$PROJECT_ROOT/docs/evidence/lidar_submap_baseline_${suffix}.json"
-  baseline_markdown="$PROJECT_ROOT/docs/evidence/lidar_submap_baseline_${suffix}.md"
-  submap="$PROJECT_ROOT/docs/evidence/lidar_submap_matches_${suffix}.json"
-  submap_markdown="$PROJECT_ROOT/docs/evidence/lidar_submap_matches_${suffix}.md"
+  baseline="$PROJECT_ROOT/docs/evidence/slam/lidar_submap_baseline_${suffix}.json"
+  baseline_markdown="$PROJECT_ROOT/docs/evidence/slam/lidar_submap_baseline_${suffix}.md"
+  submap="$PROJECT_ROOT/docs/evidence/slam/lidar_submap_matches_${suffix}.json"
+  submap_markdown="$PROJECT_ROOT/docs/evidence/slam/lidar_submap_matches_${suffix}.md"
   for required in \
     "$groundtruth" "$candidates" \
     "$output_dir/scan_corpus.txt" "$output_dir/scan_corpus.json" \
@@ -90,15 +90,15 @@ done
 python3 tools/evaluation/compare_lidar_submap_ablation.py \
   "${baseline_args[@]}" \
   "${submap_args[@]}" \
-  --output "$PROJECT_ROOT/docs/evidence/lidar_submap_ablation_multisequence.json" \
-  --markdown "$PROJECT_ROOT/docs/evidence/lidar_submap_ablation_multisequence.md"
+  --output "$PROJECT_ROOT/docs/evidence/slam/lidar_submap_ablation_multisequence.json" \
+  --markdown "$PROJECT_ROOT/docs/evidence/slam/lidar_submap_ablation_multisequence.md"
 
 python3 tools/evaluation/compare_lidar_temporal_ablation.py \
   "${temporal_args[@]}" \
-  --output "$PROJECT_ROOT/docs/evidence/lidar_temporal_ablation_multisequence.json" \
-  --markdown "$PROJECT_ROOT/docs/evidence/lidar_temporal_ablation_multisequence.md"
+  --output "$PROJECT_ROOT/docs/evidence/slam/lidar_temporal_ablation_multisequence.json" \
+  --markdown "$PROJECT_ROOT/docs/evidence/slam/lidar_temporal_ablation_multisequence.md"
 
 python3 tools/evaluation/compare_lidar_sequence_ablation.py \
   "${temporal_args[@]}" \
-  --output "$PROJECT_ROOT/docs/evidence/lidar_sequence_ablation_multisequence.json" \
-  --markdown "$PROJECT_ROOT/docs/evidence/lidar_sequence_ablation_multisequence.md"
+  --output "$PROJECT_ROOT/docs/evidence/slam/lidar_sequence_ablation_multisequence.json" \
+  --markdown "$PROJECT_ROOT/docs/evidence/slam/lidar_sequence_ablation_multisequence.md"

@@ -23,7 +23,7 @@ for sequence in "${sequence_list[@]}"; do
   groundtruth="$ROOT/groundtruth/$sequence/groundtruth.txt"
   candidates="$LOG_ROOT/$sequence/lidar_loop_candidates/candidates.jsonl"
   suffix="${sequence//-/_}"
-  candidate_evidence="$PROJECT_ROOT/docs/evidence/lidar_loop_candidates_${suffix}.json"
+  candidate_evidence="$PROJECT_ROOT/docs/evidence/slam/lidar_loop_candidates_${suffix}.json"
   output_dir="$LOG_ROOT/$sequence/lidar_shadow_matches"
   mkdir -p "$output_dir"
   for required in "$graph" "$bag" "$groundtruth" "$candidates" "$candidate_evidence"; do
@@ -52,8 +52,8 @@ for sequence in "${sequence_list[@]}"; do
     "$output_dir/pairs.txt" \
     "$output_dir/matches.jsonl"
 
-  published_json="$PROJECT_ROOT/docs/evidence/lidar_shadow_matches_${suffix}.json"
-  published_markdown="$PROJECT_ROOT/docs/evidence/lidar_shadow_matches_${suffix}.md"
+  published_json="$PROJECT_ROOT/docs/evidence/slam/lidar_shadow_matches_${suffix}.json"
+  published_markdown="$PROJECT_ROOT/docs/evidence/slam/lidar_shadow_matches_${suffix}.md"
   python3 tools/evaluation/evaluate_lidar_shadow_matches.py \
     --matches "$output_dir/matches.jsonl" \
     --groundtruth "$groundtruth" \
@@ -68,5 +68,5 @@ done
 
 python3 tools/evaluation/compare_lidar_shadow_match_sequences.py \
   "${aggregate_args[@]}" \
-  --output "$PROJECT_ROOT/docs/evidence/lidar_shadow_matches_multisequence.json" \
-  --markdown "$PROJECT_ROOT/docs/evidence/lidar_shadow_matches_multisequence.md"
+  --output "$PROJECT_ROOT/docs/evidence/slam/lidar_shadow_matches_multisequence.json" \
+  --markdown "$PROJECT_ROOT/docs/evidence/slam/lidar_shadow_matches_multisequence.md"

@@ -1,6 +1,6 @@
 # 版本记录与路线图
 
-本文档记录项目阶段性演进、当前完成度和后续路线。详细架构见 [ARCHITECTURE_AND_KNOWLEDGE.md](ARCHITECTURE_AND_KNOWLEDGE.md)，关键技术学习笔记见 [LEARNING_NOTES.md](LEARNING_NOTES.md)。
+本文档记录项目阶段性演进、当前完成度和后续路线。详细架构见 [ARCHITECTURE.md](../ARCHITECTURE.md)，关键技术见 [三册学习笔记](../learning/)。
 
 ## 1. 阶段性版本记录
 
@@ -34,11 +34,11 @@
 | 自然导航验收入口 | 将自然多目标话术纳入 ROS pipeline 回归 | 新增 `continuous-navigation-natural`，覆盖自然话术到 `follow_waypoints` 队列执行 |
 | Sherpa-ONNX ASR-only 部署 | 开始真实部署离线 ASR 推理框架，先隔离验证 ASR 层 | 新增 `setup_sherpa_asr_runtime.sh`、`sherpa_asr_smoke.py`、`sherpa-asr-preflight/smoke` 验收入口 |
 | Sherpa-ONNX 离线完整链路验证 | 验证真实 Sherpa 语音模型进入 ROS2 typed Action 控制闭环 | 新增 `offline-sherpa-typed`，覆盖 Sherpa-TTS 音频、ZipFormer ASR、Offline Agent、ActionGuard、ExecuteRobotCommand、`/cmd_vel` |
-| 离线 TTS 版本收口 | 固定 llama.cpp / SummerTTS / sherpa-onnx 版本并补充低延迟 gate | 新增 `OFFLINE_RUNTIME_VERSIONS.md`、`offline-runtime-versions`、`offline-latency` |
+| 离线 TTS 版本收口 | 固定 llama.cpp / SummerTTS / sherpa-onnx 版本并补充低延迟 gate | 新增固定版本探针、`offline-runtime-versions`、`offline-latency` |
 | SummerTTS 服务化 | 将 SummerTTS 从命令行 provider 升级为常驻 C++ ROS service | 新增 `SynthesizeSpeech.srv`、`summer_tts_service`、`tts_provider:=summer_ros`、`summer-tts-service` |
 | SummerTTS 短文本缓存 | 优化“收到/好的/正在执行”等重复反馈的服务延迟 | `SynthesizeSpeech.srv` 增加 `cache_hit`，`summer_tts_service_probe.py` 输出首轮/缓存命中耗时 |
 | 指令解析评测增强 | 把 deterministic parser 证据从 seed 样例扩展为代表集 | `robot_instruction_eval.jsonl` 扩展到 43 条，覆盖速度/距离/角度/时长/地点槽位及长动作分段，`instruction-parser-eval` 输出分 tag 指标与失败用例 |
-| 求职展示版收口 | 固定演示路径、汇报稿、代码走读地图和发布门禁 | 新增 `PROJECT_PRESENTATION_15MIN.md`，README 指向阶段发布 gate |
+| 求职展示版收口 | 固定演示路径、汇报稿、代码走读地图和发布门禁 | 新增 `PRESENTATION_15MIN.md`，README 指向阶段发布 gate |
 | Nav2 演示资产本地化 | 减少对官方 `tb3_sandbox` map/world 入口的展示依赖 | 新增 `voice_demo.yaml`、`voice_demo.sdf.xacro`，`nav2-assets` 审计本地 map/world/RViz |
 | 真实感语音 SLAM/Nav2 主演示 | 把语音探索、在线建图、地图保存、重启定位和语义导航串成可观看闭环 | 新增四区域公寓/办公室场景、单清单资产生成、SLAM/world 双坐标地点、spawn/AMCL 位姿解耦及两条 Gazebo 重型门禁 |
 | 单终端 SLAM 会话编排 | 删除主演示对第二终端和人工重启的依赖 | 新增 `SlamSessionState`、`ManageSlamSession`、显式状态机和进程 Adapter；办公巡检任务以 15 个语音语义动作完成 10 m 以上建图路径，真实存图并重启 AMCL/Nav2，随后验证入口单点导航和厨房/办公室多航点巡检 |

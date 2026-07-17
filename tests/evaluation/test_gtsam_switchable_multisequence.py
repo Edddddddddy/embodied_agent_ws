@@ -81,7 +81,7 @@ def test_multisequence_switchable_comparison_requires_two_reports():
 
 def test_published_switchable_evidence_keeps_real_data_and_claim_boundary():
     evidence = json.loads(
-        (ROOT / "docs" / "evidence" / "gtsam_switchable_multisequence.json").read_text(
+        (ROOT / "docs" / "evidence" / "slam" / "gtsam_switchable_multisequence.json").read_text(
             encoding="utf-8"
         )
     )

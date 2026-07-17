@@ -16,11 +16,11 @@ ENRICHED_GRAPH="$OUTPUT_DIR/gtsam_graph_with_scan_overlap.txt"
 OPTIMIZER="$WORKSPACE/install/embodied_slam/lib/embodied_slam/gtsam_graph_optimize"
 PUBLISHED_SUFFIX="${SEQUENCE//-/_}"
 if [[ "$SEQUENCE" == "corridor1-1" ]]; then
-  PUBLISHED_JSON="${GTSAM_SCAN_OVERLAP_PUBLISHED_JSON:-$WORKSPACE/docs/evidence/gtsam_scan_overlap_ablation.json}"
-  PUBLISHED_MARKDOWN="${GTSAM_SCAN_OVERLAP_PUBLISHED_MARKDOWN:-$WORKSPACE/docs/evidence/gtsam_scan_overlap_ablation.md}"
+  PUBLISHED_JSON="${GTSAM_SCAN_OVERLAP_PUBLISHED_JSON:-$WORKSPACE/docs/evidence/slam/gtsam_scan_overlap_ablation.json}"
+  PUBLISHED_MARKDOWN="${GTSAM_SCAN_OVERLAP_PUBLISHED_MARKDOWN:-$WORKSPACE/docs/evidence/slam/gtsam_scan_overlap_ablation.md}"
 else
-  PUBLISHED_JSON="${GTSAM_SCAN_OVERLAP_PUBLISHED_JSON:-$WORKSPACE/docs/evidence/gtsam_scan_overlap_ablation_${PUBLISHED_SUFFIX}.json}"
-  PUBLISHED_MARKDOWN="${GTSAM_SCAN_OVERLAP_PUBLISHED_MARKDOWN:-$WORKSPACE/docs/evidence/gtsam_scan_overlap_ablation_${PUBLISHED_SUFFIX}.md}"
+  PUBLISHED_JSON="${GTSAM_SCAN_OVERLAP_PUBLISHED_JSON:-$WORKSPACE/docs/evidence/slam/gtsam_scan_overlap_ablation_${PUBLISHED_SUFFIX}.json}"
+  PUBLISHED_MARKDOWN="${GTSAM_SCAN_OVERLAP_PUBLISHED_MARKDOWN:-$WORKSPACE/docs/evidence/slam/gtsam_scan_overlap_ablation_${PUBLISHED_SUFFIX}.md}"
 fi
 
 for required in "$SOURCE_GRAPH" "$BAG" "$REFERENCE" "$OPTIMIZER"; do
