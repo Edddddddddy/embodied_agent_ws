@@ -27,6 +27,7 @@ from rclpy.time import Time
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
 from tf2_ros import Buffer, TransformListener
+from tools.acceptance.paths import repository_root
 from tools.acceptance.typed_action_probe_utils import candidate_dict, result_dict
 
 
@@ -532,7 +533,7 @@ def main():
             "status": "PASS",
         }
         output_path = args.output or (
-            Path(__file__).resolve().parents[3]
+            repository_root()
             / "logs"
             / (
                 "nav2_resilience_report.json"

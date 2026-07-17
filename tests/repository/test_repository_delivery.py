@@ -131,9 +131,9 @@ def test_critical_full_chain_probes_remain_discoverable():
         "tests/integration/voice/test_continuous_voice_control_script.py",
         "tests/integration/voice/test_voice_provider_preflight.py",
         "tests/integration/voice/test_offline_sherpa_typed_simulation.py",
-        "tests/integration/slam_nav/test_navigation_sequence.py",
-        "tests/integration/slam_nav/test_nav2_bridge_sequence.py",
-        "tests/integration/slam_nav/test_nav2_turtlebot3_voice.py",
+        "tools/acceptance/probes/slam_nav/navigation_sequence.py",
+        "tools/acceptance/probes/slam_nav/nav2_bridge_sequence.py",
+        "tools/acceptance/probes/slam_nav/nav2_turtlebot3_voice.py",
         "tests/evaluation/test_asr_nlu_samples_to_eval_candidates.py",
         "tests/evaluation/test_evaluate_asr_nlu_eval_candidates.py",
     )

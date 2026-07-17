@@ -62,7 +62,7 @@ fi
 test -s "$MAP_PREFIX.yaml"
 test -s "$MAP_PREFIX.pgm"
 
-if ! timeout 420 bash tools/acceptance/run_probe.sh tests/integration/slam_nav/test_nav2_turtlebot3_voice.py \
+if ! timeout 420 bash tools/acceptance/run_probe.sh tools/acceptance/probes/slam_nav/nav2_turtlebot3_voice.py \
   --initial-x 0.0 --initial-y 0.0 --initial-yaw 0.0 \
   --navigate-text "去入口" \
   --patrol-text "依次去厨房、办公室" \

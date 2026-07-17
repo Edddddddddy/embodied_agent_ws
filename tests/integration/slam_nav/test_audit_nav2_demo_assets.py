@@ -47,7 +47,7 @@ def test_nav2_demo_asset_audit_reports_required_assets(tmp_path):
     assert "map:uses_nav2_builtin_tb3_sandbox" not in audit["warnings"]
     nav2_probe = audit["assets"]["scripts"]["items"]["nav2_probe"]
     assert nav2_probe == {
-        "path": "tests/integration/slam_nav/test_nav2_turtlebot3_voice.py",
+        "path": "tools/acceptance/probes/slam_nav/nav2_turtlebot3_voice.py",
         "exists": True,
     }
 

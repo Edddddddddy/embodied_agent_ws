@@ -45,7 +45,7 @@ if ! wait_for_topic_subscribers /robot/action_command_typed; then
   cat "$LOG_FILE" >&2
   exit 1
 fi
-if ! timeout 45 bash "$WORKSPACE/tools/acceptance/run_probe.sh" "$WORKSPACE/tests/integration/slam_nav/test_nav2_bridge_sequence.py"; then
+if ! timeout 45 bash "$WORKSPACE/tools/acceptance/run_probe.sh" "$WORKSPACE/tools/acceptance/probes/slam_nav/nav2_bridge_sequence.py"; then
   cat "$LOG_FILE" >&2
   exit 1
 fi

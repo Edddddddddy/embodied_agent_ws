@@ -9,7 +9,6 @@ FollowWaypoints goal。这样 CI 不需要地图和 Gazebo，也能覆盖最关�
 import json
 import threading
 import time
-from pathlib import Path
 
 import rclpy
 from embodied_agent_interfaces.msg import RobotCommand, RobotCommandResult
@@ -17,6 +16,7 @@ from nav2_msgs.action import FollowWaypoints, NavigateToPose
 from rclpy.action import ActionServer, CancelResponse
 from rclpy.node import Node
 from std_msgs.msg import String
+from tools.acceptance.paths import repository_root
 from tools.acceptance.typed_action_probe_utils import candidate_dict, result_dict
 
 
@@ -284,7 +284,7 @@ def main():
                     },
                     "status": "PASS",
                 }
-        output_path = Path(__file__).resolve().parents[3] / "logs" / "nav2_bridge_report.json"
+        output_path = repository_root() / "logs" / "nav2_bridge_report.json"
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(
             json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
