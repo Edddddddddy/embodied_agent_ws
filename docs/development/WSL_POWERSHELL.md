@@ -20,7 +20,8 @@ wsl -d Ubuntu-24.04 -- bash -lc 'cd /home/ubuntu/embodied_agent_ws && git status
 
 - 命令里有 `|`、`$()`、`[]`、中文 here-doc、复杂正则时，用 `--%`。
 - 能用单条简单命令就不要嵌套 here-doc。
-- 需要临时 Python 探针时，优先写成测试文件，少用 `python - <<EOF`。
+- 纯逻辑断言写入 `tests/`；需要真实 ROS/provider 运行时的可执行探针写入
+  `tools/acceptance/probes/<domain>/`，再由 handler 调用。不要用带 `main()` 的文件冒充 pytest。
 
 ### Codex `exec` 中更稳定的形式
 

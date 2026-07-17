@@ -162,8 +162,8 @@
   "repository_scale": {
     "offline_agent_node_lines": 686,
     "online_agent_node_lines": 549,
-    "scripts_recursive_file_count": 134,
-    "scripts_top_level_file_count": 134
+    "scripts_recursive_file_count": 133,
+    "scripts_top_level_file_count": 133
   },
   "ros_packages": {
     "ci_count": 12,

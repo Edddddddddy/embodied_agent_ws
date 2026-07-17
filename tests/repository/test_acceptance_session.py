@@ -1,0 +1,417 @@
+"""AcceptanceSession 深 Module 的纯 Python 行为契约。"""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import sys
+import time
+
+import pytest
+
+from repository_test_support import ROOT
+from tools.acceptance.scenarios.slam_nav_e2e import verify_report
+from tools.acceptance.session import (
+    ArtifactLeaseUnavailable,
+    AcceptanceCommandError,
+    AcceptanceSession,
+    AcceptanceSessionConfig,
+    AcceptanceSessionError,
+    DomainLeaseUnavailable,
+    RosDomainLeasePool,
+    RunResult,
+    SessionCleanupResult,
+    StopResult,
+    SubprocessProcessAdapter,
+)
+
+
+class FakeProcessAdapter:
+    def __init__(self, run_result: RunResult = RunResult(0)) -> None:
+        self.run_result = run_result
+        self.spawned: list[dict] = []
+        self.runs: list[dict] = []
+        self.stopped: list[tuple[object, float]] = []
+        self.session_started = False
+
+    def spawn(self, argv, *, cwd, env, log_path):
+        handle = object()
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text("fake runtime log\n", encoding="utf-8")
+        self.spawned.append(
+            {
+                "argv": tuple(argv),
+                "cwd": cwd,
+                "env": dict(env),
+                "log_path": log_path,
+                "handle": handle,
+            }
+        )
+        return handle
+
+    def run(self, argv, *, cwd, env, timeout_s):
+        self.runs.append(
+            {
+                "argv": tuple(argv),
+                "cwd": cwd,
+                "env": dict(env),
+                "timeout_s": timeout_s,
+            }
+        )
+        return self.run_result
+
+    def stop(self, handle, *, grace_s):
+        self.stopped.append((handle, grace_s))
+        return StopResult(returncode=0, graceful=True, killed=False)
+
+    def begin_session(self):
+        self.session_started = True
+
+    def finish_session(self, *, grace_s):
+        assert self.session_started
+        self.session_started = False
+        return SessionCleanupResult()
+
+
+def _config(tmp_path: Path, **overrides) -> AcceptanceSessionConfig:
+    values = {
+        "name": "test-session",
+        "workspace": tmp_path,
+        "artifact_root": tmp_path / "artifacts",
+        "timeout_s": 30.0,
+        "session_id": "test-session-1",
+        "domain_first": 220,
+        "domain_last": 221,
+        "termination_grace_s": 0.25,
+        "lock_root": tmp_path / "locks",
+    }
+    values.update(overrides)
+    return AcceptanceSessionConfig(**values)
+
+
+def test_domain_lease_pool_prevents_parallel_domain_collision(tmp_path):
+    pool = RosDomainLeasePool(tmp_path / "leases", 220, 221)
+    first = pool.acquire(session_id="first")
+    second = pool.acquire(session_id="second")
+    try:
+        assert first.domain_id == 220
+        assert second.domain_id == 221
+        with pytest.raises(DomainLeaseUnavailable):
+            pool.acquire(session_id="third")
+    finally:
+        first.release()
+        second.release()
+
+    reused = pool.acquire(session_id="reused", preferred=220)
+    try:
+        assert reused.domain_id == 220
+    finally:
+        reused.release()
+
+
+def test_acceptance_session_owns_environment_process_cleanup_and_manifest(tmp_path):
+    adapter = FakeProcessAdapter()
+    session = AcceptanceSession(
+        _config(tmp_path, environment={"SCENARIO_FLAG": "enabled"}),
+        process_adapter=adapter,
+        base_environment={},
+    )
+
+    with session as active:
+        handle = active.spawn("orchestrator", ["ros2", "run", "demo"])
+        assert active.run(["python3", "probe.py"], timeout_s=5.0) == 0
+        assert active.environment["ROS_DOMAIN_ID"] == "220"
+        assert active.environment["SCENARIO_FLAG"] == "enabled"
+        assert active.environment["FASTDDS_BUILTIN_TRANSPORTS"] == "UDPv4"
+        assert active.environment["GZ_PARTITION"].startswith(
+            "embodied_agent_220_test-session-1"
+        )
+
+    assert adapter.stopped == [(handle, 0.25)]
+    manifest = json.loads(session.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["outcome"] == "passed"
+    assert manifest["cleanup_complete"] is True
+    assert manifest["orphan_cleanup"]["remaining_pids"] == []
+    assert manifest["domain_id"] == 220
+    assert manifest["processes"][0]["role"] == "orchestrator"
+    assert manifest["processes"][0]["stop"]["graceful"] is True
+    assert manifest["commands"][0]["returncode"] == 0
+
+
+def test_session_overrides_ambient_transport_partitions(tmp_path):
+    adapter = FakeProcessAdapter()
+    session = AcceptanceSession(
+        _config(tmp_path, inherit_ros_domain_id=False),
+        process_adapter=adapter,
+        base_environment={
+            "ROS_DOMAIN_ID": "30",
+            "GZ_PARTITION": "stale-shared-partition",
+            "IGN_PARTITION": "stale-shared-partition",
+            "FASTDDS_BUILTIN_TRANSPORTS": "SHM",
+        },
+    )
+
+    with session as active:
+        expected = "embodied_agent_220_test-session-1"
+        assert active.domain_id == 220
+        assert active.environment["GZ_PARTITION"] == expected
+        assert active.environment["IGN_PARTITION"] == expected
+        assert active.environment["FASTDDS_BUILTIN_TRANSPORTS"] == "UDPv4"
+
+
+def test_artifact_directory_lease_blocks_concurrent_writers(tmp_path):
+    artifact_dir = tmp_path / "shared-evidence"
+    first = AcceptanceSession(
+        _config(tmp_path, artifact_dir=artifact_dir, session_id="first"),
+        process_adapter=FakeProcessAdapter(),
+        base_environment={},
+    )
+    second = AcceptanceSession(
+        _config(tmp_path, artifact_dir=artifact_dir, session_id="second"),
+        process_adapter=FakeProcessAdapter(),
+        base_environment={},
+    )
+
+    with first:
+        with pytest.raises(ArtifactLeaseUnavailable, match="already in use"):
+            second.__enter__()
+
+    with second:
+        pass
+
+
+@pytest.mark.parametrize(
+    ("result", "message"),
+    [
+        (RunResult(7), "command failed with exit 7"),
+        (RunResult(-9, timed_out=True), "command timed out"),
+    ],
+)
+def test_failed_command_cleans_children_and_preserves_failure_evidence(
+    tmp_path, capsys, result, message
+):
+    adapter = FakeProcessAdapter(result)
+    session = AcceptanceSession(
+        _config(tmp_path), process_adapter=adapter, base_environment={}
+    )
+
+    with pytest.raises(AcceptanceCommandError, match=message):
+        with session as active:
+            active.spawn("orchestrator", ["ros2", "run", "demo"])
+            active.run(["python3", "probe.py"], timeout_s=5.0)
+
+    manifest = json.loads(session.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["outcome"] == "failed"
+    assert manifest["cleanup_complete"] is True
+    assert manifest["error"]
+    assert manifest["commands"][0]["error"]
+    assert len(adapter.stopped) == 1
+    assert "fake runtime log" in capsys.readouterr().err
+
+
+def test_unreaped_process_makes_cleanup_and_session_fail(tmp_path):
+    class UnreapedProcessAdapter(FakeProcessAdapter):
+        def stop(self, handle, *, grace_s):
+            self.stopped.append((handle, grace_s))
+            return StopResult(returncode=None, graceful=False, killed=True)
+
+    session = AcceptanceSession(
+        _config(tmp_path),
+        process_adapter=UnreapedProcessAdapter(),
+        base_environment={},
+    )
+
+    with pytest.raises(AcceptanceSessionError, match="cleanup failed"):
+        with session as active:
+            active.spawn("unreaped", ["demo"])
+
+    manifest = json.loads(session.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["outcome"] == "failed"
+    assert manifest["cleanup_complete"] is False
+    assert "could not be reaped" in manifest["error"]
+
+
+def test_subprocess_adapter_reaps_a_real_process_group(tmp_path):
+    session = AcceptanceSession(
+        _config(tmp_path, termination_grace_s=0.5),
+        base_environment=os.environ,
+    )
+
+    with session as active:
+        handle = active.spawn(
+            "worker",
+            ["bash", "-c", "trap 'exit 0' TERM; while true; do sleep 0.1; done"],
+        )
+        process_id = handle.process.pid
+        time.sleep(0.05)
+        os.kill(process_id, 0)
+
+    with pytest.raises(ProcessLookupError):
+        os.kill(process_id, 0)
+    manifest = json.loads(session.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["cleanup_complete"] is True
+    assert manifest["processes"][0]["stop"]["graceful"] is True
+
+
+def test_subprocess_timeout_preserves_a_graceful_zero_returncode(tmp_path):
+    adapter = SubprocessProcessAdapter()
+
+    result = adapter.run(
+        ["bash", "-c", "trap 'exit 0' TERM; sleep 60"],
+        cwd=tmp_path,
+        env=os.environ,
+        timeout_s=0.1,
+    )
+
+    assert result == RunResult(returncode=0, timed_out=True)
+
+
+def test_subprocess_adapter_reaps_descendant_that_created_a_new_session(tmp_path):
+    nested_pid_file = tmp_path / "nested.pid"
+    child_script = "import time; time.sleep(60)"
+    parent_script = f"""
+import pathlib, subprocess, sys, threading, time
+
+def launch_from_worker_thread():
+    child = subprocess.Popen(
+        [sys.executable, "-c", {child_script!r}], start_new_session=True
+    )
+    pathlib.Path({str(nested_pid_file)!r}).write_text(str(child.pid))
+    time.sleep(60)
+
+threading.Thread(target=launch_from_worker_thread).start()
+time.sleep(60)
+"""
+    session = AcceptanceSession(
+        _config(tmp_path, termination_grace_s=0.5),
+        base_environment=os.environ,
+    )
+
+    with session as active:
+        active.spawn("parent", [sys.executable, "-c", parent_script])
+        deadline = time.monotonic() + 2.0
+        while not nested_pid_file.is_file() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert nested_pid_file.is_file(), "nested child did not publish its pid"
+        nested_pid = int(nested_pid_file.read_text().strip())
+        os.kill(nested_pid, 0)
+
+    deadline = time.monotonic() + 2.0
+    while Path(f"/proc/{nested_pid}").exists() and time.monotonic() < deadline:
+        state = Path(f"/proc/{nested_pid}/stat").read_text().split()[2]
+        if state == "Z":
+            break
+        time.sleep(0.02)
+    stat_path = Path(f"/proc/{nested_pid}/stat")
+    if stat_path.exists():
+        assert stat_path.read_text().split()[2] == "Z"
+
+
+def test_subreaper_reaps_setsid_child_after_tracked_parent_already_exited(tmp_path):
+    nested_pid_file = tmp_path / "orphan.pid"
+    child_ready_file = tmp_path / "orphan.ready"
+    child_script = "\n".join(
+        [
+            "import pathlib, signal, time",
+            "signal.signal(signal.SIGTERM, signal.SIG_IGN)",
+            f"pathlib.Path({str(child_ready_file)!r}).write_text('ready')",
+            "time.sleep(60)",
+        ]
+    )
+    parent_script = "\n".join(
+        [
+            "import pathlib, subprocess, sys",
+            (
+                "child = subprocess.Popen([sys.executable, '-c', "
+                f"{child_script!r}], start_new_session=True)"
+            ),
+            f"pathlib.Path({str(nested_pid_file)!r}).write_text(str(child.pid))",
+        ]
+    )
+    session = AcceptanceSession(
+        _config(tmp_path, termination_grace_s=0.5),
+        base_environment=os.environ,
+    )
+
+    with session as active:
+        handle = active.spawn("short-parent", [sys.executable, "-c", parent_script])
+        deadline = time.monotonic() + 2.0
+        while not nested_pid_file.is_file() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert nested_pid_file.is_file(), "orphan child did not publish its pid"
+        nested_pid = int(nested_pid_file.read_text().strip())
+        assert handle.process.wait(timeout=2.0) == 0
+        deadline = time.monotonic() + 2.0
+        while not child_ready_file.is_file() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert child_ready_file.is_file(), "orphan child did not become ready"
+        os.kill(nested_pid, 0)
+
+    assert not Path(f"/proc/{nested_pid}").exists()
+    manifest = json.loads(session.manifest_path.read_text(encoding="utf-8"))
+    assert nested_pid in manifest["orphan_cleanup"]["observed_pids"]
+    assert manifest["orphan_cleanup"]["killed"] is True
+    assert manifest["orphan_cleanup"]["remaining_pids"] == []
+    assert manifest["cleanup_complete"] is True
+
+
+def _valid_report() -> dict:
+    return {
+        "passed": True,
+        "schema_version": 3,
+        "session_id": "fresh-session",
+        "automatic_mission": True,
+        "map_saved": True,
+        "final_phase": 12,
+        "map": {"known_cells": 7000, "occupied_cells": 200},
+        "mapping_path_m": 12.5,
+        "frontier_goal_count": 2,
+        "exploration_completion_reason": "coverage_plateau",
+        "map_provenance": {"yaml_mtime_ns": 101, "image_mtime_ns": 102},
+        "dynamic_navigation": {"passed": True, "unique_plan_count": 4},
+        "checks": {"fresh_map": True, "final_stop": True},
+        "action_results": [
+            {"message": "nav2:follow_waypoints:succeeded missed_waypoints=0"}
+        ],
+        "final_cmd_vel": {"linear_x": 0.0, "angular_z": 0.0},
+    }
+
+
+def test_slam_nav_report_verifier_accepts_fresh_complete_evidence():
+    summary = verify_report(
+        _valid_report(), expected_session_id="fresh-session", session_start_ns=100
+    )
+
+    assert summary == {
+        "known_cells": 7000,
+        "occupied_cells": 200,
+        "mapping_path_m": 12.5,
+        "frontier_goal_count": 2,
+        "unique_dynamic_plans": 4,
+    }
+
+
+def test_slam_nav_report_verifier_rejects_stale_map():
+    report = _valid_report()
+    report["map_provenance"]["yaml_mtime_ns"] = 99
+
+    with pytest.raises(ValueError, match="map yaml is not fresh"):
+        verify_report(
+            report, expected_session_id="fresh-session", session_start_ns=100
+        )
+
+
+def test_slam_nav_e2e_handler_uses_session_scenario_not_legacy_shell():
+    handler = (ROOT / "tools/acceptance/handlers/slam_nav.sh").read_text(
+        encoding="utf-8"
+    )
+    scenario = ROOT / "tools/acceptance/scenarios/slam_nav_e2e.py"
+
+    # -u 是现场可观测性契约：session/domain/证据路径必须在重型探针前立即刷新。
+    assert "python3 -u -m tools.acceptance.scenarios.slam_nav_e2e" in handler
+    assert scenario.is_file()
+    assert "AcceptanceSession(" in scenario.read_text(encoding="utf-8")
+    assert not (
+        ROOT / "scripts/smoke_test_voice_slam_automatic_mission_gazebo.sh"
+    ).exists()

@@ -23,14 +23,18 @@ source scripts/activate.sh
 bash scripts/acceptance_test.sh --help
 ```
 
-worktree 中先 `unset WORKSPACE`，再 `source scripts/activate.sh`。重型 SLAM 前运行：
+worktree 中先 `unset WORKSPACE`，再 `source scripts/activate.sh`。重型 SLAM 前确认 overlay：
 
 ```bash
 embodied_workspace_doctor true
-CLEANUP_CONFIRM=true bash scripts/cleanup_simulation_processes.sh
 ```
 
 doctor 必须确认当前 overlay、`ManageSlamSession.RUN_AUTOMATIC_MISSION` 和固定版本 Explore Lite 均来自当前工作区。
+canonical `slam-nav-e2e` 由 `tools/acceptance/session.py:AcceptanceSession` 自动租用独立
+ROS domain/Gazebo partition 并回收本会话进程，不要求每次
+先做全局清理。这个隔离保证适用于同样采用 lease 的验收会话；若终端另有手工 ROS graph，仍应先
+停止它。canonical 场景不继承通用 `ROS_DOMAIN_ID`；只有复现指定 domain 时才设置
+`SLAM_NAV_ROS_DOMAIN_ID=<id>`。旧版本或手工 launch 异常退出后，使用带确认开关的 cleanup 脚本救援。
 
 ## 3. 稳定公开入口
 
@@ -111,12 +115,17 @@ showcase_apartment → bootstrap → Explore Lite frontier → SLAM Toolbox
 logs/acceptance/slam_nav/<session_id>/slam_nav_e2e_report.json
 logs/acceptance/slam_nav/<session_id>/runtime.log
 logs/acceptance/slam_nav/<session_id>/voice_built_map.{yaml,pgm}
+logs/acceptance/slam_nav/<session_id>/acceptance_session.json
 ```
 
 进入 E2E 探针后的运行期失败必须生成带 `error`、最后状态和最后观测速度的 JSON，不能只表现为卡住。
 只有成功报告才要求 `final_cmd_vel_zero=true`；失败报告中的速度用于诊断，不能当作已安全停车的证明。
 如果 workspace doctor、依赖或 launch preflight 在探针启动前失败，终端会直接返回非零并指出缺失项，
 此时不会伪造一份 session 报告。
+`acceptance_session.json` 独立记录 ROS domain、Gazebo partition、子进程命令、TERM/KILL 结果和
+`cleanup_complete`；相同证据目录还受独占 lease 保护。即使业务报告未生成，也可区分依赖失败、
+探针超时和清理失败。`orphan_cleanup` 额外记录 subreaper 接管的 setsid 孤儿 PID；只有业务报告验证、
+进程回收与 manifest 落盘全部成功后，终端才输出 `PASS`。
 
 ## 6. 真人语音验收
 

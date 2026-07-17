@@ -63,8 +63,8 @@ flowchart LR
 | `src/embodied_slam` | SLAM 后端、回环与公开 bag 实验 |
 | `src/embodied_slam_tools` | 自动建图任务、阶段进程和验收证据 |
 | `src/embodied_navigation` | 动态障碍跟踪、预测和 Nav2 costmap plugin |
-| `scripts` | 稳定部署、主演示和 smoke runner |
-| `tools/acceptance` | 验收注册表、领域 handler、ROS/provider/API runtime probe、证据判定与清理事务 |
+| `scripts` | 稳定部署、主演示和人工运维入口 |
+| `tools/acceptance` | 验收注册表、会话生命周期、场景 Adapter、runtime probe 与证据判定 |
 | `tools/evaluation` | 数据集、SLAM、回环、LoRA/Q8 与消融工具 |
 | `tests` | pytest/GTest 断言、脚本与仓库契约、确定性 evaluation；不保存 runtime probe |
 
@@ -111,7 +111,12 @@ bash scripts/acceptance_test.sh slam-nav-e2e
 - 可见动态障碍移动、被跟踪并写入预测代价层，Nav2 发生重规划；
 - 最终报告 `passed=true`，`/cmd_vel` 为 0。
 
-证据位于 `logs/acceptance/slam_nav/<session_id>/slam_nav_e2e_report.json` 和 `runtime.log`。
+每次运行会通过文件锁租用 ROS domain、独占证据目录，并派生隔离的 Gazebo partition；canonical
+场景默认忽略终端遗留的通用 `ROS_DOMAIN_ID`，需要固定 domain 时显式设置
+`SLAM_NAV_ROS_DOMAIN_ID`。Ctrl-C、失败或超时均按 TERM→grace→KILL 回收进程组；Linux subreaper
+继续接管并回收“父编排器已退出、子进程已 setsid”的孤儿进程。证据位于
+`logs/acceptance/slam_nav/<session_id>/slam_nav_e2e_report.json`、`runtime.log` 和
+`acceptance_session.json`。最后一个文件记录 domain、进程、清理结果和最终 outcome。
 
 ### 2. 真实语音自动建图与导航（高级交互演示）
 

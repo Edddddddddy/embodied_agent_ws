@@ -7,9 +7,15 @@
 - `cli.py`：处理帮助、参数校验和模式选择，可注入 fake runner 做单元测试。
 - `runner.py`：按需激活 ROS 环境并调用领域 handler；Bash `$1` 始终是首个用户参数，mode 名不会
   作为隐藏参数泄漏到 handler。
+- `session.py`：重型验收的 `AcceptanceSession` 深 Module；用 `flock` 租用 ROS domain 与证据目录，
+  派生 Gazebo partition，统一进程组、subreaper 孤儿回收、截止时间、失败日志、TERM→KILL 和
+  session manifest。进程实现通过
+  `ProcessAdapter` seam 注入，纯测试无需启动 ROS。
+- `scenarios/`：重型场景 Adapter。`slam_nav_e2e.py` 只声明 orchestrator/probe 命令和 fresh-map
+  报告验证，不拥有信号或清理实现。
 - `run_probe.sh`：可执行 Python probe 的统一启动 Interface；相对路径固定按仓库根解析，并使用
   `python3 -u` 保证管道或重定向下实时输出，避免 stdout 缓冲造成重型验收“假卡死”。它不负责
-  激活 `.venv`、ROS overlay 或选择 domain，这些环境前置条件仍由调用它的 handler/smoke 脚本拥有。
+  激活 `.venv` 或 ROS overlay；canonical 重型模式的 domain/进程生命周期由 `AcceptanceSession` 拥有。
 - `paths.py`：Python 验收工具共享的仓库根定位 Interface；`repository_root()` 从任意仓库内路径
   向上查找 `scripts/acceptance_test.sh`、`tools/acceptance` 和 `src` 三个稳定标记，不依赖脆弱的
   `parents[n]`。因此 probe 迁移目录或运行在 Git worktree 中时，日志、配置和地图路径不会静默漂移。
