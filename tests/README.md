@@ -13,6 +13,9 @@
 
 集成探针只订阅/发布公开 topic、Action、diagnostics、TF 和 odom；对应
 `scripts/smoke_test_*.sh` 负责 ROS domain 隔离、进程启动、日志与清理。
+其中一部分 `test_*.py` 是带 `main()` 的可执行 probe，并不会被 pytest 自动收集；它们必须由
+`tests/integration/run_probe.sh` 或公开验收入口启动。看到 `pytest tests/integration` 通过，不能据此
+宣称真实 ROS graph 已完成验收。
 
 日常入口：
 
