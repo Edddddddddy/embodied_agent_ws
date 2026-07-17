@@ -64,12 +64,14 @@ def test_smoke_fails_when_transcript_misses_required_substring(monkeypatch, tmp_
     assert report["expected_substring_found"] is False
 
 
-def test_acceptance_smoke_requires_the_long_wav_tail_phrase():
-    acceptance = (ROOT / "scripts" / "acceptance_test.sh").read_text(
+def test_registered_acceptance_handler_requires_the_long_wav_tail_phrase():
+    # acceptance_test.sh 已是稳定薄入口；场景参数由领域 handler 统一拥有。
+    # 检查真正的运行所有者，避免测试把 CLI 再锁回古早的单体脚本。
+    handler = (ROOT / "tools/acceptance/handlers/common.sh").read_text(
         encoding="utf-8"
     )
 
-    assert 'scripts/sherpa_asr_smoke.py --expected-substring "星期三"' in acceptance
+    assert 'scripts/sherpa_asr_smoke.py --expected-substring "星期三"' in handler
 
 
 def test_smoke_cli_uses_the_verified_beam_width_by_default():

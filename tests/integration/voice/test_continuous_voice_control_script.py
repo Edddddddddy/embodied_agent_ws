@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Checks for the human-facing continuous voice control launcher script."""
 
+import ast
 import os
 import subprocess
 from pathlib import Path
@@ -594,9 +595,24 @@ def test_online_and_offline_delegate_queue_rejected_feedback_to_application_runt
 
     for path in files:
         content = path.read_text(encoding="utf-8")
+        syntax_tree = ast.parse(content)
+        application_calls = [
+            node
+            for node in ast.walk(syntax_tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "accept_transcript"
+            and isinstance(node.func.value, ast.Attribute)
+            and isinstance(node.func.value.value, ast.Name)
+            and node.func.value.value.id == "self"
+            and node.func.value.attr == "_application"
+        ]
         assert "AgentApplicationRuntime" in content, path
         assert "self._application = AgentApplicationRuntime(" in content, path
-        assert "self._application.accept_transcript(transcript)" in content, path
+        # 这里只验证“节点把转写交给应用层”这一架构契约，不绑定形参名，
+        # 避免为满足字符串断言而保留没有业务价值的浅层转发函数。
+        assert application_calls, path
+        assert all(len(call.args) == 1 for call in application_calls), path
         assert "self._control.enqueue_command(" not in content, path
         assert "self._events.publish_enqueue_decision(decision)" not in content, path
 

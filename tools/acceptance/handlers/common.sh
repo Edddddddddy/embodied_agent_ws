@@ -80,7 +80,7 @@ run_base() {
 }
 
 run_online() {
-  python tests/integration/voice/test_online_api.py
+  bash tools/acceptance/run_probe.sh tools/acceptance/probes/voice/online_api.py
   bash scripts/smoke_test_online_real.sh
 }
 

@@ -30,9 +30,14 @@ from embodied_agent_core.ros_qos import (
     command_qos,
     diagnostics_qos,
     event_qos,
+    state_qos,
 )
+from embodied_agent_core.ros_topics import AgentTopicContract
 from tools.acceptance.typed_action_probe_utils import candidate_dict, result_dict
 from embodied_offline_agent.providers.sherpa_tts import SherpaVitsTts
+
+
+TOPICS = AgentTopicContract()
 
 
 def resample(pcm: bytes, source_rate: int, target_rate: int) -> bytes:
@@ -57,23 +62,30 @@ class OfflineSherpaTypedProbe(Node):
     def __init__(self):
         super().__init__("offline_sherpa_typed_probe")
         self.audio_pub = self.create_publisher(
-            UInt8MultiArray, "/audio/clean_pcm", audio_qos(depth=20)
+            UInt8MultiArray, TOPICS.clean_audio, audio_qos(depth=20)
         )
-        self.silence_pub = self.create_publisher(
-            Empty, "/audio/silence_timeout", event_qos(depth=10)
+        self.endpoint_pub = self.create_publisher(
+            Empty, TOPICS.speech_ended, event_qos(depth=10)
         )
         self.asr_text: str | None = None
         self.candidates: list[dict] = []
         self.typed_commands: list[RobotCommand] = []
         self.action_results: list[dict] = []
         self.metrics: dict | None = None
+        self.agent_states: list[str] = []
         self.velocities: list[tuple[float, float]] = []
         self.create_subscription(
-            String, "/agent/asr_final", self._on_asr, event_qos(depth=10)
+            String, TOPICS.asr_final, self._on_asr, event_qos(depth=10)
+        )
+        self.create_subscription(
+            String,
+            TOPICS.state,
+            lambda message: self.agent_states.append(message.data),
+            state_qos(),
         )
         self.create_subscription(
             RobotCommand,
-            "/agent/action_candidate",
+            TOPICS.action_candidate,
             self._on_candidate,
             command_qos(depth=10),
         )
@@ -85,7 +97,7 @@ class OfflineSherpaTypedProbe(Node):
         )
         self.create_subscription(
             RobotCommandResult,
-            "/robot/action_result",
+            TOPICS.action_result,
             self._on_result,
             event_qos(depth=10),
         )
@@ -156,9 +168,10 @@ def main() -> None:
     try:
         wait_until(
             lambda: (
-                node.audio_pub.get_subscription_count() > 0
-                and node.silence_pub.get_subscription_count() > 0
-                and node.count_publishers("/robot/action_result") > 0
+                "listening" in node.agent_states
+                and node.audio_pub.get_subscription_count() > 0
+                and node.endpoint_pub.get_subscription_count() > 0
+                and node.count_publishers(TOPICS.action_result) > 0
                 and node.count_publishers("/cmd_vel") > 0
             ),
             25.0,
@@ -168,7 +181,9 @@ def main() -> None:
         for offset in range(0, len(pcm), 3200):
             node.audio_pub.publish(UInt8MultiArray(data=list(pcm[offset : offset + 3200])))
             time.sleep(0.02)
-        node.silence_pub.publish(Empty())
+        # speech_ended 是主 endpoint Interface；silence_timeout 只保留给关闭
+        # endpoint event 的兼容部署，不能作为当前离线全链路的 commit 触发器。
+        node.endpoint_pub.publish(Empty())
 
         wait_until(lambda: node.asr_text is not None, 20.0, "Sherpa ASR produced no final")
         if not any(word in node.asr_text for word in ("向前", "前进")):

@@ -175,13 +175,14 @@ repository contract、stage、Gazebo、真人麦克风和公开 bag 分层证明
 - `scripts/generate_architecture_facts.py`：`build_facts()`、`render_markdown()`。
 - `tools/acceptance/catalog.py`：`HandlerDomain`、`AcceptanceMode`；显式保存 mode 的领域所有权。
 - `tools/acceptance/runner.py`：`BashModeRunner.run()`；隔离 Python 路由与 Bash/ROS 环境副作用。
-- `scripts/acceptance_test.sh`、`tests/repository/`、各包 `test/`、`tests/integration/`。
+- `scripts/acceptance_test.sh`、`tools/acceptance/probes/{control,slam_nav,voice}/`：可执行 runtime 验收；
+  `tests/repository/`、各包 `test/`、`tests/integration/`：pytest/GTest 断言与契约。
 
 ### 【上游 → 处理 → 下游】
 
 ```text
 typed events + TF/map/odom/cmd_vel
-→ monitor/readiness/integration probes
+→ monitor/readiness/runtime acceptance probes
 → command ID、状态迁移和指标聚合
 → terminal + JSON/Markdown report
 → release/demo/robotics gate → CI 或人工结论

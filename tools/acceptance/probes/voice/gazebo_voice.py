@@ -3,14 +3,14 @@
 
 import json
 import math
-import os
 import threading
 import time
 
 import numpy as np
 import rclpy
 from embodied_agent_interfaces.msg import RobotActionAck, RobotCommandResult
-from embodied_agent_core.ros_qos import audio_qos, event_qos, sensor_qos
+from embodied_agent_core.ros_qos import audio_qos, event_qos, sensor_qos, state_qos
+from embodied_agent_core.ros_topics import AgentTopicContract
 from embodied_agent_core.runtime_status_transport import action_ack_to_dict
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
@@ -21,31 +21,41 @@ from embodied_offline_agent.providers.sherpa_tts import SherpaVitsTts
 from tools.acceptance.typed_action_probe_utils import result_dict
 
 
+TOPICS = AgentTopicContract()
+
+
 class VoiceGazeboProbe(Node):
     def __init__(self):
         super().__init__("voice_gazebo_probe")
         self.audio_pub = self.create_publisher(
-            UInt8MultiArray, "/audio/clean_pcm", audio_qos(depth=20)
+            UInt8MultiArray, TOPICS.clean_audio, audio_qos(depth=20)
         )
-        self.silence_pub = self.create_publisher(
-            Empty, "/audio/silence_timeout", event_qos(depth=10)
+        self.endpoint_pub = self.create_publisher(
+            Empty, TOPICS.speech_ended, event_qos(depth=10)
         )
         self.position = None
         self.scan_received = False
+        self.agent_states = []
         self.asr_text = None
         self.action_ack = None
         self.action_result = None
         self.create_subscription(Odometry, "/odom", self._on_odom, sensor_qos())
         self.create_subscription(LaserScan, "/scan", self._on_scan, sensor_qos())
         self.create_subscription(
-            String, "/agent/asr_final", self._on_asr, event_qos(depth=10)
+            String, TOPICS.asr_final, self._on_asr, event_qos(depth=10)
+        )
+        self.create_subscription(
+            String,
+            TOPICS.state,
+            lambda message: self.agent_states.append(message.data),
+            state_qos(),
         )
         self.create_subscription(
             RobotActionAck, "/robot/action_ack", self._on_ack, event_qos(depth=10)
         )
         self.create_subscription(
             RobotCommandResult,
-            "/robot/action_result",
+            TOPICS.action_result,
             self._on_result,
             event_qos(depth=10),
         )
@@ -90,7 +100,6 @@ def wait_until(predicate, timeout, description):
 
 
 def main():
-    require_typed_result = os.getenv("REQUIRE_TYPED_ACTION_RESULT") == "true"
     tts = SherpaVitsTts(
         "/home/ubuntu/embodied_agent_ws/models/vits-melo-tts-zh_en", 2, 0, 1.0
     )
@@ -106,8 +115,9 @@ def main():
     try:
         wait_until(
             lambda: node.scan_received and node.position is not None
+            and "listening" in node.agent_states
             and node.audio_pub.get_subscription_count() > 0
-            and node.silence_pub.get_subscription_count() > 0
+            and node.endpoint_pub.get_subscription_count() > 0
             and node.count_publishers("/robot/action_ack") > 0,
             30.0,
             "voice Agent or Gazebo topics were not ready",
@@ -118,7 +128,9 @@ def main():
             chunk = pcm[offset:offset + 3200]
             node.audio_pub.publish(UInt8MultiArray(data=list(chunk)))
             time.sleep(0.02)
-        node.silence_pub.publish(Empty())
+        # 当前 Agent 以 speech_ended 驱动延迟 commit；旧 silence_timeout 在主端点
+        # 启用时会被刻意忽略，继续发布旧事件会表现成“ZipFormer 永不 final”。
+        node.endpoint_pub.publish(Empty())
         wait_until(
             lambda: node.asr_text is not None,
             15.0,
@@ -131,14 +143,10 @@ def main():
                     node.position[0] - start[0], node.position[1] - start[1]
                 ) > 0.05
                 and node.action_ack is not None
-                and (
-                    not require_typed_result
-                    or (
-                        node.action_result is not None
-                        and node.action_result.get("success") is True
-                        and node.action_result.get("message") == "succeeded"
-                    )
-                )
+                # 项目只保留 typed ROS 2 Action；仅看到旧 ACK 不能证明动作完成。
+                and node.action_result is not None
+                and node.action_result.get("success") is True
+                and node.action_result.get("message") == "succeeded"
             ),
             35.0,
             f"voice command did not move TurtleBot3; asr={node.asr_text!r}",

@@ -425,7 +425,7 @@ class OnlineAgentNode(LifecycleNode):
             )
         text = stabilized.text
         self._ros_io.publish_asr_final(text)
-        self._accept_transcript(text)
+        self._application.accept_transcript(text)
 
     def _on_text_input(self, message: String):
         if not self._runtime.active:
@@ -433,7 +433,7 @@ class OnlineAgentNode(LifecycleNode):
             return
         self._control.transcript_stabilizer.clear()
         self._ros_io.publish_asr_final(message.data)
-        self._accept_transcript(message.data)
+        self._application.accept_transcript(message.data)
 
     def _on_wake_event_input(self, message: WakeEventMessage):
         if not self._runtime.active:
@@ -463,9 +463,6 @@ class OnlineAgentNode(LifecycleNode):
         )
         self._application.update_speaker_identity(identity)
 
-    def _accept_transcript(self, transcript: str):
-        self._application.accept_transcript(transcript)
-
     def _publish_enroll_request(self, request) -> None:
         self._ros_io.publish_speaker_enroll_request(
             enroll_request_to_message(request, stamp=self.get_clock().now())
@@ -474,7 +471,9 @@ class OnlineAgentNode(LifecycleNode):
     def _speak_memory_response(self, response: str) -> None:
         try:
             self._runtime.execution.raise_if_stopping()
-            self.tts.synthesize([response], self._on_tts_audio)
+            # 记忆回复不是 LLM turn，不应借用 OnlineStreamingTurnRuntime 的私有
+            # metrics callback；直接复用 ROS I/O Facade，避免节点重构后保留悬空方法。
+            self.tts.synthesize([response], self._ros_io.publish_tts_audio)
             self._runtime.execution.raise_if_stopping()
         except AgentExecutionCancelled:
             raise

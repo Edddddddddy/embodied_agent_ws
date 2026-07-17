@@ -81,7 +81,7 @@ accept_cpp_action_bridge_lifecycle() {
 }
 
 accept_gazebo_voice() {
-  check_offline_runtime; USE_TYPED_ACTIONS=true bash scripts/smoke_test_gazebo_voice.sh
+  check_offline_runtime; bash scripts/smoke_test_gazebo_voice.sh
 }
 
 accept_gazebo_voice_online() {
@@ -93,5 +93,5 @@ accept_runtime_evidence_summary() {
 }
 
 accept_all() {
-  run_base; run_online; run_offline; bash scripts/smoke_test_demo_sequence.sh; run_gazebo; USE_TYPED_ACTIONS=true bash scripts/smoke_test_gazebo_voice.sh; bash scripts/smoke_test_gazebo_voice_online.sh
+  run_base; run_online; run_offline; bash scripts/smoke_test_demo_sequence.sh; run_gazebo; bash scripts/smoke_test_gazebo_voice.sh; bash scripts/smoke_test_gazebo_voice_online.sh
 }

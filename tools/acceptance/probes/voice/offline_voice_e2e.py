@@ -9,7 +9,13 @@ import numpy as np
 import rclpy
 from embodied_agent_interfaces.msg import AgentTurnMetrics, RobotActionAck
 from embodied_agent_core.metrics_transport import agent_turn_metrics_message_to_dict
-from embodied_agent_core.ros_qos import audio_qos, diagnostics_qos, event_qos
+from embodied_agent_core.ros_qos import (
+    audio_qos,
+    diagnostics_qos,
+    event_qos,
+    state_qos,
+)
+from embodied_agent_core.ros_topics import AgentTopicContract
 from embodied_agent_core.runtime_status_transport import action_ack_to_dict
 from rclpy.node import Node
 from std_msgs.msg import Empty, String, UInt8MultiArray
@@ -17,28 +23,38 @@ from std_msgs.msg import Empty, String, UInt8MultiArray
 from embodied_offline_agent.providers.sherpa_tts import SherpaVitsTts
 
 
+TOPICS = AgentTopicContract()
+
+
 class VoiceProbe(Node):
     def __init__(self):
         super().__init__("offline_voice_probe")
         self.audio_pub = self.create_publisher(
-            UInt8MultiArray, "/audio/clean_pcm", audio_qos(depth=20)
+            UInt8MultiArray, TOPICS.clean_audio, audio_qos(depth=20)
         )
-        self.silence_pub = self.create_publisher(
-            Empty, "/audio/silence_timeout", event_qos(depth=10)
+        self.endpoint_pub = self.create_publisher(
+            Empty, TOPICS.speech_ended, event_qos(depth=10)
         )
         self.final_text = None
+        self.agent_states = []
         self.ack = None
         self.metrics = None
         self.done = threading.Event()
         self.create_subscription(
-            String, "/agent/asr_final", self._on_asr, event_qos(depth=10)
+            String, TOPICS.asr_final, self._on_asr, event_qos(depth=10)
+        )
+        self.create_subscription(
+            String,
+            TOPICS.state,
+            lambda message: self.agent_states.append(message.data),
+            state_qos(),
         )
         self.create_subscription(
             RobotActionAck, "/robot/action_ack", self._on_ack, event_qos(depth=10)
         )
         self.create_subscription(
             AgentTurnMetrics,
-            "/agent/metrics",
+            TOPICS.metrics,
             self._on_metrics,
             diagnostics_qos(depth=10),
         )
@@ -87,14 +103,20 @@ def main():
     spin_thread.start()
     try:
         deadline = time.monotonic() + 10.0
-        while node.count_subscribers("/audio/clean_pcm") == 0:
+        while (
+            node.count_subscribers(TOPICS.clean_audio) == 0
+            or node.endpoint_pub.get_subscription_count() == 0
+            or "listening" not in node.agent_states
+        ):
             if time.monotonic() >= deadline:
-                raise TimeoutError("offline ASR audio subscriber was not discovered")
+                raise TimeoutError(
+                    "offline Agent audio/endpoint subscribers were not ready"
+                )
             time.sleep(0.1)
         for offset in range(0, len(pcm), 3200):
             node.audio_pub.publish(UInt8MultiArray(data=list(pcm[offset : offset + 3200])))
             time.sleep(0.09)
-        node.silence_pub.publish(Empty())
+        node.endpoint_pub.publish(Empty())
         if not node.done.wait(35.0):
             raise TimeoutError(
                 f"voice E2E incomplete: asr={node.final_text!r}, ack={node.ack}, metrics={node.metrics}"

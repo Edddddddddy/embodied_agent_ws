@@ -20,7 +20,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if ! timeout 15 bash "$WORKSPACE/tools/acceptance/run_probe.sh" "$WORKSPACE/tests/integration/voice/test_keyword_wake_sidecar.py"; then
+if ! timeout 15 bash "$WORKSPACE/tools/acceptance/run_probe.sh" "$WORKSPACE/tools/acceptance/probes/voice/keyword_wake_sidecar.py"; then
   cat "$LOG_FILE" >&2
   exit 1
 fi

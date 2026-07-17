@@ -23,6 +23,39 @@ class _Stabilizer:
         self.clear_count += 1
 
 
+class _Execution:
+    def __init__(self):
+        self.checks = 0
+
+    def raise_if_stopping(self):
+        self.checks += 1
+
+
+class _Tts:
+    def __init__(self):
+        self.requests = []
+
+    def synthesize(self, chunks, on_audio):
+        self.requests.append(list(chunks))
+        on_audio(b"memory-pcm")
+
+
+class _RosIo:
+    def __init__(self):
+        self.audio = []
+
+    def publish_tts_audio(self, pcm):
+        self.audio.append(pcm)
+
+
+class _Logger:
+    def __init__(self):
+        self.warnings = []
+
+    def warning(self, message):
+        self.warnings.append(message)
+
+
 def _node(*, speech_endpoint_events_enabled=True):
     node = object.__new__(OnlineAgentNode)
     endpoint = _Endpoint()
@@ -62,3 +95,22 @@ def test_legacy_silence_remains_the_fallback_when_speech_endpoints_are_disabled(
     node._on_silence_timeout(None)
 
     assert endpoint.requests == ["silence_timeout"]
+
+
+def test_memory_response_uses_ros_io_without_turn_private_callback():
+    """记忆回复有独立 TTS 路径，不能依赖流式 turn 的私有实现。"""
+
+    node = object.__new__(OnlineAgentNode)
+    execution = _Execution()
+    node._runtime = SimpleNamespace(execution=execution)
+    node.tts = _Tts()
+    node._ros_io = _RosIo()
+    logger = _Logger()
+    node.get_logger = lambda: logger
+
+    node._speak_memory_response("已记住你的偏好")
+
+    assert execution.checks == 2
+    assert node.tts.requests == [["已记住你的偏好"]]
+    assert node._ros_io.audio == [b"memory-pcm"]
+    assert logger.warnings == []
