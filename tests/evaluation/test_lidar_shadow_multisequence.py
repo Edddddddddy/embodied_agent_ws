@@ -76,6 +76,7 @@ def test_published_real_evidence_remains_shadow_only():
             ROOT
             / "docs"
             / "evidence"
+            / "slam"
             / "lidar_shadow_matches_multisequence.json"
         ).read_text(encoding="utf-8")
     )

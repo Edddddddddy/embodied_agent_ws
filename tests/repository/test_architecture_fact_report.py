@@ -38,13 +38,13 @@ def test_committed_architecture_evidence_matches_generated_facts():
 
 
 def test_architecture_docs_delegate_volatile_counts_to_generated_evidence():
-    audit = (ROOT / "docs" / "ARCHITECTURE_AUDIT.md").read_text(encoding="utf-8")
-    gaps = (ROOT / "docs" / "PROJECT_GAPS_AND_OPTIMIZATION.md").read_text(
+    architecture = (ROOT / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
+    evidence_index = (ROOT / "docs" / "evidence" / "README.md").read_text(
         encoding="utf-8"
     )
 
-    assert "evidence/architecture_facts.md" in audit
-    assert "docs/evidence/architecture_facts.md" in gaps
+    assert "evidence/README.md" in architecture
+    assert "architecture_facts.md" in evidence_index
     for stale_claim in ("9 个 ROS 2 包", "约 90 个模式", "700～900 行"):
-        assert stale_claim not in audit
-    assert "当前 543/676 行" not in gaps
+        assert stale_claim not in architecture
+    assert "当前 543/676 行" not in architecture

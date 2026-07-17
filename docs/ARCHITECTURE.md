@@ -1,9 +1,8 @@
 # 系统架构、接口与调用关系
 
 本文是当前系统架构的权威说明。它回答三个问题：每个模块负责什么，数据通过什么 typed 接口流动，
-失败由哪一层终止和报告。精确到文件和函数的逐步代码走读见
-[语音到仿真代码走读](VOICE_TO_SIMULATION_CODE_WALKTHROUGH.md)，运行方法见
-[测试与验收手册](TESTING_AND_ACCEPTANCE.md)。
+失败由哪一层终止和报告。关键文件和函数分领域收录在 [三册学习笔记](learning/)，运行方法见
+[测试与验收手册](TESTING.md)。
 
 ## 1. 设计目标与边界
 
@@ -186,7 +185,7 @@ Agent bridge、安全节点和关键机器人组件按 configure→activate→de
 - 自动探索终止按 `no_frontiers / coverage_plateau / time_budget_coverage` 三种可审计原因处理；
   时间预算到期只有覆盖阈值已达标才允许进入 map saver。
 - corner-start 场景先由 `parse_mapping_bootstrap_route()` 校验 move/turn-only 路线，
-  `_run_agent_text_action()` 复用 Agent→Guard→Action 自动驶入中央门洞，再启动 Explore Lite；
+  `AgentActionGateway.run()` 复用 Agent→Guard→Action 自动驶入中央门洞，再启动 Explore Lite；
   路线只解决脱离充电角，后续未知区域目标仍由 frontier 决定。
 - `embodied_navigation` 的 CV/Kalman/IMM、数据关联和 costmap plugin 属于动态避障增强，不改变
   Agent→Action 安全边界。
@@ -238,9 +237,9 @@ repo/worktree 并 export `WORKSPACE`。`scripts/activate.sh` 再加载同一目�
 
 ## 11. 阅读与验收入口
 
-- 精确文件、函数与上下游：[VOICE_TO_SIMULATION_CODE_WALKTHROUGH.md](VOICE_TO_SIMULATION_CODE_WALKTHROUGH.md)
-- 自动建图现场操作：[VOICE_SLAM_NAV_SHOWCASE.md](VOICE_SLAM_NAV_SHOWCASE.md)
-- 单测、stage、重型与人工标准：[TESTING_AND_ACCEPTANCE.md](TESTING_AND_ACCEPTANCE.md)
-- 技术原理和替代方案：[LEARNING_NOTES.md](LEARNING_NOTES.md)
-- SLAM 后端、回环和评估：[SLAM_NAVIGATION_ENGINEERING.md](SLAM_NAVIGATION_ENGINEERING.md)
-- 当前已证明与未证明：[RUNTIME_EVIDENCE_STATUS.md](RUNTIME_EVIDENCE_STATUS.md)
+- 测试与验收：[TESTING.md](TESTING.md)
+- 15 分钟演示：[PRESENTATION_15MIN.md](PRESENTATION_15MIN.md)
+- 语音 Agent：[learning/VOICE_AGENT.md](learning/VOICE_AGENT.md)
+- ROS 2/C++ 控制：[learning/ROS2_CPP_CONTROL.md](learning/ROS2_CPP_CONTROL.md)
+- SLAM/Nav2：[learning/SLAM_NAV2.md](learning/SLAM_NAV2.md)
+- 证据索引：[evidence/README.md](evidence/README.md)

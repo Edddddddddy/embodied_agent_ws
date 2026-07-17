@@ -36,8 +36,9 @@ bash scripts/setup_lora_toolchain.sh
 ```
 
 LLaMA-Factory 固定到 commit
-`ea31c43d806162a7fd98065abfef2d974fff5766`；llama.cpp 版本见
-[OFFLINE_RUNTIME_VERSIONS.md](../docs/OFFLINE_RUNTIME_VERSIONS.md)。
+`ea31c43d806162a7fd98065abfef2d974fff5766`；llama.cpp、SummerTTS 与 Sherpa
+版本由 `scripts/offline_runtime_versions.py` 和对应安装脚本统一检查，设计边界见
+[语音 Agent 学习笔记](../docs/learning/VOICE_AGENT.md)。
 
 ## 3. Dry-run 与正式执行
 
@@ -61,7 +62,7 @@ bash scripts/acceptance_test.sh lora-q8-comparison
 - `outputs/qwen3-0.6b-robot-f16.gguf`：F16 基准产物。
 - `models/Qwen3-0.6B-robot-Q8_0.gguf`：Q8_0 产物。
 - `logs/lora_q8_pipeline_report.json`：实际文件大小、比例和证据状态。
-- `docs/evidence/lora_q8_instruction_comparison.{json,md}`：可提交的小型对照证据。
+- `docs/evidence/offline/lora_q8_instruction_comparison.{json,md}`：可提交的小型对照证据。
 
 ## 4. 结果声明规则
 

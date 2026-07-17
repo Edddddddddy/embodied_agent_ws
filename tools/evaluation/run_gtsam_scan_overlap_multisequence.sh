@@ -29,5 +29,5 @@ done
 # 聚合层不做宏平均粉饰：任一序列 ATE/P95 退化都会阻止默认启用门控。
 python3 tools/evaluation/compare_gtsam_scan_overlap_sequences.py \
   "${REPORT_ARGS[@]}" \
-  --output "$WORKSPACE/docs/evidence/gtsam_scan_overlap_multisequence.json" \
-  --markdown "$WORKSPACE/docs/evidence/gtsam_scan_overlap_multisequence.md"
+  --output "$WORKSPACE/docs/evidence/slam/gtsam_scan_overlap_multisequence.json" \
+  --markdown "$WORKSPACE/docs/evidence/slam/gtsam_scan_overlap_multisequence.md"

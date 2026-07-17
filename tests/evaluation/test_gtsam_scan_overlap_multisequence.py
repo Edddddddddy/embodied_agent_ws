@@ -94,7 +94,7 @@ def test_published_multisequence_evidence_keeps_gate_disabled_when_second_graph_
     import json
 
     evidence = json.loads(
-        (ROOT / "docs" / "evidence" / "gtsam_scan_overlap_multisequence.json").read_text(
+        (ROOT / "docs" / "evidence" / "slam" / "gtsam_scan_overlap_multisequence.json").read_text(
             encoding="utf-8"
         )
     )

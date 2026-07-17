@@ -71,7 +71,7 @@ def test_duplicate_corpus_or_one_sequence_regression_fails_contract():
 
 def test_published_evidence_stays_shadow_only_despite_full_event_recall():
     evidence = json.loads(
-        (ROOT / "docs" / "evidence" / "lidar_loop_candidates_multisequence.json").read_text(
+        (ROOT / "docs" / "evidence" / "slam" / "lidar_loop_candidates_multisequence.json").read_text(
             encoding="utf-8"
         )
     )

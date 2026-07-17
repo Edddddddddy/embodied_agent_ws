@@ -133,8 +133,8 @@ def test_slam_mapping_baseline_has_reproducible_inputs_and_evidence_entrypoints(
         ROOT / "tools" / "evaluation" / "setup_openloris_groundtruth.py",
         ROOT / "tools" / "evaluation" / "compare_gtsam_switchable_sequences.py",
         ROOT / "tools" / "evaluation" / "compare_lidar_sequence_ablation.py",
-        ROOT / "docs" / "evidence" / "gtsam_switchable_multisequence.json",
-        ROOT / "docs" / "evidence" / "lidar_sequence_ablation_multisequence.json",
+        ROOT / "docs" / "evidence" / "slam" / "gtsam_switchable_multisequence.json",
+        ROOT / "docs" / "evidence" / "slam" / "lidar_sequence_ablation_multisequence.json",
         ROOT / "tests" / "evaluation" / "test_slam_trajectory_evaluation.py",
     )
     assert all(path.is_file() for path in required)

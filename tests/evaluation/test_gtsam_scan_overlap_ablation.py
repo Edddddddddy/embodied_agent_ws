@@ -79,7 +79,7 @@ def test_comparison_fails_when_overlap_evidence_is_missing():
 
 def test_published_scan_overlap_evidence_is_truth_free_and_conservative():
     evidence = json.loads(
-        (ROOT / "docs" / "evidence" / "gtsam_scan_overlap_ablation.json").read_text(
+        (ROOT / "docs" / "evidence" / "slam" / "gtsam_scan_overlap_ablation.json").read_text(
             encoding="utf-8"
         )
     )

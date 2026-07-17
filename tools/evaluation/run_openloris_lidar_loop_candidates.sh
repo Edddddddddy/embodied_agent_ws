@@ -42,8 +42,8 @@ for sequence in "${sequence_list[@]}"; do
     20 60 20.0 30 60.0 60 60 0.0
 
   suffix="${sequence//-/_}"
-  published_json="$WORKSPACE/docs/evidence/lidar_loop_candidates_${suffix}.json"
-  published_markdown="$WORKSPACE/docs/evidence/lidar_loop_candidates_${suffix}.md"
+  published_json="$WORKSPACE/docs/evidence/slam/lidar_loop_candidates_${suffix}.json"
+  published_markdown="$WORKSPACE/docs/evidence/slam/lidar_loop_candidates_${suffix}.md"
   python3 tools/evaluation/evaluate_lidar_loop_candidates.py \
     --candidates "$output_dir/candidates.jsonl" \
     --groundtruth "$groundtruth" \
@@ -56,5 +56,5 @@ done
 
 python3 tools/evaluation/compare_lidar_loop_candidate_sequences.py \
   "${aggregate_args[@]}" \
-  --output "$WORKSPACE/docs/evidence/lidar_loop_candidates_multisequence.json" \
-  --markdown "$WORKSPACE/docs/evidence/lidar_loop_candidates_multisequence.md"
+  --output "$WORKSPACE/docs/evidence/slam/lidar_loop_candidates_multisequence.json" \
+  --markdown "$WORKSPACE/docs/evidence/slam/lidar_loop_candidates_multisequence.md"

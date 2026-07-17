@@ -47,5 +47,5 @@ bash scripts/acceptance_test.sh gazebo
 ## 新增 RobotExecutor
 
 实现与验收步骤见
-[架构与知识笔记](docs/ARCHITECTURE_AND_KNOWLEDGE.md#8-新增-robotexecutor-插件教程)。
+[ROS 2/C++ 控制学习笔记](docs/learning/ROS2_CPP_CONTROL.md)。
 至少需要动态发现 GTest 和一条 Action/BT/diagnostics 集成测试。

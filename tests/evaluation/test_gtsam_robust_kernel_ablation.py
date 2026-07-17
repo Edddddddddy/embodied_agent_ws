@@ -104,7 +104,7 @@ def test_comparison_reports_switchable_constraint_state_without_changing_graph_s
 
 def test_published_real_data_evidence_preserves_fairness_and_claim_boundary():
     evidence = json.loads(
-        (ROOT / "docs" / "evidence" / "gtsam_robust_kernel_ablation.json").read_text(
+        (ROOT / "docs" / "evidence" / "slam" / "gtsam_robust_kernel_ablation.json").read_text(
             encoding="utf-8"
         )
     )
@@ -120,7 +120,7 @@ def test_published_real_data_evidence_preserves_fairness_and_claim_boundary():
 
 def test_published_consistency_gate_evidence_is_fair_and_keeps_runtime_truth_free():
     evidence = json.loads(
-        (ROOT / "docs" / "evidence" / "gtsam_loop_consistency_ablation.json").read_text(
+        (ROOT / "docs" / "evidence" / "slam" / "gtsam_loop_consistency_ablation.json").read_text(
             encoding="utf-8"
         )
     )
