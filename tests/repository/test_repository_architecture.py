@@ -15,6 +15,7 @@ def test_repository_contracts_remain_split_by_architecture_topic():
     for name in (
         "test_repository_architecture.py",
         "test_repository_delivery.py",
+        "test_repository_simulation.py",
         "test_repository_voice_runtime.py",
     ):
         path = repository / name

@@ -116,6 +116,8 @@ Gazebo、Nav2 Executor 间切换，上游接口保持不变。
   `update_active_action()`、`finish_active_action()`。
 - `src/embodied_simulation/src/command_behavior_tree.cpp`：`CommandBehaviorTree::start()`、`tick()`、
   `cancel()`；`ValidateCommandNode`、`CheckSafetyNode`、`ExecuteCommandNode`、`ConfirmResultNode`。
+- `src/embodied_simulation/src/robot_command_policy.cpp`：`is_executable_robot_command()`，定义
+  Action goal 与 BT 共同使用的执行层命令契约。
 - `src/embodied_simulation/include/embodied_simulation/robot_executor.hpp`：`RobotExecutor`。
 - `src/embodied_simulation/src/gazebo_robot_executor.cpp`：`GazeboRobotExecutor::execute()`、`step()`。
 - `src/embodied_simulation/src/simulation_controller.cpp`：`SimulationController::update_scan()`、`step()`。
@@ -134,6 +136,8 @@ ExecuteRobotCommand goal → SimulationControlNode::handle_goal()
 
 Action server 管外部协议，BT 表达业务顺序，Executor 隐藏后端，Controller 封装速度和雷达安全。
 mock 验证状态机、Gazebo 验证物理运动、Nav2 验证规划控制，无需复制 Action/Lifecycle 逻辑。
+命令合法性不能分别写在 Action Server 和 BT 节点里，否则启用/关闭 BT 后可能出现两套安全行为；
+共享 policy 让动作类型、时长、模式和 accessory 白名单只有一个权威实现。
 
 ### 【与替代方案区别】
 
@@ -144,6 +148,8 @@ graph；每个后端独立节点隔离强，却会重复 Action server、诊断�
 
 雷达无效、紧急障碍、取消、超时或插件异常都必须发布零速度。`/cmd_vel` 有数据不等于成功，还需
 odom、Action result 和最终停车。mock PASS 不代表 Gazebo 时钟、TF 和物理插件正常。
+执行层 policy 不是 ActionGuard 的替代品：Guard 负责来源、payload、限幅和 `ARC→MOVE` 规范化，
+policy 只防止未经规范化或数值非法的命令进入具体 Executor。
 
 ### 【对应测试】
 

@@ -82,7 +82,7 @@ Agent。代价是接口和状态更多，因此用 typed schema、统一事件�
 | LLM/TTS | fallback 文本 | `streaming_turn.py`：`StreamingTurnRuntime` | tagged stream、动作选择、分句 TTS | speech chunk 和动作 candidate | 动作仍必须进入 Guard |
 | 安全层 | `RobotCommand` | `action_guard_node.cpp`：`ActionGuardNode::on_candidate()`；`action_validator.cpp` | 白名单、速度/时长/目标限制、TTL | guarded command/outbox | rejected ACK，不下发 Action |
 | 调度层 | guarded command | `action_scheduler.cpp`：`ActionScheduler::enqueue()` | FIFO、stop 抢占、command_id/result 关联 | Action goal/cancel | 失败可清队列，最终请求停车 |
-| 执行层 | `ExecuteRobotCommand` goal | `command_behavior_tree.cpp`：`CommandBehaviorTree::tick()` | validate→safety→execute→result | pluginlib `RobotExecutor` | cancel/watchdog/haltTree |
+| 执行层 | `ExecuteRobotCommand` goal | `robot_command_policy.cpp`：`is_executable_robot_command()`；`command_behavior_tree.cpp`：`CommandBehaviorTree::tick()` | 统一执行契约→safety→execute→result | pluginlib `RobotExecutor` | 非法命令、cancel、watchdog、haltTree |
 | 仿真/Nav2 | command | `gazebo_robot_executor.cpp` 或 `nav2_robot_executor.cpp` | `/cmd_vel` 或 Nav2 Action | odom/result/feedback | cancel 后零速；Nav2 失败回传 |
 
 ### 4.1 为什么使用 typed msg/action
@@ -182,6 +182,9 @@ Agent bridge、安全节点和关键机器人组件按 configure→activate→de
   `error_code=0` 且 `missed_waypoints=0` 才算巡检完成，避免“Action 结束但漏点”的假阳性。
 - `CommandBehaviorTree` 把校验、安全、执行和停止组织为可观察阶段；pluginlib 让同一 Action server
   不依赖具体执行后端。
+- `is_executable_robot_command()` 是 Action goal 与 BT `ValidateCommandNode` 共享的执行契约；
+  `use_behavior_tree` 只改变编排方式，不能改变哪些命令可执行。候选层 `ARC` 必须先经
+  ActionGuard 规范化为 `MOVE`，不能绕过 Guard 直达执行器。
 - `embodied_slam` 的回环、Ceres/GTSAM A/B 属于算法证据，不替代自动探索状态机。
 - 自动探索终止按 `no_frontiers / coverage_plateau / time_budget_coverage` 三种可审计原因处理；
   时间预算到期只有覆盖阈值已达标才允许进入 map saver。
