@@ -332,3 +332,57 @@ pytest -q src/embodied_agent_core/test/test_ros_action_transport.py \
   src/embodied_agent_core/test/test_ros_event_transport.py
 bash scripts/acceptance_test.sh core
 ```
+
+## 7. pytest 与可执行 ROS 验收 Probe 的所有权边界
+
+### 【功能】
+
+将“运行一个真实 ROS graph 并采集结果”的程序从 pytest 测试目录中分离。pytest 负责断言和快速
+反馈；acceptance probe 负责订阅 topic/Action/diagnostics 并产出运行事实；smoke shell 负责环境、
+domain、进程和日志生命周期。
+
+### 【关键文件/类/函数】
+
+- `tools/acceptance/probes/control/`：Control 域可执行 probe。
+- `tools/acceptance/typed_action_probe_utils.py`：`candidate_message()`、`candidate_dict()`、
+  `result_dict()`。
+- `tools/acceptance/run_probe.sh`：统一无缓冲 Python 启动 Interface。
+- `tests/repository/test_repository_delivery.py`：目录所有权、反向依赖与关键 probe 契约。
+
+### 【上游 → 处理 → 下游】
+
+```text
+smoke handler（激活环境、启动节点、选择 ROS_DOMAIN_ID）
+→ run_probe.sh（仓库根路径 + python3 -u）
+→ control probe（公开 ROS 接口采集事实）
+→ typed_action_probe_utils（复用生产 transport）
+→ exit code / 终端摘要
+→ repository test 验证路径与依赖方向
+```
+
+### 【为什么这样设计】
+
+带 `main()` 的 `test_*.py` 会被 pytest 发现并导入，却不会自动执行 `main()`；这会让“pytest 绿色”
+看起来像真实 ROS graph 已通过。目录分离后，文件位置直接表达执行模型。共享 helper 位于 tools，
+而不是 tests，保证依赖方向为“测试验证运行工具”，运行工具不能反向依赖测试实现。
+
+### 【与替代方案区别】
+
+- pytest 启动所有 ROS 进程：fixture 复杂、失败清理困难，且不适合真人麦克风/Gazebo 长任务。
+- 每个 shell 内嵌 Python：入口分散，typed 消息与 PASS 条件容易复制。
+- 独立 probe + smoke owner：Python 负责 ROS 观察，shell 负责进程边界，各自 Interface 更小。
+
+### 【失败/安全边界】
+
+Probe 通过不代表 shell 清理必然成功；smoke 必须传播 probe exit code 并在 trap 中回收进程。反之，
+pytest 通过只证明纯断言/静态契约，不可替代 Gazebo、真实麦克风或重型 SLAM 证据。
+
+### 【对应测试】
+
+```bash
+pytest -q tests/repository/test_repository_delivery.py \
+  tests/repository/test_acceptance_registry.py
+bash scripts/smoke_test_mock_executor.sh
+bash scripts/smoke_test_typed_action_server.sh
+bash scripts/acceptance_test.sh core
+```

@@ -19,7 +19,7 @@ from embodied_agent_core.runtime_status_transport import (
 from diagnostic_msgs.msg import DiagnosticArray
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
-from tests.integration.typed_action_test_utils import candidate_message, result_dict
+from tools.acceptance.typed_action_probe_utils import candidate_message, result_dict
 
 
 class MockExecutorProbe(Node):

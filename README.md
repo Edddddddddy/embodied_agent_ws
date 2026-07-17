@@ -64,7 +64,7 @@ flowchart LR
 | `src/embodied_slam_tools` | 自动建图任务、阶段进程和验收证据 |
 | `src/embodied_navigation` | 动态障碍跟踪、预测和 Nav2 costmap plugin |
 | `scripts` | 稳定部署、主演示和 smoke runner |
-| `tools/acceptance` | 验收模式注册表与领域 handler |
+| `tools/acceptance` | 验收注册表、领域 handler、可执行 probe、证据判定与清理事务 |
 | `tools/evaluation` | 数据集、SLAM、回环、LoRA/Q8 与消融工具 |
 | `tests` | repository、voice/control/slam_nav integration、evaluation |
 
@@ -133,7 +133,9 @@ bash scripts/acceptance_test.sh continuous-offline
 bash scripts/acceptance_test.sh continuous-online
 ```
 
-推荐序列：`小智` → `向前走一秒` → `左转九十度` → `去入口` → `巡检厨房和办公室` → `停下` → `退出控制`。
+推荐序列：`小智` → `向前走一秒` → `左转九十度` → `后退一秒` → `走正方形` → `停下` →
+`退出控制`。普通连续入口验证基础运动队列；真实 Nav2 地点导航请使用上面的语音 SLAM 工作场景或
+`--help-all` 中的 `continuous-nav2-*` 专项入口。
 
 ## 测试与验收
 

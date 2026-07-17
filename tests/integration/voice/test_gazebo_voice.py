@@ -18,7 +18,7 @@ from sensor_msgs.msg import LaserScan
 from std_msgs.msg import Empty, String, UInt8MultiArray
 
 from embodied_offline_agent.providers.sherpa_tts import SherpaVitsTts
-from tests.integration.typed_action_test_utils import result_dict
+from tools.acceptance.typed_action_probe_utils import result_dict
 
 
 class VoiceGazeboProbe(Node):

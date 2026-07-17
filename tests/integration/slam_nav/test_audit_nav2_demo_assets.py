@@ -45,6 +45,11 @@ def test_nav2_demo_asset_audit_reports_required_assets(tmp_path):
     assert audit["assets"]["local_assets"]["local_map_images"]
     assert audit["assets"]["local_assets"]["local_worlds"]
     assert "map:uses_nav2_builtin_tb3_sandbox" not in audit["warnings"]
+    nav2_probe = audit["assets"]["scripts"]["items"]["nav2_probe"]
+    assert nav2_probe == {
+        "path": "tests/integration/slam_nav/test_nav2_turtlebot3_voice.py",
+        "exists": True,
+    }
 
 
 def test_nav2_demo_asset_audit_can_require_local_map_and_world():

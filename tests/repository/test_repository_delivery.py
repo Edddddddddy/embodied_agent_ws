@@ -1,5 +1,6 @@
 """部署入口、模型运行时与展示交付物约束。"""
 
+import ast
 import re
 
 from repository_test_support import (
@@ -28,7 +29,73 @@ def test_generated_ros_domain_ids_stay_within_fastdds_port_limit():
 
 def test_integration_probes_are_not_mixed_with_user_scripts():
     misplaced = sorted((ROOT / "scripts").glob("test_*"))
-    assert misplaced == [], f"测试探针应放入 tests/integration: {misplaced}"
+    assert misplaced == [], f"验收探针应放入 tools/acceptance/probes: {misplaced}"
+
+
+def test_control_tests_and_runtime_probes_have_distinct_owners():
+    """tests 只拥有 pytest 断言，ROS graph 可执行程序由 acceptance tools 拥有。"""
+
+    control_tests = ROOT / "tests" / "integration" / "control"
+    required_tests = {
+        "test_offline_latency_targets.py",
+        "test_simulation_clock_readiness.py",
+    }
+    test_modules = {
+        path.name for path in control_tests.glob("*.py") if path.name != "__init__.py"
+    }
+    assert required_tests <= test_modules
+    for path in control_tests.glob("*.py"):
+        if path.name == "__init__.py":
+            continue
+        assert path.name.startswith("test_")
+        assert "__main__" not in path.read_text(encoding="utf-8")
+
+    control_probes = ROOT / "tools" / "acceptance" / "probes" / "control"
+    expected_probes = {
+        "agent_lifecycle.py",
+        "cpp_action_scheduler.py",
+        "demo_sequence.py",
+        "gazebo_motion.py",
+        "lifecycle_pipeline.py",
+        "mock_executor_pipeline.py",
+        "mock_online_pipeline.py",
+        "namespaced_executor.py",
+        "simulation_pipeline.py",
+        "typed_action_bridge_lifecycle.py",
+        "typed_action_server.py",
+    }
+    probe_modules = {
+        path.name for path in control_probes.glob("*.py") if path.name != "__init__.py"
+    }
+    assert expected_probes <= probe_modules
+    for name in probe_modules:
+        assert not name.startswith("test_")
+        source = (control_probes / name).read_text(encoding="utf-8")
+        assert 'if __name__ == "__main__"' in source
+
+    helper = ROOT / "tools" / "acceptance" / "typed_action_probe_utils.py"
+    assert helper.is_file()
+    assert not (ROOT / "tests/integration/typed_action_test_utils.py").exists()
+
+
+def test_acceptance_tools_never_import_test_implementation_modules():
+    """运行工具可以被测试验证，但生产方向的 tools 不得反向依赖 tests。"""
+
+    violations: list[str] = []
+    acceptance_root = ROOT / "tools" / "acceptance"
+    for path in sorted(acceptance_root.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith(
+                "tests"
+            ):
+                violations.append(f"{path.relative_to(ROOT)}:{node.lineno}")
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name.startswith("tests"):
+                        violations.append(f"{path.relative_to(ROOT)}:{node.lineno}")
+    assert violations == [], violations
+
 
 def test_live_voice_entrypoints_share_one_profile_resolver():
     """普通控制与 Nav2 可以覆盖场景基线，但不能复制四套麦克风 profile。"""
@@ -48,39 +115,31 @@ def test_live_voice_entrypoints_share_one_profile_resolver():
         assert f'apply_voice_control_profile_defaults "{scenario}"' in text
         assert 'case "$VOICE_CONTROL_PROFILE"' not in text
 
+
 def test_critical_full_chain_probes_remain_discoverable():
-    integration = ROOT / "tests" / "integration"
-    required = {
-        "test_gazebo_voice.py",
-        "test_mock_executor_pipeline.py",
-        "test_online_api.py",
-        "test_recognition_retry.py",
-        "test_continuous_command_ttl.py",
-        "test_continuous_endpoint_asr.py",
-        "test_continuous_multi_command.py",
-        "test_continuous_navigation_queue.py",
-        "test_continuous_navigation_natural.py",
-        "test_continuous_live_check.py",
-        "test_continuous_session_timeout.py",
-        "test_continuous_voice_soak.py",
-        "test_continuous_voice_control.py",
-        "test_continuous_voice_control_script.py",
-        "test_continuous_nav2_voice_control_script.py",
-        "test_continuous_voice_monitor.py",
-        "test_asr_nlu_samples_to_eval_candidates.py",
-        "test_evaluate_asr_nlu_eval_candidates.py",
-        "test_continuous_kws_sidecar.py",
-        "test_voice_provider_preflight.py",
-        "test_audio_frontend_calibration.py",
-        "test_typed_action_server.py",
-        "test_navigation_sequence.py",
-        "test_nav2_bridge_sequence.py",
-        "test_nav2_turtlebot3_voice.py",
-        "test_offline_sherpa_typed_simulation.py",
-        "test_agent_lifecycle.py",
-    }
-    present = {path.name for path in (ROOT / "tests").rglob("test_*")}
-    assert required <= present
+    """关键场景必须可发现，但不再用 test_ 文件名掩盖运行时工具。"""
+
+    required = (
+        "tools/acceptance/probes/control/agent_lifecycle.py",
+        "tools/acceptance/probes/control/mock_executor_pipeline.py",
+        "tools/acceptance/probes/control/typed_action_server.py",
+        "tests/integration/voice/test_gazebo_voice.py",
+        "tests/integration/voice/test_online_api.py",
+        "tests/integration/voice/test_recognition_retry.py",
+        "tests/integration/voice/test_continuous_multi_command.py",
+        "tests/integration/voice/test_continuous_live_check.py",
+        "tests/integration/voice/test_continuous_voice_control_script.py",
+        "tests/integration/voice/test_voice_provider_preflight.py",
+        "tests/integration/voice/test_offline_sherpa_typed_simulation.py",
+        "tests/integration/slam_nav/test_navigation_sequence.py",
+        "tests/integration/slam_nav/test_nav2_bridge_sequence.py",
+        "tests/integration/slam_nav/test_nav2_turtlebot3_voice.py",
+        "tests/evaluation/test_asr_nlu_samples_to_eval_candidates.py",
+        "tests/evaluation/test_evaluate_asr_nlu_eval_candidates.py",
+    )
+    missing = [relative for relative in required if not (ROOT / relative).is_file()]
+    assert missing == [], missing
+
 
 def test_voice_navigation_acceptance_entrypoints_remain_available():
     """语音目标点导航/巡航是当前阶段核心能力，入口脚本不能在整理中丢失。"""

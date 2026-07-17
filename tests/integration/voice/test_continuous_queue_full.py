@@ -23,7 +23,7 @@ from embodied_agent_core.ros_event_transport import (
 from embodied_agent_core.ros_qos import event_qos
 from rclpy.node import Node
 from std_msgs.msg import String
-from tests.integration.typed_action_test_utils import candidate_dict
+from tools.acceptance.typed_action_probe_utils import candidate_dict
 
 
 FIRST_QUEUED_COMMAND = "左转九十度"

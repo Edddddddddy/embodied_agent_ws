@@ -31,7 +31,7 @@ from embodied_agent_core.ros_qos import (
     diagnostics_qos,
     event_qos,
 )
-from tests.integration.typed_action_test_utils import candidate_dict, result_dict
+from tools.acceptance.typed_action_probe_utils import candidate_dict, result_dict
 from embodied_offline_agent.providers.sherpa_tts import SherpaVitsTts
 
 

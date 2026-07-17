@@ -821,7 +821,12 @@ def test_online_and_offline_agents_have_real_lifecycle_resource_ownership():
     assert_acceptance_modes("agent-lifecycle")
     assert (ROOT / "scripts" / "smoke_test_agent_lifecycle.sh").is_file()
     assert (
-        ROOT / "tests" / "integration" / "control" / "test_agent_lifecycle.py"
+        ROOT
+        / "tools"
+        / "acceptance"
+        / "probes"
+        / "control"
+        / "agent_lifecycle.py"
     ).is_file()
 
 def test_agent_turn_metrics_use_one_strongly_typed_ros_contract():

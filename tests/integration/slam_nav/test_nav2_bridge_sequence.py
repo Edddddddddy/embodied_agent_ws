@@ -17,7 +17,7 @@ from nav2_msgs.action import FollowWaypoints, NavigateToPose
 from rclpy.action import ActionServer, CancelResponse
 from rclpy.node import Node
 from std_msgs.msg import String
-from tests.integration.typed_action_test_utils import candidate_dict, result_dict
+from tools.acceptance.typed_action_probe_utils import candidate_dict, result_dict
 
 
 class FakeNav2BridgeProbe(Node):

@@ -23,7 +23,7 @@ cleanup() {
 trap cleanup EXIT
 
 activate_lifecycle_node action_guard
-if ! timeout 20 bash "$WORKSPACE/tools/acceptance/run_probe.sh" "$WORKSPACE/tests/integration/control/test_mock_executor_pipeline.py"; then
+if ! timeout 20 bash "$WORKSPACE/tools/acceptance/run_probe.sh" "$WORKSPACE/tools/acceptance/probes/control/mock_executor_pipeline.py"; then
   cat "$LOG_FILE" >&2
   exit 1
 fi
