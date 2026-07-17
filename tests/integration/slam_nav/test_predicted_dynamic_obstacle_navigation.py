@@ -23,6 +23,9 @@ from rclpy.action import ActionClient
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from tf2_msgs.msg import TFMessage
+from tools.acceptance.slam_nav_evidence import (
+    path_clearance as evidence_path_clearance,
+)
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -220,9 +223,11 @@ def request_path(node: DynamicNavigationProbe, goal_x: float, goal_y: float) -> 
     return result.result.path
 
 
-def path_clearance(path: NavPath, x: float, y: float) -> float:
-    return min(
-        math.hypot(pose.pose.position.x - x, pose.pose.position.y - y)
+def nav_path_points(path: NavPath) -> tuple[tuple[float, float], ...]:
+    """把 ROS Path 收窄为纯证据模块理解的二维点。"""
+
+    return tuple(
+        (float(pose.pose.position.x), float(pose.pose.position.y))
         for pose in path.poses
     )
 
@@ -275,7 +280,9 @@ def main() -> int:
         spin_until(node, lambda: node.latest_costmap is not None, 20.0, "global costmap missing")
 
         baseline_path = request_path(node, goal_x, goal_y)
-        baseline_clearance = path_clearance(baseline_path, obstacle_x, 0.0)
+        baseline_clearance = evidence_path_clearance(
+            nav_path_points(baseline_path), obstacle_x, 0.0
+        )
 
         # 四种模型读取同一份带哈希的检测日程；输入只有位置，速度由 tracker 自己估计。
         for y in scenario["warmup"]["y_positions"]:
@@ -302,7 +309,9 @@ def main() -> int:
         )
         predicted_cost = node.cost_at(predicted_x, predicted_y)
         dynamic_path = request_path(node, goal_x, goal_y)
-        dynamic_clearance = path_clearance(dynamic_path, predicted_x, predicted_y)
+        dynamic_clearance = evidence_path_clearance(
+            nav_path_points(dynamic_path), predicted_x, predicted_y
+        )
 
         nav_goal = NavigateToPose.Goal()
         nav_goal.pose.header.frame_id = "map"

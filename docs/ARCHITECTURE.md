@@ -64,7 +64,7 @@ flowchart LR
 | `embodied_simulation` | BT、pluginlib 执行器、Gazebo/Nav2 bridge | ASR 和用户会话 |
 | `embodied_slam` | 漂移、回环、Ceres/GTSAM 后端实验 | 自动任务编排 |
 | `embodied_navigation` | 动态障碍跟踪、预测、costmap plugin | 语音解析 |
-| `embodied_slam_tools` | 建图/存图/定位/巡检状态机与进程编排 | SLAM 后端内部优化 |
+| `embodied_slam_tools` | 任务配置、建图/存图/定位/巡检状态机与进程编排 | SLAM 后端内部优化 |
 
 这种所有权让替换在线/离线 provider 时不改 C++ 安全层，替换 Gazebo/Nav2 executor 时也不改
 Agent。代价是接口和状态更多，因此用 typed schema、统一事件和验收脚本约束它们。
@@ -115,6 +115,7 @@ SessionOrchestratorNode._on_asr_final()
 → parse_session_command()
 → _enqueue()
 → _worker_loop()
+→ MissionConfiguration.load()       # YAML/默认值/阈值一次性收紧
 → _start_mapping()                  # 先启动 SLAM/建图阶段
 → _execute_request()
 → AutomaticMissionExecutor.run()
@@ -213,6 +214,11 @@ Agent bridge、安全节点和关键机器人组件按 configure→activate→de
 `SlamSessionState` 映射为 6 个演示阶段；完整 JSON 留在证据文件，终端只打印摘要。这样既避免
 数万行 ROS 日志淹没关键信息，也避免长等待看起来像进程卡死。
 
+`tools/acceptance/slam_nav_evidence.py` 是 E2E PASS 的单一事实源：ROS 探针只把 Path、track、
+地图和 Action result 转成普通值对象，`evaluate_dynamic_navigation()` 与
+`build_automatic_mission_report()` 统一判断新地图时效、frontier、AMCL/Nav2、完整 waypoint、
+动态净空和最终零速度。证据模块不导入 rclpy/nav_msgs，因此阈值与失败语义可以在 CI 中快速单测。
+
 ## 9. 部署一致性
 
 所有公共入口先调用 `scripts/lifecycle_utils.sh:embodied_resolve_workspace()`，从入口脚本自身推导当前
@@ -238,6 +244,7 @@ repo/worktree 并 export `WORKSPACE`。`scripts/activate.sh` 再加载同一目�
 | BT + pluginlib | 编排与执行后端解耦，可测试 | 大量 if/else 难扩展、难观察 |
 | frontier + Nav2 | 真正根据未知区域自主选点 | 固定路线只能做回归，不能算自动探索 |
 | 阶段进程编排 | SLAM→AMCL 资源和 TF 所有权清楚 | 同时运行两套定位易冲突 |
+| 配置/证据深模块 | Node 只装配已验证值，探针只采样 ROS 事实 | 在巨型 Node/脚本中散落 YAML key 和 PASS 条件易漂移 |
 | readiness/action result | 状态驱动、失败可解释 | 固定 sleep 在慢机器上易竞态 |
 
 ## 11. 阅读与验收入口

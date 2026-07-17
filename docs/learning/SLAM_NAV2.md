@@ -17,6 +17,9 @@
   `parse_mapping_bootstrap_route()`、`ShowcaseSessionStateMachine.validate()`、`transition()`。
 - `src/embodied_slam_tools/embodied_slam_tools/mission_executor.py`：
   `AutomaticMissionExecutor.run()` 封装自动探索、存图、定位切换和语义巡航事务。
+- `src/embodied_slam_tools/embodied_slam_tools/mission_configuration.py`：
+  `MissionConfiguration.load()` 把任务 YAML、默认值、bootstrap 约束和验收阈值收紧成冻结值对象；
+  Node 不再逐项理解 YAML key。
 - `src/embodied_slam_tools/embodied_slam_tools/frontier_monitor.py`：
   `FrontierExplorationMonitor.wait()` 统一覆盖阈值、地图平台期、Explorer 健康、超时和取消判定。
 - `src/embodied_slam_tools/embodied_slam_tools/agent_action_gateway.py`：
@@ -35,6 +38,9 @@
   Nav2 参数副本，为 WSL/Gazebo 调整进度半径和时间窗，不修改系统安装文件。
 - `tools/acceptance/progress.py`：`AcceptanceProgress.start()`、`stage()`、`stop()`；把重型验收的
   ROS 状态压缩成可讲解的阶段和心跳，完整证据仍保存在 session 报告与 `runtime.log`。
+- `tools/acceptance/slam_nav_evidence.py`：`evaluate_dynamic_navigation()`、
+  `build_automatic_mission_report()`；以无 ROS 值对象集中定义动态净空、新地图、定位、完整巡航和
+  最终停车的 PASS 条件。
 - `tests/integration/slam_nav/test_voice_slam_session_orchestrator.py`：`SessionProbe._on_state()`、
   `run_showcase_dynamic_navigation()`、`print_report()`；从 typed topic/Action 收集真实证据并输出摘要。
 
@@ -61,8 +67,10 @@ Nav2 默认 0.5 m/10 s 的进度检查对低实时率 WSL 仿真过于临界，�
 0.10 m/30 s；这仍能发现真正卡死，又不会把低速有效运动误判为无进展。
 结束原因分为 `no_frontiers`、`coverage_plateau` 和 `time_budget_coverage`；最后一种只在
 300 秒预算到期且已知/占用栅格均达标时成立，因此“任务有时间上限”不等于“超时也算成功”。
-验收心跳与业务状态分离：心跳只证明探针仍存活，最终 PASS 仍必须由新地图、TF/AMCL、Action result、
-动态规划和零速度等硬证据共同决定，不能用“日志还在刷”代替功能成功。
+验收心跳与业务状态分离：心跳只证明探针仍存活，最终 PASS 由 `SlamNavEvidence` 根据新地图、
+TF/AMCL、Action result、动态规划和零速度等硬证据统一决定，不能用“日志还在刷”代替功能成功。
+配置与证据都采用冻结值对象，是为了让 ROS Node/探针成为薄 Adapter；替换 YAML 默认值或报告规则时，
+只修改一个深模块并运行无 ROS 单测，而不是同时检查 launch、Node 和 1400 行集成脚本。
 
 ### 【与替代方案区别】
 
