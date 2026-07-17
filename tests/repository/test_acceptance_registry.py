@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import re
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Sequence
@@ -51,6 +52,28 @@ def test_every_registered_mode_has_one_shell_handler():
 
     assert len(MODE_BY_NAME) == len(MODES)
     assert {mode.handler for mode in MODES} == implemented
+
+
+def test_integration_probe_runner_is_utf8_shell_source():
+    """被 Git 跟踪的验收入口必须能被编辑器和 shell 可靠读取。"""
+    runner = ROOT / "tests" / "integration" / "run_probe.sh"
+    source = runner.read_text(encoding="utf-8")
+
+    assert "PYTHONPATH" in source
+    subprocess.run(["bash", "-n", str(runner)], check=True)
+
+
+def test_literal_integration_probe_paths_resolve_to_tracked_files():
+    """场景启动器不能继续引用重组前已经不存在的 probe 路径。"""
+    missing: list[str] = []
+    pattern = re.compile(r'\$WORKSPACE/(tests/integration/[^"\s]+\.py)')
+    for script in sorted((ROOT / "scripts").glob("*.sh")):
+        source = script.read_text(encoding="utf-8")
+        for relative_path in pattern.findall(source):
+            if not (ROOT / relative_path).is_file():
+                missing.append(f"{script.name}: {relative_path}")
+
+    assert missing == []
 
 
 def test_cli_dispatches_arguments_through_injected_runner():
