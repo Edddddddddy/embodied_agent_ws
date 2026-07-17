@@ -46,7 +46,8 @@ flowchart LR
   Nav2Exec --> Nav2Stack["Nav2 Action servers\nplanner / controller / costmap"]
   Nav2Stack -->|/cmd_vel| Gazebo
   Gazebo --> Sensors["Gazebo sensors\n/scan / odom / tf"]
-  Sensors --> Slam["SLAM Toolbox / GTSAM 实验"]
+  Sensors --> Slam["SLAM Toolbox\ncanonical mapping"]
+  Sensors -. "公开 bag / A-B" .-> Backend["Ceres / GTSAM\nexperimental evidence"]
   Sensors --> Nav2Stack
   Slam --> Map["/map → map_saver"]
   Map --> Localization["map_server + AMCL"]
@@ -197,7 +198,8 @@ Agent bridge、安全节点和关键机器人组件按 configure→activate→de
 
 ## 7. 仿真、SLAM 与动态障碍扩展
 
-- `GazeboRobotExecutor` 把 move/turn/arc 转为 `/cmd_vel`，watchdog 到期归零。
+- `GazeboRobotExecutor` 把 Guard 规范化后的 `MOVE/TURN` 转为 `/cmd_vel`，其中弧线是同时携带
+  linear/angular 的 `MOVE`；watchdog 到期归零，executor 不直接接受候选层 `ARC`。
 - `Nav2RobotExecutor::send_navigate_goal()` 和 `send_follow_goal()` 把语义地点加载为 Nav2 goal。
 - `evaluate_follow_waypoints_result()` 将 Nav2 协议终态转换为业务终态：只有 Action 成功、
   `error_code=0` 且 `missed_waypoints=0` 才算巡检完成，避免“Action 结束但漏点”的假阳性。
@@ -229,29 +231,35 @@ Agent bridge、安全节点和关键机器人组件按 configure→activate→de
 → /cmd_vel + /odom + /map
 ```
 
-`scripts/acceptance_test.sh` 只负责组织验收；真正 PASS 条件由测试探针读取 topic、Action result、地图
-文件和最终速度。报告通常写入 `logs/`。mock 报告证明控制逻辑，Gazebo 报告证明仿真闭环，真人
-麦克风报告证明当前声学环境；三者不可互换。
+`scripts/acceptance_test.sh` 是唯一公开 Interface；模式目录、handler 和运行方式由
+`tools/acceptance/` 拥有。真正 PASS 条件由探针读取 topic、Action result、地图文件和最终速度。
+mock 报告证明控制逻辑，Gazebo 报告证明仿真闭环，真人麦克风报告证明当前声学环境；三者不可互换。
+实现细节与扩展规则统一见 [`tools/acceptance/README.md`](../tools/acceptance/README.md)。
 
 重型门禁把高频 ROS 输出写入 `runtime.log`，由 `tools/acceptance/progress.py` 的
 `AcceptanceProgress` 向终端发布低频心跳和阶段里程碑。SLAM/Nav2 探针按职责拆为深 Module：
-
-`tools/acceptance/run_probe.sh` 是 Python probe 的统一启动 Interface：相对路径基于仓库根解析，
-`python3 -u` 让经过 `tee`/重定向的阶段输出也立即可见，避免 stdout 缓冲造成“假卡死”。它不拥有
-环境策略；`.venv`、ROS overlay 和 domain 必须由上游 handler/smoke 在调用前激活。
 
 ```text
 tests/                           pytest/GTest 断言、fixture、脚本与仓库契约
 tools/acceptance/probes/control 可执行 typed Action/Lifecycle/Gazebo Adapter
 tools/acceptance/probes/slam_nav 可执行 mapping/localization/Nav2 probe 与 canonical E2E 编排
 tools/acceptance/probes/voice    可执行 ROS/provider/API runtime Adapter
-scripts/smoke_test_*.sh          环境、domain、进程和日志生命周期
+tools/acceptance/scenarios       重型场景声明与报告验证 Adapter
+tools/acceptance/session.py      domain lease、进程组、超时、日志与清理 Module
 ```
 
 control、slam_nav、voice 域不再让“测试工具”与“被 pytest 执行的测试”共用 `test_*.py` 名称。
 运行时 probe 可以被 repository test 静态检查，但不得反向导入 `tests.*`；跨 probe 的 typed 消息
 构造统一复用
 `typed_action_probe_utils.py` 和生产 transport，避免验收链形成第二套协议。
+
+canonical `slam-nav-e2e` 通过 `AcceptanceSession` 租用带 `flock` 的 ROS domain，并由同一会话派生
+Gazebo partition、独占 lease 的证据目录和 `acceptance_session.json`。canonical 默认不继承终端的
+通用 `ROS_DOMAIN_ID`，避免误接入旧 graph。子进程一律新建 POSIX 进程组；正常退出、
+异常、Ctrl-C 与超时都执行 TERM→grace→KILL；Linux subreaper 负责父进程先退出后被重新托管的
+setsid 孤儿进程。场景只调用 `spawn()`/`run()`，不再各写一份 trap，
+从而把“终端无输出”和“本会话进程污染下一轮”变成可单测的统一失败语义；lease 不负责发现未采用
+该协议的外部手工 ROS graph。
 
 需要从模块位置寻找仓库资源的 Python probe，通过
 `tools/acceptance/paths.py:repository_root()` 定位仓库根。它从调用者给出的路径（默认是模块自身）

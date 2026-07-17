@@ -66,6 +66,31 @@ def test_nav2_executor_and_nav2_stack_have_distinct_diagram_roles():
     assert "NAV2 --> SLAM" not in readme
 
 
+def test_learning_notes_do_not_reference_removed_online_forwarder():
+    voice_notes = _read("docs/learning/VOICE_AGENT.md")
+    online_node = _read(
+        "src/embodied_online_agent/embodied_online_agent/online_agent_node.py"
+    )
+
+    assert "OnlineAgentNode._accept_transcript()" not in voice_notes
+    assert "`_accept_transcript()`" not in voice_notes
+    assert "self._application.accept_transcript(text)" in online_node
+    assert "self._application.accept_transcript(message.data)" in online_node
+
+
+def test_slam_and_acceptance_docs_preserve_runtime_ownership_boundaries():
+    architecture = _read("docs/ARCHITECTURE.md")
+    testing = _read("docs/TESTING.md")
+    acceptance_readme = _read("tools/acceptance/README.md")
+
+    assert "SLAM Toolbox\\ncanonical mapping" in architecture
+    assert "Ceres / GTSAM\\nexperimental evidence" in architecture
+    assert "executor 不直接接受候选层 `ARC`" in architecture
+    for document in (architecture, testing, acceptance_readme):
+        assert "AcceptanceSession" in document
+    assert "acceptance_session.json" in testing
+
+
 def test_live_voice_and_deterministic_dynamic_evidence_are_not_conflated():
     testing = _read("docs/TESTING.md")
     presentation = _read("docs/PRESENTATION_15MIN.md")
@@ -105,6 +130,10 @@ def test_authoritative_document_local_links_resolve_to_real_files():
         ROOT / "docs/ARCHITECTURE.md",
         ROOT / "docs/PRESENTATION_15MIN.md",
         ROOT / "docs/TESTING.md",
+        ROOT / "docs/learning/VOICE_AGENT.md",
+        ROOT / "docs/learning/ROS2_CPP_CONTROL.md",
+        ROOT / "docs/learning/SLAM_NAV2.md",
+        ROOT / "docs/development/WSL_POWERSHELL.md",
         ROOT / "docs/evidence/navigation/README.md",
         ROOT / "docs/history/CHANGELOG.md",
     )

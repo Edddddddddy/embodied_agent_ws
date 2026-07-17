@@ -101,18 +101,19 @@ ActionGuard 做白名单、限幅和字段互斥；Scheduler 用 command_id 关�
 ### 3.6 自动任务事务（6:30–8:15）
 
 打开：
-- `showcase_session.py:ShowcaseSessionStateMachine`：合法状态转换；
-- `mission_configuration.py:MissionConfiguration.load()`：任务 YAML 如何收紧为可执行配置；
-- `mission_executor.py:AutomaticMissionExecutor.run()`：任务顺序；
-- `slam_nav_evidence.py:build_automatic_mission_report()`：为何最终 PASS 不是日志判断；
-- `stage_process_manager.py:StageProcessManager`：launch/map saver/清理；
-- `agent_action_gateway.py:AgentActionGateway.run()`：候选与结果代次关联。
+- `src/embodied_slam_tools/embodied_slam_tools/showcase_session.py:ShowcaseSessionStateMachine`：合法状态转换；
+- `src/embodied_slam_tools/embodied_slam_tools/mission_configuration.py:MissionConfiguration.load()`：任务 YAML 如何收紧为可执行配置；
+- `src/embodied_slam_tools/embodied_slam_tools/mission_executor.py:AutomaticMissionExecutor.run()`：任务顺序；
+- `tools/acceptance/slam_nav_evidence.py:build_automatic_mission_report()`：为何最终 PASS 不是日志判断；
+- `src/embodied_slam_tools/embodied_slam_tools/stage_process_manager.py:StageProcessManager`：launch/map saver/清理；
+- `src/embodied_slam_tools/embodied_slam_tools/agent_action_gateway.py:AgentActionGateway.run()`：候选与结果代次关联。
 
 讲法：领域层不依赖 rclpy，ROS Node 只做 Adapter。`finally` 保证 explorer、里程采集和进程树被清理；取消与故障是显式结果，不是卡住。
 
 ### 3.7 Frontier 自动建图（8:15–9:45）
 
-打开 `frontier_monitor.py:FrontierExplorationMonitor.wait()` 和 `mapping_evidence.py:MappingEvidenceTracker`。
+打开 `src/embodied_slam_tools/embodied_slam_tools/frontier_monitor.py:FrontierExplorationMonitor.wait()` 和
+`src/embodied_slam_tools/embodied_slam_tools/mapping_evidence.py:MappingEvidenceTracker`。
 
 Explore Lite 在 free/unknown 边界聚类候选并通过 Nav2 到达；SLAM Toolbox 负责位姿/地图，不负责探索决策。结束必须同时满足最短运行、已知/占用栅格、真实建图里程，并给出 `no_frontiers`、`coverage_plateau` 或 `time_budget_coverage`。
 
@@ -142,10 +143,12 @@ typed detection、路径变化与安全间距由以下 Module 协作产生：
 
 打开 `logs/acceptance/slam_nav/<session_id>/slam_nav_e2e_report.json`，依次指出：地图 SHA256/时间、frontier goal、建图里程、AMCL/TF、lifecycle、语义 Action result、动态安全间距/unique plans、最终零速度。
 
-代码只讲一条单向依赖：`session_orchestrator.py` 是唯一可执行入口并调用 ROS-free `cli.py` 参数
-Interface；`SessionObserver` 是 typed ROS Adapter，`dynamic_scenario.py` 管场景事务，`artifacts.py` 管地图哈希与
-摘要；只有 ROS-free `slam_nav_evidence.py` 能作出最终 PASS/FAIL。这样运行时采样、流程控制和验收标准
-不会互相反向依赖。
+代码只讲一条单向依赖：`tools/acceptance/scenarios/slam_nav_e2e.py` 声明场景，
+`tools/acceptance/session.py:AcceptanceSession` 拥有 domain/进程/超时；
+`tools/acceptance/probes/slam_nav/session_orchestrator.py` 调用 ROS-free `cli.py` 参数 Interface；
+`SessionObserver` 是 typed ROS Adapter，`dynamic_scenario.py` 管场景事务，`artifacts.py` 管地图哈希与
+摘要；只有 ROS-free `tools/acceptance/slam_nav_evidence.py` 能作出最终 PASS/FAIL。这样运行时资源、
+采样、流程控制和验收标准不会互相反向依赖。
 
 > 项目价值在于把不确定语音与确定机器人控制解耦，并用强类型接口、状态机、生命周期、BT/pluginlib、Nav2 和可审计证据形成工程闭环。当前完成的是仿真平台；真实硬件、真实场地长期漂移和大规模训练仍是边界。
 

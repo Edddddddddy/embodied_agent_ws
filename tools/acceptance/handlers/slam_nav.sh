@@ -84,7 +84,9 @@ accept_slam_autonomous_mission_stage() {
 
 accept_slam_nav_e2e() {
   embodied_workspace_doctor true
-  WORKSPACE="$WORKSPACE" bash scripts/smoke_test_voice_slam_automatic_mission_gazebo.sh
+  # canonical 重型门禁由 AcceptanceSession 统一持有 domain lease、进程组、
+  # 超时、日志和清理；handler 只保留稳定的场景 Interface。
+  python3 -u -m tools.acceptance.scenarios.slam_nav_e2e
 }
 
 accept_slam_session_orchestrator() {

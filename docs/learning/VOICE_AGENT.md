@@ -66,7 +66,8 @@ speech/action 标签，并把可说句子交给 Qwen TTS；provider 差异不侵
 ### 【关键文件/类/函数】
 
 - `src/embodied_online_agent/embodied_online_agent/online_agent_node.py`：`OnlineAgentNode`、
-  `_on_clean_audio()`、`_commit_asr_endpoint()`、`_on_asr_final()`、`_accept_transcript()`、`_run_turn()`。
+  `_on_clean_audio()`、`_commit_asr_endpoint()`、`_on_asr_final()`、`_on_text_input()`、`_run_turn()`；
+  两个文本入口均直接调用共享的 `AgentApplicationRuntime.accept_transcript()`。
 - `src/embodied_online_agent/embodied_online_agent/providers/qwen_asr.py`：
   `QwenRealtimeAsr.start()`、`push_audio()`、`commit()`。
 - `src/embodied_online_agent/embodied_online_agent/providers/openai_compatible_llm.py`：
