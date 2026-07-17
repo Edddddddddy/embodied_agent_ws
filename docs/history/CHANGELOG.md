@@ -1,6 +1,10 @@
-# 版本记录与路线图
+# 版本历史归档
 
-本文档记录项目阶段性演进、当前完成度和后续路线。详细架构见 [ARCHITECTURE.md](../ARCHITECTURE.md)，关键技术见 [三册学习笔记](../learning/)。
+> 本文件只保存历史里程碑，不是当前架构、完成度或路线图的权威事实源。当前包、接口和入口数量以
+> [自动生成的架构事实](../evidence/architecture_facts.md) 为准；当前验收口径见
+> [TESTING.md](../TESTING.md)；尚未完成的工作以 GitHub Issues 为准。
+
+详细架构见 [ARCHITECTURE.md](../ARCHITECTURE.md)，关键技术见 [三册学习笔记](../learning/)。
 
 ## 1. 阶段性版本记录
 
@@ -110,11 +114,11 @@
 | LiDAR 回环约束两阶段门控 | 把“几何通过”与“允许写图”拆成可审计边界，避免上游抖动或弱匹配直接污染位姿图 | 新增纯 C++ 质量门、单 query 择优、pair 去重、限频、固定协方差及 typed decision/result；Karto Adapter 默认关闭，运行时验证 shadow 和无扫描 commit 均被拒绝 |
 | LiDAR 多帧时序一致性门 | 抑制重复走廊中单帧 ICP 偶然高分直接进入后端 | 新增纯 C++ 连续确认状态机与离线 replay；两序列同参数下聚合 precision 13.21%→31.25%、recall 12.57%→2.99%，因此保留 shadow-only 并明确精度/召回权衡 |
 | GTSAM 可切换回环约束 | 避免硬阈值在累计漂移时直接误拒真回环，让每条已接受非局部边由后端联合估计可信度 | 新增三变量 SwitchableBetweenFactor、ROS/CLI 参数和两序列固定图门禁；加权 ATE 0.9196 m，较 Gaussian/Cauchy 下降 43.28%/15.57%，在线仍默认关闭 |
-| 架构事实与发布门禁防漂移 | 避免包数量、脚本/模式规模、节点行数和 CI/release-gate 覆盖随迭代再次失真 | 新增确定性 JSON/Markdown 架构报告和 repository contract；12 包 CI 矩阵、12 个公开入口、125 个高级/router mode、typed interface 与 robotics gate 覆盖由源码计算并在 CI 校验 |
+| 架构事实与发布门禁防漂移 | 避免包数量、脚本/模式规模、节点行数和 CI/release-gate 覆盖随迭代再次失真 | 新增确定性 JSON/Markdown 架构报告和 repository contract；数量以每次构建生成的事实报告为准，不在历史文档中固化 |
 | 自动建图主演示部署收口 | 修复 worktree 静默加载主工作区旧 install、缺 Explore Lite 到运行期才失败的问题 | 公共入口从自身路径解析并 export `WORKSPACE`；激活器恢复 shell 选项；bootstrap 默认安装 pinned Explore Lite；stage/主演示前检查 package prefix 与自动任务 Action contract |
-| 顶层文档权威性收口 | 让部署、架构、调用链、验收和 15 分钟汇报与一句话自动任务一致 | 新增 `docs/README.md`；架构/走读/测试/学习/汇报统一写明文件、函数、上下游、设计原因和证据边界；不改 `docs` 子目录 |
+| 顶层文档权威性收口 | 让部署、架构、调用链、验收和 15 分钟汇报与一句话自动任务一致 | README、架构、测试、学习和汇报文档统一写明文件、函数、上下游、设计原因和证据边界 |
 
-## 2. 当前完成度结论
+## 2. 历史阶段结论（非当前验收口径）
 
 当前项目已经达到“语音输入 → 大模型/规则动作解析 → ROS 2 安全校验 → Gazebo 仿真控制”的主链路目标。
 
@@ -139,7 +143,10 @@
 - openWakeWord、LiveKit WakeWord 仍是可选 seam/preflight；Silero VAD 已有轻量 ONNX 真实运行时，
   但模型仍保持可选下载，CI 不强制携带大模型资产。
 
-## 3. 当前最有价值的验收证据
+## 3. 历史验收入口快照
+
+> 下面的命令只用于追溯当时的演示范围。当前公开入口、参数与通过标准必须以
+> [TESTING.md](../TESTING.md) 和 `bash scripts/acceptance_test.sh --help` 为准。
 
 基础自动验收：
 
@@ -198,7 +205,9 @@ bash scripts/acceptance_test.sh continuous-offline
 bash scripts/acceptance_test.sh continuous-live-check offline
 ```
 
-## 4. 近期路线图
+## 4. 历史路线图快照
+
+> 这些条目保留当时的技术判断，不表示仍是待办；当前计划只在 GitHub Issues 中维护。
 
 ### P0：保持演示稳定
 
