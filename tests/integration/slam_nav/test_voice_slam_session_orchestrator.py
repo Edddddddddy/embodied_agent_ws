@@ -40,6 +40,16 @@ from tools.acceptance.dynamic_route import (
     select_replannable_route,
 )
 from tools.acceptance.progress import AcceptanceProgress
+from tools.acceptance.slam_nav_evidence import (
+    AutomaticMissionObservation,
+    AutomaticMissionThresholds,
+    DynamicNavigationObservation,
+    DynamicNavigationThresholds,
+    build_automatic_mission_report,
+    cumulative_distance as evidence_cumulative_distance,
+    evaluate_dynamic_navigation,
+    path_clearance as evidence_path_clearance,
+)
 import yaml
 
 
@@ -310,15 +320,20 @@ def wait_until(predicate, timeout: float, description: str) -> None:
     raise TimeoutError(description)
 
 
-def cumulative_distance(positions: list[tuple[float, float]]) -> float:
+def robot_traveled_distance(positions: list[tuple[float, float]]) -> float:
     """累计 mapping 里程，忽略 Gazebo 重启或里程计重置产生的瞬时跳变。"""
 
+    if not positions:
+        return 0.0
+    segments: list[tuple[float, float]] = [positions[0]]
     distance = 0.0
     for previous, current in zip(positions, positions[1:]):
-        step = math.hypot(current[0] - previous[0], current[1] - previous[1])
-        if step <= 0.5:
-            distance += step
-    return distance
+        if math.hypot(current[0] - previous[0], current[1] - previous[1]) <= 0.5:
+            segments.append(current)
+            continue
+        distance += evidence_cumulative_distance(segments)
+        segments = [current]
+    return distance + evidence_cumulative_distance(segments)
 
 
 def sha256_file(path: Path) -> str:
@@ -364,21 +379,18 @@ def request_path(node: SessionProbe, goal_x: float, goal_y: float) -> NavPath:
     return wrapped.result.path
 
 
-def path_clearance(path: NavPath, x: float, y: float) -> float:
-    return min(
-        math.hypot(pose.pose.position.x - x, pose.pose.position.y - y)
-        for pose in path.poses
-    )
+def nav_path_points(
+    path: NavPath, *, sampled: bool = False
+) -> tuple[tuple[float, float], ...]:
+    """ROS Path Adapter：纯证据模块只接收二维点，不依赖 nav_msgs。"""
 
-
-def path_signature(path: NavPath) -> tuple[tuple[float, float], ...]:
     if not path.poses:
         return ()
-    stride = max(1, len(path.poses) // 20)
+    stride = max(1, len(path.poses) // 20) if sampled else 1
     return tuple(
         (
-            round(pose.pose.position.x, 2),
-            round(pose.pose.position.y, 2),
+            float(pose.pose.position.x),
+            float(pose.pose.position.y),
         )
         for pose in path.poses[::stride]
     )
@@ -553,7 +565,9 @@ def run_showcase_dynamic_navigation(
 
     scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
     goals = [scenario["goal"], *scenario.get("fallback_goals", [])]
-    thresholds = scenario["thresholds"]
+    thresholds = DynamicNavigationThresholds.from_mapping(
+        scenario["thresholds"]
+    )
     translation = scenario["map_to_world_translation"]
     world_name = str(scenario["world_name"])
     entity_name = str(scenario["entity_name"])
@@ -604,7 +618,7 @@ def run_showcase_dynamic_navigation(
             old_x, old_y = last_predicted
             wait_until(
                 lambda: node.cost_at(old_x, old_y)
-                < int(thresholds["minimum_predicted_cost"]),
+                < thresholds.minimum_predicted_cost,
                 5.0,
                 "dynamic costmap did not clear rejected route",
             )
@@ -629,7 +643,7 @@ def run_showcase_dynamic_navigation(
                 lambda: node.latest_tracks is not None
                 and bool(node.latest_tracks.obstacles)
                 and node.latest_tracks.obstacles[0].confidence
-                >= float(thresholds["minimum_track_confidence"]),
+                >= thresholds.minimum_track_confidence,
                 5.0,
                 "typed dynamic track missing",
             )
@@ -640,7 +654,7 @@ def run_showcase_dynamic_navigation(
             last_predicted = (predicted_x, predicted_y)
             wait_until(
                 lambda: node.cost_at(predicted_x, predicted_y)
-                >= int(thresholds["minimum_predicted_cost"]),
+                >= thresholds.minimum_predicted_cost,
                 5.0,
                 "predicted dynamic cost was not marked lethal",
             )
@@ -652,15 +666,15 @@ def run_showcase_dynamic_navigation(
                 except RuntimeError as path_error:
                     errors.append(f"attempt {attempt_index}: {path_error}")
                 else:
-                    baseline_clearance = path_clearance(
-                        baseline_path, predicted_x, predicted_y
+                    baseline_clearance = evidence_path_clearance(
+                        nav_path_points(baseline_path), predicted_x, predicted_y
                     )
-                    candidate_clearance = path_clearance(
-                        candidate_dynamic_path, predicted_x, predicted_y
+                    candidate_clearance = evidence_path_clearance(
+                        nav_path_points(candidate_dynamic_path),
+                        predicted_x,
+                        predicted_y,
                     )
-                    minimum_gain = float(
-                        thresholds["minimum_clearance_gain_m"]
-                    )
+                    minimum_gain = thresholds.minimum_clearance_gain_m
                     if candidate_clearance >= baseline_clearance + minimum_gain:
                         dynamic_path = candidate_dynamic_path
                         break
@@ -709,8 +723,6 @@ def run_showcase_dynamic_navigation(
     predicted_x = selected["predicted_x"]
     predicted_y = selected["predicted_y"]
     predicted_cost = selected["predicted_cost"]
-    baseline_clearance = path_clearance(baseline_path, predicted_x, predicted_y)
-    dynamic_clearance = path_clearance(dynamic_path, predicted_x, predicted_y)
 
     assert node.navigation_client.wait_for_server(timeout_sec=20.0)
     plan_start = len(node.navigation_plans)
@@ -750,60 +762,38 @@ def run_showcase_dynamic_navigation(
     )
 
     positions = node.positions[odom_start:]
-    traveled = cumulative_distance(positions)
+    traveled = robot_traveled_distance(positions)
     plans = node.navigation_plans[plan_start:]
-    unique_plans = {path_signature(path) for path in plans if path.poses}
-    checks = {
-        "gazebo_entity_moved": pose_updates
-        == len(warmup_positions)
-        + len(navigation_positions)
-        + 1,
-        "tracker_confident": track.confidence
-        >= float(thresholds["minimum_track_confidence"]),
-        "tracker_estimated_motion": math.hypot(track.velocity.x, track.velocity.y)
-        >= float(thresholds["minimum_moving_velocity_mps"]),
-        "future_cell_marked_lethal": predicted_cost
-        >= int(thresholds["minimum_predicted_cost"]),
-        "dynamic_path_increased_clearance": dynamic_clearance
-        >= baseline_clearance + float(thresholds["minimum_clearance_gain_m"]),
-        "nav2_replanned": len(unique_plans)
-        >= int(thresholds["minimum_unique_navigation_plans"]),
-        "navigate_to_pose_succeeded": nav_status == GoalStatus.STATUS_SUCCEEDED,
-        "robot_moved": traveled
-        >= float(thresholds["minimum_travel_distance_m"]),
-        "cmd_vel_zero": abs(node.last_cmd_vel["linear_x"]) < 1e-3
-        and abs(node.last_cmd_vel["angular_z"]) < 1e-3,
-    }
-    return {
-        "passed": all(checks.values()),
-        "checks": checks,
-        "scenario_id": scenario["scenario_id"],
-        "goal": goal,
-        "route_attempts": route_attempts,
-        "motion_anchor": {
-            key: round(value, 4) for key, value in motion_anchor.items()
-        },
-        "gazebo_pose_updates": pose_updates,
-        "track": {
-            # DynamicObstacle.msg 将轨迹编号定义为 string（例如 track_1）。
-            # 验收报告保留原始 ID，避免把展示层约定错误地收紧成整数。
-            "id": str(track.track_id),
-            "confidence": round(float(track.confidence), 4),
-            "velocity_x_mps": round(float(track.velocity.x), 4),
-            "velocity_y_mps": round(float(track.velocity.y), 4),
-        },
-        "prediction": {
-            "x": round(float(predicted_x), 4),
-            "y": round(float(predicted_y), 4),
-            "cost": int(predicted_cost),
-        },
-        "baseline_clearance_m": round(baseline_clearance, 4),
-        "dynamic_clearance_m": round(dynamic_clearance, 4),
-        "published_plan_count": len(plans),
-        "unique_plan_count": len(unique_plans),
-        "odom_traveled_distance_m": round(traveled, 3),
-        "navigate_to_pose_status": nav_status,
-    }
+    # Adapter 到此只负责把 ROS 消息翻译成普通值；全部 PASS 条件和报告格式
+    # 由纯证据模块统一拥有，其他验收入口不能再复制一套阈值判断。
+    observation = DynamicNavigationObservation(
+        scenario_id=str(scenario["scenario_id"]),
+        goal=goal,
+        route_attempts=tuple(route_attempts),
+        motion_anchor=motion_anchor,
+        gazebo_pose_updates=pose_updates,
+        expected_pose_updates=(
+            len(warmup_positions) + len(navigation_positions) + 1
+        ),
+        track_id=str(track.track_id),
+        track_confidence=float(track.confidence),
+        track_velocity_x_mps=float(track.velocity.x),
+        track_velocity_y_mps=float(track.velocity.y),
+        predicted_x=float(predicted_x),
+        predicted_y=float(predicted_y),
+        predicted_cost=int(predicted_cost),
+        baseline_path=nav_path_points(baseline_path),
+        dynamic_path=nav_path_points(dynamic_path),
+        published_plans=tuple(
+            nav_path_points(path, sampled=True) for path in plans if path.poses
+        ),
+        odom_traveled_distance_m=traveled,
+        navigate_to_pose_status=nav_status,
+        navigation_succeeded=nav_status == GoalStatus.STATUS_SUCCEEDED,
+        final_linear_x=float(node.last_cmd_vel["linear_x"]),
+        final_angular_z=float(node.last_cmd_vel["angular_z"]),
+    )
+    return evaluate_dynamic_navigation(observation, thresholds)
 
 
 def run_text_action(
@@ -1024,35 +1014,9 @@ def main() -> None:
                 for state in reversed(node.states)
                 if state.phase == SlamSessionState.MISSION_COMPLETED
             )
-            candidate_names = [item.get("name") for item in node.candidates]
             lifecycle = {}
             dynamic_navigation = None
             if args.evidence_kind != "dry_run_process_adapter":
-                assert "navigate_to" in candidate_names, candidate_names
-                assert "follow_waypoints" in candidate_names, candidate_names
-                candidate_ids = {
-                    str(item.get("request_id"))
-                    for item in node.candidates
-                    if item.get("name") in {"navigate_to", "follow_waypoints"}
-                }
-                assert all(
-                    node.result_for(command_id)
-                    and node.result_for(command_id).get("success") is True
-                    for command_id in candidate_ids
-                )
-                follow_ids = {
-                    str(item.get("request_id"))
-                    for item in node.candidates
-                    if item.get("name") == "follow_waypoints"
-                }
-                # WaypointFollower 可在部分点失败后返回协议 SUCCEEDED；真实重型证据
-                # 必须额外证明没有漏点，避免报告出现业务假阳性。
-                assert follow_ids
-                assert all(
-                    "missed_waypoints=0"
-                    in str(node.result_for(command_id).get("message", ""))
-                    for command_id in follow_ids
-                )
                 wait_until(
                     lambda: (
                         abs(node.last_cmd_vel["linear_x"]) < 1e-6
@@ -1089,7 +1053,7 @@ def main() -> None:
 
             map_yaml = Path(final_state.map_yaml_path) if final_state.map_yaml_path else None
             map_provenance = None
-            mission_acceptance: dict = {}
+            mission_thresholds = AutomaticMissionThresholds(0.0, 0, 0)
             if map_yaml is not None and map_yaml.is_file():
                 artifact_hash, image_path = map_artifact_sha256(map_yaml)
                 map_provenance = {
@@ -1105,9 +1069,11 @@ def main() -> None:
                 mission = yaml.safe_load(
                     args.mission_plan.read_text(encoding="utf-8")
                 )
-                mission_acceptance = dict(mission.get("acceptance", {}))
+                mission_thresholds = AutomaticMissionThresholds.from_mapping(
+                    mission.get("acceptance", {})
+                )
 
-            mapping_distance_m = cumulative_distance(node.mapping_positions)
+            mapping_distance_m = robot_traveled_distance(node.mapping_positions)
             completion_detail = next(
                 (
                     state.detail
@@ -1118,95 +1084,32 @@ def main() -> None:
             )
             reason_match = re.search(r"reason=([^ ]+)", completion_detail)
             completion_reason = reason_match.group(1) if reason_match else ""
-            required_active = int(State.PRIMARY_STATE_ACTIVE)
-            checks = {
-                "map_saved": bool(final_state.map_saved),
-                "fresh_session_map": (
-                    map_provenance is not None
-                    and bool(args.session_start_ns)
-                    and map_provenance["yaml_mtime_ns"] >= args.session_start_ns
-                    and map_provenance["image_mtime_ns"] >= args.session_start_ns
-                )
-                if args.evidence_kind != "dry_run_process_adapter"
-                else True,
-                "frontier_goal_observed": len(node.frontier_goal_ids) >= 1
-                if args.evidence_kind != "dry_run_process_adapter"
-                else True,
-                "mapping_path_threshold": mapping_distance_m
-                >= float(mission_acceptance.get("min_mapping_path_m", 0.0)),
-                "known_cells_threshold": (
-                    node.map_stats is not None
-                    and node.map_stats["known_cells"]
-                    >= int(mission_acceptance.get("min_known_map_cells", 0))
-                )
-                if args.evidence_kind != "dry_run_process_adapter"
-                else True,
-                "occupied_cells_threshold": (
-                    node.map_stats is not None
-                    and node.map_stats["occupied_cells"]
-                    >= int(mission_acceptance.get("min_occupied_map_cells", 0))
-                )
-                if args.evidence_kind != "dry_run_process_adapter"
-                else True,
-                "auditable_exploration_completion": completion_reason
-                in {"no_frontiers", "coverage_plateau", "time_budget_coverage"}
-                if args.evidence_kind != "dry_run_process_adapter"
-                else True,
-                "localization_tf": node.localization_tf_count > 0
-                if args.evidence_kind != "dry_run_process_adapter"
-                else True,
-                "amcl_pose": node.amcl_pose_count > 0
-                if args.evidence_kind != "dry_run_process_adapter"
-                else True,
-                "nav2_lifecycle_active": len(lifecycle) == 4
-                and all(state == required_active for state in lifecycle.values())
-                if args.evidence_kind != "dry_run_process_adapter"
-                else True,
-                "semantic_navigation_succeeded": all(
-                    node.result_for(command_id)
-                    and node.result_for(command_id).get("success") is True
-                    for command_id in {
-                        str(item.get("request_id"))
-                        for item in node.candidates
-                        if item.get("name") in {"navigate_to", "follow_waypoints"}
-                    }
-                )
-                if args.evidence_kind != "dry_run_process_adapter"
-                else True,
-                "dynamic_navigation_succeeded": (
-                    dynamic_navigation is not None
-                    and dynamic_navigation.get("passed") is True
-                )
-                if args.dynamic_scenario is not None
-                else True,
-                "final_cmd_vel_zero": abs(node.last_cmd_vel["linear_x"]) < 1e-3
-                and abs(node.last_cmd_vel["angular_z"]) < 1e-3,
-            }
-            report = {
-                "schema_version": 3,
-                "passed": all(checks.values()),
-                "session_id": args.session_id,
-                "session_start_ns": args.session_start_ns,
-                "state_sequence": observed,
-                "map_saved": bool(final_state.map_saved),
-                "map_yaml_path": final_state.map_yaml_path,
-                "final_phase": int(final_state.phase),
-                "evidence_kind": args.evidence_kind,
-                "automatic_mission": True,
-                "action_candidates": node.candidates,
-                "action_results": node.results,
-                "map": node.map_stats,
-                "map_provenance": map_provenance,
-                "mapping_path_m": round(mapping_distance_m, 3),
-                "frontier_goal_count": len(node.frontier_goal_ids),
-                "exploration_completion_reason": completion_reason,
-                "localization": {
-                    "map_to_odom_count": node.localization_tf_count,
-                    "amcl_pose_count": node.amcl_pose_count,
-                    "lifecycle_states": lifecycle,
-                },
-                "dynamic_navigation": dynamic_navigation,
-                "provenance": {
+            lifecycle_active = len(lifecycle) == 4 and all(
+                state == int(State.PRIMARY_STATE_ACTIVE)
+                for state in lifecycle.values()
+            )
+            observation = AutomaticMissionObservation(
+                session_id=args.session_id,
+                session_start_ns=args.session_start_ns,
+                state_sequence=tuple(observed),
+                map_saved=bool(final_state.map_saved),
+                map_yaml_path=final_state.map_yaml_path,
+                final_phase=int(final_state.phase),
+                evidence_kind=args.evidence_kind,
+                action_candidates=tuple(node.candidates),
+                action_results=tuple(node.results),
+                map_stats=node.map_stats,
+                map_provenance=map_provenance,
+                mapping_path_m=mapping_distance_m,
+                frontier_goal_count=len(node.frontier_goal_ids),
+                exploration_completion_reason=completion_reason,
+                localization_tf_count=node.localization_tf_count,
+                amcl_pose_count=node.amcl_pose_count,
+                lifecycle_states=lifecycle,
+                nav2_lifecycle_active=lifecycle_active,
+                dynamic_navigation=dynamic_navigation,
+                dynamic_navigation_required=args.dynamic_scenario is not None,
+                provenance={
                     "world_sha256": sha256_file(args.world_file)
                     if args.world_file
                     else "",
@@ -1217,9 +1120,12 @@ def main() -> None:
                     if args.dynamic_scenario
                     else "",
                 },
-                "checks": checks,
-                "final_cmd_vel": node.last_cmd_vel,
-            }
+                final_linear_x=float(node.last_cmd_vel["linear_x"]),
+                final_angular_z=float(node.last_cmd_vel["angular_z"]),
+            )
+            report = build_automatic_mission_report(
+                observation, mission_thresholds
+            )
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(
                 json.dumps(report, ensure_ascii=False, indent=2) + "\n",
@@ -1268,7 +1174,9 @@ def main() -> None:
                 15.0,
                 "SLAM map did not reach the required known-cell coverage",
             )
-            survey_distance_m = cumulative_distance(node.positions[odom_start:])
+            survey_distance_m = robot_traveled_distance(
+                node.positions[odom_start:]
+            )
             survey_map = dict(node.map_stats or {})
             assert survey_distance_m >= float(thresholds["min_mapping_path_m"]), (
                 survey_distance_m,
@@ -1376,7 +1284,7 @@ def main() -> None:
             "map": node.map_stats,
             "frontier_goal_count": len(node.frontier_goal_ids),
             "mapping_path_m": round(
-                cumulative_distance(node.mapping_positions), 3
+                robot_traveled_distance(node.mapping_positions), 3
             ),
             "final_cmd_vel": node.last_cmd_vel,
         }

@@ -87,7 +87,9 @@ ActionGuard 做白名单、限幅和字段互斥；Scheduler 用 command_id 关�
 
 打开：
 - `showcase_session.py:ShowcaseSessionStateMachine`：合法状态转换；
+- `mission_configuration.py:MissionConfiguration.load()`：任务 YAML 如何收紧为可执行配置；
 - `mission_executor.py:AutomaticMissionExecutor.run()`：任务顺序；
+- `slam_nav_evidence.py:build_automatic_mission_report()`：为何最终 PASS 不是日志判断；
 - `stage_process_manager.py:StageProcessManager`：launch/map saver/清理；
 - `agent_action_gateway.py:AgentActionGateway.run()`：候选与结果代次关联。
 

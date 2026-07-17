@@ -34,7 +34,6 @@ from rclpy.qos import (
 )
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
-import yaml
 
 try:
     from explore_lite_msgs.msg import ExploreStatus
@@ -42,12 +41,12 @@ except ImportError:  # 可选运行时由 setup_frontier_exploration.sh 安装�
     ExploreStatus = None
 
 from .agent_action_gateway import AgentActionGateway, AgentActionOutcome
-from .frontier_monitor import FrontierExplorationMonitor, FrontierMonitorConfig
+from .frontier_monitor import FrontierExplorationMonitor
 from .mapping_evidence import MappingEvidenceTracker
+from .mission_configuration import MissionConfiguration
 from .mission_executor import (
     AutomaticMissionCancelled,
     AutomaticMissionExecutor,
-    AutomaticMissionSpec,
     CommandRequest,
 )
 from .stage_process_manager import StageProcessManager
@@ -57,7 +56,6 @@ from .showcase_session import (
     ShowcaseSessionStateMachine,
     is_automatic_mission_cancel_text,
     is_truncated_automatic_mission_text,
-    parse_mapping_bootstrap_route,
     parse_session_command,
 )
 
@@ -103,52 +101,6 @@ class SessionOrchestratorNode(Node):
                 "mission_plan", str(default_mission_plan)
             ).value
         )
-        self._mission_plan = yaml.safe_load(
-            mission_plan_path.read_text(encoding="utf-8")
-        )
-        if not isinstance(self._mission_plan, dict):
-            raise ValueError("mission_plan must contain a YAML mapping")
-        automatic_config = self._mission_plan.get("automatic_exploration", {})
-        if not isinstance(automatic_config, dict):
-            raise ValueError("automatic_exploration must be a YAML mapping")
-        explorer_config_name = str(
-            automatic_config.get("config", "frontier_exploration.yaml")
-        )
-        explorer_config_path = (
-            workspace / "src/embodied_simulation/config" / explorer_config_name
-        )
-        exploration_timeout_s = float(
-            automatic_config.get("timeout_s", 300.0)
-        )
-        exploration_min_runtime_s = float(
-            automatic_config.get("min_runtime_s", 15.0)
-        )
-        exploration_stable_map_s = float(
-            automatic_config.get("stable_map_s", 20.0)
-        )
-        exploration_min_growth_cells = int(
-            automatic_config.get("min_growth_cells", 40)
-        )
-        mission_navigation_timeout_s = float(
-            automatic_config.get("navigation_timeout_s", 330.0)
-        )
-        exploration_completion_status = str(
-            automatic_config.get("completion_status", "exploration_complete")
-        )
-        mapping_bootstrap_route = parse_mapping_bootstrap_route(
-            automatic_config
-        )
-        mapping_bootstrap_action_timeout_s = float(
-            automatic_config.get("bootstrap_action_timeout_s", 45.0)
-        )
-        acceptance = self._mission_plan.get("acceptance", {})
-        min_known_map_cells = int(acceptance.get("min_known_map_cells", 0))
-        min_occupied_map_cells = int(
-            acceptance.get("min_occupied_map_cells", 0)
-        )
-        min_mapping_path_m = float(
-            acceptance.get("min_mapping_path_m", 0.0)
-        )
         readiness_topic = str(
             self.declare_parameter("readiness_topic", "/system/readiness").value
         )
@@ -158,14 +110,22 @@ class SessionOrchestratorNode(Node):
         scan_startup_timeout_s = float(
             self.declare_parameter("scan_startup_timeout_s", 20.0).value
         )
-        if scan_startup_timeout_s <= 0.0:
-            raise ValueError("scan_startup_timeout_s must be positive")
         stop_timeout_s = float(
             self.declare_parameter("stop_timeout_s", 15.0).value
         )
         dry_run = bool(self.declare_parameter("dry_run", False).value)
         dry_run_exploration_delay_s = float(
             self.declare_parameter("dry_run_exploration_delay_s", 0.0).value
+        )
+        # YAML key、默认值和阈值校验全部封装在配置深模块中；Node 只消费
+        # 已冻结的任务值对象，避免运行期间继续查询松散字典。
+        mission_configuration = MissionConfiguration.load(
+            workspace=workspace,
+            mission_plan_path=mission_plan_path,
+            scan_startup_timeout_s=scan_startup_timeout_s,
+            status_available=ExploreStatus is not None,
+            dry_run=dry_run,
+            dry_run_delay_s=dry_run_exploration_delay_s,
         )
         self._fsm = ShowcaseSessionStateMachine()
         self._manager = StageProcessManager(
@@ -176,44 +136,20 @@ class SessionOrchestratorNode(Node):
             dry_run=dry_run,
         )
         self._mapping_evidence = MappingEvidenceTracker(
-            exploration_min_growth_cells
+            mission_configuration.evidence_min_growth_cells
         )
         self._frontier_monitor = FrontierExplorationMonitor(
             self._mapping_evidence,
             self._manager,
-            FrontierMonitorConfig(
-                timeout_s=exploration_timeout_s,
-                min_runtime_s=exploration_min_runtime_s,
-                stable_map_s=exploration_stable_map_s,
-                completion_status=exploration_completion_status,
-                min_known_cells=min_known_map_cells,
-                min_occupied_cells=min_occupied_map_cells,
-                min_mapping_path_m=min_mapping_path_m,
-                status_available=ExploreStatus is not None,
-                dry_run=dry_run,
-                dry_run_delay_s=dry_run_exploration_delay_s,
-            ),
+            mission_configuration.frontier,
             cancel_motion=self._cancel_automatic_motion,
             log_info=self.get_logger().info,
         )
-        navigation = self._mission_plan.get("navigation_mission", {})
-        if not isinstance(navigation, dict):
-            raise ValueError("navigation_mission must be a YAML mapping")
         self._automatic_mission_executor = AutomaticMissionExecutor(
             self,
             self._manager,
             self._mapping_evidence,
-            AutomaticMissionSpec(
-                explorer_config_path=explorer_config_path,
-                bootstrap_route=tuple(mapping_bootstrap_route),
-                scan_startup_timeout_s=scan_startup_timeout_s,
-                bootstrap_action_timeout_s=(
-                    mapping_bootstrap_action_timeout_s
-                ),
-                navigation_timeout_s=mission_navigation_timeout_s,
-                navigate_text=str(navigation["navigate_text"]),
-                patrol_text=str(navigation["patrol_text"]),
-            ),
+            mission_configuration.automatic,
         )
         self._dry_run = dry_run
         self._state_lock = threading.RLock()
