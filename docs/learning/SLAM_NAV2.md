@@ -41,8 +41,11 @@
 - `tools/acceptance/slam_nav_evidence.py`：`evaluate_dynamic_navigation()`、
   `build_automatic_mission_report()`；以无 ROS 值对象集中定义动态净空、新地图、定位、完整巡航和
   最终停车的 PASS 条件。
-- `tests/integration/slam_nav/test_voice_slam_session_orchestrator.py`：`SessionProbe._on_state()`、
-  `run_showcase_dynamic_navigation()`、`print_report()`；从 typed topic/Action 收集真实证据并输出摘要。
+- `tools/acceptance/probes/slam_nav/cli.py`：`build_parser()` 定义 ROS-free 命令行 Interface。
+- `tools/acceptance/probes/slam_nav/session_observer.py`：`SessionObserver` 把 typed topic、Action、
+  Service 与 TF 转为普通运行时事实，不判断 PASS。
+- `tools/acceptance/probes/slam_nav/session_orchestrator.py`：`main()` 只负责会话阶段与各 Module 编排。
+- `tools/acceptance/probes/slam_nav/artifacts.py`：地图 YAML/栅格哈希、失败报告和终端摘要 I/O。
 
 ### 【上游 → 处理 → 下游】
 
@@ -67,10 +70,10 @@ Nav2 默认 0.5 m/10 s 的进度检查对低实时率 WSL 仿真过于临界，�
 0.10 m/30 s；这仍能发现真正卡死，又不会把低速有效运动误判为无进展。
 结束原因分为 `no_frontiers`、`coverage_plateau` 和 `time_budget_coverage`；最后一种只在
 300 秒预算到期且已知/占用栅格均达标时成立，因此“任务有时间上限”不等于“超时也算成功”。
-验收心跳与业务状态分离：心跳只证明探针仍存活，最终 PASS 由 `SlamNavEvidence` 根据新地图、
-TF/AMCL、Action result、动态规划和零速度等硬证据统一决定，不能用“日志还在刷”代替功能成功。
-配置与证据都采用冻结值对象，是为了让 ROS Node/探针成为薄 Adapter；替换 YAML 默认值或报告规则时，
-只修改一个深模块并运行无 ROS 单测，而不是同时检查 launch、Node 和 1400 行集成脚本。
+验收心跳与业务状态分离：心跳只证明探针仍存活，最终 PASS 只能由 ROS-free
+`slam_nav_evidence.py` 根据新地图、TF/AMCL、Action result、动态规划和零速度等硬证据统一决定，
+不能用“日志还在刷”代替功能成功。依赖从顶层编排单向流向 typed ROS Adapter、场景事务、产物 I/O
+和纯证据 Module；它们不反向导入编排器。这样可在无 ROS 的 CI 中验证阈值，也把修改集中在对应职责。
 
 ### 【与替代方案区别】
 
@@ -159,9 +162,9 @@ bash scripts/acceptance_test.sh openloris-replay-stage
   `updateCosts()`、`reset()`。
 - `tools/acceptance/dynamic_route.py`：`select_replannable_route()` 把候选路线选择、失败恢复和
   `route_attempts` 审计集中为一个可单测策略。
-- `tests/integration/slam_nav/test_voice_slam_session_orchestrator.py`：
-  `run_showcase_dynamic_navigation()` 只接受“静态路径可达、预测代价已写入且新路径净空确有提升”
-  的候选；拒绝后停放 Gazebo 障碍、等待 track TTL 并确认旧 cost 清除，再尝试下一条路线。
+- `tools/acceptance/probes/slam_nav/dynamic_scenario.py`：
+  `run_showcase_dynamic_navigation()` 封装障碍放置、typed detection、Nav2 重规划与候选恢复事务；
+  只把观测交给纯证据 Module，不自行宣布 PASS。
 
 ### 【上游 → 处理 → 下游】
 

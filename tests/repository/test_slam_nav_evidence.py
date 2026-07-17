@@ -145,6 +145,45 @@ def test_automatic_mission_report_proves_every_runtime_layer():
     )
 
     assert report["schema_version"] == 3
+    assert set(report) == {
+        "schema_version",
+        "passed",
+        "session_id",
+        "session_start_ns",
+        "state_sequence",
+        "map_saved",
+        "map_yaml_path",
+        "final_phase",
+        "evidence_kind",
+        "automatic_mission",
+        "action_candidates",
+        "action_results",
+        "map",
+        "map_provenance",
+        "mapping_path_m",
+        "frontier_goal_count",
+        "exploration_completion_reason",
+        "localization",
+        "dynamic_navigation",
+        "provenance",
+        "checks",
+        "final_cmd_vel",
+    }
+    assert set(report["checks"]) == {
+        "map_saved",
+        "fresh_session_map",
+        "frontier_goal_observed",
+        "mapping_path_threshold",
+        "known_cells_threshold",
+        "occupied_cells_threshold",
+        "auditable_exploration_completion",
+        "localization_tf",
+        "amcl_pose",
+        "nav2_lifecycle_active",
+        "semantic_navigation_succeeded",
+        "dynamic_navigation_succeeded",
+        "final_cmd_vel_zero",
+    }
     assert report["passed"] is True
     assert all(report["checks"].values())
     assert report["automatic_mission"] is True

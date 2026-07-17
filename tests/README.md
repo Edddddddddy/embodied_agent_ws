@@ -17,6 +17,19 @@
 `tests/integration/run_probe.sh` 或公开验收入口启动。看到 `pytest tests/integration` 通过，不能据此
 宣称真实 ROS graph 已完成验收。
 
+SLAM/Nav2 重型验收的可执行实现不再伪装成 `test_*.py`，而位于
+`tools/acceptance/probes/slam_nav/`：
+
+- `session_orchestrator.py`：唯一可执行入口与顶层会话编排；
+- `cli.py`：被编排器调用的 ROS-free 参数 Interface；
+- `session_observer.py`：`SessionObserver` typed ROS Adapter；
+- `dynamic_scenario.py`：动态障碍与 Nav2 重规划事务；
+- `artifacts.py`：地图哈希、失败报告和终端摘要。
+
+依赖由编排器单向流向各 Module。它们只采集和组织事实，最终 PASS/FAIL 统一交给 ROS-free
+`tools/acceptance/slam_nav_evidence.py`；测试目录只验证这些 Interface、纯决策和端到端行为，避免把
+“可执行探针”与“pytest 断言”混为一谈。
+
 日常入口：
 
 ```bash
