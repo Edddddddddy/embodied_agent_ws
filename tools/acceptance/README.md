@@ -11,8 +11,11 @@
   派生 Gazebo partition，统一进程组、subreaper 孤儿回收、截止时间、失败日志、TERM→KILL 和
   session manifest。进程实现通过
   `ProcessAdapter` seam 注入，纯测试无需启动 ROS。
-- `scenarios/`：重型场景 Adapter。`slam_nav_e2e.py` 只声明 orchestrator/probe 命令和 fresh-map
-  报告验证，不拥有信号或清理实现。
+- `scenarios/`：重型场景 Adapter。`slam_nav_e2e.py` 保留已知场景的确定性回归；
+  `unknown_world_slam_e2e.py` 专用于未知世界自主探索、建图与导航的严格证据门禁。场景 Adapter
+  只声明 orchestrator/probe 命令和报告验证，不拥有信号或清理实现。unknown-world 探针或报告
+  验证失败时会在清理仿真前尽力写出 `failed_exploration_map.{yaml,pgm}`；它只供诊断，绝不等同于
+  正式报告中的 `map_saved`。
 - `run_probe.sh`：可执行 Python probe 的统一启动 Interface；相对路径固定按仓库根解析，并使用
   `python3 -u` 保证管道或重定向下实时输出，避免 stdout 缓冲造成重型验收“假卡死”。它不负责
   激活 `.venv` 或 ROS overlay；canonical 重型模式的 domain/进程生命周期由 `AcceptanceSession` 拥有。
@@ -34,7 +37,9 @@
   资源后置条件由事务在报告生成前独立强制。
 - `handlers/`：保留必须依赖 Bash/ROS setup 的 control、voice、slam_nav 实现。
 
-公开模式固定为 7 个。内部回归仍可通过 `--help-all` 发现，但不能写进新手必跑步骤。
+公开模式固定为 8 个。其中 `slam-nav-e2e` 是已知场景确定性回归，
+`unknown-world-slam-e2e` 才是未知世界自主探索与导航验收。内部回归仍可通过 `--help-all` 发现，
+但不能写进新手必跑步骤。
 新增模式时必须同时补充注册表测试；不要在 `acceptance_test.sh` 中重新增加 `case`。
 一个 handler 只能归属一个领域库。需要兼容旧名称时优先迁移调用方，不得为同一重型 E2E 保留
 两个可独立输出 PASS 的入口。

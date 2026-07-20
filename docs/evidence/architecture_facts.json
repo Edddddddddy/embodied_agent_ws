@@ -1,7 +1,7 @@
 {
   "acceptance_cli": {
-    "advanced_help_mode_count": 133,
-    "public_mode_count": 7,
+    "advanced_help_mode_count": 134,
+    "public_mode_count": 8,
     "public_modes": [
       "continuous-offline",
       "continuous-online",
@@ -9,9 +9,10 @@
       "gazebo",
       "nav2-stage",
       "robotics-gate",
-      "slam-nav-e2e"
+      "slam-nav-e2e",
+      "unknown-world-slam-e2e"
     ],
-    "router_mode_count": 133,
+    "router_mode_count": 134,
     "undocumented_router_modes": []
   },
   "ci": {
@@ -30,7 +31,7 @@
     "advanced_modes_are_routable": true,
     "ci_matrix_matches_ros_packages": true,
     "ci_push_and_pr_only_dev_main": true,
-    "public_mode_count_is_7": true,
+    "public_mode_count_is_8": true,
     "public_modes_are_routable": true,
     "release_gates_use_current_workspace": true,
     "robotics_profile_covers_required_gates": true,
@@ -57,7 +58,7 @@
           "name": "voice_navigation_demo"
         },
         {
-          "command": "bash scripts/acceptance_test.sh offline-latency && bash scripts/acceptance_test.sh summer-tts-service && colcon test --packages-select embodied_agent_cpp embodied_simulation --event-handlers console_direct+ && colcon test-result --verbose",
+          "command": "bash scripts/acceptance_test.sh offline-latency && bash scripts/acceptance_test.sh summer-tts-service && colcon test --packages-select embodied_agent_cpp embodied_simulation --event-handlers console_direct+ && colcon test-result --test-result-base build/embodied_agent_cpp --verbose && colcon test-result --test-result-base build/embodied_simulation --verbose",
           "name": "offline_runtime_and_cpp_ros"
         }
       ],
@@ -117,7 +118,7 @@
           "name": "summer_tts_service"
         },
         {
-          "command": "colcon test --packages-select embodied_agent_cpp embodied_simulation --event-handlers console_direct+ && colcon test-result --verbose",
+          "command": "colcon test --packages-select embodied_agent_cpp embodied_simulation --event-handlers console_direct+ && colcon test-result --test-result-base build/embodied_agent_cpp --verbose && colcon test-result --test-result-base build/embodied_simulation --verbose",
           "name": "cpp_ros_unit"
         }
       ],
@@ -127,7 +128,7 @@
           "name": "robotics_repository_and_agent_units"
         },
         {
-          "command": "colcon test --packages-select embodied_agent_bringup embodied_agent_cpp embodied_simulation embodied_navigation embodied_slam --event-handlers console_direct+ && colcon test-result --verbose",
+          "command": "colcon test --packages-select embodied_agent_bringup embodied_agent_cpp embodied_simulation embodied_navigation embodied_slam --event-handlers console_direct+ && colcon test-result --test-result-base build/embodied_agent_bringup --verbose && colcon test-result --test-result-base build/embodied_agent_cpp --verbose && colcon test-result --test-result-base build/embodied_simulation --verbose && colcon test-result --test-result-base build/embodied_navigation --verbose && colcon test-result --test-result-base build/embodied_slam --verbose",
           "name": "robotics_cpp_packages"
         },
         {
@@ -208,7 +209,7 @@
       ]
     },
     "messages": {
-      "count": 34,
+      "count": 36,
       "files": [
         "AgentTurnMetrics.msg",
         "AudioFrontendStatus.msg",
@@ -220,6 +221,7 @@
         "ComponentHealth.msg",
         "DynamicObstacle.msg",
         "DynamicObstacleArray.msg",
+        "FrontierExplorationEvidence.msg",
         "KwsEvent.msg",
         "KwsScore.msg",
         "LidarLoopCandidate.msg",
@@ -236,6 +238,7 @@
         "RobotCommandFeedback.msg",
         "RobotCommandResult.msg",
         "SimulationState.msg",
+        "SlamNavigationGoalEvidence.msg",
         "SlamSessionState.msg",
         "SpeakerEnrollRequest.msg",
         "SpeakerEnrollStatus.msg",
@@ -252,6 +255,6 @@
         "SynthesizeSpeech.srv"
       ]
     },
-    "total": 37
+    "total": 39
   }
 }

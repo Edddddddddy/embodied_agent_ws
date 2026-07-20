@@ -20,12 +20,14 @@ class StageProcessManager:
         *,
         stop_timeout_s: float,
         dry_run: bool,
+        mission_profile: str = "known_world",
     ) -> None:
         self.workspace = workspace
         self.mode = mode
         self.map_prefix = map_prefix
         self.stop_timeout_s = stop_timeout_s
         self.dry_run = dry_run
+        self.mission_profile = mission_profile
         self.process: subprocess.Popen | None = None
         self.explorer_process: subprocess.Popen | None = None
         self.stage = ""
@@ -35,6 +37,7 @@ class StageProcessManager:
         environment["WORKSPACE"] = str(self.workspace)
         environment["SHOWCASE_SESSION_DIR"] = str(self.map_prefix.parent)
         environment["SHOWCASE_MAP_PREFIX"] = str(self.map_prefix)
+        environment["SLAM_MISSION_PROFILE"] = self.mission_profile
         return environment
 
     def command(self, stage: str) -> list[str]:

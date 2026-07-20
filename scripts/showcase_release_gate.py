@@ -22,6 +22,20 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+def _owned_colcon_test_command(*packages: str) -> str:
+    """只汇总本次自有包结果，隔离 vendor 与历史 build 的 xUnit 文件。"""
+
+    selected = " ".join(packages)
+    reports = " && ".join(
+        f"colcon test-result --test-result-base build/{package} --verbose"
+        for package in packages
+    )
+    return (
+        f"colcon test --packages-select {selected} --event-handlers console_direct+ && "
+        f"{reports}"
+    )
+
+
 CORE_COMMANDS: tuple[tuple[str, str], ...] = (
     (
         "python_repository_and_agent_units",
@@ -48,8 +62,7 @@ CORE_COMMANDS: tuple[tuple[str, str], ...] = (
         "offline_runtime_and_cpp_ros",
         "bash scripts/acceptance_test.sh offline-latency && "
         "bash scripts/acceptance_test.sh summer-tts-service && "
-        "colcon test --packages-select embodied_agent_cpp embodied_simulation "
-        "--event-handlers console_direct+ && colcon test-result --verbose",
+        + _owned_colcon_test_command("embodied_agent_cpp", "embodied_simulation"),
     ),
 )
 
@@ -67,8 +80,7 @@ FULL_COMMANDS: tuple[tuple[str, str], ...] = (
     ("summer_tts_service", "bash scripts/acceptance_test.sh summer-tts-service"),
     (
         "cpp_ros_unit",
-        "colcon test --packages-select embodied_agent_cpp embodied_simulation "
-        "--event-handlers console_direct+ && colcon test-result --verbose",
+        _owned_colcon_test_command("embodied_agent_cpp", "embodied_simulation"),
     ),
 )
 
@@ -108,9 +120,13 @@ ROBOTICS_COMMANDS: tuple[tuple[str, str], ...] = (
     ),
     (
         "robotics_cpp_packages",
-        "colcon test --packages-select embodied_agent_bringup embodied_agent_cpp "
-        "embodied_simulation embodied_navigation embodied_slam "
-        "--event-handlers console_direct+ && colcon test-result --verbose",
+        _owned_colcon_test_command(
+            "embodied_agent_bringup",
+            "embodied_agent_cpp",
+            "embodied_simulation",
+            "embodied_navigation",
+            "embodied_slam",
+        ),
     ),
     (
         "robotics_continuous_multi_command",

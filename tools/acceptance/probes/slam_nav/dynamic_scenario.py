@@ -213,10 +213,9 @@ def run_showcase_dynamic_navigation(
 
     def verify_stopped() -> None:
         wait_until(
-            lambda: abs(node.last_cmd_vel["linear_x"]) < 1e-3
-            and abs(node.last_cmd_vel["angular_z"]) < 1e-3,
+            node.has_fresh_final_motion_stop,
             8.0,
-            "dynamic navigation cleanup did not reach zero velocity",
+            "dynamic navigation cleanup did not publish a fresh zero velocity",
         )
 
     def verify_scene_cleared() -> None:
@@ -399,6 +398,9 @@ def run_showcase_dynamic_navigation(
         handle = goal_future.result()
         if not handle.accepted:
             raise RuntimeError("dynamic NavigateToPose goal rejected")
+        # 最终停车证据必须晚于本次动态导航 Action；否则上一个任务遗留的零速
+        # 也会让清理事务和总报告误判为安全停止。
+        node.mark_final_stop_boundary()
         result_future = None
 
         def cancel_navigation() -> None:
@@ -436,6 +438,7 @@ def run_showcase_dynamic_navigation(
     positions = node.positions[odom_start:]
     plans = node.navigation_plans[plan_start:]
     # 运行层只生成观测值；所有阈值与 PASS 结论仍由纯证据模块统一拥有。
+    motion_evidence = node.motion_evidence()
     observation = DynamicNavigationObservation(
         scenario_id=str(scenario["scenario_id"]),
         goal=goal,
@@ -458,7 +461,7 @@ def run_showcase_dynamic_navigation(
         odom_traveled_distance_m=robot_traveled_distance(positions),
         navigate_to_pose_status=nav_status,
         navigation_succeeded=nav_status == GoalStatus.STATUS_SUCCEEDED,
-        final_linear_x=float(node.last_cmd_vel["linear_x"]),
-        final_angular_z=float(node.last_cmd_vel["angular_z"]),
+        final_linear_x=float(motion_evidence["linear_x"]),
+        final_angular_z=float(motion_evidence["angular_z"]),
     )
     return evaluate_dynamic_navigation(observation, thresholds)

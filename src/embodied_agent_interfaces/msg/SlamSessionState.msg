@@ -18,3 +18,24 @@ uint8 phase
 bool map_saved
 string map_yaml_path
 string detail
+
+uint8 PROFILE_UNSPECIFIED=0
+uint8 PROFILE_KNOWN_WORLD=1
+uint8 PROFILE_UNKNOWN_WORLD=2
+
+# mission_sequence 区分同一进程内的多次任务；目标 sequence 只在本任务内递增。
+uint8 mission_profile
+uint64 mission_sequence
+
+# phase 表示当前 ROS 运行阶段；mission_outcome 独立表达自动任务终态。
+# 导航失败后可以保留 NAVIGATING 运行能力，监控端也无需解析 detail 文本。
+uint8 MISSION_IDLE=0
+uint8 MISSION_RUNNING=1
+uint8 MISSION_SUCCEEDED=2
+uint8 MISSION_FAILED=3
+uint8 MISSION_CANCELED=4
+uint8 mission_outcome
+string mission_message
+
+embodied_agent_interfaces/FrontierExplorationEvidence frontier
+embodied_agent_interfaces/SlamNavigationGoalEvidence[] sampled_navigation_goals

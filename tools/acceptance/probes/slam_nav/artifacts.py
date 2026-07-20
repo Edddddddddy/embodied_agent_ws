@@ -87,11 +87,16 @@ def build_failure_report(
     frontier_goal_count: int,
     mapping_path_m: float,
     final_cmd_vel: dict,
+    schema_version: int = 3,
+    mission_outcome: int = 0,
+    mission_message: str = "",
 ) -> dict:
-    """生成稳定的 schema v3 失败证据；中途异常也必须可机器读取。"""
+    """生成机器可读失败证据；unknown-world 可声明未完成的 v4 报告。"""
 
-    return {
-        "schema_version": 3,
+    if schema_version not in {3, 4}:
+        raise ValueError("failure report schema must be 3 or 4")
+    report = {
+        "schema_version": schema_version,
         "passed": False,
         "session_id": session_id,
         "session_start_ns": session_start_ns,
@@ -104,3 +109,15 @@ def build_failure_report(
         "mapping_path_m": round(mapping_path_m, 3),
         "final_cmd_vel": final_cmd_vel,
     }
+    if schema_version == 4:
+        # 中途失败没有资格填充覆盖率/定位等完整证据层；显式标记 incomplete
+        # 比沿用 v3 或伪造一组空指标更利于自动化区分“未完成”和“指标未达标”。
+        report.update(
+            {
+                "report_state": "incomplete",
+                "mission_outcome": int(mission_outcome),
+                "mission_message": str(mission_message),
+                "checks": {"evidence_complete": False},
+            }
+        )
+    return report

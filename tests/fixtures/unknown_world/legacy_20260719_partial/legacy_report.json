@@ -1,0 +1,320 @@
+{
+  "schema_version": 3,
+  "passed": true,
+  "session_id": "20260719T132544Z-192184-6da598f3",
+  "session_start_ns": 1784467544090765389,
+  "state_sequence": [
+    1,
+    2,
+    10,
+    10,
+    10,
+    10,
+    10,
+    10,
+    10,
+    10,
+    10,
+    10,
+    10,
+    3,
+    5,
+    6,
+    7,
+    11,
+    12
+  ],
+  "map_saved": true,
+  "map_yaml_path": "/home/ubuntu/embodied_agent_ws/logs/acceptance/slam_nav/20260719T132544Z-192184-6da598f3/voice_built_map.yaml",
+  "final_phase": 12,
+  "evidence_kind": "gazebo_frontier_slam_map_saver_amcl_nav2_dynamic_replan",
+  "automatic_mission": true,
+  "action_candidates": [
+    {
+      "name": "move",
+      "arguments": {
+        "linear_x": 0.2,
+        "duration_s": 3.0
+      },
+      "request_id": "agent-action-1",
+      "source": "offline_agent",
+      "priority": false
+    },
+    {
+      "name": "turn",
+      "arguments": {
+        "angular_z": 0.6,
+        "duration_s": 2.6
+      },
+      "request_id": "agent-action-2",
+      "source": "offline_agent",
+      "priority": false
+    },
+    {
+      "name": "move",
+      "arguments": {
+        "linear_x": 0.2,
+        "duration_s": 10.0
+      },
+      "request_id": "agent-action-3",
+      "source": "offline_agent",
+      "priority": false
+    },
+    {
+      "name": "move",
+      "arguments": {
+        "linear_x": 0.2,
+        "duration_s": 4.0
+      },
+      "request_id": "agent-action-4",
+      "source": "offline_agent",
+      "priority": false
+    },
+    {
+      "name": "turn",
+      "arguments": {
+        "angular_z": -0.6,
+        "duration_s": 2.6
+      },
+      "request_id": "agent-action-5",
+      "source": "offline_agent",
+      "priority": false
+    },
+    {
+      "name": "move",
+      "arguments": {
+        "linear_x": 0.2,
+        "duration_s": 10.0
+      },
+      "request_id": "agent-action-6",
+      "source": "offline_agent",
+      "priority": false
+    },
+    {
+      "name": "move",
+      "arguments": {
+        "linear_x": 0.2,
+        "duration_s": 7.0
+      },
+      "request_id": "agent-action-7",
+      "source": "offline_agent",
+      "priority": false
+    },
+    {
+      "name": "move",
+      "arguments": {
+        "linear_x": 0.2,
+        "duration_s": 10.0
+      },
+      "request_id": "agent-action-8",
+      "source": "offline_agent",
+      "priority": false
+    },
+    {
+      "name": "move",
+      "arguments": {
+        "linear_x": -0.2,
+        "duration_s": 10.0
+      },
+      "request_id": "agent-action-9",
+      "source": "offline_agent",
+      "priority": false
+    },
+    {
+      "name": "navigate_to",
+      "arguments": {
+        "target": "entrance"
+      },
+      "request_id": "agent-action-1",
+      "source": "offline_agent",
+      "priority": false
+    },
+    {
+      "name": "follow_waypoints",
+      "arguments": {
+        "waypoints": [
+          "kitchen",
+          "office"
+        ],
+        "number_of_loops": 1
+      },
+      "request_id": "agent-action-2",
+      "source": "offline_agent",
+      "priority": false
+    }
+  ],
+  "action_results": [
+    {
+      "command_id": "agent-action-1",
+      "success": true,
+      "status": 1,
+      "message": "succeeded"
+    },
+    {
+      "command_id": "agent-action-2",
+      "success": true,
+      "status": 1,
+      "message": "succeeded"
+    },
+    {
+      "command_id": "agent-action-3",
+      "success": true,
+      "status": 1,
+      "message": "succeeded"
+    },
+    {
+      "command_id": "agent-action-4",
+      "success": true,
+      "status": 1,
+      "message": "succeeded"
+    },
+    {
+      "command_id": "agent-action-5",
+      "success": true,
+      "status": 1,
+      "message": "succeeded"
+    },
+    {
+      "command_id": "agent-action-6",
+      "success": true,
+      "status": 1,
+      "message": "succeeded"
+    },
+    {
+      "command_id": "agent-action-7",
+      "success": true,
+      "status": 1,
+      "message": "succeeded"
+    },
+    {
+      "command_id": "agent-action-8",
+      "success": true,
+      "status": 1,
+      "message": "succeeded"
+    },
+    {
+      "command_id": "agent-action-9",
+      "success": true,
+      "status": 1,
+      "message": "succeeded"
+    },
+    {
+      "command_id": "agent-action-1",
+      "success": true,
+      "status": 1,
+      "message": "nav2:navigate_to_pose:succeeded target=entrance error_code=0"
+    },
+    {
+      "command_id": "agent-action-2",
+      "success": true,
+      "status": 1,
+      "message": "nav2:follow_waypoints:succeeded waypoints=kitchen,office error_code=0 missed_waypoints=0"
+    }
+  ],
+  "map": {
+    "frame_id": "map",
+    "width": 197,
+    "height": 156,
+    "resolution": 0.05000000074505806,
+    "known_cells": 14531,
+    "occupied_cells": 980
+  },
+  "map_provenance": {
+    "yaml_path": "/home/ubuntu/embodied_agent_ws/logs/acceptance/slam_nav/20260719T132544Z-192184-6da598f3/voice_built_map.yaml",
+    "image_path": "/home/ubuntu/embodied_agent_ws/logs/acceptance/slam_nav/20260719T132544Z-192184-6da598f3/voice_built_map.pgm",
+    "yaml_sha256": "54ca298251cc35183bf6b4169d6d9d8764202266e1e6b6a5b27288402625cb86",
+    "image_sha256": "23c3541d415e424b9cf5b9bc0c28bde91016eafab5685cc8383ae5ef9cf86afd",
+    "artifact_sha256": "9f571e4adf5a107add4fe1399ad0cdfe54d86593fbab3204e9e692c1b6cca0c5",
+    "yaml_mtime_ns": 1784467679488723041,
+    "image_mtime_ns": 1784467679488723041
+  },
+  "mapping_path_m": 11.394,
+  "frontier_goal_count": 7,
+  "exploration_completion_reason": "coverage_plateau",
+  "localization": {
+    "map_to_odom_count": 6659,
+    "amcl_pose_count": 131,
+    "lifecycle_states": {
+      "planner_server": 3,
+      "controller_server": 3,
+      "bt_navigator": 3,
+      "waypoint_follower": 3
+    }
+  },
+  "dynamic_navigation": {
+    "passed": true,
+    "checks": {
+      "gazebo_entity_moved": true,
+      "tracker_confident": true,
+      "tracker_estimated_motion": true,
+      "future_cell_marked_lethal": true,
+      "dynamic_path_increased_clearance": true,
+      "nav2_replanned": true,
+      "navigate_to_pose_succeeded": true,
+      "robot_moved": true,
+      "cmd_vel_zero": true
+    },
+    "scenario_id": "showcase_crossing_cart_v1",
+    "goal": {
+      "name": "meeting_room",
+      "x": 7.15,
+      "y": 0.05
+    },
+    "route_attempts": [
+      {
+        "goal": "meeting_room",
+        "accepted": true,
+        "error": ""
+      }
+    ],
+    "motion_anchor": {
+      "x": 6.7118,
+      "y": 3.3982,
+      "tangent_x": 0.8959,
+      "tangent_y": -0.4443,
+      "lateral_clearance_m": 1.5
+    },
+    "gazebo_pose_updates": 9,
+    "track": {
+      "id": "track_1",
+      "confidence": 0.93,
+      "velocity_x_mps": 0.2522,
+      "velocity_y_mps": -0.125
+    },
+    "prediction": {
+      "x": 6.516,
+      "y": 3.4953,
+      "cost": 254
+    },
+    "baseline_clearance_m": 0.0475,
+    "dynamic_clearance_m": 0.9866,
+    "published_plan_count": 33,
+    "unique_plan_count": 33,
+    "odom_traveled_distance_m": 7.679,
+    "navigate_to_pose_status": 4
+  },
+  "provenance": {
+    "world_sha256": "339621282d6d4fb0a5bf216984a73d9b2393dd29ba35f282451f3289eaa2a10f",
+    "mission_sha256": "f6aa401662f635114d8a56c92c14b7067a00a3aa8ea33986b901389ff6e9a9d0",
+    "dynamic_scenario_sha256": "b95984d71ab62842eee547f4b5a262fc74a078a1fc9883651f20496315ad9e47"
+  },
+  "checks": {
+    "map_saved": true,
+    "fresh_session_map": true,
+    "frontier_goal_observed": true,
+    "mapping_path_threshold": true,
+    "known_cells_threshold": true,
+    "occupied_cells_threshold": true,
+    "auditable_exploration_completion": true,
+    "localization_tf": true,
+    "amcl_pose": true,
+    "nav2_lifecycle_active": true,
+    "semantic_navigation_succeeded": true,
+    "dynamic_navigation_succeeded": true,
+    "final_cmd_vel_zero": true
+  },
+  "final_cmd_vel": {
+    "linear_x": 0.0,
+    "angular_z": 0.0
+  }
+}

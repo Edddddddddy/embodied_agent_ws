@@ -1,0 +1,310 @@
+diff --git a/explore/config/params.yaml b/explore/config/params.yaml
+index b5332b59a8a492bc0f95d485537424f3ced23a0f..fb3771551d954e917d5c136ceb1ad4f8cbb336d7 100644
+--- a/explore/config/params.yaml
++++ b/explore/config/params.yaml
+@@ -18,3 +18,4 @@
+     frontier_approach_clearance: 0.25
+     frontier_approach_max_distance: 1.5
+     frontier_robot_anchor_max_distance: 0.5
++    frontier_approach_reached_tolerance: 0.30
+diff --git a/explore/include/explore/active_frontier_goal_policy.h b/explore/include/explore/active_frontier_goal_policy.h
+index 2c15aa2600ff4c047dd3ca6949154570eb73014e..c20d0b6bb749f4ff7b4d9e7e9d7e795cac3cb4a0 100644
+--- a/explore/include/explore/active_frontier_goal_policy.h
++++ b/explore/include/explore/active_frontier_goal_policy.h
+@@ -11,11 +11,22 @@ namespace explore
+ enum class ActiveFrontierGoalReleaseReason
+ {
+   NONE,
++  APPROACH_REACHED,
+   PROGRESS_TIMEOUT,
+   UNSAFE_TARGET,
+   BLACKLISTED_IDENTITY,
+ };
+ 
++inline bool isFrontierApproachReached(
++    const geometry_msgs::msg::Point& robot,
++    const geometry_msgs::msg::Point& target,
++    double reached_tolerance_m)
++{
++  return std::isfinite(reached_tolerance_m) && reached_tolerance_m >= 0.0 &&
++         std::hypot(robot.x - target.x, robot.y - target.y) <=
++             reached_tolerance_m;
++}
++
+ struct ActiveFrontierGoalDecision
+ {
+   double distance_m{0.0};
+@@ -43,12 +54,18 @@ inline ActiveFrontierGoalDecision evaluateActiveFrontierGoal(
+     double progress_timeout_s,
+     bool target_safe,
+     bool identity_blacklisted,
+-    double progress_epsilon_m = 0.01)
++    double progress_epsilon_m = 0.01,
++    double approach_reached_tolerance_m = 0.0)
+ {
+   const double distance = std::hypot(robot.x - target.x, robot.y - target.y);
+   ActiveFrontierGoalReleaseReason reason =
+       ActiveFrontierGoalReleaseReason::NONE;
+-  if (!target_safe) {
++  // Nav2 的目标容差可能比 frontier 选点误差更严格。机器人已进入可观测
++  // 半径时优先结束本轮 approach，不能继续等待 progress timeout 并误记失败。
++  if (isFrontierApproachReached(
++          robot, target, approach_reached_tolerance_m)) {
++    reason = ActiveFrontierGoalReleaseReason::APPROACH_REACHED;
++  } else if (!target_safe) {
+     reason = ActiveFrontierGoalReleaseReason::UNSAFE_TARGET;
+   } else if (identity_blacklisted) {
+     reason = ActiveFrontierGoalReleaseReason::BLACKLISTED_IDENTITY;
+diff --git a/explore/include/explore/explore.h b/explore/include/explore/explore.h
+index eb1f6a2e308f01dffb9169b2f781a691416145cb..2cb81471fa5a25b9ad62b9c02f68adc7585e997a 100644
+--- a/explore/include/explore/explore.h
++++ b/explore/include/explore/explore.h
+@@ -169,6 +169,7 @@ private:
+   std::chrono::steady_clock::time_point next_goal_retry_at_{};
+   double goal_rejection_backoff_;
+   double goal_terminal_cooldown_;
++  double frontier_approach_reached_tolerance_;
+   int max_goal_rejections_;
+ };
+ }  // namespace explore
+diff --git a/explore/include/explore/frontier_attempt_memory.h b/explore/include/explore/frontier_attempt_memory.h
+index 258e331953bd27ccda18878aca1b48f8e4fb0cab..5057a054a5e99406d4448995e03b888474ac828a 100644
+--- a/explore/include/explore/frontier_attempt_memory.h
++++ b/explore/include/explore/frontier_attempt_memory.h
+@@ -69,13 +69,18 @@ public:
+ 
+   void recordSucceeded(const FrontierGoalKey& goal)
+   {
+-    // frontier centroid 会随地图边界更新而漂移；成功只记住真正执行过的
++    recordReached(goal);
++  }
++
++  void recordReached(const FrontierGoalKey& goal)
++  {
++    // frontier centroid 会随地图边界更新而漂移；到达只记住真正观测过的
+     // approach，既避免换 identity 后重复到达同一点，也允许同一 identity
+     // 在出现明显不同的新 approach 时继续扩图。
+     appendUnique(
+         visited_approaches_, goal.approach, approach_tolerance_m_);
+-    // timeout/cancel 与 Nav2 terminal 可能交错；若迟到结果证明目标实际成功，
+-    // 成功事实必须撤销同一目标的失败记忆，否则下个 epoch 会被伪黑名单污染。
++    // timeout/cancel 与位姿采样可能交错；若机器人已经进入 approach 容差，
++    // 到达事实必须撤销同一目标的失败记忆，避免当前 epoch 被伪失败污染。
+     eraseNear(failed_identities_, goal.identity, identity_tolerance_m_);
+     eraseNear(failed_approaches_, goal.approach, approach_tolerance_m_);
+   }
+diff --git a/explore/src/explore.cpp b/explore/src/explore.cpp
+index ba6574503f93c43a285949e1b6a8c8815d1de826..e1c118f388038429d640725d3e1838f9db075721 100644
+--- a/explore/src/explore.cpp
++++ b/explore/src/explore.cpp
+@@ -69,6 +69,8 @@ Explore::Explore()
+   this->declare_parameter<double>("frontier_approach_clearance", 0.0);
+   this->declare_parameter<double>("frontier_approach_max_distance", 1.5);
+   this->declare_parameter<double>("frontier_robot_anchor_max_distance", 0.5);
++  this->declare_parameter<double>(
++      "frontier_approach_reached_tolerance", 0.30);
+   this->declare_parameter<bool>("return_to_init", false);
+   this->declare_parameter<float>("goal_rejection_backoff", 2.0);
+   this->declare_parameter<float>("goal_terminal_cooldown", 0.75);
+@@ -88,6 +90,9 @@ Explore::Explore()
+   this->get_parameter(
+       "frontier_robot_anchor_max_distance",
+       frontier_robot_anchor_max_distance);
++  this->get_parameter(
++      "frontier_approach_reached_tolerance",
++      frontier_approach_reached_tolerance_);
+   this->get_parameter("return_to_init", return_to_init_);
+   this->get_parameter("goal_rejection_backoff", goal_rejection_backoff_);
+   this->get_parameter("goal_terminal_cooldown", goal_terminal_cooldown_);
+@@ -113,6 +118,11 @@ Explore::Explore()
+     throw std::invalid_argument(
+         "goal_terminal_cooldown must be finite and within [0, 300]");
+   }
++  if (!std::isfinite(frontier_approach_reached_tolerance_) ||
++      frontier_approach_reached_tolerance_ < 0.0) {
++    throw std::invalid_argument(
++        "frontier_approach_reached_tolerance must be finite and nonnegative");
++  }
+   if (max_goal_rejections_ < 1) {
+     throw std::invalid_argument("max_goal_rejections must be at least one");
+   }
+@@ -281,15 +291,13 @@ void Explore::makePlan()
+   }
+ 
+   const auto planning_now = std::chrono::steady_clock::now();
+-  if (goal_lifecycle_.isActiveOwner() &&
+-      std::chrono::duration<double>(planning_now - last_progress_at_).count() >
+-          progress_timeout_) {
+-    // TF 或地图暂时无效时也必须能终止真正卡死的 Action。超时使用 steady
+-    // clock，仿真时钟暂停/回拨不会把 ownership 无限延长。
+-    releaseActiveGoal(
+-        ActiveFrontierGoalReleaseReason::PROGRESS_TIMEOUT, true);
+-    return;
+-  }
++  const double seconds_since_progress = goal_lifecycle_.isActiveOwner()
++      ? std::chrono::duration<double>(
++          planning_now - last_progress_at_).count()
++      : 0.0;
++  const bool active_goal_timed_out =
++      goal_lifecycle_.isActiveOwner() &&
++      seconds_since_progress > progress_timeout_;
+   if (!goal_lifecycle_.canDispatch() && !goal_lifecycle_.isActiveOwner()) {
+     // REQUESTING/CANCELING 都是未结算协议状态。async_cancel_goal 只表示
+     // 请求已发送，旧 UUID terminal 前禁止下发新目标形成双 owner。
+@@ -299,15 +307,40 @@ void Explore::makePlan()
+   // find frontiers
+   geometry_msgs::msg::Pose pose;
+   if (!costmap_client_.getRobotPose(pose)) {
++    if (active_goal_timed_out) {
++      // TF 丢失时无法证明已进入 approach 容差，但 steady-clock 超时仍必须
++      // 释放真正卡死的 Action，避免失去定位后无限持有 ownership。
++      releaseActiveGoal(
++          ActiveFrontierGoalReleaseReason::PROGRESS_TIMEOUT, true);
++      return;
++    }
+     // TF 失败不能回落到 (0,0)；合成原点若恰好可通行，会错误刷新进展或
+     // 从错误分量派发目标。周期 timer 会重试，顶部 timeout 仍持续生效。
+     publishStatus(
+         explore_lite_msgs::msg::ExploreStatus::EXPLORATION_IN_PROGRESS);
+     return;
+   }
++  if (goal_lifecycle_.isActiveOwner() &&
++      isFrontierApproachReached(
++          pose.position, active_frontier_goal_.approach,
++          frontier_approach_reached_tolerance_)) {
++    // 位姿已进入可观测半径时，记 visited 后只请求取消 Action。成功计数仍
++    // 完全由 Nav2 result 决定，通常形成 accepted -> canceled，而非伪 succeeded。
++    frontier_attempt_memory_.recordReached(active_frontier_goal_);
++    releaseActiveGoal(
++        ActiveFrontierGoalReleaseReason::APPROACH_REACHED, false);
++    return;
++  }
+   // get frontiers sorted according to cost
+   auto frontiers = search_.searchFrom(pose.position);
+   if (!search_.lastSearchValid()) {
++    if (active_goal_timed_out) {
++      // 地图快照无效不能阻止协议超时；上面的 approach 检查已优先使用有效
++      // TF 排除了“其实已经到达”的情况，此处才把目标记为真正失败。
++      releaseActiveGoal(
++          ActiveFrontierGoalReleaseReason::PROGRESS_TIMEOUT, true);
++      return;
++    }
+     // invalid start 是 TF/map 的瞬态证据，不等价于“unknown 已清零”。若落入
+     // 下方 empty 分支会错误发布 no_frontiers 并提前结束整场自主建图。
+     RCLCPP_WARN_THROTTLE(
+@@ -326,6 +359,15 @@ void Explore::makePlan()
+           FrontierGoalKey{frontier.centroid, frontier.approach});
+     }
+   }
++  for (const auto& frontier : approachable_frontiers) {
++    if (isFrontierApproachReached(
++            pose.position, frontier.approach,
++            frontier_approach_reached_tolerance_)) {
++      // 新候选一出现就已在机器人附近时无需制造一个 Nav2 Action。只写入
++      // 当前 epoch 的 visited approach，后续仍可选择同 identity 的新落点。
++      frontier_attempt_memory_.recordReached(frontier);
++    }
++  }
+   const size_t approachable_frontier_count = approachable_frontiers.size();
+   const auto attempt_summary =
+       frontier_attempt_memory_.summarizeCurrent(approachable_frontiers);
+@@ -350,9 +392,9 @@ void Explore::makePlan()
+         0.02, 0.5 * costmap_client_.getCostmap()->getResolution());
+     const auto decision = evaluateActiveFrontierGoal(
+         pose.position, active_frontier_goal_.approach, prev_distance_,
+-        std::chrono::duration<double>(planning_now - last_progress_at_).count(),
+-        progress_timeout_,
+-        target_safe, attempt_suppressed, progress_epsilon);
++        seconds_since_progress, progress_timeout_,
++        target_safe, attempt_suppressed, progress_epsilon,
++        frontier_approach_reached_tolerance_);
+     if (decision.made_progress) {
+       last_progress_at_ = planning_now;
+       prev_distance_ = decision.distance_m;
+@@ -362,6 +404,10 @@ void Explore::makePlan()
+       // 排序/质心变化，不是取消证据；Nav2 会持续用最新 costmap 重规划。
+       return;
+     }
++    if (decision.release_reason ==
++        ActiveFrontierGoalReleaseReason::APPROACH_REACHED) {
++      frontier_attempt_memory_.recordReached(active_frontier_goal_);
++    }
+     releaseActiveGoal(
+         decision.release_reason,
+         decision.release_reason ==
+diff --git a/explore/test/test_explore.cpp b/explore/test/test_explore.cpp
+index 44df63c2d5c31bd7bcca05e32b2f8963578a35d3..97a73cb401134602985b937cc0ece0020fdaa38a 100644
+--- a/explore/test/test_explore.cpp
++++ b/explore/test/test_explore.cpp
+@@ -173,6 +173,18 @@ TEST(FrontierAttemptMemory, successAllowsSameIdentityAtNewApproach)
+       makeFrontierGoal(0.0, 0.0, 1.5, 1.0)));
+ }
+ 
++TEST(FrontierAttemptMemory, reachedApproachIsVisitedWithoutActionSuccess)
++{
++  explore::FrontierAttemptMemory memory(0.25, 0.20);
++  const auto reached = makeFrontierGoal(0.0, 0.0, 1.0, 1.0);
++
++  memory.recordReached(reached);
++
++  EXPECT_FALSE(memory.isSelectable(
++      makeFrontierGoal(5.0, 5.0, 1.1, 1.0)));
++  EXPECT_TRUE(memory.classify(reached).visited_approach);
++}
++
+ TEST(FrontierAttemptMemory, failedApproachSuppressesAcrossIdentity)
+ {
+   explore::FrontierAttemptMemory memory(0.25, 0.20);
+@@ -339,6 +351,52 @@ TEST(ActiveFrontierGoalPolicy, subEpsilonJitterDoesNotRefreshProgress)
+   EXPECT_FALSE(decision.made_progress);
+ }
+ 
++TEST(ActiveFrontierGoalPolicy, approachReachedPrecedesProgressTimeout)
++{
++  geometry_msgs::msg::Point robot;
++  geometry_msgs::msg::Point target;
++  target.x = 0.28;
++
++  const auto decision = explore::evaluateActiveFrontierGoal(
++      robot, target, 0.40, 48.0, 45.0, true, false, 0.02, 0.30);
++
++  EXPECT_EQ(
++      decision.release_reason,
++      explore::ActiveFrontierGoalReleaseReason::APPROACH_REACHED);
++  EXPECT_FALSE(decision.shouldHold());
++}
++
++TEST(ActiveFrontierGoalPolicy, approachReachedUsesPlanarToleranceBoundary)
++{
++  geometry_msgs::msg::Point robot;
++  geometry_msgs::msg::Point inside;
++  inside.x = 0.29;
++  geometry_msgs::msg::Point outside;
++  outside.x = 0.31;
++
++  EXPECT_TRUE(explore::isFrontierApproachReached(robot, inside, 0.30));
++  EXPECT_FALSE(explore::isFrontierApproachReached(robot, outside, 0.30));
++}
++
++TEST(FrontierGoalLifecycle, reachedApproachCancelsWithoutForgingSuccess)
++{
++  explore::FrontierGoalLifecycle lifecycle;
++  const auto token = lifecycle.beginDispatch();
++  ASSERT_TRUE(lifecycle.onResponse(token, "goal-near").owns_execution);
++
++  const auto cancel = lifecycle.requestCancel();
++  EXPECT_TRUE(cancel.cancel_active);
++  // cancel request 不是 terminal；accepted debt 必须保留到 Nav2 result 到达。
++  EXPECT_EQ(lifecycle.acceptedCount(), 1u);
++  EXPECT_EQ(lifecycle.terminalCount(), 0u);
++  EXPECT_EQ(lifecycle.activeAcceptedCount(), 1u);
++
++  const auto terminal = lifecycle.onResult("goal-near");
++  EXPECT_TRUE(terminal.was_canceling);
++  EXPECT_EQ(lifecycle.acceptedCount(), lifecycle.terminalCount());
++  EXPECT_TRUE(lifecycle.ledgerInvariantHolds());
++}
++
+ TEST(FrontierGoalLifecycle, acceptedGoalOwnsUntilExactlyOneTerminal)
+ {
+   explore::FrontierGoalLifecycle lifecycle;

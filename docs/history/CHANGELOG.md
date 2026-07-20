@@ -10,6 +10,8 @@
 
 | 阶段 | 主要目标 | 结果 |
 | --- | --- | --- |
+| Unknown-world 探索安全与恢复收口 | 分离 `0.33 m` traversal clearance 与 `0.40 m` 可观测容差；靠近目标前复核最新安全；累计有效逃逸 `≥2×0.15 m` 打断连续静止 timeout，但保留失败 approach 记忆；将 Nav2 `0.10 m/30 s` 实际 progress 参数写入 session YAML | fresh schema v4 session `20260720T031306Z-1114546-814430c3` PASS：coverage 99.67%、区域最低 97.76%、unknown 0.33%、障碍召回/false-free 80.93%/0.21%、AMCL P95 0.154 m、3/3 目标且最小间距 5.57 m、动态净空 0.0245→1.021 m、最终 fresh 零速；严格 evaluator 门槛未下调 |
+| Unknown-world 自主闭环 | 去除静态真值、bootstrap 路线与固定目标先验，用 frontier 在线探索、本次保存图、AMCL 和运行时目标完成建图导航 | schema v4 真实 Gazebo session `20260719T235926Z-978092-3c6b24eb` PASS；覆盖、定位、3/3 目标、动态重规划与终态零速均达门槛 |
 | 初始骨架 | 创建 ROS 2 workspace，搭建在线 Agent、动作 topic、stub 节点 | 完成无密钥 mock 链路 |
 | 在线 Agent | 接入在线 ASR/LLM/TTS，设计 prompt、记忆、动作格式 | 完成在线接口 smoke 与动作解析 |
 | C++ 化与安全网关 | 将适合 C++ 的 ROS 节点迁移/新增为 C++，加入 ActionGuard | 完成动作校验、限幅、强类型转换 |
@@ -47,7 +49,7 @@
 | 真实感语音 SLAM/Nav2 主演示 | 把语音探索、在线建图、地图保存、重启定位和语义导航串成可观看闭环 | 新增四区域公寓/办公室场景、单清单资产生成、SLAM/world 双坐标地点、spawn/AMCL 位姿解耦及两条 Gazebo 重型门禁 |
 | 单终端 SLAM 会话编排 | 删除主演示对第二终端和人工重启的依赖 | 新增 `SlamSessionState`、`ManageSlamSession`、显式状态机和进程 Adapter；办公巡检任务以 15 个语音语义动作完成 10 m 以上建图路径，真实存图并重启 AMCL/Nav2，随后验证入口单点导航和厨房/办公室多航点巡检 |
 | 自动建图与导航任务 | 用一句语音替代人工逐步驾驶和阶段命令 | 固定 Explore Lite 提交完成 frontier 探索；覆盖平台期处理不可达边界，自动存图、等待 Nav2 Lifecycle ACTIVE、执行入口与厨房/办公室巡检；重型报告保留地图、Action 和最终零速证据 |
-| SLAM/Nav2 唯一完整门禁 | 防止预生成地图或旧报告被误计为本次验收 | 新增 `slam-nav-e2e`：唯一会话目录、新地图 YAML/PGM 与哈希、frontier/里程/覆盖门槛、AMCL/Lifecycle/语义导航及最终零速统一报告；删除静态地图导航入口 |
+| 当时的 SLAM/Nav2 统一门禁 | 防止预生成地图或旧报告被误计为当次验收 | 新增 `slam-nav-e2e` 的独立会话、新地图与哈希、frontier/里程、AMCL/Lifecycle、语义导航和零速报告；该入口现已明确归类为 known-world 历史回归 |
 | 可视动态障碍重规划 | 证明感知预测真正影响本次 Nav2 规划，而不只运行算法 fixture | Gazebo 红色碰撞实体、typed track、预测 costmap layer 和路径相对运动场景串联；要求预测代价、净空增益、唯一规划数、导航成功和停车全部达标 |
 | SLAM→导航进程所有权 | 消除建图 Gazebo 残留导致导航阶段无 world/odom 的竞态 | `StageProcessManager` 在父脚本退出前快照 `/proc` 子树，以 PID starttime 防复用误杀，并回收脱离父进程组的 Gazebo server；增加 `setsid` 回归测试 |
 | 自动导航严格终态 | 消除 FollowWaypoints 协议成功但漏点的验收假阳性 | `evaluate_follow_waypoints_result()` 要求 error_code=0 且 missed_waypoints=0；输出漏点 index/error code，monitor 同步分类；项目级 Nav2 progress checker 使用 0.10 m/30 s 适配 WSL/Gazebo 低实时率；重型回归得到 12,348/799 已知/占用栅格、厨房与办公室零漏点、最终零速 |
@@ -118,6 +120,7 @@
 | 自动建图主演示部署收口 | 修复 worktree 静默加载主工作区旧 install、缺 Explore Lite 到运行期才失败的问题 | 公共入口从自身路径解析并 export `WORKSPACE`；激活器恢复 shell 选项；bootstrap 默认安装 pinned Explore Lite；stage/主演示前检查 package prefix 与自动任务 Action contract |
 | 顶层文档权威性收口 | 让部署、架构、调用链、验收和 15 分钟汇报与一句话自动任务一致 | README、架构、测试、学习和汇报文档统一写明文件、函数、上下游、设计原因和证据边界 |
 | 验收路由契约收敛 | 消除按 mode 名猜领域和隐藏位置参数造成的重命名、online/offline 参数漂移风险 | 全部 mode 显式声明 `HandlerDomain`；runner 只传用户参数；删除与 `slam-nav-e2e` 重复的旧重型别名 |
+| Unknown-world SLAM/Nav2 自主闭环 | 去除固定路线/语义坐标对自主探索的先验泄漏，建立覆盖、定位和动态目标的正式验收 | session `20260719T235926Z-978092-3c6b24eb` schema v4 PASS：总体/四区域覆盖 100%、reachable unknown 0%、AMCL P95 0.189m、3/3 动态目标、动态重规划及新鲜零速度通过；`slam-nav-e2e` 保留为 known-world 回归 |
 
 ## 2. 历史阶段结论（非当前验收口径）
 

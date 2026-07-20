@@ -1,12 +1,11 @@
 """ROS 2 SLAM/Nav2 会话观察器与 typed 接口 Adapter。
 
-本模块只负责把 ROS 消息、Action 和 Service 转换成普通 Python 值。场景编排、
-Gazebo 操作以及 PASS/FAIL 判定分别属于 ``dynamic_scenario`` 和纯证据模块。
+本模块只负责 ROS/Gazebo subscription wiring 和深模块组合；路径关联、定位采样、
+场景编排与 PASS/FAIL 判定分别由各自模块拥有。
 """
 
 from __future__ import annotations
 
-import time
 from collections.abc import Callable
 
 from action_msgs.msg import GoalStatus, GoalStatusArray
@@ -20,6 +19,7 @@ from embodied_agent_interfaces.msg import (
     DynamicObstacleArray,
     RobotCommand,
     RobotCommandResult,
+    SlamNavigationGoalEvidence,
     SlamSessionState,
 )
 from geometry_msgs.msg import Pose, PoseArray, PoseWithCovarianceStamped, Twist
@@ -33,14 +33,88 @@ from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
 from tf2_msgs.msg import TFMessage
 
+from tools.acceptance.probes.slam_nav.localization_sampler import (
+    GazeboTruthConfig,
+    LocalizationSampler,
+    _gazebo_timestamp_s,
+    _ros_timestamp_s,
+)
+from tools.acceptance.probes.slam_nav.motion_evidence import MotionEvidenceTracker
+from tools.acceptance.probes.slam_nav.sampled_goal_tracker import (
+    SampledGoalPlanSnapshot,
+    SampledGoalPlanTracker,
+)
+from tools.acceptance.probes.slam_nav.session_actions import (
+    lifecycle_states,
+    nav_path_points,
+    request_path,
+    run_text_action,
+    wait_until,
+)
+from tools.acceptance.unknown_world_evidence import (
+    LocalizationSample,
+    MapWorldTransform,
+)
+
+try:
+    from gz.msgs10.pose_v_pb2 import Pose_V as GazeboPoseVector
+    from gz.transport13 import Node as GazeboTransportNode
+except ImportError:  # GitHub 的轻量 repository test 不强制安装 Gazebo binding。
+    GazeboPoseVector = None
+    GazeboTransportNode = None
+
 
 StateObserver = Callable[[SlamSessionState], None]
+
+__all__ = (
+    "GazeboTruthConfig",
+    "LocalizationSample",
+    "MapWorldTransform",
+    "SessionObserver",
+    "SlamNavigationGoalEvidence",
+    "StateObserver",
+    "_gazebo_timestamp_s",
+    "_ros_timestamp_s",
+    "lifecycle_states",
+    "nav_path_points",
+    "request_path",
+    "run_text_action",
+    "wait_until",
+)
+
+
+def _frontier_message_to_dict(message) -> dict[str, object]:
+    return {
+        name: getattr(message, name)
+        for name in (
+            "valid",
+            "status",
+            "detected_frontier_count",
+            "available_frontier_count",
+            "blacklisted_frontier_count",
+            "active_goal_count",
+            "active_goal_id",
+            "accepted_goal_count",
+            "succeeded_goal_count",
+            "aborted_goal_count",
+            "canceled_goal_count",
+            "rejected_goal_count",
+            "last_goal_terminal",
+            "provider_completion_reason",
+            "mission_completion_reason",
+        )
+    }
 
 
 class SessionObserver(Node):
     """汇集一次真实验收会话的运行时事实，不拥有验收阈值。"""
 
-    def __init__(self, state_observer: StateObserver | None = None) -> None:
+    def __init__(
+        self,
+        state_observer: StateObserver | None = None,
+        *,
+        gazebo_truth_config: GazeboTruthConfig | None = None,
+    ) -> None:
         super().__init__("voice_slam_session_probe")
         self.state_observer = state_observer
         self.states: list[SlamSessionState] = []
@@ -53,13 +127,15 @@ class SessionObserver(Node):
         self.scan_count = 0
         self.current_phase = SlamSessionState.STOPPED
         self.current_detail = ""
+        self.mission_profile = SlamSessionState.PROFILE_UNSPECIFIED
+        self.frontier_evidence: dict[str, object] = {}
         self.frontier_goal_ids: set[bytes] = set()
         self.localization_tf_count = 0
-        self.amcl_pose_count = 0
         self.latest_tracks: DynamicObstacleArray | None = None
         self.latest_costmap: Costmap | None = None
-        self.navigation_plans: list[NavPath] = []
-        self.last_cmd_vel = {"linear_x": 0.0, "angular_z": 0.0}
+        self._motion_evidence_tracker = MotionEvidenceTracker()
+        self._sampled_goal_tracker = SampledGoalPlanTracker()
+        self._localization_sampler = LocalizationSampler(gazebo_truth_config)
 
         self.asr_pub = self.create_publisher(
             String, "/agent/asr_final", command_qos(depth=10)
@@ -67,18 +143,21 @@ class SessionObserver(Node):
         self.text_pub = self.create_publisher(
             String, "/agent/text_input", command_qos(depth=10)
         )
+        self.detection_pub = self.create_publisher(
+            PoseArray, "/perception/dynamic_obstacle_detections", sensor_qos()
+        )
+        self._wire_subscriptions()
+        self._wire_clients()
+        self._gazebo_transport_node = self._wire_gazebo_truth(gazebo_truth_config)
+
+    def _wire_subscriptions(self) -> None:
         self.create_subscription(
-            SlamSessionState,
-            "/slam/session_state",
-            self._on_state,
-            state_qos(),
+            SlamSessionState, "/slam/session_state", self._on_state, state_qos()
         )
         self.create_subscription(
             RobotCommand,
             "/agent/action_candidate",
-            lambda message: self.candidates.append(
-                command_message_to_dict(message)
-            ),
+            lambda message: self.candidates.append(command_message_to_dict(message)),
             command_qos(depth=20),
         )
         self.create_subscription(
@@ -107,33 +186,22 @@ class SessionObserver(Node):
             state_qos(),
         )
         self.create_subscription(
-            NavPath,
-            "/plan",
-            self.navigation_plans.append,
-            event_qos(depth=20),
-        )
-        self.detection_pub = self.create_publisher(
-            PoseArray,
-            "/perception/dynamic_obstacle_detections",
-            sensor_qos(),
+            NavPath, "/plan", self._on_navigation_plan, event_qos(depth=20)
         )
         self.create_subscription(
             RobotCommandResult,
             "/robot/action_result",
-            lambda message: self.results.append(
-                result_message_to_dict(message)
-            ),
+            lambda message: self.results.append(result_message_to_dict(message)),
             event_qos(depth=20),
         )
         self.create_subscription(Odometry, "/odom", self._on_odom, sensor_qos())
-        self.create_subscription(
-            OccupancyGrid, "/map", self._on_map, state_qos()
-        )
+        self.create_subscription(OccupancyGrid, "/map", self._on_map, state_qos())
         self.create_subscription(LaserScan, "/scan", self._on_scan, sensor_qos())
         self.create_subscription(
             Twist, "/cmd_vel", self._on_cmd_vel, command_qos(depth=20)
         )
 
+    def _wire_clients(self) -> None:
         self.client = ActionClient(self, ManageSlamSession, "/slam/manage_session")
         self.robot_client = ActionClient(
             self, ExecuteRobotCommand, "/robot/execute_command"
@@ -154,15 +222,94 @@ class SessionObserver(Node):
             )
         }
 
+    def _wire_gazebo_truth(self, config: GazeboTruthConfig | None):
+        if config is None:
+            return None
+        if GazeboTransportNode is None or GazeboPoseVector is None:
+            raise RuntimeError(
+                "Gazebo Python transport binding is required for localization truth"
+            )
+        node = GazeboTransportNode()
+        node.subscribe(GazeboPoseVector, config.topic, self._on_gazebo_pose_vector)
+        return node
+
+    @property
+    def sampled_goal_plans(self) -> dict[int, list[NavPath]]:
+        return {
+            key: list(value)
+            for key, value in self._sampled_goal_tracker.snapshot().plans.items()
+        }
+
+    @property
+    def navigation_plans(self) -> list[NavPath]:
+        return list(self._sampled_goal_tracker.snapshot().navigation_plans)
+
+    def sampled_goal_evidence_snapshot(self) -> SampledGoalPlanSnapshot:
+        """一次加锁读取 goal/plan，避免报告跨两个 callback 代际拼接。"""
+
+        return self._sampled_goal_tracker.snapshot()
+
+    @property
+    def last_cmd_vel(self) -> dict[str, float]:
+        evidence = self._motion_evidence_tracker.snapshot()
+        return {"linear_x": evidence.linear_x, "angular_z": evidence.angular_z}
+
+    @property
+    def cmd_vel_sample_count(self) -> int:
+        return self._motion_evidence_tracker.snapshot().sample_count
+
+    @property
+    def nonzero_cmd_vel_sample_count(self) -> int:
+        return self._motion_evidence_tracker.snapshot().nonzero_sample_count
+
+    def motion_evidence(self) -> dict[str, float | int]:
+        """返回自洽的速度终止证据，供 evaluator Adapter 一次性消费。"""
+
+        return self._motion_evidence_tracker.snapshot().as_dict()
+
+    def mark_final_stop_boundary(self) -> float:
+        """标记最后一个会驱动机器人的任务起点，后续零速必须晚于它。"""
+
+        return self._motion_evidence_tracker.mark_boundary()
+
+    def has_fresh_terminal_stop(self) -> bool:
+        return self._motion_evidence_tracker.snapshot().has_fresh_stop()
+
+    def has_fresh_final_motion_stop(self) -> bool:
+        """最终任务必须在边界后确实运动，并以边界后的新零速结束。"""
+
+        return self._motion_evidence_tracker.snapshot().has_fresh_motion_stop()
+
+    @property
+    def amcl_pose_count(self) -> int:
+        return self._localization_sampler.amcl_pose_count
+
     def has_phase(self, phase: int) -> bool:
         return any(state.phase == phase for state in self.states)
+
+    def _update_sampled_goal_evidence(self, message: SlamSessionState) -> None:
+        self._sampled_goal_tracker.update_state(message)
 
     def _on_state(self, message: SlamSessionState) -> None:
         self.states.append(message)
         self.current_phase = int(message.phase)
         self.current_detail = str(message.detail)
+        self.mission_profile = int(
+            getattr(message, "mission_profile", SlamSessionState.PROFILE_UNSPECIFIED)
+        )
+        self._sampled_goal_tracker.update_state(message)
+        frontier = getattr(message, "frontier", None)
+        if frontier is not None:
+            self.frontier_evidence = _frontier_message_to_dict(frontier)
+        self._localization_sampler.transition_phase(self.current_phase)
+        if int(message.mission_outcome) in {
+            SlamSessionState.MISSION_SUCCEEDED,
+            SlamSessionState.MISSION_FAILED,
+            SlamSessionState.MISSION_CANCELED,
+        }:
+            # transient-local 或周期重发不能把终态边界推到 stop 之后。
+            self._motion_evidence_tracker.mark_boundary(only_if_unset=True)
         if self.state_observer is not None:
-            # 展示层通过回调接收状态，Observer 本身无需知道终端阶段编号。
             self.state_observer(message)
 
     def _on_odom(self, message: Odometry) -> None:
@@ -190,10 +337,13 @@ class SessionObserver(Node):
         self.scan_count += 1
 
     def _on_cmd_vel(self, message: Twist) -> None:
-        self.last_cmd_vel = {
-            "linear_x": float(message.linear.x),
-            "angular_z": float(message.angular.z),
-        }
+        self._motion_evidence_tracker.observe(
+            float(message.linear.x),
+            float(message.angular.z),
+        )
+
+    def _on_navigation_plan(self, message: NavPath) -> None:
+        self._sampled_goal_tracker.observe_plan(message)
 
     def _on_nav_status(self, message: GoalStatusArray) -> None:
         if (
@@ -216,8 +366,11 @@ class SessionObserver(Node):
             for transform in message.transforms
         )
 
-    def _on_amcl_pose(self, _message: PoseWithCovarianceStamped) -> None:
-        self.amcl_pose_count += 1
+    def _on_amcl_pose(self, message: PoseWithCovarianceStamped) -> None:
+        self._localization_sampler.observe_amcl(message)
+
+    def _on_gazebo_pose_vector(self, message) -> None:
+        self._localization_sampler.observe_gazebo(message)
 
     def _on_tracks(self, message: DynamicObstacleArray) -> None:
         self.latest_tracks = message
@@ -229,10 +382,10 @@ class SessionObserver(Node):
         message = PoseArray()
         message.header.frame_id = "map"
         pose = Pose()
-        message.poses.append(pose)
         pose.position.x = x
         pose.position.y = y
         pose.orientation.w = 1.0
+        message.poses.append(pose)
         self.detection_pub.publish(message)
 
     def publish_empty_detection(self) -> None:
@@ -258,106 +411,11 @@ class SessionObserver(Node):
                 return result
         return None
 
-
-def wait_until(predicate: Callable[[], bool], timeout: float, description: str) -> None:
-    """等待由 ROS executor 异步更新的条件，超时给出可操作的错误。"""
-
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if predicate():
-            return
-        time.sleep(0.05)
-    raise TimeoutError(description)
-
-
-def request_path(node: SessionObserver, goal_x: float, goal_y: float) -> NavPath:
-    if not node.compute_path_client.wait_for_server(timeout_sec=20.0):
-        raise TimeoutError("ComputePathToPose action server unavailable")
-    goal = ComputePathToPose.Goal()
-    goal.goal.header.frame_id = "map"
-    goal.goal.header.stamp = node.get_clock().now().to_msg()
-    goal.goal.pose.position.x = goal_x
-    goal.goal.pose.position.y = goal_y
-    goal.goal.pose.orientation.w = 1.0
-    future = node.compute_path_client.send_goal_async(goal)
-    wait_until(future.done, 10.0, "ComputePathToPose response timeout")
-    handle = future.result()
-    if not handle.accepted:
-        raise RuntimeError("ComputePathToPose goal rejected")
-    result_future = handle.get_result_async()
-    wait_until(result_future.done, 20.0, "ComputePathToPose result timeout")
-    wrapped = result_future.result()
-    if (
-        wrapped.status != GoalStatus.STATUS_SUCCEEDED
-        or len(wrapped.result.path.poses) < 5
-    ):
-        raise RuntimeError(
-            f"ComputePathToPose failed status={wrapped.status} "
-            f"error={wrapped.result.error_code}: {wrapped.result.error_msg}"
-        )
-    return wrapped.result.path
-
-
-def nav_path_points(
-    path: NavPath, *, sampled: bool = False
-) -> tuple[tuple[float, float], ...]:
-    """ROS Path Adapter：纯证据模块只接收二维点，不依赖 nav_msgs。"""
-
-    if not path.poses:
-        return ()
-    stride = max(1, len(path.poses) // 20) if sampled else 1
-    return tuple(
-        (float(pose.pose.position.x), float(pose.pose.position.y))
-        for pose in path.poses[::stride]
-    )
-
-
-def lifecycle_states(node: SessionObserver) -> dict[str, int]:
-    states: dict[str, int] = {}
-    for name, client in node.lifecycle_clients.items():
-        if not client.wait_for_service(timeout_sec=10.0):
-            raise TimeoutError(f"{name} lifecycle service unavailable")
-        future = client.call_async(GetState.Request())
-        wait_until(future.done, 5.0, f"{name} lifecycle response timeout")
-        states[name] = int(future.result().current_state.id)
-    return states
-
-
-def run_text_action(
-    node: SessionObserver,
-    *,
-    text: str,
-    expected_action: str,
-    timeout: float,
-) -> dict:
-    """通过 Agent 文本入口执行一步；自动门禁只替换声学 ASR，不绕过控制链。"""
-
-    candidate_start = len(node.candidates)
-    node.text_pub.publish(String(data=text))
-    wait_until(
-        lambda: any(
-            item.get("name") == expected_action
-            for item in node.candidates[candidate_start:]
-        ),
-        15.0,
-        f"no {expected_action} candidate for {text!r}",
-    )
-    candidate = next(
-        item
-        for item in node.candidates[candidate_start:]
-        if item.get("name") == expected_action
-    )
-    # 不能用“最近一条 result”推进流程：上一个 Action 的迟到结果可能串台。
-    # request_id/command_id 相关后，只有本次候选对应的终态才能解除等待。
-    command_id = str(candidate.get("request_id") or "")
-    if not command_id:
-        raise RuntimeError(f"candidate has no command id: {candidate}")
-    wait_until(
-        lambda: node.result_for(command_id) is not None,
-        timeout,
-        f"action result timeout for {text!r}",
-    )
-    result = node.result_for(command_id)
-    if result is None or result.get("success") is not True:
-        raise RuntimeError(f"action failed for {text!r}: {result}")
-    return {"text": text, "candidate": candidate, "result": result}
+    def localization_evidence(
+        self,
+    ) -> tuple[
+        tuple[LocalizationSample, ...],
+        tuple[LocalizationSample, ...],
+        str,
+    ]:
+        return self._localization_sampler.evidence()

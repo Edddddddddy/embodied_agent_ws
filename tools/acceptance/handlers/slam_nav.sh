@@ -84,9 +84,14 @@ accept_slam_autonomous_mission_stage() {
 
 accept_slam_nav_e2e() {
   embodied_workspace_doctor true
-  # canonical 重型门禁由 AcceptanceSession 统一持有 domain lease、进程组、
-  # 超时、日志和清理；handler 只保留稳定的场景 Interface。
+  # 旧入口仅保留已知场景的确定性回归，不能作为未知世界自主建图证据。
   python3 -u -m tools.acceptance.scenarios.slam_nav_e2e
+}
+
+accept_unknown_world_slam_e2e() {
+  embodied_workspace_doctor true
+  # 未知世界验收使用独立场景 Adapter；handler 不复制任务编排或证据判定逻辑。
+  python3 -u -m tools.acceptance.scenarios.unknown_world_slam_e2e
 }
 
 accept_slam_session_orchestrator() {

@@ -77,6 +77,30 @@ def test_failed_action_preserves_backend_status_and_message():
         )
 
 
+def test_typed_command_waits_for_its_correlated_result_without_text_round_trip():
+    holder = {}
+
+    def publish():
+        holder["gateway"].record_result("slam-stop-1", _success())
+
+    gateway = AgentActionGateway(
+        publish_text=lambda _text: pytest.fail("typed action must not publish text"),
+        subscriber_count=lambda: 0,
+        cancel_motion=lambda: None,
+    )
+    holder["gateway"] = gateway
+
+    outcome = gateway.run_typed(
+        _request(),
+        command_id="slam-stop-1",
+        publish_command=publish,
+        expected_action_name="stop",
+        timeout_s=0.1,
+    )
+
+    assert outcome == _success()
+
+
 def test_stale_reused_command_id_does_not_complete_new_request():
     holder = {}
 

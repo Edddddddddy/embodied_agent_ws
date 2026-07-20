@@ -1,0 +1,860 @@
+diff --git a/explore/include/explore/costmap_client.h b/explore/include/explore/costmap_client.h
+index 42b065e..c3f83c9 100644
+--- a/explore/include/explore/costmap_client.h
++++ b/explore/include/explore/costmap_client.h
+@@ -66,9 +66,11 @@ public:
+   Costmap2DClient(rclcpp::Node& node, const tf2_ros::Buffer* tf_listener);
+   /**
+    * @brief Get the pose of the robot in the global frame of the costmap
+-   * @return pose of the robot in the global frame of the costmap
++   * @param pose receives the robot pose when TF lookup succeeds
++   * @return true when pose contains a valid transform; false never writes a
++   *         synthetic origin pose
+    */
+-  geometry_msgs::msg::Pose getRobotPose() const;
++  bool getRobotPose(geometry_msgs::msg::Pose& pose) const;
+ 
+   /**
+    * @brief Return a pointer to the "master" costmap which receives updates from
+diff --git a/explore/include/explore/explore.h b/explore/include/explore/explore.h
+index 9cfd0db..2a98041 100644
+--- a/explore/include/explore/explore.h
++++ b/explore/include/explore/explore.h
+@@ -59,6 +59,7 @@
+ #include "nav2_msgs/action/navigate_to_pose.hpp"
+ #include "rclcpp_action/rclcpp_action.hpp"
+ #include "explore/active_frontier_goal_policy.h"
++#include "explore/frontier_goal_lifecycle.h"
+ 
+ using namespace std::placeholders;
+ #ifdef ELOQUENT
+@@ -108,6 +109,9 @@ private:
+   // future);
+   void reachedGoal(const NavigationGoalHandle::WrappedResult& result,
+                    const geometry_msgs::msg::Point& frontier_goal);
++  void releaseActiveGoal(
++      ActiveFrontierGoalReleaseReason reason, bool blacklist_identity);
++  void removeGoalFromBlacklist(const geometry_msgs::msg::Point& goal);
+   void publishStatus(const std::string& status,
+                      const std::string& completion_reason = "");
+ 
+@@ -137,7 +141,7 @@ private:
+   geometry_msgs::msg::Point active_frontier_identity_;
+   geometry_msgs::msg::Point active_target_position_;
+   double prev_distance_;
+-  rclcpp::Time last_progress_;
++  std::chrono::steady_clock::time_point last_progress_at_{};
+   size_t last_markers_count_;
+ 
+   geometry_msgs::msg::Pose initial_pose_;
+@@ -152,13 +156,11 @@ private:
+   std::string robot_base_frame_;
+   bool resuming_ = false;
+   bool exploration_enabled_{true};
+-  bool goal_active_{false};
+   bool exploration_blocked_{false};
+-  rclcpp_action::GoalUUID active_goal_id_;
+-  uint64_t pending_goal_sequence_{0};
++  bool return_to_initial_pending_{false};
++  FrontierGoalLifecycle goal_lifecycle_;
+   size_t detected_frontier_count_{0};
+   size_t available_frontier_count_{0};
+-  size_t accepted_goal_count_{0};
+   size_t succeeded_goal_count_{0};
+   size_t aborted_goal_count_{0};
+   size_t canceled_goal_count_{0};
+@@ -168,7 +170,6 @@ private:
+   std::string last_goal_terminal_;
+   std::string completion_reason_;
+   std::chrono::steady_clock::time_point next_goal_retry_at_{};
+-  std::unordered_set<std::string> terminal_goal_ids_;
+   FrontierGoalCooldown successful_frontier_cooldowns_;
+ 
+   double goal_rejection_backoff_;
+diff --git a/explore/include/explore/frontier_goal_lifecycle.h b/explore/include/explore/frontier_goal_lifecycle.h
+new file mode 100644
+index 0000000..1275b26
+--- /dev/null
++++ b/explore/include/explore/frontier_goal_lifecycle.h
+@@ -0,0 +1,173 @@
++#ifndef EXPLORE_FRONTIER_GOAL_LIFECYCLE_H_
++#define EXPLORE_FRONTIER_GOAL_LIFECYCLE_H_
++
++#include <cstddef>
++#include <cstdint>
++#include <stdexcept>
++#include <string>
++#include <unordered_set>
++
++namespace explore
++{
++
++enum class FrontierGoalState
++{
++  IDLE,
++  REQUESTING,
++  ACTIVE,
++  CANCELING,
++};
++
++struct FrontierGoalResponseEffects
++{
++  bool accepted_new{false};
++  bool rejected{false};
++  bool owns_execution{false};
++  bool cancel_accepted{false};
++};
++
++struct FrontierGoalCancelEffects
++{
++  bool state_changed{false};
++  bool cancel_active{false};
++  std::string active_uuid;
++};
++
++struct FrontierGoalResultEffects
++{
++  bool terminal_new{false};
++  bool was_owner{false};
++  bool was_canceling{false};
++};
++
++/**
++ * @brief Pure state machine for the asynchronous NavigateToPose lifecycle.
++ *
++ * Explore owns policy (which frontier and why); this class owns protocol
++ * ordering.  In particular, cancellation is not complete when the request is
++ * sent: a new goal may be dispatched only after the accepted UUID reaches a
++ * terminal result.  The split keeps ROS callbacks thin and makes late
++ * accepted/duplicate result interleavings deterministic in unit tests.
++ */
++class FrontierGoalLifecycle
++{
++public:
++  uint64_t beginDispatch()
++  {
++    if (!canDispatch()) {
++      throw std::logic_error(
++          "frontier goal dispatch requires a fully drained lifecycle");
++    }
++    state_ = FrontierGoalState::REQUESTING;
++    cancel_on_accept_ = false;
++    owner_uuid_.clear();
++    return ++request_token_;
++  }
++
++  FrontierGoalResponseEffects onResponse(
++      uint64_t token, const std::string& accepted_uuid)
++  {
++    const bool current_request = token == request_token_;
++    if (accepted_uuid.empty()) {
++      if (!current_request) {
++        // 过期 response 不能结算当前 REQUESTING。虽然 Action 协议正常情况下
++        // 每个请求只响应一次，这层防御可避免异常/重复回调误放行下一次派发。
++        return FrontierGoalResponseEffects{};
++      }
++      const bool settles_current = current_request &&
++          (state_ == FrontierGoalState::REQUESTING ||
++           (state_ == FrontierGoalState::CANCELING && owner_uuid_.empty()));
++      if (settles_current) {
++        state_ = FrontierGoalState::IDLE;
++        cancel_on_accept_ = false;
++      }
++      return FrontierGoalResponseEffects{false, true, false, false};
++    }
++
++    const bool accepted_new = accepted_goal_ids_.insert(accepted_uuid).second;
++    if (!accepted_new) {
++      return FrontierGoalResponseEffects{};
++    }
++    if (current_request && state_ == FrontierGoalState::REQUESTING &&
++        !cancel_on_accept_) {
++      owner_uuid_ = accepted_uuid;
++      state_ = FrontierGoalState::ACTIVE;
++      return FrontierGoalResponseEffects{true, false, true, false};
++    }
++
++    // stop/timeout 可能先于 goal response。即使此 UUID 已失去策略所有权，
++    // 也必须先登记 accepted，再 cancel 并等待 terminal，才能保持账本守恒。
++    if (current_request && state_ == FrontierGoalState::CANCELING &&
++        owner_uuid_.empty()) {
++      owner_uuid_ = accepted_uuid;
++    }
++    return FrontierGoalResponseEffects{true, false, false, true};
++  }
++
++  FrontierGoalCancelEffects requestCancel()
++  {
++    if (state_ == FrontierGoalState::REQUESTING) {
++      state_ = FrontierGoalState::CANCELING;
++      cancel_on_accept_ = true;
++      return FrontierGoalCancelEffects{true, false, ""};
++    }
++    if (state_ == FrontierGoalState::ACTIVE) {
++      state_ = FrontierGoalState::CANCELING;
++      return FrontierGoalCancelEffects{true, true, owner_uuid_};
++    }
++    return FrontierGoalCancelEffects{};
++  }
++
++  FrontierGoalResultEffects onResult(const std::string& uuid)
++  {
++    if (accepted_goal_ids_.count(uuid) == 0 ||
++        !terminal_goal_ids_.insert(uuid).second) {
++      return FrontierGoalResultEffects{};
++    }
++    const bool was_owner = uuid == owner_uuid_;
++    const bool was_canceling =
++        was_owner && state_ == FrontierGoalState::CANCELING;
++    if (was_owner) {
++      owner_uuid_.clear();
++      cancel_on_accept_ = false;
++      state_ = FrontierGoalState::IDLE;
++    }
++    return FrontierGoalResultEffects{true, was_owner, was_canceling};
++  }
++
++  bool canDispatch() const
++  {
++    return state_ == FrontierGoalState::IDLE && activeAcceptedCount() == 0;
++  }
++
++  FrontierGoalState state() const { return state_; }
++  bool isActiveOwner() const { return state_ == FrontierGoalState::ACTIVE; }
++  bool isCanceling() const { return state_ == FrontierGoalState::CANCELING; }
++  const std::string& ownerUuid() const { return owner_uuid_; }
++  std::size_t acceptedCount() const { return accepted_goal_ids_.size(); }
++  std::size_t terminalCount() const { return terminal_goal_ids_.size(); }
++  std::size_t activeAcceptedCount() const
++  {
++    return accepted_goal_ids_.size() - terminal_goal_ids_.size();
++  }
++  bool ledgerInvariantHolds() const
++  {
++    // terminal 只能由已登记 accepted 的 UUID 产生；把这个关系暴露给测试和
++    // 运行时审计，能及早发现 late-response/result 交错造成的账本失衡。
++    return terminal_goal_ids_.size() <= accepted_goal_ids_.size() &&
++           accepted_goal_ids_.size() ==
++               terminal_goal_ids_.size() + activeAcceptedCount();
++  }
++
++private:
++  FrontierGoalState state_{FrontierGoalState::IDLE};
++  uint64_t request_token_{0};
++  bool cancel_on_accept_{false};
++  std::string owner_uuid_;
++  std::unordered_set<std::string> accepted_goal_ids_;
++  std::unordered_set<std::string> terminal_goal_ids_;
++};
++
++}  // namespace explore
++
++#endif  // EXPLORE_FRONTIER_GOAL_LIFECYCLE_H_
+diff --git a/explore/src/costmap_client.cpp b/explore/src/costmap_client.cpp
+index ae2da83..e232a28 100644
+--- a/explore/src/costmap_client.cpp
++++ b/explore/src/costmap_client.cpp
+@@ -219,10 +219,9 @@ void Costmap2DClient::updatePartialMap(
+   }
+ }
+ 
+-geometry_msgs::msg::Pose Costmap2DClient::getRobotPose() const
++bool Costmap2DClient::getRobotPose(geometry_msgs::msg::Pose& pose) const
+ {
+   geometry_msgs::msg::PoseStamped robot_pose;
+-  geometry_msgs::msg::Pose empty_pose;
+   robot_pose.header.frame_id = robot_base_frame_;
+   robot_pose.header.stamp = node_.now();
+ 
+@@ -237,24 +236,25 @@ geometry_msgs::msg::Pose Costmap2DClient::getRobotPose() const
+                           "No Transform available Error looking up robot pose: "
+                           "%s\n",
+                           ex.what());
+-    return empty_pose;
++    return false;
+   } catch (tf2::ConnectivityException& ex) {
+     RCLCPP_ERROR_THROTTLE(node_.get_logger(), clk, 1000,
+                           "Connectivity Error looking up robot pose: %s\n",
+                           ex.what());
+-    return empty_pose;
++    return false;
+   } catch (tf2::ExtrapolationException& ex) {
+     RCLCPP_ERROR_THROTTLE(node_.get_logger(), clk, 1000,
+                           "Extrapolation Error looking up robot pose: %s\n",
+                           ex.what());
+-    return empty_pose;
++    return false;
+   } catch (tf2::TransformException& ex) {
+     RCLCPP_ERROR_THROTTLE(node_.get_logger(), clk, 1000, "Other error: %s\n",
+                           ex.what());
+-    return empty_pose;
++    return false;
+   }
+ 
+-  return robot_pose.pose;
++  pose = robot_pose.pose;
++  return true;
+ }
+ 
+ std::array<unsigned char, 256> init_translation_table()
+diff --git a/explore/src/explore.cpp b/explore/src/explore.cpp
+index d46ab57..24aa160 100644
+--- a/explore/src/explore.cpp
++++ b/explore/src/explore.cpp
+@@ -97,11 +97,24 @@ Explore::Explore()
+   this->get_parameter("max_goal_rejections", max_goal_rejections_);
+   this->get_parameter("robot_base_frame", robot_base_frame_);
+ 
+-  if (goal_rejection_backoff_ < 0.0) {
+-    throw std::invalid_argument("goal_rejection_backoff must be non-negative");
++  if (!std::isfinite(planner_frequency_) || planner_frequency_ <= 0.0 ||
++      planner_frequency_ > 100.0) {
++    throw std::invalid_argument(
++        "planner_frequency must be finite and within (0, 100]");
++  }
++  if (!std::isfinite(timeout) || timeout <= 0.0 || timeout > 600.0) {
++    throw std::invalid_argument(
++        "progress_timeout must be finite and within (0, 600]");
+   }
+-  if (goal_terminal_cooldown_ < 0.0) {
+-    throw std::invalid_argument("goal_terminal_cooldown must be non-negative");
++  if (!std::isfinite(goal_rejection_backoff_) ||
++      goal_rejection_backoff_ < 0.0 || goal_rejection_backoff_ > 300.0) {
++    throw std::invalid_argument(
++        "goal_rejection_backoff must be finite and within [0, 300]");
++  }
++  if (!std::isfinite(goal_terminal_cooldown_) ||
++      goal_terminal_cooldown_ < 0.0 || goal_terminal_cooldown_ > 300.0) {
++    throw std::invalid_argument(
++        "goal_terminal_cooldown must be finite and within [0, 300]");
+   }
+   if (!std::isfinite(successful_frontier_cooldown_) ||
+       successful_frontier_cooldown_ < 0.0 ||
+@@ -270,8 +283,31 @@ void Explore::makePlan()
+     return;
+   }
+ 
++  const auto planning_now = std::chrono::steady_clock::now();
++  if (goal_lifecycle_.isActiveOwner() &&
++      std::chrono::duration<double>(planning_now - last_progress_at_).count() >
++          progress_timeout_) {
++    // TF 或地图暂时无效时也必须能终止真正卡死的 Action。超时使用 steady
++    // clock，仿真时钟暂停/回拨不会把 ownership 无限延长。
++    releaseActiveGoal(
++        ActiveFrontierGoalReleaseReason::PROGRESS_TIMEOUT, true);
++    return;
++  }
++  if (!goal_lifecycle_.canDispatch() && !goal_lifecycle_.isActiveOwner()) {
++    // REQUESTING/CANCELING 都是未结算协议状态。async_cancel_goal 只表示
++    // 请求已发送，旧 UUID terminal 前禁止下发新目标形成双 owner。
++    return;
++  }
++
+   // find frontiers
+-  auto pose = costmap_client_.getRobotPose();
++  geometry_msgs::msg::Pose pose;
++  if (!costmap_client_.getRobotPose(pose)) {
++    // TF 失败不能回落到 (0,0)；合成原点若恰好可通行，会错误刷新进展或
++    // 从错误分量派发目标。周期 timer 会重试，顶部 timeout 仍持续生效。
++    publishStatus(
++        explore_lite_msgs::msg::ExploreStatus::EXPLORATION_IN_PROGRESS);
++    return;
++  }
+   // get frontiers sorted according to cost
+   auto frontiers = search_.searchFrom(pose.position);
+   if (!search_.lastSearchValid()) {
+@@ -300,7 +336,7 @@ void Explore::makePlan()
+     RCLCPP_DEBUG(logger_, "frontier %zd cost: %f", i, frontiers[i].cost);
+   }
+ 
+-  if (goal_active_) {
++  if (goal_lifecycle_.isActiveOwner()) {
+     const bool target_safe = search_.isApproachSafe(active_target_position_);
+     const bool identity_blacklisted =
+         goalOnBlacklist(active_frontier_identity_);
+@@ -308,10 +344,11 @@ void Explore::makePlan()
+         0.02, 0.5 * costmap_client_.getCostmap()->getResolution());
+     const auto decision = evaluateActiveFrontierGoal(
+         pose.position, active_target_position_, prev_distance_,
+-        (this->now() - last_progress_).seconds(), progress_timeout_,
++        std::chrono::duration<double>(planning_now - last_progress_at_).count(),
++        progress_timeout_,
+         target_safe, identity_blacklisted, progress_epsilon);
+     if (decision.made_progress) {
+-      last_progress_ = this->now();
++      last_progress_at_ = planning_now;
+       prev_distance_ = decision.distance_m;
+     }
+     if (decision.shouldHold()) {
+@@ -319,28 +356,11 @@ void Explore::makePlan()
+       // 排序/质心变化，不是取消证据；Nav2 会持续用最新 costmap 重规划。
+       return;
+     }
+-    if (decision.release_reason ==
+-        ActiveFrontierGoalReleaseReason::PROGRESS_TIMEOUT) {
+-      frontier_blacklist_.push_back(active_frontier_identity_);
+-    }
+-    available_frontier_count_ = static_cast<size_t>(std::count_if(
+-        frontiers.begin(), frontiers.end(),
+-        [this](const frontier_exploration::Frontier& frontier) {
+-          return frontier.has_approach &&
+-                 !goalOnBlacklist(frontier.centroid);
+-        }));
+-    // timeout 是显式抢占边界：先取消旧 UUID，再选下一 frontier。sequence
+-    // 同时覆盖“goal response 尚未返回”的竞态，迟到 accepted handle 会自取消。
+-    ++pending_goal_sequence_;
+-    if (navigation_goal_handle_) {
+-      move_base_client_->async_cancel_goal(navigation_goal_handle_);
+-      navigation_goal_handle_.reset();
+-    }
+-    goal_active_ = false;
+-    active_goal_id_ = rclcpp_action::GoalUUID{};
+-    RCLCPP_WARN(
+-        logger_, "Active frontier goal released (reason=%d); selecting another",
+-        static_cast<int>(decision.release_reason));
++    releaseActiveGoal(
++        decision.release_reason,
++        decision.release_reason ==
++            ActiveFrontierGoalReleaseReason::PROGRESS_TIMEOUT);
++    return;
+   }
+ 
+   if (!search_.lastClearanceDomainValid()) {
+@@ -358,7 +378,6 @@ void Explore::makePlan()
+   // 只有 valid search 的 empty 才能证明当前地图确实没有 frontier。
+   if (frontiers.empty()) {
+     RCLCPP_WARN(logger_, "No frontiers found, stopping.");
+-    goal_active_ = false;
+     publishStatus(
+         explore_lite_msgs::msg::ExploreStatus::EXPLORATION_COMPLETE,
+         "no_frontiers");
+@@ -375,7 +394,6 @@ void Explore::makePlan()
+ 
+   // 成功 approach 后 SLAM/map_updates 需要一个短窗口吸收新激光；冷却项仍计入
+   // available telemetry，只影响本轮选择，避免把“暂缓重试”伪装成完成。
+-  const auto planning_now = std::chrono::steady_clock::now();
+   const double frontier_match_tolerance =
+       5.0 * costmap_client_.getCostmap()->getResolution();
+   auto frontier = std::find_if(
+@@ -441,62 +459,69 @@ void Explore::makePlan()
+   // 与 costmap 更新竞态造成 "future extrapolation"，而不是伪造一个未来姿态。
+   goal.pose.header.stamp = builtin_interfaces::msg::Time();
+ 
+-  goal_active_ = true;
+   active_frontier_identity_ = target_identity;
+   active_target_position_ = target_position;
+   prev_distance_ = std::hypot(
+       pose.position.x - target_position.x,
+       pose.position.y - target_position.y);
+-  last_progress_ = this->now();
+-  // 新 goal 会由 Nav2 Action server 抢占旧 goal；旧 UUID 的迟到 result
+-  // 仍由现有 ledger 结算，但不能清除下面即将记录的新 active UUID。
++  last_progress_at_ = planning_now;
+   navigation_goal_handle_.reset();
+-  active_goal_id_ = rclcpp_action::GoalUUID{};
+-  const uint64_t goal_sequence = ++pending_goal_sequence_;
++  const uint64_t goal_token = goal_lifecycle_.beginDispatch();
+   auto send_goal_options = rclcpp_action::Client<
+       nav2_msgs::action::NavigateToPose>::SendGoalOptions();
+ 
+   send_goal_options.goal_response_callback =
+-      [this, target_identity, goal_sequence](
++      [this, goal_token](
+           const NavigationGoalHandle::SharedPtr& goal_handle) {
+-        // Goal response 也可能在新请求之后才到达；sequence 与 result UUID
+-        // 两层保护共同避免旧回调污染当前 telemetry 和执行状态。
+-        if (goal_sequence != pending_goal_sequence_ ||
+-            !exploration_enabled_) {
+-          // stop() 与 Action server 的 goal response 是异步的。只忽略迟到
+-          // callback 会让 Nav2 继续执行一个 telemetry 已不可见的目标，因此
+-          // 对已接受的迟到 goal 必须显式取消。
+-          if (goal_handle) {
+-            move_base_client_->async_cancel_goal(goal_handle);
+-          }
+-          return;
+-        }
++        const std::string accepted_uuid = goal_handle
++            ? rclcpp_action::to_string(goal_handle->get_goal_id())
++            : "";
++        const auto effects =
++            goal_lifecycle_.onResponse(goal_token, accepted_uuid);
+         if (!goal_handle) {
++          if (!effects.rejected) {
++            // 过期/重复 rejection 不属于当前请求，不能污染拒绝计数或触发
++            // action_server_rejecting；状态机仍保留当前 REQUESTING 所有权。
++            return;
++          }
+           RCLCPP_ERROR(logger_, "Goal was REJECTED by the action server");
+-          goal_active_ = false;
+           navigation_goal_handle_.reset();
+           ++rejected_goal_count_;
+-          ++consecutive_goal_rejections_;
+           last_goal_terminal_ = "rejected";
+-          next_goal_retry_at_ = std::chrono::steady_clock::now() +
+-              std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+-                  std::chrono::duration<double>(goal_rejection_backoff_));
+-          if (consecutive_goal_rejections_ >=
+-              static_cast<size_t>(max_goal_rejections_)) {
+-            frontier_blacklist_.push_back(target_identity);
+-            consecutive_goal_rejections_ = 0;
+-            if (available_frontier_count_ > 0) {
+-              --available_frontier_count_;
++          if (goal_lifecycle_.canDispatch() && exploration_enabled_) {
++            ++consecutive_goal_rejections_;
++            next_goal_retry_at_ = std::chrono::steady_clock::now() +
++                std::chrono::duration_cast<std::chrono::steady_clock::duration>(
++                    std::chrono::duration<double>(goal_rejection_backoff_));
++            if (consecutive_goal_rejections_ >=
++                static_cast<size_t>(max_goal_rejections_)) {
++              // REJECTED 表示 Action server 生命周期/容量异常，尚未执行规划，
++              // 不能归罪并拉黑某个 frontier。显式 blocked 交给上层恢复重连。
++              exploration_blocked_ = true;
++              consecutive_goal_rejections_ = 0;
++              stop(false);
++              publishStatus(
++                  explore_lite_msgs::msg::ExploreStatus::EXPLORATION_BLOCKED,
++                  "action_server_rejecting");
++              return;
+             }
+           }
+           publishStatus(current_status_);
+-        } else {
++          if (return_to_initial_pending_ && goal_lifecycle_.canDispatch()) {
++            return_to_initial_pending_ = false;
++            returnToInitialPose();
++          }
++        } else if (effects.owns_execution) {
+           navigation_goal_handle_ = goal_handle;
+-          active_goal_id_ = goal_handle->get_goal_id();
+-          ++accepted_goal_count_;
+           consecutive_goal_rejections_ = 0;
+           RCLCPP_DEBUG(logger_, "Goal ACCEPTED, uuid: %s",
+-            rclcpp_action::to_string(active_goal_id_).c_str());
++            accepted_uuid.c_str());
++          publishStatus(current_status_);
++        } else if (effects.cancel_accepted) {
++          // stop/timeout 早于 response 时，该 accepted UUID 仍先进入 ledger，
++          // 再显式取消并等待 result；否则会出现 terminal > accepted。
++          navigation_goal_handle_ = goal_handle;
++          move_base_client_->async_cancel_goal(goal_handle);
+           publishStatus(current_status_);
+         }
+       };
+@@ -549,23 +574,58 @@ bool Explore::goalOnBlacklist(const geometry_msgs::msg::Point& goal)
+   return false;
+ }
+ 
++void Explore::removeGoalFromBlacklist(const geometry_msgs::msg::Point& goal)
++{
++  const double tolerance =
++      5.0 * costmap_client_.getCostmap()->getResolution();
++  frontier_blacklist_.erase(
++      std::remove_if(
++          frontier_blacklist_.begin(), frontier_blacklist_.end(),
++          [&goal, tolerance](const geometry_msgs::msg::Point& item) {
++            return std::abs(goal.x - item.x) < tolerance &&
++                   std::abs(goal.y - item.y) < tolerance;
++          }),
++      frontier_blacklist_.end());
++}
++
++void Explore::releaseActiveGoal(
++    ActiveFrontierGoalReleaseReason reason, bool blacklist_identity)
++{
++  if (blacklist_identity && !goalOnBlacklist(active_frontier_identity_)) {
++    frontier_blacklist_.push_back(active_frontier_identity_);
++  }
++  const auto effects = goal_lifecycle_.requestCancel();
++  if (effects.cancel_active && navigation_goal_handle_) {
++    move_base_client_->async_cancel_goal(navigation_goal_handle_);
++  }
++  RCLCPP_WARN(
++      logger_, "Active frontier goal released (reason=%d); draining UUID",
++      static_cast<int>(reason));
++  publishStatus(current_status_);
++}
++
+ void Explore::reachedGoal(const NavigationGoalHandle::WrappedResult& result,
+                           const geometry_msgs::msg::Point& frontier_goal) {
+   const std::string goal_id = rclcpp_action::to_string(result.goal_id);
+-  if (!terminal_goal_ids_.insert(goal_id).second) {
+-    // 一个 accepted UUID 只能结算一次；重复 result 不能破坏生命周期守恒。
++  const auto effects = goal_lifecycle_.onResult(goal_id);
++  if (!effects.terminal_new) {
++    // 未登记 accepted 或重复 result 都不能改变计数；所有权与账本结算由同一
++    // 纯状态机决定，避免 stop/late-response 交错破坏 accepted==terminal。
+     return;
+   }
+ 
+-  const bool is_current_goal = result.goal_id == active_goal_id_;
++  const bool is_current_goal = effects.was_owner;
+   switch (result.code) {
+     case rclcpp_action::ResultCode::SUCCEEDED:
+       RCLCPP_DEBUG(logger_, "Goal was successful");
+       ++succeeded_goal_count_;
+       last_goal_terminal_ = "succeeded";
+       if (is_current_goal) {
+-        last_progress_ = this->now();
++        last_progress_at_ = std::chrono::steady_clock::now();
+         prev_distance_ = 0;
++        // cancel 与成功可能交错；真实到达应撤销 timeout 黑名单并进入成功
++        // 冷却，不能让迟到 SUCCEEDED 永久污染后续 frontier 选择。
++        removeGoalFromBlacklist(frontier_goal);
+         successful_frontier_cooldowns_.record(
+             frontier_goal, std::chrono::steady_clock::now(),
+             successful_frontier_cooldown_,
+@@ -576,7 +636,8 @@ void Explore::reachedGoal(const NavigationGoalHandle::WrappedResult& result,
+       ++aborted_goal_count_;
+       last_goal_terminal_ = "aborted";
+ #ifdef NAV2_RESULT_HAS_ERROR_CODE
+-      if (is_current_goal && result.result && result.result->error_code != 0) {
++      if (is_current_goal && !effects.was_canceling && result.result &&
++          result.result->error_code != 0) {
+         RCLCPP_DEBUG(logger_, "Goal aborted with error_code=%d (%s) — blacklisting frontier",
+                      result.result->error_code,
+                      result.result->error_msg.c_str());
+@@ -587,7 +648,7 @@ void Explore::reachedGoal(const NavigationGoalHandle::WrappedResult& result,
+ #else
+       // Humble: no error_code field, blacklist unconditionally on abort
+       RCLCPP_DEBUG(logger_, "Goal aborted — blacklisting frontier");
+-      if (is_current_goal) {
++      if (is_current_goal && !effects.was_canceling) {
+         frontier_blacklist_.push_back(frontier_goal);
+       }
+ #endif
+@@ -604,18 +665,22 @@ void Explore::reachedGoal(const NavigationGoalHandle::WrappedResult& result,
+       break;
+   }
+ 
+-  // 被新 frontier 抢占的旧 goal 仍要计入 terminal，但绝不能清除当前 goal、
+-  // 修改当前黑名单或驱动下一轮规划。
++  // 非 owner UUID 仍要结算 accepted/terminal 守恒，但不能清除当前 owner、
++  // 修改当前 frontier 副作用或驱动下一轮规划。
+   if (!is_current_goal) {
+     publishStatus(current_status_);
+     return;
+   }
+-  goal_active_ = false;
+   navigation_goal_handle_.reset();
+   next_goal_retry_at_ = std::chrono::steady_clock::now() +
+       std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+           std::chrono::duration<double>(goal_terminal_cooldown_));
+   publishStatus(current_status_);
++  if (return_to_initial_pending_ && goal_lifecycle_.canDispatch()) {
++    return_to_initial_pending_ = false;
++    returnToInitialPose();
++    return;
++  }
+   // find new goal immediately regardless of planning frequency.
+   // execute via timer to prevent dead lock in move_base_client (this is
+   // callback for sendGoal, which is called in makePlan). the timer must live
+@@ -628,7 +693,9 @@ void Explore::reachedGoal(const NavigationGoalHandle::WrappedResult& result,
+   // needed.
+   // 由周期 timer 在短 cooldown 后重规划，让 SLAM/map_updates 有时间消化
+   // 已到达的 frontier，避免相同坐标在几十毫秒内形成 goal storm。
+-  makePlan();
++  if (exploration_enabled_) {
++    makePlan();
++  }
+ }
+ 
+ void Explore::start()
+@@ -643,11 +710,12 @@ void Explore::stop(bool finished_exploring)
+   RCLCPP_INFO(logger_, "Exploration stopped.");
+ 
+   exploration_enabled_ = false;
+-  // 使尚未返回的 send_goal callback 全部失效；callback 收到 accepted handle
+-  // 后会立即 cancel，补上 cancel_all_goals 与异步接受之间的竞态窗口。
+-  ++pending_goal_sequence_;
+-  goal_active_ = false;
+-  navigation_goal_handle_.reset();
++  // stop 只撤销策略所有权，不提前删除协议账本。REQUESTING 会标记为
++  // cancel-on-accept，ACTIVE 会进入 CANCELING；terminal 到达前仍可审计。
++  const auto cancel_effects = goal_lifecycle_.requestCancel();
++  if (cancel_effects.cancel_active && navigation_goal_handle_) {
++    move_base_client_->async_cancel_goal(navigation_goal_handle_);
++  }
+   // Only publish paused status if manually stopped (not finished exploring)
+   if (!finished_exploring) {
+     publishStatus(explore_lite_msgs::msg::ExploreStatus::EXPLORATION_PAUSED);
+@@ -657,7 +725,13 @@ void Explore::stop(bool finished_exploring)
+   exploring_timer_->cancel();
+ 
+   if (return_to_init_ && finished_exploring) {
+-    returnToInitialPose();
++    if (goal_lifecycle_.canDispatch()) {
++      returnToInitialPose();
++    } else {
++      // return-to-origin 也必须等 frontier UUID 结算；否则 stop 与返航会在
++      // Nav2 中形成两个并存目标，遥测却只看得到其中一个。
++      return_to_initial_pending_ = true;
++    }
+   }
+ }
+ 
+@@ -689,16 +763,28 @@ void Explore::publishStatus(const std::string& status,
+   }
+   current_status_ = status;
+   auto message = explore_lite_msgs::msg::ExploreStatus();
++  const size_t active_goal_count = goal_lifecycle_.activeAcceptedCount();
++  const size_t terminal_goal_count =
++      succeeded_goal_count_ + aborted_goal_count_ + canceled_goal_count_;
++  if (!goal_lifecycle_.ledgerInvariantHolds() ||
++      goal_lifecycle_.acceptedCount() !=
++          terminal_goal_count + active_goal_count) {
++    // 这是证据链的核心守恒式。仅记录错误而不篡改计数，避免用“修正遥测”
++    // 掩盖真实 Action 回调时序问题。
++    RCLCPP_ERROR(
++        logger_,
++        "Frontier goal ledger invariant violated: accepted=%zu, terminal=%zu, "
++        "active=%zu",
++        goal_lifecycle_.acceptedCount(), terminal_goal_count,
++        active_goal_count);
++  }
+   message.status = current_status_;
+   message.detected_frontier_count = detected_frontier_count_;
+   message.available_frontier_count = available_frontier_count_;
+   message.blacklisted_frontier_count = frontier_blacklist_.size();
+-  message.active_goal_count = goal_active_ ? 1 : 0;
+-  message.active_goal_id =
+-      goal_active_ && active_goal_id_ != rclcpp_action::GoalUUID{}
+-          ? rclcpp_action::to_string(active_goal_id_)
+-          : "";
+-  message.accepted_goal_count = accepted_goal_count_;
++  message.active_goal_count = active_goal_count;
++  message.active_goal_id = goal_lifecycle_.ownerUuid();
++  message.accepted_goal_count = goal_lifecycle_.acceptedCount();
+   message.succeeded_goal_count = succeeded_goal_count_;
+   message.aborted_goal_count = aborted_goal_count_;
+   message.canceled_goal_count = canceled_goal_count_;
+diff --git a/explore/test/test_explore.cpp b/explore/test/test_explore.cpp
+index c58916b..c3ba18d 100644
+--- a/explore/test/test_explore.cpp
++++ b/explore/test/test_explore.cpp
+@@ -44,6 +44,7 @@
+ #include <limits>
+ 
+ #include "explore/frontier_goal_cooldown.h"
++#include "explore/frontier_goal_lifecycle.h"
+ #include "explore/active_frontier_goal_policy.h"
+ #include "explore/frontier_search.h"
+ 
+@@ -193,6 +194,118 @@ TEST(ActiveFrontierGoalPolicy, subEpsilonJitterDoesNotRefreshProgress)
+   EXPECT_FALSE(decision.made_progress);
+ }
+ 
++TEST(FrontierGoalLifecycle, acceptedGoalOwnsUntilExactlyOneTerminal)
++{
++  explore::FrontierGoalLifecycle lifecycle;
++  const auto token = lifecycle.beginDispatch();
++  const auto response = lifecycle.onResponse(token, "goal-a");
++
++  EXPECT_TRUE(response.accepted_new);
++  EXPECT_TRUE(response.owns_execution);
++  EXPECT_EQ(lifecycle.acceptedCount(), 1u);
++  EXPECT_EQ(lifecycle.activeAcceptedCount(), 1u);
++  EXPECT_FALSE(lifecycle.canDispatch());
++
++  const auto terminal = lifecycle.onResult("goal-a");
++  EXPECT_TRUE(terminal.terminal_new);
++  EXPECT_TRUE(terminal.was_owner);
++  EXPECT_EQ(lifecycle.terminalCount(), 1u);
++  EXPECT_EQ(lifecycle.activeAcceptedCount(), 0u);
++  EXPECT_TRUE(lifecycle.ledgerInvariantHolds());
++  EXPECT_TRUE(lifecycle.canDispatch());
++  EXPECT_FALSE(lifecycle.onResult("goal-a").terminal_new);
++}
++
++TEST(FrontierGoalLifecycle, stopBeforeResponseCountsThenCancelsLateAccepted)
++{
++  explore::FrontierGoalLifecycle lifecycle;
++  const auto token = lifecycle.beginDispatch();
++  const auto cancel = lifecycle.requestCancel();
++  EXPECT_TRUE(cancel.state_changed);
++  EXPECT_FALSE(cancel.cancel_active);
++  EXPECT_TRUE(lifecycle.isCanceling());
++
++  const auto late = lifecycle.onResponse(token, "late-goal");
++  EXPECT_TRUE(late.accepted_new);
++  EXPECT_TRUE(late.cancel_accepted);
++  EXPECT_FALSE(late.owns_execution);
++  EXPECT_EQ(lifecycle.activeAcceptedCount(), 1u);
++  EXPECT_FALSE(lifecycle.canDispatch());
++
++  const auto terminal = lifecycle.onResult("late-goal");
++  EXPECT_TRUE(terminal.was_canceling);
++  EXPECT_EQ(lifecycle.acceptedCount(), lifecycle.terminalCount());
++  EXPECT_TRUE(lifecycle.ledgerInvariantHolds());
++  EXPECT_TRUE(lifecycle.canDispatch());
++}
++
++TEST(FrontierGoalLifecycle, cancelActiveWaitsForTerminalBeforeHandoff)
++{
++  explore::FrontierGoalLifecycle lifecycle;
++  const auto token = lifecycle.beginDispatch();
++  ASSERT_TRUE(lifecycle.onResponse(token, "goal-a").owns_execution);
++
++  const auto cancel = lifecycle.requestCancel();
++  EXPECT_TRUE(cancel.cancel_active);
++  EXPECT_EQ(cancel.active_uuid, "goal-a");
++  EXPECT_TRUE(lifecycle.isCanceling());
++  EXPECT_FALSE(lifecycle.canDispatch());
++  EXPECT_THROW(lifecycle.beginDispatch(), std::logic_error);
++
++  const auto terminal = lifecycle.onResult("goal-a");
++  EXPECT_TRUE(terminal.was_owner);
++  EXPECT_TRUE(terminal.was_canceling);
++  EXPECT_TRUE(lifecycle.ledgerInvariantHolds());
++  EXPECT_TRUE(lifecycle.canDispatch());
++}
++
++TEST(FrontierGoalLifecycle, rejectedRequestDoesNotCreateAcceptedDebt)
++{
++  explore::FrontierGoalLifecycle lifecycle;
++  const auto token = lifecycle.beginDispatch();
++  const auto rejected = lifecycle.onResponse(token, "");
++
++  EXPECT_TRUE(rejected.rejected);
++  EXPECT_EQ(lifecycle.acceptedCount(), 0u);
++  EXPECT_EQ(lifecycle.terminalCount(), 0u);
++  EXPECT_TRUE(lifecycle.canDispatch());
++  EXPECT_FALSE(lifecycle.onResult("never-accepted").terminal_new);
++  EXPECT_TRUE(lifecycle.ledgerInvariantHolds());
++}
++
++TEST(FrontierGoalLifecycle, canceledRequestCanDrainThroughRejection)
++{
++  explore::FrontierGoalLifecycle lifecycle;
++  const auto token = lifecycle.beginDispatch();
++  ASSERT_TRUE(lifecycle.requestCancel().state_changed);
++
++  const auto rejected = lifecycle.onResponse(token, "");
++
++  EXPECT_TRUE(rejected.rejected);
++  EXPECT_TRUE(lifecycle.canDispatch());
++  EXPECT_EQ(lifecycle.acceptedCount(), 0u);
++  EXPECT_TRUE(lifecycle.ledgerInvariantHolds());
++}
++
++TEST(FrontierGoalLifecycle, staleRejectionCannotSettleCurrentRequest)
++{
++  explore::FrontierGoalLifecycle lifecycle;
++  const auto old_token = lifecycle.beginDispatch();
++  ASSERT_TRUE(lifecycle.onResponse(old_token, "").rejected);
++  const auto current_token = lifecycle.beginDispatch();
++
++  // 防御异常重复回调：旧 rejection 不能把新 REQUESTING 错误切回 IDLE。
++  const auto stale = lifecycle.onResponse(old_token, "");
++  EXPECT_FALSE(stale.rejected);
++  EXPECT_FALSE(lifecycle.canDispatch());
++  EXPECT_EQ(lifecycle.state(), explore::FrontierGoalState::REQUESTING);
++
++  ASSERT_TRUE(lifecycle.onResponse(current_token, "goal-current").owns_execution);
++  EXPECT_TRUE(lifecycle.onResult("goal-current").terminal_new);
++  EXPECT_TRUE(lifecycle.ledgerInvariantHolds());
++  EXPECT_TRUE(lifecycle.canDispatch());
++}
++
+ TEST(FrontierSearch, navigationGoalUsesReachableFreeSpaceApproach)
+ {
+   using nav2_costmap_2d::FREE_SPACE;

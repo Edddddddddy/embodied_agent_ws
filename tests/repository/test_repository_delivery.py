@@ -520,6 +520,19 @@ def test_job_presentation_doc_remains_discoverable():
     for token in ("flowchart LR", "ExecuteRobotCommand", "FrontierExplorationMonitor"):
         assert token in architecture
 
+
+def test_core_gate_scopes_build_and_results_to_owned_packages():
+    """core 门禁不能把第三方仓库或历史 build 结果误报成本项目回归。"""
+
+    core_gate = (ROOT / "scripts" / "run_core_tests.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert '--packages-select "${CORE_CPP_PACKAGES[@]}"' in core_gate
+    assert '--packages-select "${CORE_TEST_PACKAGES[@]}"' in core_gate
+    assert '--test-result-base "build/$package"' in core_gate
+    assert "colcon test-result --verbose" not in core_gate
+
 def test_showcase_hardening_artifacts_remain_discoverable():
     """缺点收口阶段的展示硬化产物不能在后续整理中丢失。"""
 

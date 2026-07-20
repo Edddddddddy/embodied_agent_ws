@@ -1,332 +1,253 @@
-# 系统架构、接口与调用关系
+# 系统架构
 
-本文是当前系统架构的权威说明。它回答三个问题：每个模块负责什么，数据通过什么 typed 接口流动，
-失败由哪一层终止和报告。关键文件和函数分领域收录在 [三册学习笔记](learning/)，运行方法见
-[测试与验收手册](TESTING.md)。
+本文只说明四件事：模块所有权、主数据流、信任边界和可扩展接口。技术原理与方案对比见
+[SLAM/Nav2 学习笔记](learning/SLAM_NAV2.md)，运行和 PASS 口径见 [测试手册](TESTING.md)。易变的
+包数量、验收模式和 CI 契约由 [生成证据索引](evidence/README.md) 统一维护，本文不手工复制计数。
 
-## 1. 设计目标与边界
+## 1. 架构目标与边界
 
-项目同时提供在线、离线语音 Agent，并把自然语言动作安全地送到 Gazebo、SLAM 和 Nav2：
+系统提供在线、离线语音 Agent，并把自然语言命令接入 Gazebo、SLAM Toolbox 与 Nav2：
 
 ```text
-麦克风 → VAD/ASR → 会话/NLU/LLM → typed command
-       → C++ 安全与调度 → ROS 2 Action → BT/pluginlib
-       → Gazebo / frontier SLAM / AMCL / Nav2
+麦克风 → VAD/ASR → 会话/NLU/LLM → RobotCommand
+       → C++ Guard/Scheduler → ROS 2 Action → BT/pluginlib
+       → Gazebo / SLAM / AMCL / Nav2 → typed evidence → evaluator
 ```
 
-架构刻意区分以下边界：
+架构遵守以下边界：
 
-- ASR 文本不等于可执行动作；必须经过 NLU/LLM 和安全校验。
-- `/agent/action_candidate` 不等于已执行；`ExecuteRobotCommand` result 才是动作事实。
-- frontier 探索、存图、定位和语义导航是四个阶段，必须有显式状态和失败语义。
-- mock、Gazebo、公开 bag、真实麦克风和实体硬件是不同证据层级。
-- ROS 2 控制面使用自定义 msg/action；JSON 只允许作为报告或磁盘证据格式。
+- ASR 文本和 LLM 输出只是候选；`ExecuteRobotCommand` result 才是动作完成事实。
+- unknown-world 机器人策略只能读取在线 scan/odom/TF/map，不能读取静态真值、区域标签、固定路线或
+  语义坐标。
+- 保存图、AMCL 定位和 Nav2 导航使用同一 navigation generation，不能把上一阶段的 transient-local
+  `/map` 或旧 AMCL pose 拼成新输入。
+- 生产侧负责阻止危险路径，evaluator 独立复核；任一侧发现 unknown/occupied/map-outside 都失败。
+- known-world 真人语音演示与 unknown-world 自主验收是两类证据，不能说成同一个 session。
+- 当前交付对象是 Gazebo/TurtleBot3；UART/SPI 仅保留 Adapter seam，不宣称真实硬件验收。
 
-当前主要平台是 WSL Ubuntu 24.04、ROS 2 Jazzy、Gazebo Sim 和 TurtleBot3。UART/SPI 仍是
-Adapter/mock，不属于当前阶段的真实硬件验收。
+## 2. 模块所有权
 
-## 2. 总体组件图
+| 模块 | 拥有的职责 | 不负责 |
+| --- | --- | --- |
+| `embodied_agent_interfaces` | `RobotCommand`、Action、SLAM session 与 evidence schema | 决策和执行 |
+| `embodied_agent_core` | 会话、连续命令队列、NLU、记忆和共享 Agent runtime | ROS/Gazebo 副作用 |
+| `embodied_online_agent` / `embodied_offline_agent` | 在线或本地 ASR/LLM/TTS provider Adapter | 动作安全策略 |
+| `embodied_agent_cpp` | 音频前端、ActionGuard、ActionScheduler | SLAM/Nav2 算法 |
+| `embodied_simulation` | BT、pluginlib executor、Gazebo/Nav2 bridge | 语音理解 |
+| `embodied_slam_tools` | unknown/known-world 任务事务、阶段切换、目标准入和 typed 生产证据 | 真值评分 |
+| `embodied_slam` | 位姿图、GTSAM/Ceres 与回环实验 | 自动探索编排 |
+| `embodied_navigation` | 动态障碍跟踪、预测和 costmap plugin | Agent 会话 |
+| `tools/acceptance` | 独立 ROS 观察、会话资源、外部验收刺激、真值评分和报告 | 把真值或固定目标反向注入自主探索/采样策略 |
+
+包之间按“领域决策 → ROS Adapter → 外部系统”单向依赖。替换 ASR provider 不改 C++ 安全层；替换
+Gazebo executor 不改 Agent；调整 evaluator 阈值不把真值注入 robot policy。
+
+## 3. 主数据流
 
 ```mermaid
 flowchart LR
-  Mic["麦克风 / wav"] --> Audio["AudioFrontendNode\nAEC / VAD / Endpoint"]
-  Audio --> ASR["Online ASR 或\nSherpa ZipFormer"]
-  ASR --> App["AgentApplicationRuntime"]
-  App --> Control["AgentControlPlane\nSession / NLU / Queue"]
-  Control --> Turn["StreamingTurnRuntime\nLLM / TTS"]
-  Control --> Candidate["/agent/action_candidate\nRobotCommand"]
-  Candidate --> Guard["ActionGuardNode\n白名单 / 限幅 / TTL"]
-  Guard --> Scheduler["ActionScheduler\nFIFO / stop 抢占 / 关联"]
-  Scheduler --> Action["ExecuteRobotCommand Action"]
-  Action --> BT["CommandBehaviorTree"]
-  BT --> Plugin["pluginlib RobotExecutor"]
-  Plugin --> GazeboExec["GazeboRobotExecutor"]
-  Plugin --> Nav2Exec["Nav2RobotExecutor"]
-  GazeboExec --> Gazebo["Gazebo"]
-  Nav2Exec --> Nav2Stack["Nav2 Action servers\nplanner / controller / costmap"]
-  Nav2Stack -->|/cmd_vel| Gazebo
-  Gazebo --> Sensors["Gazebo sensors\n/scan / odom / tf"]
-  Sensors --> Slam["SLAM Toolbox\ncanonical mapping"]
-  Sensors -. "公开 bag / A-B" .-> Backend["Ceres / GTSAM\nexperimental evidence"]
-  Sensors --> Nav2Stack
-  Slam --> Map["/map → map_saver"]
-  Map --> Localization["map_server + AMCL"]
-  Localization --> Nav2Stack
+  Mic["麦克风"] --> Frontend["AudioFrontendNode\nAEC / VAD / endpoint"]
+  Frontend --> Clean["/audio/clean_pcm"]
+  Clean --> ASR["Online ASR / Sherpa ZipFormer"]
+  ASR --> Runtime["AgentApplicationRuntime"]
+  Runtime --> Control["AgentControlPlane\nsession / NLU / FIFO"]
+  Control --> Guard["ActionGuardNode"]
+  Guard --> Scheduler["ActionScheduler"]
+  Scheduler --> Execute["ExecuteRobotCommand Action"]
+  Execute --> BT["CommandBehaviorTree"]
+  BT --> Executor["Nav2RobotExecutor\npluginlib RobotExecutor"]
+  Executor --> Nav2["Nav2 Action servers"]
+  Nav2 --> Gazebo["Gazebo physics"]
+  Gazebo --> Sensors["Gazebo sensors\nscan / odom / TF / clock"]
+  Sensors --> Mapping["SLAM Toolbox\ncanonical mapping"]
+  Mapping --> Frontier["FrontierExplorationMonitor"]
+  Mapping -. "离线实验，不接管在线地图" .-> Backend["Ceres / GTSAM\nexperimental evidence"]
+  Mapping --> Saved["本会话保存图"]
+  Saved --> Localization["map_server + AMCL"]
+  Localization --> Admission["ComputePath 准入"]
+  Admission --> Nav["NavigateToPose"]
+  Nav --> Evidence["typed evidence"]
+  Evidence --> Evaluator["独立 evaluator"]
 ```
 
-## 3. 包与所有权
+图中的 `Nav2RobotExecutor` 是本项目的命令适配插件，`Nav2 Action servers` 才拥有规划与控制状态机；
+executor 不直接接受候选层 `ARC`，而是把已通过 Guard 的 typed primitive 映射为 Nav2 或速度控制请求。
+`SLAM Toolbox` 是当前在线建图事实源，Ceres/GTSAM 只生成可比较的实验后端证据。
 
-| 包 | 拥有的职责 | 不负责 |
+这里刻意保留两条控制路径，而不是强行把所有动作塞进同一层：
+
+- 初始/恢复扫描以及安全 `STOP` 是 primitive，走 Agent → C++ Guard/Scheduler → BT/pluginlib；这样限幅、
+  抢占和执行终态沿用统一安全链。
+- unknown-world 运行时采样目标先由 orchestrator 做本次地图 known-free 预筛和 `ComputePathToPose` 准入，
+  再发 typed Nav2 Action；这样目标级导航保留 Nav2 的规划、取消和反馈语义，不被降级成速度脚本。
+
+### 3.1 节点初始化
+
+`SessionOrchestratorNode` 启动时先执行 `MissionConfiguration.load()`，把 profile、路径和硬门槛冻结为只读
+配置，再创建 ROS clients/subscriptions；只有依赖就绪后才调用 `_start_mapping()`。这里不处理任何语音
+命令，避免一次命令意外重建整套 SLAM/Nav2 资源。
+
+### 3.2 命令事务
+
+`SessionOrchestratorNode._on_asr_final()` 把已识别的“开始/取消自主建图”转换为显式 mission intent；
+unknown-world 由 `UnknownWorldMissionExecutor.run()` 拥有建图、存图、定位、导航和清理的完整事务，
+`AutomaticMissionExecutor` 只服务 known-world 演示。`AgentActionGateway` 负责 primitive Action 的
+command/result 关联，不拥有语音回调或任务阶段。这样 callback、领域事务和 ROS Action 适配各有唯一 owner，
+不会让一次语音回调直接操作 Gazebo 或拼接 launch 命令。
+
+语音控制链的主要代码锚点：
+
+- `audio_frontend_node.cpp:AudioFrontendNode`：PCM、增强、VAD 与 endpoint。
+- `agent_application_runtime.py:accept_transcript()`、`agent_control_plane.py:accept_transcript()`：会话、
+  去重、NLU 和排队。
+- `command_nlu.py:CommandNLU.parse()`：确定性多命令与槽位；低置信度才交给 LLM。
+- `action_guard_node.cpp:ActionGuardNode::on_candidate()`：白名单、限幅和 TTL。
+- `action_scheduler.cpp:ActionScheduler::enqueue()`：FIFO、command_id 关联和 stop 抢占。
+- `command_behavior_tree.cpp:CommandBehaviorTree::tick()`、`robot_executor.hpp:RobotExecutor`：编排与后端
+  执行接口。
+
+## 4. Unknown-world 自主建图导航事务
+
+`UnknownWorldMissionExecutor.run()` 拥有建图→存图→定位→三点导航的事务顺序，
+`SessionOrchestratorNode` 只把领域调用适配到 ROS。正式导航链是：
+
+```text
+save_map()
+→ start_navigation() 清旧缓存并递增 navigation generation
+→ 等待同代保存图 /map + AMCL pose
+→ rank_mapped_goal_candidates() 生成过量、确定性、known-free 连通候选
+→ SessionOrchestratorNode.select_mapped_navigation_goals()
+→ _admit_goal_candidates()
+→ ComputePathToPose 实时准入 + producer 路径 known-free 检查
+→ NavigationGoalLedger.plan(3 goals) 原子登记完整批次
+→ run_navigation_goal() 执行前再次 ComputePath preflight
+→ NavigateToPose + 运行中 /plan 监控
+→ typed goal terminal → evaluator 再检路径与 Action 终态
+```
+
+这一链路有五个关键不变量：
+
+1. `start_navigation()` 在停止 mapping 后递增 `_navigation_input_generation`，清空旧 map/pose；
+   `_on_map()` 与 `_on_amcl_pose()` 为新消息标记同代，准入层必须同时等到二者。
+2. `rank_mapped_goal_candidates()` 只做轻量地图预筛：本次 known-free 连通域、`0.40 m` 目标净空；
+   最终可达性由实时 Nav2 costmap 决定。`GridBased.allow_unknown=false`，目标间距至少 `1.50 m`。
+3. ComputePath 错误 `204/206/208` 只淘汰尚未登记的候选；TF、start、planner、timeout 等错误是系统性
+   fatal。只有凑齐 3 点后才一次 `ledger.plan()`，不会留下半批次证据。
+4. 已被 NavigateToPose 接受的目标失败后必须保留失败终态，不能换点伪装“3/3 成功”。执行前
+   preflight 解决准入到执行之间的时序变化，运行中 `/plan` 继续审计 TOCTOU 风险。
+5. 取消已接受或迟到接受的 Nav2 goal 时，必须依次完成 `cancel → fresh typed priority STOP → Nav2
+   terminal`，才能释放任务锁并发布 `MISSION_CANCELED`。pending goal response 也受独立安全预算约束；
+   任一步无法证明终态时停止整个 stage，并以 `MISSION_FAILED` 收口，不能把“不知道是否还在运动”写成
+   安全取消。
+
+`mapped_goal_sampler.py:inspect_path_occupancy()` 在生产侧按半栅格加密路径；
+`unknown_world_evidence.py:evaluate_sampled_navigation()` 从保存图独立重算，并核对 producer lifecycle、
+Nav2 status/error、目标坐标和最小间距。
+
+## 5. Frontier 完成契约
+
+Explore Lite 选择 free/unknown 边界，SLAM Toolbox 只负责建图和定位。结束不能靠 timeout、地图平台期或
+“黑名单被隐藏”推断，只接受两组 provider/mission 原因：
+
+```text
+no_frontiers + no_reachable_frontiers
+frontier_attempts_exhausted_recoverable + frontier_attempts_exhausted_no_map_gain
+```
+
+第二组要求最后一次传感器驱动的 360° 确认扫描没有达到地图增益阈值；它不等价于 provider 声称
+“没有 frontier”。两组都必须同时满足：available=0、active=0、blacklisted=0，且 accepted goal 全部
+进入 succeeded/aborted/canceled 终态。代码锚点是
+`frontier_monitor.py:FrontierExplorationMonitor._unknown_world_reason()`、
+`mission_executor.py:decide_epoch_recovery()` 与
+`unknown_world_evidence.py:evaluate_frontier_completion()`。
+
+Explore 的运行安全还有一条独立恢复路径，它**不是完成原因**：
+
+```text
+frontier_progress_stalled_recoverable
+  → 等当前 NavigateToPose terminal、accepted==terminal
+  → typed STOP
+  → 360° 恢复扫描
+  → 有地图增益才开启新 epoch；无增益则任务失败
+```
+
+frontier traversal clearance 使用 `0.33 m`，会侵蚀探索器可走的整个连通域；unknown-world 的
+`0.40 m` approach observation tolerance 只判断“是否已进入 LiDAR 可观测半径”，不是通路净空，也不是
+Nav2 成功容差。三类参数必须分离，否则既可能切断窄门，也可能把“靠近但目标已变危险”误写成 visited。
+因此进入 `0.40 m` 前还会用最新地图复核 approach 安全性。
+
+探索进展由“目标距离创下新低”或“机器人相对 progress anchor 实际移动至少 `0.15 m`”任一条件刷新，
+避免 U 型绕行被误判卡死。若一次最终 timeout 前累计有效逃逸达到 `2 × 0.15 m`，它会打断“连续静止”
+timeout 计数，但这个失败 approach 仍写入局部失败记忆；只有连续两个真正静止且已收到 Nav2 terminal 的
+timeout 才触发恢复。Nav2 自身的 `SimpleProgressChecker` 则使用 `0.10 m / 30 s`，由
+`prepare_frontier_nav2_params.py` 写进本 session 留档 YAML，避免只改 launch 临时参数而让运行证据失真。
+
+地图稳定使用“soft quiet + hard budget”双时钟：连续无地图增长达到 `map_settle_s` 才算安静；同时调用方
+持有从进入等待起计算、不会被新增长重置的绝对 deadline。前者避免尾部更新未落盘，后者避免持续噪声或
+增长让任务无限续期。超过 hard budget 必须失败，不能把 timeout 当成收敛。
+
+## 6. 信任边界与证据流
+
+```text
+robot policy
+  mission YAML + scan/odom/TF/live map + Nav2 costmap
+                         │ typed state / plan / result（单向）
+                         ▼
+evaluator
+  场景 regions + 静态 truth map + Gazebo truth pose + 报告阈值
+```
+
+`unknown_world_contract.py:validate_unknown_world_mission()` 递归拒绝 `bootstrap_route`、静态地图、places、
+固定目标及同义先验。Gazebo world→map 变换由出生位姿定义，不用 AMCL 结果反向拟合真值。
+`unknown_world_evidence.py:build_unknown_world_report()` 是 schema v4 PASS/FAIL 的唯一事实源；日志和心跳
+只能帮助诊断，不能宣布成功。
+
+重型 gate 在自主三点任务完成后，会由 `tools/acceptance/probes/slam_nav/dynamic_scenario.py` 注入固定的
+动态 challenge goal/actor。它是 evaluator 驱动的外部测试刺激，只验证预测障碍与重规划；其坐标不进入
+探索、建图或三点采样算法，也不计作“自主选择的导航目标”。这个边界允许测试可重复，同时避免用验收
+脚本暗中告诉机器人未知场景的结构。
+
+Strong typed evidence 由 `SlamSessionState.msg`、`FrontierExplorationEvidence.msg` 和
+`SlamNavigationGoalEvidence.msg` 承载。`phase` 只描述 ROS 栈所在阶段，`mission_outcome` 独立描述任务
+终态，防止“Nav2 仍处于 NAVIGATING”被误读为任务成功。
+
+### 跨时钟路径关联
+
+orchestrator 常驻于 Gazebo stage 外部，typed 目标生命周期使用 `SYSTEM_TIME`；Nav2 开启
+`use_sim_time` 后 `/plan` header 使用 Gazebo `/clock`。两者数值不能直接排序。
+`sampled_goal_tracker.py:SampledGoalPlanTracker` 通过 mission generation、唯一 active goal、map endpoint
+和有界乱序缓存关联路径；`_timestamps_share_clock_domain()` 只在同一时钟域内比较时间戳。关键中文注释
+就在该函数和 `observe_plan()/update_state()` 的乱序处理处。
+
+## 7. Deep modules 与扩展 seam
+
+| Deep module | 对外接口 | 隐藏的复杂性 / 扩展点 |
 | --- | --- | --- |
-| `embodied_agent_interfaces` | msg/srv/action 的唯一 schema 来源 | 业务逻辑、传输实现 |
-| `embodied_agent_middleware` | QoS 与中间件语义 | Agent 或机器人决策 |
-| `embodied_agent_core` | 会话、队列、NLU、记忆、共享应用运行时 | 云/本地 provider 细节 |
-| `embodied_agent_bringup` | launch 参数契约、Lifecycle 启动顺序 | 算法实现 |
-| `embodied_voice_frontend` | 可替换 VAD/KWS/声纹 provider | 动作生成 |
-| `embodied_agent_cpp` | C++ 音频前端、ActionGuard、ActionScheduler | Nav2 规划算法 |
-| `embodied_online_agent` | 在线 ASR/LLM/TTS provider Adapter | 安全执行策略 |
-| `embodied_offline_agent` | Sherpa、llama.cpp、TTS 双缓冲 Adapter | 云服务 |
-| `embodied_simulation` | BT、pluginlib 执行器、Gazebo/Nav2 bridge | ASR 和用户会话 |
-| `embodied_slam` | 漂移、回环、Ceres/GTSAM 后端实验 | 自动任务编排 |
-| `embodied_navigation` | 动态障碍跟踪、预测、costmap plugin | 语音解析 |
-| `embodied_slam_tools` | 任务配置、建图/存图/定位/巡检状态机与进程编排 | SLAM 后端内部优化 |
+| `MissionConfiguration.load()` | 冻结配置对象 | YAML 默认值、范围、profile 约束 |
+| `UnknownWorldMissionExecutor.run()` | unknown-world 单一任务事务 | 恢复 epoch、存图、阶段切换、取消 |
+| `AutomaticMissionExecutor.run()` | known-world 演示事务 | 预置路线与语义地点演示 |
+| `StageProcessManager` | `start/stop/save_map` | launch、进程组和清理 |
+| `rank_mapped_goal_candidates()` | 排序候选 tuple | 栅格浮点净空、连通域、确定性 farthest ranking |
+| `_admit_goal_candidates()` | 完整目标批次 | 过量候选、可跳过错误、原子性与间距 |
+| `NavigationGoalLedger` | plan/transition/snapshot | typed 生命周期和 producer 路径统计 |
+| `SampledGoalPlanTracker` | state/plan/snapshot | 跨 topic、跨时钟和乱序关联 |
+| `AcceptanceSession` | spawn/run/close | ROS domain lease、进程树、超时和证据目录 |
+| `unknown_world_evidence.py` | 纯数据 → report | 真值评分、所有硬门槛和失败明细 |
 
-这种所有权让替换在线/离线 provider 时不改 C++ 安全层，替换 Gazebo/Nav2 executor 时也不改
-Agent。代价是接口和状态更多，因此用 typed schema、统一事件和验收脚本约束它们。
+扩展探索策略时实现同一 typed frontier evidence；扩展 planner/controller 时保持 ComputePath admission、
+运行中 plan 与 Action terminal 契约；扩展实体硬件时实现 `RobotExecutor`，不得绕过 Guard/Scheduler。
+这些 seam 足够承载替换，不为每个小函数增加空壳层。
 
-## 4. 主控制链：语音到机器人动作
+## 8. 证据状态
 
-| 层 | 输入 | 关键文件与符号 | 关键处理 | 输出 / 下游 | 失败语义 |
-| --- | --- | --- | --- | --- | --- |
-| 音频 | PCM | `src/embodied_agent_cpp/src/audio_frontend_node.cpp`：`AudioFrontendNode` | AEC、能量/VAD、静音 endpoint | `/audio/clean_pcm`、`/audio/speech_ended` | readiness/VAD 状态说明未听到或未成句 |
-| ROS I/O | audio/event/result | `agent_ros_io.py`：`AgentRosIo`；`ros_topics.py`：`AgentTopicContract` | 集中 topic、QoS、Lifecycle publisher 与回调装配 | 在线/离线节点回调 | 接线差异不进入业务层 |
-| 在线 Agent | clean audio | `online_agent_node.py`：`_on_speech_ended()`、`_on_asr_final()` | endpoint commit、partial/final 稳定化、在线 ASR | `AgentApplicationRuntime.accept_transcript()` | provider error/retry，不生成假动作 |
-| 离线 Agent | clean audio | `offline_agent_node.py`：`_on_audio()`、`_run_asr()`、`_on_asr_final()` | ZipFormer 队列、延迟 commit、partial/final 稳定化 | 同一共享应用层 | 模型/资产错误写 readiness |
-| 应用/并发层 | transcript/queue item | `agent_application_runtime.py`：`accept_transcript()`、`run_queued_turn()`；`agent_execution_runtime.py`：`_run_worker()` | 串起会话、队列、NLU、turn，并拥有 busy/worker/Lifecycle 停止语义 | 控制面 decision 或 model turn | 过滤、拒绝、过期和执行失败均发布原因 |
-| 控制面 | 文本 | `agent_control_plane.py`：`accept_transcript()`、`enqueue_command()` | wake/session、去重、TTL、批次入队 | `CommandNLU.parse()`、执行队列 | queue full/expired/duplicate 可观测 |
-| NLU | 一句文本 | `command_nlu.py`：`CommandNLU.parse()` | 多命令、槽位、否定句、短命令补全 | 领域 `ParsedCommand`；观测侧转为 `NluCommand.msg` | 低置信度交给 LLM；危险句拒绝 |
-| LLM/TTS | fallback 文本 | `online_turn_runtime.py` / `offline_turn_runtime.py`；`streaming_turn.py` | provider 流、tagged parser、分句或双缓冲 TTS | speech chunk 和领域动作 | 动作仍必须进入 Guard |
-| 动作发布 | 领域动作 | `action_sequence.py`：`SequentialActionPublisher.publish()`；`ros_action_transport.py` | 分配 command_id、需要时按结果串行、转换 `RobotCommand` | `/agent/action_candidate` | cancel/超时/旧 result 不释放下一项 |
-| 安全层 | `RobotCommand` | `action_guard_node.cpp`：`ActionGuardNode::on_candidate()`；`action_validator.cpp` | 白名单、速度/时长/目标限制、TTL | guarded command/outbox | rejected ACK，不下发 Action |
-| 调度层 | guarded command | `action_scheduler.cpp`：`ActionScheduler::enqueue()` | FIFO、stop 抢占、command_id/result 关联 | Action goal/cancel | 失败可清队列，最终请求停车 |
-| 执行层 | `ExecuteRobotCommand` goal | `robot_command_policy.cpp`：`is_executable_robot_command()`；`command_behavior_tree.cpp`：`CommandBehaviorTree::tick()` | 统一执行契约→safety→execute→result | pluginlib `RobotExecutor` | 非法命令、cancel、watchdog、haltTree |
-| 仿真/Nav2 | command | `gazebo_robot_executor.cpp` 或 `nav2_robot_executor.cpp` | `/cmd_vel` 或 Nav2 Action | odom/result/feedback | cancel 后零速；Nav2 失败回传 |
+fresh session `20260720T031306Z-1114546-814430c3` 已在当前安全/恢复语义下通过 schema v4 六阶段 E2E：
+reachable coverage `99.67%`，四区域最低覆盖 `97.76%`，reachable unknown `0.33%`，障碍边界召回
+`80.93%`、false-free `0.21%`；20 个 accepted frontier 全部 terminal，结束时
+available/active/blacklisted 均为 0；AMCL 246 个对齐样本 P95 `0.154 m`；运行时采样导航 3/3 成功，
+最小间距 `5.57 m` 且路径 unknown/occupied/map-outside 均为 0；动态路径净空由 `0.0245 m` 提升到
+`1.021 m` 并成功重规划，最后得到 fresh `cmd_vel=0`。
 
-### 4.1 为什么使用 typed msg/action
+这次修复没有下调严格 evaluator：总体/分区覆盖、unknown、障碍、定位、3 点间距、全路径安全、动态
+重规划与终态零速门槛保持原值。完整阈值和报告位置仍以 [测试手册](TESTING.md) 为唯一事实源。
 
-`RobotCommand` 把动作类型、速度、持续时间、语义目标、waypoints、`command_id` 等字段放进编译期
-schema；`ExecuteRobotCommand.action` 提供 feedback、result 和 cancel。与字符串或 JSON 话题相比：
-
-- 编译阶段发现字段漂移，而不是运行时解析失败；
-- DDS 可按字段序列化，rosbag、`ros2 interface show` 和工具链可直接理解；
-- 长动作具备取消、反馈和结果，调度器不会用“收到话题”冒充“完成动作”。
-
-### 4.2 为什么 NLU 与 LLM 并存
-
-高频机器人命令用 `CommandNLU` 确定性解析，时延低、可单测；表达超出规则覆盖时才走 LLM。
-纯规则难以覆盖开放对话，纯 LLM 又会引入网络/采样波动和不可预测动作。二者输出最终都进入同一
-ActionGuard，因此 fallback 不会绕过安全边界。
-
-### 4.3 为什么队列与 Action result 关联
-
-同一句“右转，然后前进”会生成同一 `batch_id` 下的多个 `command_id`；执行期间到达的新命令进入
-FIFO。只有当前 command_id 的 Action result 才释放下一项，避免旧 result 或重复消息误唤醒队列。
-stop/急停是例外：立即取消活动 goal、清空普通队列并发零速。
-
-结果回路同样属于主链：`/robot/action_result` 由 `AgentRosIo` 转交节点 `_on_action_result()`，再经
-`AgentApplicationRuntime.notify_action_result()` 到 `SequentialActionPublisher.notify_result()`。
-动作发布与结果消费共用 `command_id`，因此 DDS 到达顺序不能把上一条结果误配给下一条命令。
-
-## 5. 自动建图导航链
-
-自动任务由 `embodied_slam_tools` 编排，不把 shell 进程切换散落在 Agent 内：
-
-节点初始化只执行一次，先冻结配置和装配模块，再由 worker 启动 mapping stage：
-
-```text
-SessionOrchestratorNode.__init__()
-→ MissionConfiguration.load()       # YAML/默认值/阈值一次性收紧
-→ 装配 ProcessManager / Evidence / FrontierMonitor / MissionExecutor
-→ _worker.start()
-→ _worker_loop()
-→ _start_mapping()                  # 启动 SLAM/建图并等待 readiness
-```
-
-命令事务发生在 mapping ready 之后，ASR 或 Action 只负责提交请求，专用 worker 顺序执行：
-
-```text
-SessionOrchestratorNode._on_asr_final()
-→ parse_session_command()
-→ _enqueue()
-→ _worker_loop() 取出 CommandRequest
-→ _execute_request()
-→ AutomaticMissionExecutor.run()
-→ AgentActionGateway.run()          # bootstrap 语义动作与 typed result 关联
-→ StageProcessManager.start_explorer()
-→ FrontierExplorationMonitor.wait()
-→ StageProcessManager.save_map()
-→ StageProcessManager.start("navigation")
-→ AgentActionGateway.run()          # NavigateToPose/FollowWaypoints
-```
-
-| 阶段 | 方法与输入 | 关键技术 | 输出 / 下一阶段 | 终止条件 |
-| --- | --- | --- | --- | --- |
-| `STARTING` | 启动 Gazebo、SLAM Toolbox、Nav2 SLAM 模式 | lifecycle/readiness、同一场景坐标契约 | `/scan`、`/tf`、`/map` | 必要 topic/action 未就绪即失败 |
-| `EXPLORING` | bootstrap 完成后调用 `StageProcessManager.start_explorer()` | 初始脱角使用可审计 move/turn；未知区域使用 Explore Lite frontier、信息增益/路径代价、Nav2 goal | 已知栅格持续增长 | 无可达 frontier 或 plateau；超时失败 |
-| `SAVING` | `StageProcessManager.save_map()` | `map_saver_cli`、YAML/PGM 原子证据检查 | 保存地图路径 | 文件缺失/空文件失败 |
-| `LOCALIZING` | `StageProcessManager.start("navigation")` | 有序关闭 SLAM，map_server + AMCL，`map→odom` | Nav2 定位栈 ready | 生命周期/TF/Action 未就绪失败 |
-| `PATROLLING` | `AgentActionGateway.run()` | 语义地点转 typed navigate/patrol command | NavigateToPose/FollowWaypoints result | 任一步失败停止后续巡检 |
-| `COMPLETED` | 汇总状态与报告 | map 指标、Action result、最终速度 | JSON 证据 | 最终 `/cmd_vel` 必须为零 |
-
-frontier 目标由 Explore Lite 直接交给 Nav2，不经 LLM ActionGuard；它仍受 Nav2 global/local
-costmap、planner、controller 和 recovery 安全约束。存图后的“去入口、巡检厨房和办公室”重新进入
-Agent→ActionGuard→Action 主链。这个区别必须在汇报中说清楚。
-
-### 5.1 取消与故障恢复
-
-- “停下/急停/取消自动任务”映射为优先请求，设置取消事件并停止 explorer/Nav2 goal。
-- `StageProcessManager` 负责进程组终止，避免只杀父进程留下 Gazebo/Nav2 子进程。
-- 每个阶段先检查 readiness，再推进状态；不能用固定 `sleep` 假设组件已经就绪。
-- 自动探索失败时可用 `mapping/save/navigation` 分阶段定位，但 `navigation` 只接受本次保存地图；
-  分阶段成功不算自动探索完整通过。
-
-## 6. ROS 2 接口与通信语义
-
-### 6.1 核心 typed 接口
-
-| 接口 | 作用 | 主要生产者 | 主要消费者 |
-| --- | --- | --- | --- |
-| `RobotCommand.msg` | 统一动作载荷 | Agent/NLU | ActionGuard、Adapter |
-| `ExecuteRobotCommand.action` | 可取消动作执行 | Action bridge/client | BT Action server |
-| `ManageSlamSession.action` | save/start-nav/auto mission/stop | 会话客户端 | `SessionOrchestratorNode` |
-| `SlamSessionState.msg` | 自动任务阶段和说明 | SLAM orchestrator | monitor/验收探针 |
-| `CommandQueueEvent.msg` | queued/rejected/expired | AgentControlPlane | monitor/evidence |
-| `CommandExecutionEvent.msg` | start/success/failure | execution runtime | monitor/evidence |
-| `RecognitionFeedback.msg` | 补全、过滤、重试原因 | ASR/control plane | 终端 monitor |
-
-### 6.2 QoS
-
-`embodied_agent_middleware` 集中定义 command/event/status QoS，避免每个节点各写一份。命令和
-Action 关注可靠、有限队列；高频传感器关注及时性；状态类消息允许 late joiner 获得最新快照。
-WSL 默认通过 `scripts/ros_dds_env.sh` 使用 Fast DDS UDPv4，规避共享内存端口锁错误。
-
-### 6.3 Lifecycle
-
-Agent bridge、安全节点和关键机器人组件按 configure→activate→deactivate→cleanup 管理。configure
-只创建资源，activate 才允许命令流动；inactive 收到命令必须拒绝。这样 launch manager 可以按依赖
-顺序启动，也能在切换 SLAM/AMCL 时明确停用旧阶段。
-
-## 7. 仿真、SLAM 与动态障碍扩展
-
-- `GazeboRobotExecutor` 把 Guard 规范化后的 `MOVE/TURN` 转为 `/cmd_vel`，其中弧线是同时携带
-  linear/angular 的 `MOVE`；watchdog 到期归零，executor 不直接接受候选层 `ARC`。
-- `Nav2RobotExecutor::send_navigate_goal()` 和 `send_follow_goal()` 把语义地点加载为 Nav2 goal。
-- `evaluate_follow_waypoints_result()` 将 Nav2 协议终态转换为业务终态：只有 Action 成功、
-  `error_code=0` 且 `missed_waypoints=0` 才算巡检完成，避免“Action 结束但漏点”的假阳性。
-- `CommandBehaviorTree` 把校验、安全、执行和停止组织为可观察阶段；pluginlib 让同一 Action server
-  不依赖具体执行后端。
-- `is_executable_robot_command()` 是 Action goal 与 BT `ValidateCommandNode` 共享的执行契约；
-  `use_behavior_tree` 只改变编排方式，不能改变哪些命令可执行。候选层 `ARC` 必须先经
-  ActionGuard 规范化为 `MOVE`，不能绕过 Guard 直达执行器。
-- `embodied_slam` 的回环、Ceres/GTSAM A/B 属于算法证据，不替代自动探索状态机。
-- 自动探索终止按 `no_frontiers / coverage_plateau / time_budget_coverage` 三种可审计原因处理；
-  时间预算到期只有覆盖阈值已达标才允许进入 map saver。
-- corner-start 场景先由 `parse_mapping_bootstrap_route()` 校验 move/turn-only 路线，
-  `AgentActionGateway.run()` 复用 Agent→Guard→Action 自动驶入中央门洞，再启动 Explore Lite；
-  路线只解决脱离充电角，后续未知区域目标仍由 frontier 决定。
-- `embodied_navigation` 的 CV/Kalman/IMM、数据关联和 costmap plugin 属于动态避障增强，不改变
-  Agent→Action 安全边界。
-
-## 8. 日志、诊断与证据
-
-端到端日志不是单个 print，而是多层事实：
-
-```text
-/agent/asr_final
-→ /agent/nlu_parse
-→ /agent/command_queue
-→ /agent/action_candidate
-→ /robot/action_feedback + /robot/action_result
-→ /slam/session_state
-→ /cmd_vel + /odom + /map
-```
-
-`scripts/acceptance_test.sh` 是唯一公开 Interface；模式目录、handler 和运行方式由
-`tools/acceptance/` 拥有。真正 PASS 条件由探针读取 topic、Action result、地图文件和最终速度。
-mock 报告证明控制逻辑，Gazebo 报告证明仿真闭环，真人麦克风报告证明当前声学环境；三者不可互换。
-实现细节与扩展规则统一见 [`tools/acceptance/README.md`](../tools/acceptance/README.md)。
-
-重型门禁把高频 ROS 输出写入 `runtime.log`，由 `tools/acceptance/progress.py` 的
-`AcceptanceProgress` 向终端发布低频心跳和阶段里程碑。SLAM/Nav2 探针按职责拆为深 Module：
-
-```text
-tests/                           pytest/GTest 断言、fixture、脚本与仓库契约
-tools/acceptance/probes/control 可执行 typed Action/Lifecycle/Gazebo Adapter
-tools/acceptance/probes/slam_nav 可执行 mapping/localization/Nav2 probe 与 canonical E2E 编排
-tools/acceptance/probes/voice    可执行 ROS/provider/API runtime Adapter
-tools/acceptance/scenarios       重型场景声明与报告验证 Adapter
-tools/acceptance/session.py      domain lease、进程组、超时、日志与清理 Module
-```
-
-control、slam_nav、voice 域不再让“测试工具”与“被 pytest 执行的测试”共用 `test_*.py` 名称。
-运行时 probe 可以被 repository test 静态检查，但不得反向导入 `tests.*`；跨 probe 的 typed 消息
-构造统一复用
-`typed_action_probe_utils.py` 和生产 transport，避免验收链形成第二套协议。
-
-canonical `slam-nav-e2e` 通过 `AcceptanceSession` 租用带 `flock` 的 ROS domain，并由同一会话派生
-Gazebo partition、独占 lease 的证据目录和 `acceptance_session.json`。canonical 默认不继承终端的
-通用 `ROS_DOMAIN_ID`，避免误接入旧 graph。子进程一律新建 POSIX 进程组；正常退出、
-异常、Ctrl-C 与超时都执行 TERM→grace→KILL；Linux subreaper 负责父进程先退出后被重新托管的
-setsid 孤儿进程。场景只调用 `spawn()`/`run()`，不再各写一份 trap，
-从而把“终端无输出”和“本会话进程污染下一轮”变成可单测的统一失败语义；lease 不负责发现未采用
-该协议的外部手工 ROS graph。
-
-需要从模块位置寻找仓库资源的 Python probe，通过
-`tools/acceptance/paths.py:repository_root()` 定位仓库根。它从调用者给出的路径（默认是模块自身）
-向上搜索 `scripts/acceptance_test.sh`、`tools/acceptance`、`src` 三个稳定标记，找不到就显式失败，
-而不是用固定 `parents[n]` 猜测目录层级。这个 Interface 把文件布局变化隔离在一处，使 focused probe
-在主 worktree 与 Git worktree 中得到一致路径；canonical E2E 已由 CLI 显式传入路径，不重复猜测。
-
-```text
-session_orchestrator.py（唯一可执行入口与顶层会话编排）
-  ├→ cli.py（ROS-free 参数 Interface）
-  ├→ session_observer.py（SessionObserver typed ROS Adapter）
-  ├→ dynamic_scenario.py（Nav2/Gazebo/检测 ROS Adapter）
-  │    └→ dynamic_scenario_transaction.py（ROS-free 清理策略）
-  ├→ artifacts.py（地图哈希、失败报告与终端摘要）
-  └→ slam_nav_evidence.py（ROS-free PASS/FAIL 决策）
-```
-
-依赖只沿箭头方向流动：ROS Adapter 采集 topic、Action、Service 与 TF 事实，不拥有场景策略或验收
-阈值；`DynamicScenarioTransaction` 通过注入回调固定执行“取消 Nav2 goal → Gazebo 障碍归位 →
-发布空检测 → 验证 tracker/costmap 清除 → 验证零速度”。`dynamic_scenario.py` 在这个 Seam 上只做
-ROS/Gazebo Adapter，不复制清理顺序或异常优先级。场景已失败时，清理错误只作为附加诊断，最先发生
-的原始异常继续向上传播；场景成功但清理后置条件失败时，门禁必须失败。编排器只连接这些 Interface。
-完整 JSON 留在证据文件，终端只打印里程碑和摘要，避免高频日志淹没关键状态或让长等待看起来卡死。
-
-`tools/acceptance/slam_nav_evidence.py` 是业务观测、阈值与报告 `passed` 的唯一事实源。其他 Module
-只生产普通值对象，`evaluate_dynamic_navigation()` 与 `build_automatic_mission_report()` 统一判断
-新地图时效、frontier、AMCL/Nav2、完整 waypoint、动态净空和最终零速度。该纯证据 Module 不导入
-rclpy/nav_msgs，阈值和失败语义可在 CI 中快速单测，也不会被终端日志或编排分支重复实现；事务则在
-报告生成前独立强制资源后置条件，清理失败时不会生成伪 PASS。
-
-验收命令本身由 `tools/acceptance/catalog.py` 显式声明 `HandlerDomain`，再由
-`BashModeRunner.run()` 选择唯一领域 handler。mode 名不参与路由推断，也不会作为隐藏位置参数传入
-Bash；因此重命名不会静默改变执行库，handler 的 `$1` 始终表示首个用户参数。
-
-## 9. 部署一致性
-
-所有公共入口先调用 `scripts/lifecycle_utils.sh:embodied_resolve_workspace()`，从入口脚本自身推导当前
-repo/worktree 并 export `WORKSPACE`。`scripts/activate.sh` 再加载同一目录的 `.venv`、`install` 和
-`.env`，并恢复调用 shell 的 `errexit/nounset/allexport` 状态。
-
-同一共享脚本的 `embodied_workspace_doctor()` 检查：
-
-1. 源码和 install 布局存在；
-2. `embodied_agent_interfaces`、`embodied_slam_tools` prefix 属于当前 install；
-3. 生成的 Action 包含 `RUN_AUTOMATIC_MISSION`；
-4. 自动主演示需要的 `explore_lite` 也属于同一 install。
-
-这解决了“feature worktree 中看新源码、实际却运行主工作区旧 install”的静默漂移问题。
-
-## 10. 设计取舍摘要
-
-| 选择 | 采用原因 | 未采用方案及差异 |
-| --- | --- | --- |
-| typed ROS 2 Action | 编译期 schema、反馈、取消、结果 | JSON/String 简单但运行期脆弱 |
-| 确定性 NLU + LLM fallback | 高频命令稳定，开放表达可扩展 | 纯规则覆盖差；纯 LLM 不稳定 |
-| C++ Guard/Scheduler | 安全路径低延迟、易与 ROS 生命周期结合 | 全 Python 原型快但安全边界弱 |
-| BT + pluginlib | 编排与执行后端解耦，可测试 | 大量 if/else 难扩展、难观察 |
-| frontier + Nav2 | 真正根据未知区域自主选点 | 固定路线只能做回归，不能算自动探索 |
-| 阶段进程编排 | SLAM→AMCL 资源和 TF 所有权清楚 | 同时运行两套定位易冲突 |
-| 配置/证据深模块 | Node 只装配已验证值，探针只采样 ROS 事实 | 在巨型 Node/脚本中散落 YAML key 和 PASS 条件易漂移 |
-| readiness/action result | 状态驱动、失败可解释 | 固定 sleep 在慢机器上易竞态 |
-
-## 11. 阅读与验收入口
-
-- 测试与验收：[TESTING.md](TESTING.md)
-- 15 分钟演示：[PRESENTATION_15MIN.md](PRESENTATION_15MIN.md)
-- 语音 Agent：[learning/VOICE_AGENT.md](learning/VOICE_AGENT.md)
-- ROS 2/C++ 控制：[learning/ROS2_CPP_CONTROL.md](learning/ROS2_CPP_CONTROL.md)
-- SLAM/Nav2：[learning/SLAM_NAV2.md](learning/SLAM_NAV2.md)
-- 证据索引：[evidence/README.md](evidence/README.md)
+真人语音 known-world 交互属于另一条现场证据，也不能与 unknown-world session 合并表述。

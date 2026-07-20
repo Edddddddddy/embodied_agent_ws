@@ -10,7 +10,10 @@ import time
 from pathlib import Path
 
 from embodied_agent_interfaces.action import ExecuteRobotCommand, ManageSlamSession
-from embodied_agent_interfaces.msg import RobotCommand, SlamSessionState
+from embodied_agent_interfaces.msg import (
+    RobotCommand,
+    SlamSessionState,
+)
 from lifecycle_msgs.msg import State
 import rclpy
 from std_msgs.msg import String
@@ -27,10 +30,14 @@ from tools.acceptance.probes.slam_nav.dynamic_scenario import (
     run_showcase_dynamic_navigation,
 )
 from tools.acceptance.probes.slam_nav.session_observer import (
+    GazeboTruthConfig,
     SessionObserver,
     lifecycle_states,
     run_text_action,
     wait_until,
+)
+from tools.acceptance.probes.slam_nav.unknown_world_report_adapter import (
+    build_session_report as build_unknown_world_session_report,
 )
 from tools.acceptance.progress import AcceptanceProgress
 from tools.acceptance.slam_nav_evidence import (
@@ -38,6 +45,7 @@ from tools.acceptance.slam_nav_evidence import (
     AutomaticMissionThresholds,
     build_automatic_mission_report,
 )
+from tools.acceptance.unknown_world_evidence import load_scene_evaluation_context
 import yaml
 
 
@@ -73,9 +81,26 @@ def _publish_state_progress(
 
 def main() -> None:
     args = build_parser().parse_args()
+    scene_context = None
+    gazebo_truth_config = None
+    if args.unknown_world:
+        if args.scene_spec is None or args.truth_map is None:
+            raise ValueError(
+                "--unknown-world requires evaluator-only --scene-spec and --truth-map"
+            )
+        scene_context = load_scene_evaluation_context(args.scene_spec)
+        gazebo_truth_config = GazeboTruthConfig(
+            world_name=scene_context.world_name,
+            robot_entity_name=args.gazebo_robot_entity,
+            transform=scene_context.transform,
+        )
     progress = (
         AcceptanceProgress(
-            label="slam-nav-e2e",
+            label=(
+                "unknown-world-slam-e2e"
+                if args.unknown_world
+                else "slam-nav-e2e"
+            ),
             total_stages=6,
             heartbeat_s=args.progress_heartbeat_s,
         )
@@ -89,7 +114,10 @@ def main() -> None:
         if progress is not None
         else None
     )
-    node = SessionObserver(state_observer=state_observer)
+    node = SessionObserver(
+        state_observer=state_observer,
+        gazebo_truth_config=gazebo_truth_config,
+    )
     if progress is not None:
         progress.start(
             session_id=args.session_id or "unassigned",
@@ -153,15 +181,16 @@ def main() -> None:
                 )
                 print(json.dumps(report, ensure_ascii=False, indent=2))
                 return
+            mission_failures = {
+                SlamSessionState.MISSION_FAILED,
+                SlamSessionState.MISSION_CANCELED,
+            }
             wait_until(
                 lambda: (
                     node.has_phase(SlamSessionState.MISSION_COMPLETED)
                     or any(
                         state.phase == SlamSessionState.FAILED
-                        or (
-                            state.phase == SlamSessionState.MAPPING
-                            and "automatic mission failed" in state.detail
-                        )
+                        or state.mission_outcome in mission_failures
                         for state in node.states[state_start:]
                     )
                 ),
@@ -173,17 +202,16 @@ def main() -> None:
                     state
                     for state in reversed(node.states[state_start:])
                     if state.phase == SlamSessionState.FAILED
-                    or (
-                        state.phase == SlamSessionState.MAPPING
-                        and "automatic mission failed" in state.detail
-                    )
+                    or state.mission_outcome in mission_failures
                 ),
                 None,
             )
             if failed_state is not None:
                 # 重型进程已经给出确定失败时立即结束，避免继续等待完整超时，
                 # 同时让 smoke 脚本及时打印 orchestrator/Nav2 原始日志。
-                raise RuntimeError(failed_state.detail)
+                raise RuntimeError(
+                    failed_state.mission_message or failed_state.detail
+                )
             observed = [int(state.phase) for state in node.states]
             # 状态 topic 使用 depth=1 + transient-local：dry-run 阶段切换仅数毫秒，
             # 订阅者可能合理地只收到最新快照。最终状态同时携带 map_saved，故可作为
@@ -197,18 +225,21 @@ def main() -> None:
             dynamic_navigation = None
             if args.evidence_kind != "dry_run_process_adapter":
                 wait_until(
-                    lambda: (
-                        abs(node.last_cmd_vel["linear_x"]) < 1e-6
-                        and abs(node.last_cmd_vel["angular_z"]) < 1e-6
-                    ),
+                    node.has_fresh_terminal_stop,
                     5.0,
-                    "automatic mission finished without a final zero velocity",
+                    "automatic mission finished without a fresh final zero velocity",
                 )
                 wait_until(
                     lambda: node.localization_tf_count > 0 and node.amcl_pose_count > 0,
                     20.0,
                     "saved-map localization evidence missing",
                 )
+                if args.unknown_world:
+                    wait_until(
+                        lambda: len(node.localization_evidence()[1]) > 0,
+                        20.0,
+                        "Gazebo SceneBroadcaster robot truth is missing",
+                    )
                 lifecycle = lifecycle_states(node)
                 if args.dynamic_scenario is not None:
                     if progress is not None:
@@ -221,6 +252,20 @@ def main() -> None:
                         node,
                         args.dynamic_scenario,
                         timeout_s=args.dynamic_navigation_timeout,
+                    )
+                    wait_until(
+                        node.has_fresh_final_motion_stop,
+                        8.0,
+                        "dynamic navigation ended without fresh motion/stop evidence",
+                    )
+                if args.unknown_world:
+                    wait_until(
+                        lambda: (
+                            len(node.localization_evidence()[0]) >= 20
+                            and len(node.localization_evidence()[1]) >= 20
+                        ),
+                        20.0,
+                        "insufficient time-aligned AMCL/Gazebo samples",
                     )
 
             if progress is not None:
@@ -244,7 +289,7 @@ def main() -> None:
                     "yaml_mtime_ns": map_yaml.stat().st_mtime_ns,
                     "image_mtime_ns": image_path.stat().st_mtime_ns,
                 }
-            if args.mission_plan is not None:
+            if args.mission_plan is not None and not args.unknown_world:
                 mission = yaml.safe_load(
                     args.mission_plan.read_text(encoding="utf-8")
                 )
@@ -267,6 +312,33 @@ def main() -> None:
                 state == int(State.PRIMARY_STATE_ACTIVE)
                 for state in lifecycle.values()
             )
+            if args.unknown_world:
+                if map_yaml is None or not map_yaml.is_file():
+                    raise RuntimeError("unknown-world mission did not save a map")
+                if scene_context is None or args.truth_map is None:
+                    raise RuntimeError("unknown-world evaluator context is missing")
+                report = build_unknown_world_session_report(
+                    node=node,
+                    final_state=final_state,
+                    session_id=args.session_id,
+                    session_start_ns=args.session_start_ns,
+                    built_map_yaml=map_yaml,
+                    truth_map_yaml=args.truth_map,
+                    scene_context=scene_context,
+                    map_provenance=map_provenance,
+                    nav2_lifecycle_active=lifecycle_active,
+                    dynamic_navigation=dynamic_navigation,
+                )
+                args.output.parent.mkdir(parents=True, exist_ok=True)
+                args.output.write_text(
+                    json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+                print_report(report, summary_only=args.summary_only)
+                if not report["passed"]:
+                    raise SystemExit(1)
+                progress_outcome = "PASS"
+                return
             observation = AutomaticMissionObservation(
                 session_id=args.session_id,
                 session_start_ns=args.session_start_ns,
@@ -451,6 +523,7 @@ def main() -> None:
         print(json.dumps(report, ensure_ascii=False, indent=2))
     except Exception as error:
         # 重型门禁即使在中途失败也必须留下机器可读原因，避免现场只看到超时或卡住。
+        last_state = node.states[-1] if node.states else None
         failure_report = build_failure_report(
             session_id=args.session_id,
             session_start_ns=args.session_start_ns,
@@ -462,6 +535,13 @@ def main() -> None:
             frontier_goal_count=len(node.frontier_goal_ids),
             mapping_path_m=robot_traveled_distance(node.mapping_positions),
             final_cmd_vel=node.last_cmd_vel,
+            schema_version=4 if args.unknown_world else 3,
+            mission_outcome=(
+                int(last_state.mission_outcome) if last_state is not None else 0
+            ),
+            mission_message=(
+                str(last_state.mission_message) if last_state is not None else ""
+            ),
         )
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(

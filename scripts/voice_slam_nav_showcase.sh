@@ -14,8 +14,23 @@ MISSION_SPEC="$WORKSPACE/src/embodied_simulation/config/showcase_workplace_missi
 SESSION_DIR="${SHOWCASE_SESSION_DIR:-$WORKSPACE/logs/showcase}"
 SAVED_MAP_PREFIX="${SHOWCASE_MAP_PREFIX:-$SESSION_DIR/voice_built_map}"
 FRONTIER_NAV2_PARAMS="$SESSION_DIR/frontier_nav2_params.yaml"
+FRONTIER_SLAM_PARAMS="$WORKSPACE/src/embodied_simulation/config/frontier_slam_toolbox.yaml"
 DYNAMIC_NAV2_PARAMS="$SESSION_DIR/showcase_dynamic_nav2_params.yaml"
 SHOWCASE_DYNAMIC_OBSTACLE_ENABLED="${SHOWCASE_DYNAMIC_OBSTACLE_ENABLED:-true}"
+SLAM_MISSION_PROFILE="${SLAM_MISSION_PROFILE:-known_world}"
+if [[ "$SLAM_MISSION_PROFILE" != "known_world" && \
+      "$SLAM_MISSION_PROFILE" != "unknown_world" ]]; then
+  echo "FAIL: unsupported SLAM_MISSION_PROFILE=$SLAM_MISSION_PROFILE" >&2
+  exit 2
+fi
+# 在线 frontier 受栅格离散和定位抖动影响更大；只给 unknown-world 较宽默认值，
+# known-world 继续用 0.08 m 防止近目标未移动即成功。显式环境变量仍可用于现场诊断。
+if [[ "$SLAM_MISSION_PROFILE" == "unknown_world" ]]; then
+  FRONTIER_XY_GOAL_TOLERANCE="${FRONTIER_XY_GOAL_TOLERANCE:-0.20}"
+else
+  FRONTIER_XY_GOAL_TOLERANCE="${FRONTIER_XY_GOAL_TOLERANCE:-0.08}"
+fi
+export FRONTIER_XY_GOAL_TOLERANCE
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-30}"
 
 usage() {
@@ -123,14 +138,22 @@ case "$COMMAND" in
     echo "[showcase] 阶段 1/3：真实感室内场景 + SLAM Toolbox 在线建图"
     echo "[showcase] 另开终端运行 save 后，再 Ctrl+C 结束本阶段。"
     activate
-    # Nav2 默认 0.25 m 目标容差可能让近处 frontier 在机器人尚未移动时即成功，
-    # 造成 Explore Lite 重复投递同一目标。这里只给建图阶段生成 0.08 m 配置；
-    # 切到 navigation 后不再传该文件，自动恢复 Nav2 官方容差。
+    # 建图阶段一次装配 Nav2、frontier 目标容差和 SLAM 扫描接纳策略；切到
+    # navigation 后不传该文件，自动恢复 Nav2 官方定位/导航参数。
     python3 "$WORKSPACE/scripts/prepare_frontier_nav2_params.py" \
-      --output "$FRONTIER_NAV2_PARAMS"
+      --slam-params-source "$FRONTIER_SLAM_PARAMS" \
+      --output "$FRONTIER_NAV2_PARAMS" \
+      --xy-goal-tolerance "$FRONTIER_XY_GOAL_TOLERANCE"
     export NAV2_PARAMS_FILE="$FRONTIER_NAV2_PARAMS"
-    run_voice_stage true "$STATIC_MAP" "embodied_simulation/GazeboRobotExecutor" \
-      "$MAPPING_PLACES" 0.0 0.0 0.0
+    if [[ "$SLAM_MISSION_PROFILE" == "unknown_world" ]]; then
+      # unknown-world 运行时不能把场景真值或预生成地点表放进进程参数；SLAM
+      # 模式下 map 本来就是可选项，留空可从结构上证明策略没有读取答案。
+      run_voice_stage true "" "embodied_simulation/GazeboRobotExecutor" \
+        "" 0.0 0.0 0.0
+    else
+      run_voice_stage true "$STATIC_MAP" "embodied_simulation/GazeboRobotExecutor" \
+        "$MAPPING_PLACES" 0.0 0.0 0.0
+    fi
     ;;
   save)
     activate
@@ -157,8 +180,13 @@ case "$COMMAND" in
     fi
     # 保存的 SLAM 地图以建图起点为 map 原点，因此使用相对起点的地点表，
     # 并把重启后的初始位姿发布为 (0, 0, 0)。
-    run_voice_stage false "$SAVED_MAP_PREFIX.yaml" "embodied_simulation/Nav2RobotExecutor" \
-      "$MAPPING_PLACES" 0.0 0.0 0.0
+    if [[ "$SLAM_MISSION_PROFILE" == "unknown_world" ]]; then
+      run_voice_stage false "$SAVED_MAP_PREFIX.yaml" \
+        "embodied_simulation/Nav2RobotExecutor" "" 0.0 0.0 0.0
+    else
+      run_voice_stage false "$SAVED_MAP_PREFIX.yaml" \
+        "embodied_simulation/Nav2RobotExecutor" "$MAPPING_PLACES" 0.0 0.0 0.0
+    fi
     ;;
   audit)
     python3 "$WORKSPACE/scripts/generate_showcase_scene.py" --spec "$SCENE_SPEC" --check

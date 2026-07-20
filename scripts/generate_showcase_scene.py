@@ -53,9 +53,9 @@ def render_world(spec: dict) -> str:
         f'  <world name="{world["name"]}">',
         '    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>',
         '    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>',
-        '    <xacro:unless value="$(arg headless)">',
-        '      <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>',
-        '    </xacro:unless>',
+        # SceneBroadcaster 同时为 GUI 和 evaluator 提供 Gazebo entity pose；headless
+        # 关闭它会迫使定位评估错误地把轮式积分 /odom 当作独立真值。
+        '    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>',
         '    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors"><render_engine>ogre2</render_engine></plugin>',
         '    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>',
         '    <scene><ambient>0.62 0.62 0.60 1</ambient><background>0.16 0.20 0.26 1</background><shadows>true</shadows></scene>',
