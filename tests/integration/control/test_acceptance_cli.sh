@@ -6,9 +6,11 @@ WORKSPACE="${WORKSPACE:-$(cd -- "$SCRIPT_DIR/../../.." && pwd -P)}"
 CLI="$WORKSPACE/scripts/acceptance_test.sh"
 
 PUBLIC_HELP="$(bash "$CLI" --help)"
-for mode in core continuous-offline continuous-online gazebo nav2-stage slam-nav-e2e robotics-gate; do
+for mode in core continuous-offline continuous-online gazebo nav2-stage slam-nav-e2e unknown-world-slam-e2e robotics-gate; do
   grep -q "^  $mode " <<<"$PUBLIC_HELP"
 done
+grep -q "slam-nav-e2e.*Known-world deterministic" <<<"$PUBLIC_HELP"
+grep -q "unknown-world-slam-e2e.*Unknown-world autonomous exploration" <<<"$PUBLIC_HELP"
 if grep -q "openloris-replay-stage" <<<"$PUBLIC_HELP"; then
   echo "FAIL: evaluation modes leaked into stable public help" >&2
   exit 1

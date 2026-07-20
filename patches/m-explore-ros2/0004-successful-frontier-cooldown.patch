@@ -1,0 +1,353 @@
+diff --git a/explore/config/params.yaml b/explore/config/params.yaml
+index 97b95f2..1eb7b06 100644
+--- a/explore/config/params.yaml
++++ b/explore/config/params.yaml
+@@ -9,6 +9,7 @@
+     progress_timeout: 30.0
+     goal_rejection_backoff: 2.0
+     goal_terminal_cooldown: 0.75
++    successful_frontier_cooldown: 15.0
+     max_goal_rejections: 3
+     potential_scale: 3.0
+     orientation_scale: 0.0
+diff --git a/explore/include/explore/explore.h b/explore/include/explore/explore.h
+index 511356d..548cce1 100644
+--- a/explore/include/explore/explore.h
++++ b/explore/include/explore/explore.h
+@@ -39,6 +39,7 @@
+ #define NAV_EXPLORE_H_
+ 
+ #include <explore/costmap_client.h>
++#include <explore/frontier_goal_cooldown.h>
+ #include <explore/frontier_search.h>
+ #include <geometry_msgs/msg/pose_stamped.hpp>
+ #include <tf2_ros/transform_listener.hpp>
+@@ -148,6 +149,7 @@ private:
+   bool return_to_init_;
+   std::string robot_base_frame_;
+   bool resuming_ = false;
++  bool exploration_enabled_{true};
+   bool goal_active_{false};
+   bool exploration_blocked_{false};
+   rclcpp_action::GoalUUID active_goal_id_;
+@@ -165,9 +167,11 @@ private:
+   std::string completion_reason_;
+   std::chrono::steady_clock::time_point next_goal_retry_at_{};
+   std::unordered_set<std::string> terminal_goal_ids_;
++  FrontierGoalCooldown successful_frontier_cooldowns_;
+ 
+   double goal_rejection_backoff_;
+   double goal_terminal_cooldown_;
++  double successful_frontier_cooldown_;
+   int max_goal_rejections_;
+ };
+ }  // namespace explore
+diff --git a/explore/include/explore/frontier_goal_cooldown.h b/explore/include/explore/frontier_goal_cooldown.h
+new file mode 100644
+--- /dev/null
++++ b/explore/include/explore/frontier_goal_cooldown.h
+@@ -0,0 +1,93 @@
++#ifndef EXPLORE_FRONTIER_GOAL_COOLDOWN_H_
++#define EXPLORE_FRONTIER_GOAL_COOLDOWN_H_
++
++#include <geometry_msgs/msg/point.hpp>
++
++#include <chrono>
++#include <cstddef>
++#include <cmath>
++#include <vector>
++
++namespace explore
++{
++
++/**
++ * @brief 成功 frontier 的短期去重账本。
++ *
++ * Nav2 到达 approach 后，SLAM/map_updates 需要时间消化新激光。账本只在短期
++ * 跳过同一 frontier，既避免“立即成功”目标风暴，也不会像永久黑名单那样
++ * 掩盖尚未完成的 unknown 区域。
++ */
++class FrontierGoalCooldown
++{
++public:
++  using Clock = std::chrono::steady_clock;
++  using TimePoint = Clock::time_point;
++
++  void record(const geometry_msgs::msg::Point& goal, TimePoint now,
++              double cooldown_seconds, double tolerance_m)
++  {
++    prune(now);
++    const auto expires_at = now +
++        std::chrono::duration_cast<Clock::duration>(
++            std::chrono::duration<double>(cooldown_seconds));
++    for (auto& entry : entries_) {
++      if (near(entry.goal, goal, tolerance_m)) {
++        entry.goal = goal;
++        entry.expires_at = expires_at;
++        return;
++      }
++    }
++    entries_.push_back({goal, expires_at});
++  }
++
++  bool contains(const geometry_msgs::msg::Point& goal, TimePoint now,
++                double tolerance_m)
++  {
++    prune(now);
++    for (const auto& entry : entries_) {
++      if (near(entry.goal, goal, tolerance_m)) {
++        return true;
++      }
++    }
++    return false;
++  }
++
++  void clear() { entries_.clear(); }
++  std::size_t size() const { return entries_.size(); }
++
++private:
++  struct Entry
++  {
++    geometry_msgs::msg::Point goal;
++    TimePoint expires_at;
++  };
++
++  static bool near(const geometry_msgs::msg::Point& left,
++                   const geometry_msgs::msg::Point& right,
++                   double tolerance_m)
++  {
++    return std::abs(left.x - right.x) < tolerance_m &&
++           std::abs(left.y - right.y) < tolerance_m;
++  }
++
++  void prune(TimePoint now)
++  {
++    auto output = entries_.begin();
++    for (auto input = entries_.begin(); input != entries_.end(); ++input) {
++      if (input->expires_at > now) {
++        if (output != input) {
++          *output = *input;
++        }
++        ++output;
++      }
++    }
++    entries_.erase(output, entries_.end());
++  }
++
++  std::vector<Entry> entries_;
++};
++
++}  // namespace explore
++
++#endif  // EXPLORE_FRONTIER_GOAL_COOLDOWN_H_
+diff --git a/explore/src/explore.cpp b/explore/src/explore.cpp
+index 2056ce3..6c1c175 100644
+--- a/explore/src/explore.cpp
++++ b/explore/src/explore.cpp
+@@ -39,6 +39,7 @@
+ #include <explore/explore.h>
+ 
+ #include <algorithm>
++#include <cmath>
+ #include <stdexcept>
+ #include <thread>
+ 
+@@ -74,6 +75,7 @@ Explore::Explore()
+   this->declare_parameter<bool>("return_to_init", false);
+   this->declare_parameter<float>("goal_rejection_backoff", 2.0);
+   this->declare_parameter<float>("goal_terminal_cooldown", 0.75);
++  this->declare_parameter<float>("successful_frontier_cooldown", 15.0);
+   this->declare_parameter<int>("max_goal_rejections", 3);
+ 
+   this->get_parameter("planner_frequency", planner_frequency_);
+@@ -86,6 +88,8 @@ Explore::Explore()
+   this->get_parameter("return_to_init", return_to_init_);
+   this->get_parameter("goal_rejection_backoff", goal_rejection_backoff_);
+   this->get_parameter("goal_terminal_cooldown", goal_terminal_cooldown_);
++  this->get_parameter(
++      "successful_frontier_cooldown", successful_frontier_cooldown_);
+   this->get_parameter("max_goal_rejections", max_goal_rejections_);
+   this->get_parameter("robot_base_frame", robot_base_frame_);
+ 
+@@ -95,6 +99,12 @@ Explore::Explore()
+   if (goal_terminal_cooldown_ < 0.0) {
+     throw std::invalid_argument("goal_terminal_cooldown must be non-negative");
+   }
++  if (!std::isfinite(successful_frontier_cooldown_) ||
++      successful_frontier_cooldown_ < 0.0 ||
++      successful_frontier_cooldown_ > 300.0) {
++    throw std::invalid_argument(
++        "successful_frontier_cooldown must be finite and within [0, 300]");
++  }
+   if (max_goal_rejections_ < 1) {
+     throw std::invalid_argument("max_goal_rejections must be at least one");
+   }
+@@ -244,6 +254,9 @@ void Explore::visualizeFrontiers(
+ 
+ void Explore::makePlan()
+ {
++  if (!exploration_enabled_) {
++    return;
++  }
+   if (std::chrono::steady_clock::now() < next_goal_retry_at_) {
+     // Action server 拒绝通常是生命周期切换或临时繁忙；有限退避避免按
+     // planner_frequency 无界重发，把瞬态故障放大成 goal storm。
+@@ -293,13 +306,21 @@ void Explore::makePlan()
+     visualizeFrontiers(frontiers);
+   }
+ 
+-  // find non blacklisted frontier
+-  auto frontier =
+-      std::find_if_not(frontiers.begin(), frontiers.end(),
+-                       [this](const frontier_exploration::Frontier& f) {
+-                         return goalOnBlacklist(f.centroid);
+-                       });
+-  if (frontier == frontiers.end()) {
++  // 成功 approach 后 SLAM/map_updates 需要一个短窗口吸收新激光；冷却项仍计入
++  // available telemetry，只影响本轮选择，避免把“暂缓重试”伪装成完成。
++  const auto planning_now = std::chrono::steady_clock::now();
++  const double frontier_match_tolerance =
++      5.0 * costmap_client_.getCostmap()->getResolution();
++  auto frontier = std::find_if(
++      frontiers.begin(), frontiers.end(),
++      [this, planning_now, frontier_match_tolerance](
++          const frontier_exploration::Frontier& candidate) {
++        return !goalOnBlacklist(candidate.centroid) &&
++               !successful_frontier_cooldowns_.contains(
++                   candidate.centroid, planning_now,
++                   frontier_match_tolerance);
++      });
++  if (frontier == frontiers.end() && available_frontier_count_ == 0) {
+     RCLCPP_WARN(logger_, "All frontiers are blacklisted; recovery is required.");
+     exploration_blocked_ = true;
+     // 全部黑名单只代表当前导航策略受阻，不代表 unknown 已经消失。
+@@ -310,6 +331,12 @@ void Explore::makePlan()
+         "all_frontiers_blacklisted_recoverable");
+     return;
+   }
++  if (frontier == frontiers.end()) {
++    RCLCPP_DEBUG_THROTTLE(
++        logger_, *this->get_clock(), 2000,
++        "All reachable frontiers are cooling down after successful goals");
++    return;
++  }
+   // centroid 表示 frontier 身份，地图增长后仍可用于黑名单关联；approach
+   // 是可达 FREE_SPACE 执行点。二者混用会把 unknown centroid 交给 Nav2，
+   // global planner 会正确拒绝，却被上层误判为“探索器不工作”。
+@@ -368,7 +395,14 @@ void Explore::makePlan()
+           const NavigationGoalHandle::SharedPtr& goal_handle) {
+         // Goal response 也可能在新请求之后才到达；sequence 与 result UUID
+         // 两层保护共同避免旧回调污染当前 telemetry 和执行状态。
+-        if (goal_sequence != pending_goal_sequence_) {
++        if (goal_sequence != pending_goal_sequence_ ||
++            !exploration_enabled_) {
++          // stop() 与 Action server 的 goal response 是异步的。只忽略迟到
++          // callback 会让 Nav2 继续执行一个 telemetry 已不可见的目标，因此
++          // 对已接受的迟到 goal 必须显式取消。
++          if (goal_handle) {
++            move_base_client_->async_cancel_goal(goal_handle);
++          }
+           return;
+         }
+         if (!goal_handle) {
+@@ -464,6 +498,10 @@ void Explore::reachedGoal(const NavigationGoalHandle::WrappedResult& result,
+       if (is_current_goal) {
+         last_progress_ = this->now();
+         prev_distance_ = 0;
++        successful_frontier_cooldowns_.record(
++            frontier_goal, std::chrono::steady_clock::now(),
++            successful_frontier_cooldown_,
++            5.0 * costmap_client_.getCostmap()->getResolution());
+       }
+       break;
+     case rclcpp_action::ResultCode::ABORTED:
+@@ -526,6 +564,7 @@ void Explore::reachedGoal(const NavigationGoalHandle::WrappedResult& result,
+
+ void Explore::start()
+ {
++  exploration_enabled_ = true;
+   RCLCPP_INFO(logger_, "Exploration started.");
+   publishStatus(explore_lite_msgs::msg::ExploreStatus::EXPLORATION_STARTED);
+ }
+@@ -534,6 +573,10 @@ void Explore::stop(bool finished_exploring)
+ {
+   RCLCPP_INFO(logger_, "Exploration stopped.");
+
++  exploration_enabled_ = false;
++  // 使尚未返回的 send_goal callback 全部失效；callback 收到 accepted handle
++  // 后会立即 cancel，补上 cancel_all_goals 与异步接受之间的竞态窗口。
++  ++pending_goal_sequence_;
+   goal_active_ = false;
+   // Only publish paused status if manually stopped (not finished exploring)
+   if (!finished_exploring) {
+@@ -550,7 +593,9 @@ void Explore::stop(bool finished_exploring)
+ void Explore::resume()
+ {
++  exploration_enabled_ = true;
+   resuming_ = true;
++  successful_frontier_cooldowns_.clear();
+   if (exploration_blocked_) {
+     // blocked 是可恢复状态：上层完成旋转/脱困后 resume 必须允许重新评估
+     // frontier；否则旧黑名单会让节点立即再次 blocked。
+     frontier_blacklist_.clear();
+diff --git a/explore/test/test_explore.cpp b/explore/test/test_explore.cpp
+index 88fe672..a51aaca 100644
+--- a/explore/test/test_explore.cpp
++++ b/explore/test/test_explore.cpp
+@@ -41,6 +41,7 @@
+ 
+ #include <cmath>
+ 
++#include "explore/frontier_goal_cooldown.h"
+ #include "explore/frontier_search.h"
+ 
+ #define private public
+@@ -75,6 +76,48 @@ TEST(Explore, testSameGoal)
+     EXPECT_TRUE(same_goal);
+ }
+ 
++TEST(FrontierGoalCooldown, skipsReachedGoalUntilCooldownExpires)
++{
++  explore::FrontierGoalCooldown cooldown;
++  geometry_msgs::msg::Point reached;
++  reached.x = 1.0;
++  reached.y = 2.0;
++  geometry_msgs::msg::Point nearby = reached;
++  nearby.x += 0.1;
++  geometry_msgs::msg::Point other = reached;
++  other.x += 1.0;
++  const auto now = explore::FrontierGoalCooldown::Clock::now();
++
++  cooldown.record(reached, now, 15.0, 0.25);
++
++  EXPECT_TRUE(cooldown.contains(reached, now, 0.25));
++  EXPECT_TRUE(cooldown.contains(nearby, now, 0.25));
++  EXPECT_FALSE(cooldown.contains(other, now, 0.25));
++  EXPECT_EQ(cooldown.size(), 1u);
++  EXPECT_FALSE(cooldown.contains(
++      reached, now + std::chrono::seconds(16), 0.25));
++  EXPECT_EQ(cooldown.size(), 0u);
++}
++
++TEST(FrontierGoalCooldown, refreshesNearbyIdentityWithoutGrowingLedger)
++{
++  explore::FrontierGoalCooldown cooldown;
++  geometry_msgs::msg::Point first;
++  first.x = 1.0;
++  geometry_msgs::msg::Point shifted = first;
++  shifted.x = 1.1;
++  const auto now = explore::FrontierGoalCooldown::Clock::now();
++
++  cooldown.record(first, now, 5.0, 0.25);
++  cooldown.record(shifted, now + std::chrono::seconds(2), 5.0, 0.25);
++
++  EXPECT_EQ(cooldown.size(), 1u);
++  EXPECT_TRUE(cooldown.contains(
++      shifted, now + std::chrono::seconds(6), 0.25));
++  EXPECT_FALSE(cooldown.contains(
++      shifted, now + std::chrono::seconds(8), 0.25));
++}
++
+ TEST(FrontierSearch, navigationGoalUsesReachableFreeSpaceApproach)
+ {
+   using nav2_costmap_2d::FREE_SPACE;

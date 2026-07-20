@@ -1,0 +1,24 @@
+uint8 STATUS_UNSPECIFIED=0
+uint8 STATUS_PLANNED=1
+uint8 STATUS_REQUESTED=2
+uint8 STATUS_ACCEPTED=3
+uint8 STATUS_EXECUTING=4
+uint8 STATUS_SUCCEEDED=5
+uint8 STATUS_REJECTED=6
+uint8 STATUS_ABORTED=7
+uint8 STATUS_CANCELED=8
+uint8 STATUS_TIMED_OUT=9
+
+uint32 sequence
+geometry_msgs/PoseStamped goal
+builtin_interfaces/Time started_at
+builtin_interfaces/Time finished_at
+uint8 status
+uint8 nav2_status
+uint16 nav2_error_code
+uint32 plan_count
+uint32 max_unknown_cell_count
+uint32 max_occupied_cell_count
+uint32 max_outside_map_cell_count
+bool all_plans_known_free
+string detail

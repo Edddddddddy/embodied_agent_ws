@@ -2,14 +2,14 @@ build/
 install/
 log/
 logs/
-.venv/
-.venv-lora/
+.venv
+.venv-lora
 __pycache__/
 .pytest_cache/
 *.egg-info/
 *.pyc
 .env
-models/
+models
 third_party/
 outputs/
 datasets/

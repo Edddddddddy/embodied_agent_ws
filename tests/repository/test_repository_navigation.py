@@ -69,6 +69,20 @@ def test_parameter_builder_preserves_nav2_and_inserts_prediction_before_inflatio
     assert result["planner_server"]["ros__parameters"]["expected_planner_frequency"] == 20.0
 
 
+def test_navigation_override_forbids_unknown_shortcuts_and_wide_goal_fallback():
+    """定位导航必须执行已知自由路径，不能由 Navfn 把目标漂移到地图边缘。"""
+
+    override = yaml.safe_load(
+        (ROOT / "src/embodied_navigation/config/navigation_overrides.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    planner = override["planner_server"]["ros__parameters"]["GridBased"]
+
+    assert planner["allow_unknown"] is False
+    assert planner["tolerance"] <= 0.10
+
+
 def test_ci_builds_navigation_package_but_skips_heavy_gazebo_gate():
     workflow = (ROOT / ".github" / "workflows" / "ros2-ci.yml").read_text(
         encoding="utf-8"

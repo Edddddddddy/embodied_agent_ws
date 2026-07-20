@@ -9,6 +9,7 @@ from embodied_slam_tools.frontier_monitor import (
     FrontierMonitorConfig,
 )
 from embodied_slam_tools.mapping_evidence import MappingEvidenceTracker
+from embodied_slam_tools.mapping_evidence import FrontierTelemetry
 from embodied_slam_tools.mission_executor import (
     AutomaticMissionCancelled,
     CommandRequest,
@@ -178,3 +179,301 @@ def test_missing_explore_message_runtime_has_setup_guidance():
 
     with pytest.raises(RuntimeError, match="setup_frontier_exploration"):
         monitor.wait(_request())
+
+
+def test_unknown_world_plateau_with_reachable_frontier_requests_recovery():
+    now = [10.0]
+    evidence = _ready_evidence(now)
+    evidence.record_frontier_telemetry(
+        FrontierTelemetry(
+            status="exploration_in_progress",
+            detected_frontier_count=2,
+            available_frontier_count=2,
+        )
+    )
+    monitor = FrontierExplorationMonitor(
+        evidence,
+        _Explorer(),
+        _config(
+            timeout_s=30.0,
+            stable_map_s=0.0,
+            policy_mode="unknown_world",
+        ),
+        cancel_motion=lambda: None,
+        clock=lambda: now[0],
+    )
+
+    assert monitor.wait(
+        _request(), recovery_attempts_remaining=1
+    ) == "recovery_required:reachable_frontiers_stalled"
+
+
+def test_unknown_world_all_blacklisted_is_recoverable_not_complete():
+    now = [10.0]
+    evidence = _ready_evidence(now)
+    evidence.record_frontier_telemetry(
+        FrontierTelemetry(
+            status="exploration_blocked",
+            detected_frontier_count=3,
+            blacklisted_frontier_count=3,
+            completion_reason="all_frontiers_blacklisted",
+        )
+    )
+    monitor = FrontierExplorationMonitor(
+        evidence,
+        _Explorer(),
+        _config(timeout_s=30.0, policy_mode="unknown_world"),
+        cancel_motion=lambda: None,
+        clock=lambda: now[0],
+    )
+
+    assert monitor.wait(
+        _request(), recovery_attempts_remaining=1
+    ) == "recovery_required:blacklisted_frontiers"
+
+
+def test_unknown_world_completes_only_after_native_no_frontiers_and_quiet_map():
+    now = [10.0]
+    evidence = _ready_evidence(now)
+    evidence.record_frontier_telemetry(
+        FrontierTelemetry(
+            status="exploration_complete",
+            completion_reason="no_frontiers",
+        )
+    )
+    monitor = FrontierExplorationMonitor(
+        evidence,
+        _Explorer(),
+        _config(
+            timeout_s=30.0,
+            stable_map_s=0.0,
+            policy_mode="unknown_world",
+        ),
+        cancel_motion=lambda: None,
+        clock=lambda: now[0],
+    )
+
+    assert monitor.wait(_request()) == "no_reachable_frontiers"
+
+
+def test_unknown_world_attempt_exhaustion_requests_recovery_scan_confirmation():
+    now = [10.0]
+    evidence = _ready_evidence(now)
+    evidence.record_frontier_telemetry(
+        FrontierTelemetry(
+            status="exploration_blocked",
+            completion_reason="frontier_attempts_exhausted_recoverable",
+        )
+    )
+    monitor = FrontierExplorationMonitor(
+        evidence,
+        _Explorer(),
+        _config(
+            timeout_s=30.0,
+            stable_map_s=0.0,
+            policy_mode="unknown_world",
+        ),
+        cancel_motion=lambda: None,
+        clock=lambda: now[0],
+    )
+
+    assert monitor.wait(_request(), recovery_attempts_remaining=1) == (
+        "recovery_required:frontier_attempts_exhausted"
+    )
+
+
+def test_progress_stall_waits_until_active_action_is_terminal():
+    now = [10.0]
+    evidence = _ready_evidence(now)
+    evidence.record_frontier_telemetry(
+        FrontierTelemetry(
+            status="exploration_blocked",
+            completion_reason="frontier_progress_stalled_recoverable",
+            active_goal_count=1,
+            accepted_goal_count=2,
+            canceled_goal_count=1,
+        )
+    )
+    monitor = FrontierExplorationMonitor(
+        evidence,
+        _Explorer(),
+        _config(policy_mode="unknown_world"),
+        cancel_motion=lambda: None,
+        clock=lambda: now[0],
+    )
+
+    reason = monitor._unknown_world_reason(
+        evidence.snapshot(),
+        elapsed_s=1.0,
+        time_budget_reached=False,
+        recovery_attempts_remaining=1,
+    )
+
+    assert reason is None
+
+
+def test_progress_stall_requests_recovery_after_action_ledger_drains():
+    now = [10.0]
+    evidence = _ready_evidence(now)
+    evidence.record_frontier_telemetry(
+        FrontierTelemetry(
+            status="exploration_blocked",
+            completion_reason="frontier_progress_stalled_recoverable",
+            accepted_goal_count=2,
+            canceled_goal_count=2,
+        )
+    )
+    monitor = FrontierExplorationMonitor(
+        evidence,
+        _Explorer(),
+        _config(policy_mode="unknown_world"),
+        cancel_motion=lambda: None,
+        clock=lambda: now[0],
+    )
+
+    assert monitor.wait(_request(), recovery_attempts_remaining=1) == (
+        "recovery_required:frontier_progress_stalled"
+    )
+
+
+def test_progress_stall_rejects_undrained_terminal_ledger():
+    now = [10.0]
+    evidence = _ready_evidence(now)
+    evidence.record_frontier_telemetry(
+        FrontierTelemetry(
+            status="exploration_blocked",
+            completion_reason="frontier_progress_stalled_recoverable",
+            accepted_goal_count=2,
+            canceled_goal_count=1,
+        )
+    )
+    monitor = FrontierExplorationMonitor(
+        evidence,
+        _Explorer(),
+        _config(policy_mode="unknown_world"),
+        cancel_motion=lambda: None,
+        clock=lambda: now[0],
+    )
+
+    with pytest.raises(RuntimeError, match="Action ledger is not drained"):
+        monitor._unknown_world_reason(
+            evidence.snapshot(),
+            elapsed_s=1.0,
+            time_budget_reached=False,
+            recovery_attempts_remaining=1,
+        )
+
+
+@pytest.mark.parametrize(
+    "telemetry",
+    [
+        FrontierTelemetry(
+            completion_reason="frontier_attempts_exhausted_recoverable",
+            available_frontier_count=1,
+        ),
+        FrontierTelemetry(
+            completion_reason="frontier_attempts_exhausted_recoverable",
+            active_goal_count=1,
+        ),
+        FrontierTelemetry(
+            completion_reason="frontier_attempts_exhausted_recoverable",
+            blacklisted_frontier_count=1,
+        ),
+    ],
+)
+def test_unknown_world_attempt_exhaustion_requires_all_zero_counters(telemetry):
+    now = [10.0]
+    evidence = _ready_evidence(now)
+    evidence.record_frontier_telemetry(telemetry)
+    monitor = FrontierExplorationMonitor(
+        evidence,
+        _Explorer(),
+        _config(stable_map_s=0.0, policy_mode="unknown_world"),
+        cancel_motion=lambda: None,
+        clock=lambda: now[0],
+    )
+
+    reason = monitor._unknown_world_reason(
+        evidence.snapshot(),
+        elapsed_s=1.0,
+        time_budget_reached=False,
+        recovery_attempts_remaining=1,
+    )
+
+    assert reason != "recovery_required:frontier_attempts_exhausted"
+
+
+def test_unknown_world_attempt_exhaustion_waits_for_map_plateau():
+    now = [10.0]
+    evidence = _ready_evidence(now)
+    evidence.record_frontier_telemetry(
+        FrontierTelemetry(
+            completion_reason="frontier_attempts_exhausted_recoverable",
+        )
+    )
+    monitor = FrontierExplorationMonitor(
+        evidence,
+        _Explorer(),
+        _config(stable_map_s=5.0, policy_mode="unknown_world"),
+        cancel_motion=lambda: None,
+        clock=lambda: now[0],
+    )
+
+    reason = monitor._unknown_world_reason(
+        evidence.snapshot(),
+        elapsed_s=1.0,
+        time_budget_reached=False,
+        recovery_attempts_remaining=1,
+    )
+
+    assert reason is None
+
+
+def test_unknown_world_timeout_with_reachable_frontier_is_explicit_failure():
+    now = [10.0]
+    evidence = _ready_evidence(now)
+    evidence.record_frontier_telemetry(
+        FrontierTelemetry(
+            status="exploration_in_progress",
+            detected_frontier_count=1,
+            available_frontier_count=1,
+        )
+    )
+    monitor = FrontierExplorationMonitor(
+        evidence,
+        _Explorer(),
+        _config(timeout_s=0.0, policy_mode="unknown_world"),
+        cancel_motion=lambda: None,
+        clock=lambda: now[0],
+    )
+
+    with pytest.raises(TimeoutError, match="frontiers unresolved"):
+        monitor.wait(_request(), recovery_attempts_remaining=1)
+
+
+def test_unknown_world_absolute_deadline_caps_restarted_monitor_budget():
+    now = [10.0]
+    evidence = _ready_evidence(now)
+    evidence.record_frontier_telemetry(
+        FrontierTelemetry(
+            status="exploration_in_progress",
+            detected_frontier_count=1,
+            available_frontier_count=1,
+        )
+    )
+    monitor = FrontierExplorationMonitor(
+        evidence,
+        _Explorer(),
+        _config(timeout_s=600.0, policy_mode="unknown_world"),
+        cancel_motion=lambda: None,
+        clock=lambda: now[0],
+    )
+
+    # 模拟 recovery action 已把整轮预算耗尽；provider 自己仍配置 600s，
+    # 但重启后的 wait 必须立即服从上层绝对 deadline。
+    with pytest.raises(TimeoutError, match="frontiers unresolved"):
+        monitor.wait(
+            _request(),
+            recovery_attempts_remaining=1,
+            deadline_monotonic=now[0],
+        )

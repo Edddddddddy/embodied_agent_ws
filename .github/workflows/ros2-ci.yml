@@ -19,6 +19,31 @@ jobs:
       - name: Repository contract tests
         run: python -m pytest -q tests/repository
 
+  frontier-patch-replay:
+    runs-on: ubuntu-latest
+    container:
+      image: rostooling/setup-ros-docker:ubuntu-noble-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Recreate pinned Explore Lite source
+        run: bash scripts/setup_frontier_exploration.sh --prepare-only
+      - name: Install Explore Lite dependencies
+        run: >-
+          rosdep install --from-paths third_party/m-explore-ros2 --ignore-src
+          --rosdistro jazzy -r -y
+      - name: Build patched Explore Lite
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          colcon build --symlink-install \
+            --base-paths third_party/m-explore-ros2 \
+            --packages-select explore_lite_msgs explore_lite
+      - name: Run patched frontier functional tests
+        # 直接限定 CTest 名称，避免把上游仓库既有 lint 风格债务混进补丁功能门禁。
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          ctest --test-dir build/explore_lite \
+            -R '^test_explore$' --output-on-failure
+
   build-and-test:
     runs-on: ubuntu-latest
     container:

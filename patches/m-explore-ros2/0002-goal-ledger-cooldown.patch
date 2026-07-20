@@ -1,0 +1,155 @@
+diff --git a/explore/config/params.yaml b/explore/config/params.yaml
+index 7033863..97b95f2 100644
+--- a/explore/config/params.yaml
++++ b/explore/config/params.yaml
+@@ -8,6 +8,7 @@
+     planner_frequency: 0.15
+     progress_timeout: 30.0
+     goal_rejection_backoff: 2.0
++    goal_terminal_cooldown: 0.75
+     max_goal_rejections: 3
+     potential_scale: 3.0
+     orientation_scale: 0.0
+diff --git a/explore/include/explore/explore.h b/explore/include/explore/explore.h
+index dd88d82..511356d 100644
+--- a/explore/include/explore/explore.h
++++ b/explore/include/explore/explore.h
+@@ -52,6 +52,7 @@
+ #include <std_msgs/msg/bool.hpp>
+ #include <std_msgs/msg/color_rgba.hpp>
+ #include <string>
++#include <unordered_set>
+ #include <visualization_msgs/msg/marker_array.hpp>
+ 
+ #include "nav2_msgs/action/navigate_to_pose.hpp"
+@@ -163,8 +164,10 @@ private:
+   std::string last_goal_terminal_;
+   std::string completion_reason_;
+   std::chrono::steady_clock::time_point next_goal_retry_at_{};
++  std::unordered_set<std::string> terminal_goal_ids_;
+ 
+   double goal_rejection_backoff_;
++  double goal_terminal_cooldown_;
+   int max_goal_rejections_;
+ };
+ }  // namespace explore
+diff --git a/explore/src/explore.cpp b/explore/src/explore.cpp
+index abac65f..88fbc87 100644
+--- a/explore/src/explore.cpp
++++ b/explore/src/explore.cpp
+@@ -73,6 +73,7 @@ Explore::Explore()
+   this->declare_parameter<float>("min_frontier_size", 0.5);
+   this->declare_parameter<bool>("return_to_init", false);
+   this->declare_parameter<float>("goal_rejection_backoff", 2.0);
++  this->declare_parameter<float>("goal_terminal_cooldown", 0.75);
+   this->declare_parameter<int>("max_goal_rejections", 3);
+ 
+   this->get_parameter("planner_frequency", planner_frequency_);
+@@ -84,12 +85,16 @@ Explore::Explore()
+   this->get_parameter("min_frontier_size", min_frontier_size);
+   this->get_parameter("return_to_init", return_to_init_);
+   this->get_parameter("goal_rejection_backoff", goal_rejection_backoff_);
++  this->get_parameter("goal_terminal_cooldown", goal_terminal_cooldown_);
+   this->get_parameter("max_goal_rejections", max_goal_rejections_);
+   this->get_parameter("robot_base_frame", robot_base_frame_);
+ 
+   if (goal_rejection_backoff_ < 0.0) {
+     throw std::invalid_argument("goal_rejection_backoff must be non-negative");
+   }
++  if (goal_terminal_cooldown_ < 0.0) {
++    throw std::invalid_argument("goal_terminal_cooldown must be non-negative");
++  }
+   if (max_goal_rejections_ < 1) {
+     throw std::invalid_argument("max_goal_rejections must be at least one");
+   }
+@@ -429,53 +434,65 @@ bool Explore::goalOnBlacklist(const geometry_msgs::msg::Point& goal)
+ 
+ void Explore::reachedGoal(const NavigationGoalHandle::WrappedResult& result,
+                           const geometry_msgs::msg::Point& frontier_goal) {
+-  // 保留 UUID 防护：Nav2 抢占回调可能晚于新 goal 到达，旧结果不得清除
+-  // 当前 goal 或推动 frontier 状态机。
+-  if (result.goal_id != active_goal_id_) {
++  const std::string goal_id = rclcpp_action::to_string(result.goal_id);
++  if (!terminal_goal_ids_.insert(goal_id).second) {
++    // 一个 accepted UUID 只能结算一次；重复 result 不能破坏生命周期守恒。
+     return;
+   }
+ 
+-  goal_active_ = false;
++  const bool is_current_goal = result.goal_id == active_goal_id_;
+   switch (result.code) {
+     case rclcpp_action::ResultCode::SUCCEEDED:
+       RCLCPP_DEBUG(logger_, "Goal was successful");
+       ++succeeded_goal_count_;
+       last_goal_terminal_ = "succeeded";
+-      last_progress_ = this->now();
+-      prev_distance_ = 0;
++      if (is_current_goal) {
++        last_progress_ = this->now();
++        prev_distance_ = 0;
++      }
+       break;
+     case rclcpp_action::ResultCode::ABORTED:
+       ++aborted_goal_count_;
+       last_goal_terminal_ = "aborted";
+ #ifdef NAV2_RESULT_HAS_ERROR_CODE
+-      if (result.result && result.result->error_code != 0) {
++      if (is_current_goal && result.result && result.result->error_code != 0) {
+         RCLCPP_DEBUG(logger_, "Goal aborted with error_code=%d (%s) — blacklisting frontier",
+                      result.result->error_code,
+                      result.result->error_msg.c_str());
+         frontier_blacklist_.push_back(frontier_goal);
+-      } else {
++      } else if (is_current_goal) {
+         RCLCPP_DEBUG(logger_, "Goal aborted with error_code=0 — likely a preemption, not blacklisting");
+       }
+ #else
+       // Humble: no error_code field, blacklist unconditionally on abort
+       RCLCPP_DEBUG(logger_, "Goal aborted — blacklisting frontier");
+-      frontier_blacklist_.push_back(frontier_goal);
++      if (is_current_goal) {
++        frontier_blacklist_.push_back(frontier_goal);
++      }
+ #endif
+-      // If it was aborted probably because we've found another frontier goal,
+-      // so just return and don't make plan again
+-      publishStatus(current_status_);
+-      return;
++      break;
+     case rclcpp_action::ResultCode::CANCELED:
+       RCLCPP_DEBUG(logger_, "Goal was canceled");
+       ++canceled_goal_count_;
+       last_goal_terminal_ = "canceled";
+-      // If goal canceled might be because exploration stopped from topic. Don't make new plan.
+-      publishStatus(current_status_);
+-      return;
++      break;
+     default:
+       RCLCPP_WARN(logger_, "Unknown result code from move base nav2");
++      ++aborted_goal_count_;
++      last_goal_terminal_ = "unknown_result";
+       break;
+   }
++
++  // 被新 frontier 抢占的旧 goal 仍要计入 terminal，但绝不能清除当前 goal、
++  // 修改当前黑名单或驱动下一轮规划。
++  if (!is_current_goal) {
++    publishStatus(current_status_);
++    return;
++  }
++  goal_active_ = false;
++  next_goal_retry_at_ = std::chrono::steady_clock::now() +
++      std::chrono::duration_cast<std::chrono::steady_clock::duration>(
++          std::chrono::duration<double>(goal_terminal_cooldown_));
+   publishStatus(current_status_);
+   // find new goal immediately regardless of planning frequency.
+   // execute via timer to prevent dead lock in move_base_client (this is
+@@ -487,6 +504,8 @@ void Explore::reachedGoal(const NavigationGoalHandle::WrappedResult& result,
+ 
+   // Because of the 1-thread-executor nature of ros2 I think timer is not
+   // needed.
++  // 由周期 timer 在短 cooldown 后重规划，让 SLAM/map_updates 有时间消化
++  // 已到达的 frontier，避免相同坐标在几十毫秒内形成 goal storm。
+   makePlan();
+ }
+ 

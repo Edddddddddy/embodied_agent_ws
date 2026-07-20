@@ -49,4 +49,18 @@ public:
   virtual std::string backend_name() const = 0;
 };
 
+inline bool should_publish_executor_cmd_vel(
+  bool plugin_publishes_cmd_vel,
+  bool action_was_active,
+  bool action_stopped_this_tick,
+  const std::string & executor_mode)
+{
+  // /cmd_vel 没有天然的多发布者仲裁。手动 executor 空闲时持续发零会与
+  // Nav2 controller 争用底盘；只有持有 Action、刚完成需归零，或处于持续
+  // 自主模式时，它才拥有速度写权限。
+  return plugin_publishes_cmd_vel &&
+         (action_was_active || action_stopped_this_tick ||
+         executor_mode != "manual");
+}
+
 }  // namespace embodied_simulation

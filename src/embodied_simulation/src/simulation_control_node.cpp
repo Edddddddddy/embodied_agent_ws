@@ -295,12 +295,18 @@ private:
     using Command = embodied_agent_interfaces::msg::RobotCommand;
     if (command.action_type == Command::STOP) {
       executor_->stop();
+      if (executor_->publishes_cmd_vel()) {
+        ros_io_->publish_zero_velocity();
+      }
       finish_immediate_action(goal_handle, true, "stopped");
       publish_action_ack("stop", "accepted");
       return;
     }
     if (command.action_type == Command::CANCEL_NAVIGATION) {
       executor_->stop();
+      if (executor_->publishes_cmd_vel()) {
+        ros_io_->publish_zero_velocity();
+      }
       finish_immediate_action(goal_handle, true, "navigation_canceled");
       publish_action_ack("cancel_navigation", "accepted");
       return;
@@ -523,6 +529,9 @@ private:
       return;
     }
     executor_->stop();
+    if (executor_->publishes_cmd_vel()) {
+      ros_io_->publish_zero_velocity();
+    }
     publish_mode();
     publish_action_ack("stop", "accepted", "emergency_stop");
     RCLCPP_WARN(get_logger(), "emergency stop received; switched to manual");
@@ -632,8 +641,12 @@ private:
       std::lock_guard<std::mutex> lock(diagnostics_mutex_);
       diagnostic_output_ = output;
     }
+    const bool action_was_active = action_active_.load();
     const bool action_stopped = update_active_action(output, now);
-    if (executor_->publishes_cmd_vel()) {
+    if (should_publish_executor_cmd_vel(
+        executor_->publishes_cmd_vel(), action_was_active, action_stopped,
+        executor_->mode_name()))
+    {
       ros_io_->publish_velocity(
         action_stopped ? 0.0 : output.velocity.linear_x,
         action_stopped ? 0.0 : output.velocity.angular_z);

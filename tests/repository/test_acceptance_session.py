@@ -160,6 +160,46 @@ def test_session_overrides_ambient_transport_partitions(tmp_path):
         assert active.environment["FASTDDS_BUILTIN_TRANSPORTS"] == "UDPv4"
 
 
+def test_session_removes_ambient_priors_and_audits_only_allowlisted_environment(
+    tmp_path,
+):
+    adapter = FakeProcessAdapter()
+    session = AcceptanceSession(
+        _config(
+            tmp_path,
+            environment={"NAV2_INITIAL_X": "0.0", "PROFILE": "unknown_world"},
+            unset_environment_keys=(
+                "EMBODIED_NAV2_PLACES_FILE",
+                "NAV2_MAP",
+            ),
+            manifest_environment_keys=("NAV2_INITIAL_X", "PROFILE"),
+        ),
+        process_adapter=adapter,
+        base_environment={
+            "EMBODIED_NAV2_PLACES_FILE": "/tmp/stale-places.yaml",
+            "NAV2_MAP": "/tmp/stale-map.yaml",
+            "NAV2_INITIAL_X": "9.9",
+            "SECRET_API_KEY": "must-not-enter-manifest",
+        },
+    )
+
+    with session as active:
+        assert "EMBODIED_NAV2_PLACES_FILE" not in active.environment
+        assert "NAV2_MAP" not in active.environment
+        assert active.environment["NAV2_INITIAL_X"] == "0.0"
+
+    manifest = json.loads(session.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["environment"] == {
+        "EMBODIED_NAV2_PLACES_FILE": None,
+        "NAV2_INITIAL_X": "0.0",
+        "NAV2_MAP": None,
+        "PROFILE": "unknown_world",
+    }
+    assert "SECRET_API_KEY" not in session.manifest_path.read_text(
+        encoding="utf-8"
+    )
+
+
 def test_artifact_directory_lease_blocks_concurrent_writers(tmp_path):
     artifact_dir = tmp_path / "shared-evidence"
     first = AcceptanceSession(

@@ -43,6 +43,7 @@ def test_public_surface_is_small_stable_and_ordered():
         "gazebo",
         "nav2-stage",
         "slam-nav-e2e",
+        "unknown-world-slam-e2e",
         "robotics-gate",
     )
     assert {mode.name for mode in MODES if mode.public} == set(PUBLIC_MODE_NAMES)
@@ -87,6 +88,30 @@ def test_legacy_slam_alias_is_not_a_second_e2e_fact_source():
     assert "slam-autonomous-mission" not in MODE_BY_NAME
     assert "slam-autonomous-mission-stage" in MODE_BY_NAME
     assert "slam-nav-e2e" in MODE_BY_NAME
+
+
+def test_unknown_world_slam_entry_has_distinct_public_evidence_semantics():
+    """新旧两个入口必须在帮助中明确区分，避免把已知场景回归当成自主探索证据。"""
+    known_world = MODE_BY_NAME["slam-nav-e2e"]
+    unknown_world = MODE_BY_NAME["unknown-world-slam-e2e"]
+
+    assert known_world.public is True
+    assert known_world.handler == "accept_slam_nav_e2e"
+    assert "Known-world deterministic" in known_world.description
+    assert unknown_world.public is True
+    assert unknown_world.handler == "accept_unknown_world_slam_e2e"
+    assert "Unknown-world autonomous exploration" in unknown_world.description
+    assert unknown_world.domain is HandlerDomain.SLAM_NAV
+
+    runner = RecordingRunner(result=0)
+    status = main(
+        ["unknown-world-slam-e2e"],
+        runner=runner,
+        stdout=io.StringIO(),
+        stderr=io.StringIO(),
+    )
+    assert status == 0
+    assert runner.calls == [("unknown-world-slam-e2e", [])]
 
 
 def test_acceptance_probe_runner_is_owned_by_tools_and_is_valid_shell():

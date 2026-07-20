@@ -70,7 +70,16 @@ wsl.exe -d Ubuntu-24.04 -- pgrep -af "gz sim"
 wsl.exe -d Ubuntu-24.04 -- pgrep -af voice_slam_session_orchestrator
 ```
 
-只终止本次测试明确记录的 PID/进程组，不使用全局 `pkill`，避免伤到用户正在运行的演示。
+仓库提供显式、两阶段确认的定向清理；它同时识别 Gazebo/ROS 节点和被中断后仍在等待
+超时的 unknown-world acceptance/probe，避免后者继续占内存或写回陈旧报告：
+
+```bash
+bash scripts/cleanup_simulation_processes.sh
+CLEANUP_CONFIRM=true bash scripts/cleanup_simulation_processes.sh
+```
+
+脚本先列出 PID 与完整命令，再按已审计模式逐个终止。不要改用全局 `pkill`，避免伤到
+用户正在运行的其他演示。
 
 ## 2. 搜索文件
 
@@ -131,6 +140,26 @@ export EMBODIED_ALLOW_WORKSPACE_OVERRIDE=true
 
 自动任务启动前的 doctor 会检查两个核心 package prefix、`RUN_AUTOMATIC_MISSION` 生成接口和
 `explore_lite` 都属于当前 install；失败输出本身就是修复命令。
+
+### ROS 2 接口 hash 变化后的完整重建
+
+增加 msg 字段或新增 msg/action 会改变 ROS 2 interface type hash。旧 overlay 中的 Python/C++ 类型支持
+可能仍能 import，却无法与新节点正确反序列化；这种故障常表现为 topic 存在但 callback 永远不触发。
+不要只重建 `embodied_agent_interfaces`，必须重建所有下游依赖：
+
+```bash
+unset WORKSPACE
+cd /path/to/current-worktree
+source /opt/ros/jazzy/setup.bash
+# 确认当前目录后再清理该 worktree 自己的生成目录。
+rm -rf build install log
+colcon build --symlink-install --executor sequential
+source install/setup.bash
+embodied_workspace_doctor true
+```
+
+本阶段 `FrontierExplorationEvidence`、`SlamNavigationGoalEvidence` 和扩展后的
+`SlamSessionState` 就属于这种变更。旧 rosbag 只可作历史证据，不能证明当前 strong typed schema。
 
 ## 4. GitHub CLI 与 git push
 
@@ -211,13 +240,29 @@ bash scripts/acceptance_test.sh voice-readiness
 ```bash
 bash scripts/acceptance_test.sh slam-nav-showcase-stage
 bash scripts/acceptance_test.sh slam-autonomous-mission-stage
-# 完整功能收口时再跑重型门禁，不为零散编辑频繁触发 CI：
+# known-world 稳定回归：
 bash scripts/acceptance_test.sh slam-nav-e2e
+# unknown-world 正式自主闭环；完整功能收口时再跑，不为零散编辑频繁触发 CI：
+HEADLESS=false USE_RVIZ=true \
+  bash scripts/acceptance_test.sh unknown-world-slam-e2e
 ```
 
-`slam-nav-e2e` 是稳定公开入口，真实执行 frontier SLAM、新地图保存、AMCL/Nav2 语义巡航和
-动态障碍重规划，通常需要 3～5 分钟。先用 `bash scripts/acceptance_test.sh --help` 确认当前分支
-已注册该模式；若帮助中没有它，说明终端仍停留在旧分支或旧工作树，而不是 ROS 运行时故障。
+`slam-nav-e2e` 是允许 bootstrap/语义地点的 known-world 确定性回归；
+`unknown-world-slam-e2e` 才是禁止真值/固定路线进入 robot policy 的正式自主门禁。先用
+`bash scripts/acceptance_test.sh --help` 确认当前分支已注册两个模式；若帮助中没有后者，说明终端仍
+停留在旧分支、旧 worktree 或旧脚本，而不是 ROS 运行时故障。
+
+Unknown-world 证据在：
+
+```text
+logs/acceptance/unknown_world_slam_nav/<session_id>/unknown_world_slam_e2e_report.json
+logs/acceptance/unknown_world_slam_nav/<session_id>/runtime.log
+logs/acceptance/unknown_world_slam_nav/<session_id>/acceptance_session.json
+```
+
+不要用 `logs/acceptance/slam_nav/...` 的旧 known-world 报告代替。正式报告要求 schema v4，并同时记录
+strong typed frontier/目标证据、独立 `mission_outcome`、地图覆盖、AMCL/Gazebo 定位误差、动态重规划
+和最终零速。Gazebo truth 与静态真值只属于 evaluator，不能复制进 mission YAML 或调参脚本。
 
 C++/仿真：
 

@@ -44,6 +44,10 @@ def test_ros_executables_are_owned_by_tools_not_pytest_collection():
     expected = {
         "cli.py",
         "artifacts.py",
+        "localization_sampler.py",
+        "motion_evidence.py",
+        "sampled_goal_tracker.py",
+        "session_actions.py",
         "session_observer.py",
         "dynamic_scenario.py",
         "session_orchestrator.py",
@@ -111,6 +115,16 @@ def test_probe_dependency_direction_has_no_test_or_cli_back_edges():
         name.endswith(("session_orchestrator", ".cli"))
         for name in imports["dynamic_scenario"]
     )
+    assert not any(
+        name.endswith("session_observer")
+        for module in (
+            "localization_sampler",
+            "motion_evidence",
+            "sampled_goal_tracker",
+            "session_actions",
+        )
+        for name in imports[module]
+    )
 
 
 def test_dynamic_scenario_transaction_policy_remains_ros_free():
@@ -135,6 +149,10 @@ def test_dynamic_scenario_transaction_policy_remains_ros_free():
 def test_probe_modules_remain_bounded_deep_modules():
     limits = {
         "session_observer.py": 450,
+        "sampled_goal_tracker.py": 320,
+        "localization_sampler.py": 250,
+        "motion_evidence.py": 140,
+        "session_actions.py": 160,
         "dynamic_scenario.py": 500,
         "session_orchestrator.py": 600,
     }
@@ -195,3 +213,27 @@ def test_failure_report_keeps_the_schema_v3_diagnostic_contract():
     assert report["schema_version"] == 3
     assert report["passed"] is False
     assert report["mapping_path_m"] == 1.235
+
+
+def test_unknown_world_failure_report_is_explicitly_incomplete_schema_v4():
+    report = build_failure_report(
+        session_id="session-unknown",
+        session_start_ns=456,
+        evidence_kind="unknown_world_slam_nav_dynamic_replan",
+        error="frontier recovery exhausted",
+        state_sequence=[1, 2, 10],
+        last_state_detail="frontier exploration",
+        map_stats={"known_cells": 1000},
+        frontier_goal_count=4,
+        mapping_path_m=2.0,
+        final_cmd_vel={"linear_x": 0.0, "angular_z": 0.0},
+        schema_version=4,
+        mission_outcome=3,
+        mission_message="exploration failed",
+    )
+
+    assert report["schema_version"] == 4
+    assert report["passed"] is False
+    assert report["report_state"] == "incomplete"
+    assert report["checks"] == {"evidence_complete": False}
+    assert report["mission_outcome"] == 3

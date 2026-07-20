@@ -545,6 +545,8 @@ class AcceptanceSessionConfig:
     termination_grace_s: float = 8.0
     failure_log_lines: int = 120
     environment: Mapping[str, str] = field(default_factory=dict)
+    unset_environment_keys: tuple[str, ...] = ()
+    manifest_environment_keys: tuple[str, ...] = ()
     lock_root: Path = Path("/tmp/embodied-agent-acceptance")
 
 
@@ -654,6 +656,10 @@ class AcceptanceSession:
             self._started_monotonic = time.monotonic()
             self._started_ns = time.time_ns()
             self.environment = self._base_environment.copy()
+            # 场景可能继承用户上一次演示的坐标、地图或地点表。必须先删除再覆盖，
+            # 否则“空字符串默认值”也可能被下游 `${VAR:-default}` 重新解释为旧策略。
+            for key in self.config.unset_environment_keys:
+                self.environment.pop(key, None)
             self.environment.update(self.config.environment)
             self.environment.update(
                 {
@@ -828,6 +834,15 @@ class AcceptanceSession:
             "finished_ns": time.time_ns() if self._closed else None,
             "domain_id": self._lease.domain_id if self._lease is not None else None,
             "gz_partition": self.environment.get("GZ_PARTITION"),
+            # 只记录场景显式声明的白名单；不能为了可复现性把 API key 等整份
+            # 宿主环境写入证据目录。被清除的 key 以 null 留下可审计痕迹。
+            "environment": {
+                key: self.environment.get(key)
+                for key in sorted(
+                    set(self.config.manifest_environment_keys)
+                    | set(self.config.unset_environment_keys)
+                )
+            },
             "cleanup_complete": self._closed
             and self._session_cleanup is not None
             and not self._session_cleanup.remaining_pids

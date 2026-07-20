@@ -17,6 +17,8 @@ PATTERNS=(
   "/embodied_agent_cpp/typed_action_bridge([[:space:]]|$)"
   "ros2 run embodied_slam_tools voice_slam_session_orchestrator"
   "/embodied_slam_tools/voice_slam_session_orchestrator([[:space:]]|$)"
+  "tools.acceptance.scenarios.unknown_world_slam_e2e"
+  "/tools/acceptance/probes/slam_nav/session_orchestrator.py"
   "nav2_lifecycle_manager/lifecycle_manager"
   "slam_toolbox.*slam_toolbox_node"
   "explore_lite/explore"
@@ -64,6 +66,7 @@ EOF
 fi
 
 for pid in "${!TARGET_COMMANDS[@]}"; do
+  # 先结束外层验收器，避免 ROS 子进程已清理后它仍等待 40 分钟并写回旧报告。
   kill -TERM "$pid" 2>/dev/null || true
 done
 for _ in $(seq 1 20); do

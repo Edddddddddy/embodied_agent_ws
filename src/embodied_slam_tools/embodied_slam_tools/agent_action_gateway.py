@@ -94,6 +94,43 @@ class AgentActionGateway:
                 timeout_s=timeout_s,
             )
 
+    def run_typed(
+        self,
+        request: CommandRequest,
+        *,
+        command_id: str,
+        publish_command: Callable[[], None],
+        expected_action_name: str,
+        timeout_s: float,
+    ) -> AgentActionOutcome | None:
+        """发布已构造的 typed command，并等待同一 command_id 的终态。"""
+
+        if self._dry_run:
+            self._log_dry_run(
+                f"DRY RUN typed action: {command_id} -> {expected_action_name}"
+            )
+            return None
+        if not command_id:
+            raise ValueError("typed command_id must not be empty")
+        with self._run_lock:
+            deadline = self._clock() + max(0.0, timeout_s)
+            with self._condition:
+                result_baseline = self._result_generation
+            publish_command()
+            outcome = self._wait_for_result(
+                request,
+                command_id,
+                result_baseline,
+                deadline,
+                expected_action_name,
+            )
+            if not outcome.success:
+                raise RuntimeError(
+                    f"{expected_action_name} failed status={outcome.status}: "
+                    f"{outcome.message}"
+                )
+            return outcome
+
     def _run_once(
         self,
         request: CommandRequest,

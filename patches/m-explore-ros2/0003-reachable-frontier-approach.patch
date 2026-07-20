@@ -1,0 +1,450 @@
+diff --git a/explore/CMakeLists.txt b/explore/CMakeLists.txt
+index 860dca7..50b513a 100644
+--- a/explore/CMakeLists.txt
++++ b/explore/CMakeLists.txt
+@@ -122,10 +122,15 @@ if(BUILD_TESTING)
+ 
+   find_package(ament_cmake_gtest REQUIRED)
+ 
+-  ament_add_gtest(test_explore test/test_explore.cpp)
++  ament_add_gtest(test_explore
++    test/test_explore.cpp
++    src/frontier_search.cpp
++  )
+ 
+   target_link_libraries(test_explore
+     ${geometry_msgs_TARGETS}
++    nav2_costmap_2d::filters
++    rclcpp::rclcpp
+   )
+ 
+ endif()
+diff --git a/explore/include/explore/frontier_search.h b/explore/include/explore/frontier_search.h
+index 0f8e610..ebbadf5 100644
+--- a/explore/include/explore/frontier_search.h
++++ b/explore/include/explore/frontier_search.h
+@@ -15,6 +15,7 @@ struct Frontier {
+   double cost;
+   geometry_msgs::msg::Point initial;
+   geometry_msgs::msg::Point centroid;
++  geometry_msgs::msg::Point approach;
+   geometry_msgs::msg::Point middle;
+   std::vector<geometry_msgs::msg::Point> points;
+ };
+@@ -42,6 +43,14 @@ public:
+    */
+   std::vector<Frontier> searchFrom(geometry_msgs::msg::Point position);
+ 
++  /**
++   * @brief Whether the latest search started from a traversable robot cell.
++   *
++   * A valid empty result means exploration is complete; an invalid empty
++   * result is transient map/pose evidence and must be retried.
++   */
++  bool lastSearchValid() const { return last_search_valid_; }
++
+ protected:
+   /**
+    * @brief Starting from an initial cell, build a frontier from valid adjacent
+@@ -55,6 +64,13 @@ protected:
+   Frontier buildNewFrontier(unsigned int initial_cell, unsigned int reference,
+                             std::vector<bool>& frontier_flag);
+ 
++  /**
++   * @brief Select the reachable free-space goal nearest the frontier centroid.
++   * @return true when a planner-safe approach cell was found
++   */
++  bool selectApproach(Frontier& frontier,
++                      const std::vector<bool>& reachable_flag);
++
+   /**
+    * @brief isNewFrontierCell Evaluate if candidate cell is a valid candidate
+    * for a new frontier.
+@@ -82,6 +98,7 @@ private:
+   double potential_scale_, gain_scale_;
+   double min_frontier_size_;
+   rclcpp::Logger logger_;
++  bool last_search_valid_{false};
+ };
+ }  // namespace frontier_exploration
+ #endif
+diff --git a/explore/src/explore.cpp b/explore/src/explore.cpp
+index 88fbc87..2056ce3 100644
+--- a/explore/src/explore.cpp
++++ b/explore/src/explore.cpp
+@@ -254,6 +254,16 @@ void Explore::makePlan()
+   auto pose = costmap_client_.getRobotPose();
+   // get frontiers sorted according to cost
+   auto frontiers = search_.searchFrom(pose.position);
++  if (!search_.lastSearchValid()) {
++    // invalid start 是 TF/map 的瞬态证据，不等价于“unknown 已清零”。若落入
++    // 下方 empty 分支会错误发布 no_frontiers 并提前结束整场自主建图。
++    RCLCPP_WARN_THROTTLE(
++        logger_, *this->get_clock(), 2000,
++        "Frontier search deferred until robot cell becomes traversable");
++    publishStatus(
++        explore_lite_msgs::msg::ExploreStatus::EXPLORATION_IN_PROGRESS);
++    return;
++  }
+   detected_frontier_count_ = frontiers.size();
+   available_frontier_count_ = static_cast<size_t>(std::count_if(
+       frontiers.begin(), frontiers.end(),
+@@ -265,6 +275,7 @@ void Explore::makePlan()
+     RCLCPP_DEBUG(logger_, "frontier %zd cost: %f", i, frontiers[i].cost);
+   }
+ 
++  // 只有 valid search 的 empty 才能证明当前地图确实没有 frontier。
+   if (frontiers.empty()) {
+     RCLCPP_WARN(logger_, "No frontiers found, stopping.");
+     goal_active_ = false;
+@@ -299,12 +310,16 @@ void Explore::makePlan()
+         "all_frontiers_blacklisted_recoverable");
+     return;
+   }
+-  geometry_msgs::msg::Point target_position = frontier->centroid;
++  // centroid 表示 frontier 身份，地图增长后仍可用于黑名单关联；approach
++  // 是可达 FREE_SPACE 执行点。二者混用会把 unknown centroid 交给 Nav2，
++  // global planner 会正确拒绝，却被上层误判为“探索器不工作”。
++  const geometry_msgs::msg::Point target_identity = frontier->centroid;
++  const geometry_msgs::msg::Point target_position = frontier->approach;
+ 
+   // time out if we are not making any progress
+-  bool same_goal = same_point(prev_goal_, target_position);
++  bool same_goal = same_point(prev_goal_, target_identity);
+ 
+-  prev_goal_ = target_position;
++  prev_goal_ = target_identity;
+   if (!same_goal || prev_distance_ > frontier->min_distance) {
+     // we have different goal or we made some progress
+     last_progress_ = this->now();
+@@ -315,7 +330,7 @@ void Explore::makePlan()
+       (this->now() - last_progress_ >
+        tf2::durationFromSec(progress_timeout_)) &&
+       !resuming_) {
+-    frontier_blacklist_.push_back(target_position);
++    frontier_blacklist_.push_back(target_identity);
+     RCLCPP_DEBUG(logger_, "Adding current goal to black list");
+     makePlan();
+     return;
+@@ -349,7 +364,7 @@ void Explore::makePlan()
+       nav2_msgs::action::NavigateToPose>::SendGoalOptions();
+ 
+   send_goal_options.goal_response_callback =
+-      [this, target_position, goal_sequence](
++      [this, target_identity, goal_sequence](
+           const NavigationGoalHandle::SharedPtr& goal_handle) {
+         // Goal response 也可能在新请求之后才到达；sequence 与 result UUID
+         // 两层保护共同避免旧回调污染当前 telemetry 和执行状态。
+@@ -367,7 +382,7 @@ void Explore::makePlan()
+                   std::chrono::duration<double>(goal_rejection_backoff_));
+           if (consecutive_goal_rejections_ >=
+               static_cast<size_t>(max_goal_rejections_)) {
+-            frontier_blacklist_.push_back(target_position);
++            frontier_blacklist_.push_back(target_identity);
+             consecutive_goal_rejections_ = 0;
+             if (available_frontier_count_ > 0) {
+               --available_frontier_count_;
+@@ -386,8 +401,8 @@ void Explore::makePlan()
+ 
+   send_goal_options.result_callback =
+       [this,
+-       target_position](const NavigationGoalHandle::WrappedResult& result) {
+-        reachedGoal(result, target_position);
++       target_identity](const NavigationGoalHandle::WrappedResult& result) {
++        reachedGoal(result, target_identity);
+       };
+   move_base_client_->async_send_goal(goal, send_goal_options);
+ }
+diff --git a/explore/src/frontier_search.cpp b/explore/src/frontier_search.cpp
+index 6085fd8..7a4d721 100644
+--- a/explore/src/frontier_search.cpp
++++ b/explore/src/frontier_search.cpp
+@@ -1,6 +1,7 @@
+ #include <explore/costmap_tools.h>
+ #include <explore/frontier_search.h>
+ 
++#include <algorithm>
+ #include <geometry_msgs/msg/point.hpp>
+ #include <mutex>
+ 
+@@ -9,6 +10,7 @@
+ namespace frontier_exploration
+ {
+ using nav2_costmap_2d::FREE_SPACE;
++using nav2_costmap_2d::INSCRIBED_INFLATED_OBSTACLE;
+ using nav2_costmap_2d::LETHAL_OBSTACLE;
+ using nav2_costmap_2d::NO_INFORMATION;
+ 
+@@ -27,6 +29,7 @@ std::vector<Frontier>
+ FrontierSearch::searchFrom(geometry_msgs::msg::Point position)
+ {
+   std::vector<Frontier> frontier_list;
++  last_search_valid_ = false;
+ 
+   // Sanity check that robot is inside costmap bounds before searching
+   unsigned int mx, my;
+@@ -50,14 +53,23 @@ FrontierSearch::searchFrom(geometry_msgs::msg::Point position)
+   // initialize breadth first search
+   std::queue<unsigned int> bfs;
+ 
+-  // find closest clear cell to start search
+-  unsigned int clear, pos = costmap_->getIndex(mx, my);
+-  if (nearestCell(clear, pos, FREE_SPACE, *costmap_)) {
+-    bfs.push(clear);
+-  } else {
+-    bfs.push(pos);
+-    RCLCPP_WARN(logger_, "[FrontierSearch] Could not find nearby clear cell to start search");
++  const auto is_traversable = [this](unsigned int index) {
++    return map_[index] != NO_INFORMATION &&
++           map_[index] < INSCRIBED_INFLATED_OBSTACLE;
++  };
++
++  // 机器人可能位于 inflation cost(1..252)，这仍是 Nav2 可通行空间；但原
++  // nearestCell 会跨过墙寻找任意 free pocket。直接从 robot cell 扩张才能
++  // 证明 reachable_flag 确实属于机器人的同一可通行连通域。
++  const unsigned int pos = costmap_->getIndex(mx, my);
++  if (!is_traversable(pos)) {
++    RCLCPP_WARN(
++        logger_,
++        "[FrontierSearch] Robot cell is not traversable; deferring search");
++    return frontier_list;
+   }
++  last_search_valid_ = true;
++  bfs.push(pos);
+   visited_flag[bfs.front()] = true;
+ 
+   while (!bfs.empty()) {
+@@ -66,9 +78,9 @@ FrontierSearch::searchFrom(geometry_msgs::msg::Point position)
+ 
+     // iterate over 4-connected neighbourhood
+     for (unsigned nbr : nhood4(idx, *costmap_)) {
+-      // add to queue all free, unvisited cells, use descending search in case
+-      // initialized on non-free cell
+-      if (map_[nbr] <= map_[idx] && !visited_flag[nbr]) {
++      // BFS 可穿过 Nav2 可通行的 inflation cost，但 unknown/lethal/inscribed
++      // 绝不进入 reachable_flag；最终 approach 仍额外要求 FREE_SPACE。
++      if (is_traversable(nbr) && !visited_flag[nbr]) {
+         visited_flag[nbr] = true;
+         bfs.push(nbr);
+         // check if cell is new frontier cell (unvisited, NO_INFORMATION, free
+@@ -84,10 +96,22 @@ FrontierSearch::searchFrom(geometry_msgs::msg::Point position)
+     }
+   }
+ 
+-  // set costs of frontiers
+-  for (auto& frontier : frontier_list) {
+-    frontier.cost = frontierCost(frontier);
+-  }
++  // centroid 是 unknown frontier 的稳定身份，只用于评分/黑名单；真正交给
++  // Nav2 的 approach 必须来自已经遍历完的 reachable FREE_SPACE 连通域。
++  frontier_list.erase(
++      std::remove_if(
++          frontier_list.begin(), frontier_list.end(),
++          [this, &visited_flag](Frontier& frontier) {
++            if (selectApproach(frontier, visited_flag)) {
++              frontier.cost = frontierCost(frontier);
++              return false;
++            }
++            RCLCPP_WARN(logger_,
++                        "[FrontierSearch] Dropping frontier without reachable "
++                        "free-space approach");
++            return true;
++          }),
++      frontier_list.end());
+   std::sort(
+       frontier_list.begin(), frontier_list.end(),
+       [](const Frontier& f1, const Frontier& f2) { return f1.cost < f2.cost; });
+@@ -110,6 +134,8 @@ Frontier FrontierSearch::buildNewFrontier(unsigned int initial_cell,
+   unsigned int ix, iy;
+   costmap_->indexToCells(initial_cell, ix, iy);
+   costmap_->mapToWorld(ix, iy, output.initial.x, output.initial.y);
++  output.points.push_back(output.initial);
++  output.centroid = output.initial;
+ 
+   // push initial gridcell onto queue
+   std::queue<unsigned int> bfs;
+@@ -120,6 +146,9 @@ Frontier FrontierSearch::buildNewFrontier(unsigned int initial_cell,
+   double reference_x, reference_y;
+   costmap_->indexToCells(reference, rx, ry);
+   costmap_->mapToWorld(rx, ry, reference_x, reference_y);
++  output.min_distance = std::hypot(
++      reference_x - output.initial.x, reference_y - output.initial.y);
++  output.middle = output.initial;
+ 
+   while (!bfs.empty()) {
+     unsigned int idx = bfs.front();
+@@ -170,6 +199,48 @@ Frontier FrontierSearch::buildNewFrontier(unsigned int initial_cell,
+   return output;
+ }
+ 
++bool FrontierSearch::selectApproach(
++    Frontier& frontier, const std::vector<bool>& reachable_flag)
++{
++  double best_distance = std::numeric_limits<double>::infinity();
++  bool found = false;
++
++  auto consider_frontier_cell =
++      [this, &frontier, &reachable_flag, &best_distance, &found](
++          const geometry_msgs::msg::Point& frontier_point) {
++        unsigned int mx, my;
++        if (!costmap_->worldToMap(
++                frontier_point.x, frontier_point.y, mx, my)) {
++          return;
++        }
++        for (unsigned int nbr :
++             nhood4(costmap_->getIndex(mx, my), *costmap_)) {
++          if (!reachable_flag[nbr] || map_[nbr] != FREE_SPACE) {
++            continue;
++          }
++          unsigned int ax, ay;
++          double wx, wy;
++          costmap_->indexToCells(nbr, ax, ay);
++          costmap_->mapToWorld(ax, ay, wx, wy);
++          const double dx = wx - frontier.centroid.x;
++          const double dy = wy - frontier.centroid.y;
++          const double distance = dx * dx + dy * dy;
++          if (distance < best_distance) {
++            best_distance = distance;
++            frontier.approach.x = wx;
++            frontier.approach.y = wy;
++            found = true;
++          }
++        }
++      };
++
++  consider_frontier_cell(frontier.initial);
++  for (const auto& point : frontier.points) {
++    consider_frontier_cell(point);
++  }
++  return found;
++}
++
+ bool FrontierSearch::isNewFrontierCell(unsigned int idx,
+                                        const std::vector<bool>& frontier_flag)
+ {
+diff --git a/explore/test/test_explore.cpp b/explore/test/test_explore.cpp
+index 2fe0913..88fe672 100644
+--- a/explore/test/test_explore.cpp
++++ b/explore/test/test_explore.cpp
+@@ -36,8 +36,13 @@
+ 
+ #include <gtest/gtest.h>
+ #include <geometry_msgs/msg/point.hpp>
++#include <nav2_costmap_2d/cost_values.hpp>
++#include <nav2_costmap_2d/costmap_2d.hpp>
++
+ #include <cmath>
+ 
++#include "explore/frontier_search.h"
++
+ #define private public
+ 
+ inline static bool same_point(const geometry_msgs::msg::Point& one,
+@@ -70,6 +75,107 @@ TEST(Explore, testSameGoal)
+     EXPECT_TRUE(same_goal);
+ }
+ 
++TEST(FrontierSearch, navigationGoalUsesReachableFreeSpaceApproach)
++{
++  using nav2_costmap_2d::FREE_SPACE;
++  using nav2_costmap_2d::LETHAL_OBSTACLE;
++  using nav2_costmap_2d::NO_INFORMATION;
++
++  nav2_costmap_2d::Costmap2D costmap(
++      9, 7, 1.0, 0.0, 0.0, LETHAL_OBSTACLE);
++  for (unsigned int y = 1; y <= 5; ++y) {
++    for (unsigned int x = 1; x <= 3; ++x) {
++      costmap.setCost(x, y, FREE_SPACE);
++    }
++    costmap.setCost(4, y, NO_INFORMATION);
++  }
++  // 这个 free pocket 在 unknown 后方，与机器人连通域隔离；approach 不能
++  // 仅凭“frontier 邻接 free”就错误选择它。
++  costmap.setCost(5, 3, NO_INFORMATION);
++  costmap.setCost(6, 3, FREE_SPACE);
++
++  frontier_exploration::FrontierSearch search(
++      &costmap, 1.0, 0.0, 0.0, rclcpp::get_logger("frontier_test"));
++  geometry_msgs::msg::Point robot;
++  costmap.mapToWorld(1, 3, robot.x, robot.y);
++  const auto frontiers = search.searchFrom(robot);
++
++  EXPECT_TRUE(search.lastSearchValid());
++  ASSERT_FALSE(frontiers.empty());
++  for (const auto& frontier : frontiers) {
++    unsigned int centroid_x, centroid_y, approach_x, approach_y;
++    ASSERT_TRUE(costmap.worldToMap(
++        frontier.centroid.x, frontier.centroid.y, centroid_x, centroid_y));
++    ASSERT_TRUE(costmap.worldToMap(
++        frontier.approach.x, frontier.approach.y, approach_x, approach_y));
++    EXPECT_EQ(costmap.getCost(centroid_x, centroid_y), NO_INFORMATION);
++    EXPECT_EQ(costmap.getCost(approach_x, approach_y), FREE_SPACE);
++    EXPECT_LE(approach_x, 3u);
++  }
++}
++
++TEST(FrontierSearch, rejectsDisconnectedFreePocketWhenRobotCellIsNotFree)
++{
++  using nav2_costmap_2d::FREE_SPACE;
++  using nav2_costmap_2d::LETHAL_OBSTACLE;
++  using nav2_costmap_2d::NO_INFORMATION;
++
++  nav2_costmap_2d::Costmap2D costmap(
++      7, 5, 1.0, 0.0, 0.0, LETHAL_OBSTACLE);
++  costmap.setCost(4, 2, FREE_SPACE);
++  costmap.setCost(5, 2, NO_INFORMATION);
++
++  frontier_exploration::FrontierSearch search(
++      &costmap, 1.0, 0.0, 0.0, rclcpp::get_logger("frontier_test"));
++  geometry_msgs::msg::Point robot;
++  costmap.mapToWorld(1, 2, robot.x, robot.y);
++
++  EXPECT_TRUE(search.searchFrom(robot).empty());
++  EXPECT_FALSE(search.lastSearchValid());
++}
++
++TEST(FrontierSearch, inflatedRobotCellStillFindsReachableFrontier)
++{
++  using nav2_costmap_2d::FREE_SPACE;
++  using nav2_costmap_2d::LETHAL_OBSTACLE;
++  using nav2_costmap_2d::NO_INFORMATION;
++
++  nav2_costmap_2d::Costmap2D costmap(
++      7, 5, 1.0, 0.0, 0.0, LETHAL_OBSTACLE);
++  costmap.setCost(1, 2, 120);
++  costmap.setCost(2, 2, 80);
++  costmap.setCost(3, 2, FREE_SPACE);
++  costmap.setCost(4, 2, NO_INFORMATION);
++
++  frontier_exploration::FrontierSearch search(
++      &costmap, 1.0, 0.0, 0.0, rclcpp::get_logger("frontier_test"));
++  geometry_msgs::msg::Point robot;
++  costmap.mapToWorld(1, 2, robot.x, robot.y);
++  const auto frontiers = search.searchFrom(robot);
++
++  EXPECT_TRUE(search.lastSearchValid());
++  ASSERT_FALSE(frontiers.empty());
++  unsigned int approach_x, approach_y;
++  ASSERT_TRUE(costmap.worldToMap(
++      frontiers.front().approach.x, frontiers.front().approach.y,
++      approach_x, approach_y));
++  EXPECT_EQ(costmap.getCost(approach_x, approach_y), FREE_SPACE);
++}
++
++TEST(FrontierSearch, validEmptySearchIsDistinguishableFromInvalidStart)
++{
++  using nav2_costmap_2d::FREE_SPACE;
++
++  nav2_costmap_2d::Costmap2D costmap(5, 5, 1.0, 0.0, 0.0, FREE_SPACE);
++  frontier_exploration::FrontierSearch search(
++      &costmap, 1.0, 0.0, 0.0, rclcpp::get_logger("frontier_test"));
++  geometry_msgs::msg::Point robot;
++  costmap.mapToWorld(2, 2, robot.x, robot.y);
++
++  EXPECT_TRUE(search.searchFrom(robot).empty());
++  EXPECT_TRUE(search.lastSearchValid());
++}
++
+ int main(int argc, char** argv)
+ {
+   testing::InitGoogleTest(&argc, argv);

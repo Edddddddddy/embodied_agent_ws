@@ -18,6 +18,26 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--world-file", type=Path)
     parser.add_argument("--mission-plan", type=Path)
     parser.add_argument("--dynamic-scenario", type=Path)
+    parser.add_argument(
+        "--unknown-world",
+        action="store_true",
+        help="启用无场景先验的 schema v4 地图/定位/动态目标证据门禁",
+    )
+    parser.add_argument(
+        "--scene-spec",
+        type=Path,
+        help="仅供 evaluator 读取出生位姿与区域边界，不能传给机器人策略",
+    )
+    parser.add_argument(
+        "--truth-map",
+        type=Path,
+        help="仅供 evaluator 计算覆盖率的静态真值地图",
+    )
+    parser.add_argument(
+        "--gazebo-robot-entity",
+        default="turtlebot3_waffle",
+        help="Gazebo SceneBroadcaster 中的顶层机器人实体名",
+    )
     parser.add_argument("--dynamic-navigation-timeout", type=float, default=180.0)
     parser.add_argument("--runtime-log", type=Path)
     parser.add_argument("--gate-timeout-s", type=float, default=900.0)

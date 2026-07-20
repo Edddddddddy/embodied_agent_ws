@@ -1,0 +1,422 @@
+diff --git a/explore/include/explore/active_frontier_goal_policy.h b/explore/include/explore/active_frontier_goal_policy.h
+new file mode 100644
+index 0000000..2c15aa2
+--- /dev/null
++++ b/explore/include/explore/active_frontier_goal_policy.h
+@@ -0,0 +1,66 @@
++#ifndef EXPLORE_ACTIVE_FRONTIER_GOAL_POLICY_H_
++#define EXPLORE_ACTIVE_FRONTIER_GOAL_POLICY_H_
++
++#include <geometry_msgs/msg/point.hpp>
++
++#include <cmath>
++
++namespace explore
++{
++
++enum class ActiveFrontierGoalReleaseReason
++{
++  NONE,
++  PROGRESS_TIMEOUT,
++  UNSAFE_TARGET,
++  BLACKLISTED_IDENTITY,
++};
++
++struct ActiveFrontierGoalDecision
++{
++  double distance_m{0.0};
++  bool made_progress{false};
++  ActiveFrontierGoalReleaseReason release_reason{
++      ActiveFrontierGoalReleaseReason::NONE};
++
++  bool shouldHold() const {
++    return release_reason == ActiveFrontierGoalReleaseReason::NONE;
++  }
++};
++
++/**
++ * @brief Decide whether an accepted Nav2 frontier goal keeps ownership.
++ *
++ * Map updates may reorder or split frontiers while Nav2 is following a valid
++ * detour.  Selection changes are therefore not cancellation evidence: only a
++ * terminal Action result or the existing progress timeout releases ownership.
++ */
++inline ActiveFrontierGoalDecision evaluateActiveFrontierGoal(
++    const geometry_msgs::msg::Point& robot,
++    const geometry_msgs::msg::Point& target,
++    double previous_distance_m,
++    double seconds_since_progress,
++    double progress_timeout_s,
++    bool target_safe,
++    bool identity_blacklisted,
++    double progress_epsilon_m = 0.01)
++{
++  const double distance = std::hypot(robot.x - target.x, robot.y - target.y);
++  ActiveFrontierGoalReleaseReason reason =
++      ActiveFrontierGoalReleaseReason::NONE;
++  if (!target_safe) {
++    reason = ActiveFrontierGoalReleaseReason::UNSAFE_TARGET;
++  } else if (identity_blacklisted) {
++    reason = ActiveFrontierGoalReleaseReason::BLACKLISTED_IDENTITY;
++  } else if (seconds_since_progress > progress_timeout_s) {
++    reason = ActiveFrontierGoalReleaseReason::PROGRESS_TIMEOUT;
++  }
++  return ActiveFrontierGoalDecision{
++      distance,
++      distance + progress_epsilon_m < previous_distance_m,
++      reason};
++}
++
++}  // namespace explore
++
++#endif  // EXPLORE_ACTIVE_FRONTIER_GOAL_POLICY_H_
+diff --git a/explore/include/explore/explore.h b/explore/include/explore/explore.h
+index 548cce1..9cfd0db 100644
+--- a/explore/include/explore/explore.h
++++ b/explore/include/explore/explore.h
+@@ -58,6 +58,7 @@
+ 
+ #include "nav2_msgs/action/navigate_to_pose.hpp"
+ #include "rclcpp_action/rclcpp_action.hpp"
++#include "explore/active_frontier_goal_policy.h"
+ 
+ using namespace std::placeholders;
+ #ifdef ELOQUENT
+@@ -133,7 +134,8 @@ private:
+   void resumeCallback(const std_msgs::msg::Bool::SharedPtr msg);
+ 
+   std::vector<geometry_msgs::msg::Point> frontier_blacklist_;
+-  geometry_msgs::msg::Point prev_goal_;
++  geometry_msgs::msg::Point active_frontier_identity_;
++  geometry_msgs::msg::Point active_target_position_;
+   double prev_distance_;
+   rclcpp::Time last_progress_;
+   size_t last_markers_count_;
+diff --git a/explore/include/explore/frontier_search.h b/explore/include/explore/frontier_search.h
+index df6b1e1..c6f096b 100644
+--- a/explore/include/explore/frontier_search.h
++++ b/explore/include/explore/frontier_search.h
+@@ -60,6 +60,9 @@ public:
+     return last_clearance_domain_valid_;
+   }
+ 
++  /** @brief Recheck a dispatched approach against the latest map snapshot. */
++  bool isApproachSafe(const geometry_msgs::msg::Point& approach);
++
+ protected:
+   /**
+    * @brief Starting from an initial cell, build a frontier from valid adjacent
+diff --git a/explore/src/explore.cpp b/explore/src/explore.cpp
+index b08fc71..d46ab57 100644
+--- a/explore/src/explore.cpp
++++ b/explore/src/explore.cpp
+@@ -43,15 +43,6 @@
+ #include <stdexcept>
+ #include <thread>
+ 
+-inline static bool same_point(const geometry_msgs::msg::Point& one,
+-                              const geometry_msgs::msg::Point& two)
+-{
+-  double dx = one.x - two.x;
+-  double dy = one.y - two.y;
+-  double dist = sqrt(dx * dx + dy * dy);
+-  return dist < 0.01;
+-}
+-
+ namespace explore
+ {
+ Explore::Explore()
+@@ -309,6 +300,49 @@ void Explore::makePlan()
+     RCLCPP_DEBUG(logger_, "frontier %zd cost: %f", i, frontiers[i].cost);
+   }
+ 
++  if (goal_active_) {
++    const bool target_safe = search_.isApproachSafe(active_target_position_);
++    const bool identity_blacklisted =
++        goalOnBlacklist(active_frontier_identity_);
++    const double progress_epsilon = std::max(
++        0.02, 0.5 * costmap_client_.getCostmap()->getResolution());
++    const auto decision = evaluateActiveFrontierGoal(
++        pose.position, active_target_position_, prev_distance_,
++        (this->now() - last_progress_).seconds(), progress_timeout_,
++        target_safe, identity_blacklisted, progress_epsilon);
++    if (decision.made_progress) {
++      last_progress_ = this->now();
++      prev_distance_ = decision.distance_m;
++    }
++    if (decision.shouldHold()) {
++      // 已接受的 Nav2 Action 在终态前拥有执行权。地图更新导致 frontier
++      // 排序/质心变化，不是取消证据；Nav2 会持续用最新 costmap 重规划。
++      return;
++    }
++    if (decision.release_reason ==
++        ActiveFrontierGoalReleaseReason::PROGRESS_TIMEOUT) {
++      frontier_blacklist_.push_back(active_frontier_identity_);
++    }
++    available_frontier_count_ = static_cast<size_t>(std::count_if(
++        frontiers.begin(), frontiers.end(),
++        [this](const frontier_exploration::Frontier& frontier) {
++          return frontier.has_approach &&
++                 !goalOnBlacklist(frontier.centroid);
++        }));
++    // timeout 是显式抢占边界：先取消旧 UUID，再选下一 frontier。sequence
++    // 同时覆盖“goal response 尚未返回”的竞态，迟到 accepted handle 会自取消。
++    ++pending_goal_sequence_;
++    if (navigation_goal_handle_) {
++      move_base_client_->async_cancel_goal(navigation_goal_handle_);
++      navigation_goal_handle_.reset();
++    }
++    goal_active_ = false;
++    active_goal_id_ = rclcpp_action::GoalUUID{};
++    RCLCPP_WARN(
++        logger_, "Active frontier goal released (reason=%d); selecting another",
++        static_cast<int>(decision.release_reason));
++  }
++
+   if (!search_.lastClearanceDomainValid()) {
+     // raw frontier 仍用于审计，但没有机器人局部安全锚点时不能证明任何目标
+     // 可执行，更不能把 empty 解释为 no_frontiers。保持 IN_PROGRESS 等待新图。
+@@ -391,36 +425,11 @@ void Explore::makePlan()
+   const geometry_msgs::msg::Point target_identity = frontier->centroid;
+   const geometry_msgs::msg::Point target_position = frontier->approach;
+ 
+-  // time out if we are not making any progress
+-  bool same_goal = same_point(prev_goal_, target_identity);
+-
+-  prev_goal_ = target_identity;
+-  if (!same_goal || prev_distance_ > frontier->min_distance) {
+-    // we have different goal or we made some progress
+-    last_progress_ = this->now();
+-    prev_distance_ = frontier->min_distance;
+-  }
+-  // black list if we've made no progress for a long time
+-  if (goal_active_ &&
+-      (this->now() - last_progress_ >
+-       tf2::durationFromSec(progress_timeout_)) &&
+-      !resuming_) {
+-    frontier_blacklist_.push_back(target_identity);
+-    RCLCPP_DEBUG(logger_, "Adding current goal to black list");
+-    makePlan();
+-    return;
+-  }
+-
+   // ensure only first call of makePlan was set resuming to true
+   if (resuming_) {
+     resuming_ = false;
+   }
+ 
+-  // we don't need to do anything if we still pursuing the same goal
+-  if (same_goal && goal_active_) {
+-    return;
+-  }
+-
+   RCLCPP_DEBUG(logger_, "Sending goal to move base nav2");
+ 
+   // send goal to move_base if we have something new to pursue
+@@ -433,6 +442,15 @@ void Explore::makePlan()
+   goal.pose.header.stamp = builtin_interfaces::msg::Time();
+ 
+   goal_active_ = true;
++  active_frontier_identity_ = target_identity;
++  active_target_position_ = target_position;
++  prev_distance_ = std::hypot(
++      pose.position.x - target_position.x,
++      pose.position.y - target_position.y);
++  last_progress_ = this->now();
++  // 新 goal 会由 Nav2 Action server 抢占旧 goal；旧 UUID 的迟到 result
++  // 仍由现有 ledger 结算，但不能清除下面即将记录的新 active UUID。
++  navigation_goal_handle_.reset();
+   active_goal_id_ = rclcpp_action::GoalUUID{};
+   const uint64_t goal_sequence = ++pending_goal_sequence_;
+   auto send_goal_options = rclcpp_action::Client<
+@@ -456,6 +474,7 @@ void Explore::makePlan()
+         if (!goal_handle) {
+           RCLCPP_ERROR(logger_, "Goal was REJECTED by the action server");
+           goal_active_ = false;
++          navigation_goal_handle_.reset();
+           ++rejected_goal_count_;
+           ++consecutive_goal_rejections_;
+           last_goal_terminal_ = "rejected";
+@@ -472,6 +491,7 @@ void Explore::makePlan()
+           }
+           publishStatus(current_status_);
+         } else {
++          navigation_goal_handle_ = goal_handle;
+           active_goal_id_ = goal_handle->get_goal_id();
+           ++accepted_goal_count_;
+           consecutive_goal_rejections_ = 0;
+@@ -591,6 +611,7 @@ void Explore::reachedGoal(const NavigationGoalHandle::WrappedResult& result,
+     return;
+   }
+   goal_active_ = false;
++  navigation_goal_handle_.reset();
+   next_goal_retry_at_ = std::chrono::steady_clock::now() +
+       std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+           std::chrono::duration<double>(goal_terminal_cooldown_));
+@@ -626,6 +647,7 @@ void Explore::stop(bool finished_exploring)
+   // 后会立即 cancel，补上 cancel_all_goals 与异步接受之间的竞态窗口。
+   ++pending_goal_sequence_;
+   goal_active_ = false;
++  navigation_goal_handle_.reset();
+   // Only publish paused status if manually stopped (not finished exploring)
+   if (!finished_exploring) {
+     publishStatus(explore_lite_msgs::msg::ExploreStatus::EXPLORATION_PAUSED);
+diff --git a/explore/src/frontier_search.cpp b/explore/src/frontier_search.cpp
+index 9a127f0..70722ab 100644
+--- a/explore/src/frontier_search.cpp
++++ b/explore/src/frontier_search.cpp
+@@ -162,6 +162,22 @@ FrontierSearch::searchFrom(geometry_msgs::msg::Point position)
+   return frontier_list;
+ }
+ 
++bool FrontierSearch::isApproachSafe(
++    const geometry_msgs::msg::Point& approach)
++{
++  std::lock_guard<nav2_costmap_2d::Costmap2D::mutex_t> lock(
++      *(costmap_->getMutex()));
++  unsigned int cell_x, cell_y;
++  if (!costmap_->worldToMap(approach.x, approach.y, cell_x, cell_y)) {
++    return false;
++  }
++  map_ = costmap_->getCharMap();
++  size_x_ = costmap_->getSizeInCellsX();
++  size_y_ = costmap_->getSizeInCellsY();
++  const unsigned int index = costmap_->getIndex(cell_x, cell_y);
++  return map_[index] == FREE_SPACE && approachCellHasClearance(index);
++}
++
+ Frontier FrontierSearch::buildNewFrontier(unsigned int initial_cell,
+                                           unsigned int reference,
+                                           std::vector<bool>& frontier_flag)
+diff --git a/explore/test/test_explore.cpp b/explore/test/test_explore.cpp
+index 196abc7..c58916b 100644
+--- a/explore/test/test_explore.cpp
++++ b/explore/test/test_explore.cpp
+@@ -44,6 +44,7 @@
+ #include <limits>
+ 
+ #include "explore/frontier_goal_cooldown.h"
++#include "explore/active_frontier_goal_policy.h"
+ #include "explore/frontier_search.h"
+ 
+ #define private public
+@@ -120,6 +121,78 @@ TEST(FrontierGoalCooldown, refreshesNearbyIdentityWithoutGrowingLedger)
+       shifted, now + std::chrono::seconds(8), 0.25));
+ }
+ 
++TEST(ActiveFrontierGoalPolicy, holdsGoalDuringValidDetour)
++{
++  geometry_msgs::msg::Point robot;
++  geometry_msgs::msg::Point target;
++  target.x = 6.0;
++  robot.x = -1.0;
++
++  // 局部避障可能先让欧氏距离增加；在 progress_timeout 前，新的 frontier
++  // 排序不能抢占一个仍由 Nav2 正常执行的 Action。
++  const auto decision = explore::evaluateActiveFrontierGoal(
++      robot, target, 6.0, 12.0, 45.0, true, false, 0.02);
++
++  EXPECT_FALSE(decision.made_progress);
++  EXPECT_EQ(
++      decision.release_reason,
++      explore::ActiveFrontierGoalReleaseReason::NONE);
++  EXPECT_TRUE(decision.shouldHold());
++}
++
++TEST(ActiveFrontierGoalPolicy, releasesOnlyAfterProgressTimeout)
++{
++  geometry_msgs::msg::Point robot;
++  geometry_msgs::msg::Point target;
++  target.x = 6.0;
++  robot.x = 1.0;
++
++  const auto progressing = explore::evaluateActiveFrontierGoal(
++      robot, target, 6.0, 10.0, 45.0, true, false, 0.02);
++  EXPECT_TRUE(progressing.made_progress);
++  EXPECT_TRUE(progressing.shouldHold());
++
++  const auto stalled = explore::evaluateActiveFrontierGoal(
++      robot, target, 5.0, 46.0, 45.0, true, false, 0.02);
++  EXPECT_EQ(
++      stalled.release_reason,
++      explore::ActiveFrontierGoalReleaseReason::PROGRESS_TIMEOUT);
++  EXPECT_FALSE(stalled.shouldHold());
++}
++
++TEST(ActiveFrontierGoalPolicy, unsafeOrBlacklistedGoalReleasesImmediately)
++{
++  geometry_msgs::msg::Point robot;
++  geometry_msgs::msg::Point target;
++  target.x = 2.0;
++
++  const auto unsafe = explore::evaluateActiveFrontierGoal(
++      robot, target, 2.0, 1.0, 45.0, false, false, 0.02);
++  EXPECT_EQ(
++      unsafe.release_reason,
++      explore::ActiveFrontierGoalReleaseReason::UNSAFE_TARGET);
++  EXPECT_FALSE(unsafe.shouldHold());
++
++  const auto blacklisted = explore::evaluateActiveFrontierGoal(
++      robot, target, 2.0, 1.0, 45.0, true, true, 0.02);
++  EXPECT_EQ(
++      blacklisted.release_reason,
++      explore::ActiveFrontierGoalReleaseReason::BLACKLISTED_IDENTITY);
++  EXPECT_FALSE(blacklisted.shouldHold());
++}
++
++TEST(ActiveFrontierGoalPolicy, subEpsilonJitterDoesNotRefreshProgress)
++{
++  geometry_msgs::msg::Point robot;
++  geometry_msgs::msg::Point target;
++  target.x = 2.0;
++  robot.x = 0.01;
++
++  const auto decision = explore::evaluateActiveFrontierGoal(
++      robot, target, 2.0, 1.0, 45.0, true, false, 0.02);
++  EXPECT_FALSE(decision.made_progress);
++}
++
+ TEST(FrontierSearch, navigationGoalUsesReachableFreeSpaceApproach)
+ {
+   using nav2_costmap_2d::FREE_SPACE;
+@@ -194,6 +267,39 @@ TEST(FrontierSearch, navigationGoalKeepsRobotRadiusClearanceFromUnknown)
+   }
+ }
+ 
++TEST(FrontierSearch, dispatchedApproachIsRecheckedAgainstLatestMap)
++{
++  using nav2_costmap_2d::FREE_SPACE;
++  using nav2_costmap_2d::LETHAL_OBSTACLE;
++  using nav2_costmap_2d::NO_INFORMATION;
++
++  nav2_costmap_2d::Costmap2D costmap(
++      16, 11, 0.1, 0.0, 0.0, LETHAL_OBSTACLE);
++  for (unsigned int y = 1; y <= 9; ++y) {
++    for (unsigned int x = 1; x <= 11; ++x) {
++      costmap.setCost(x, y, FREE_SPACE);
++    }
++    costmap.setCost(12, y, NO_INFORMATION);
++  }
++  frontier_exploration::FrontierSearch search(
++      &costmap, 1.0, 0.0, 0.0, rclcpp::get_logger("frontier_test"),
++      0.22, 1.5);
++  geometry_msgs::msg::Point robot;
++  costmap.mapToWorld(3, 5, robot.x, robot.y);
++  const auto frontiers = search.searchFrom(robot);
++  const auto frontier = std::find_if(
++      frontiers.begin(), frontiers.end(),
++      [](const auto& item) { return item.has_approach; });
++  ASSERT_NE(frontier, frontiers.end());
++  ASSERT_TRUE(search.isApproachSafe(frontier->approach));
++
++  unsigned int x, y;
++  ASSERT_TRUE(costmap.worldToMap(
++      frontier->approach.x, frontier->approach.y, x, y));
++  costmap.setCost(x, y, NO_INFORMATION);
++  EXPECT_FALSE(search.isApproachSafe(frontier->approach));
++}
++
+ TEST(FrontierSearch, unsafeFrontierRemainsVisibleForRecovery)
+ {
+   using nav2_costmap_2d::FREE_SPACE;
+

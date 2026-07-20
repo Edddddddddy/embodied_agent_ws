@@ -1,0 +1,75 @@
+diff --git a/explore/src/frontier_search.cpp b/explore/src/frontier_search.cpp
+index 70722ab..625964a 100644
+--- a/explore/src/frontier_search.cpp
++++ b/explore/src/frontier_search.cpp
+@@ -500,8 +500,10 @@ bool FrontierSearch::isNewFrontierCell(unsigned int idx,
+ 
+ double FrontierSearch::frontierCost(const Frontier& frontier)
+ {
+-  return (potential_scale_ * frontier.min_distance *
+-          costmap_->getResolution()) -
++  // buildNewFrontier() 已通过 mapToWorld() 把 min_distance 换算成米；再次乘
++  // resolution 会把路程代价缩小 20 倍（0.05 m 地图），让远端大 frontier
++  // 长期压过近端可达目标。信息增益仍由 cell 数换算为物理边界长度。
++  return (potential_scale_ * frontier.min_distance) -
+          (gain_scale_ * frontier.size * costmap_->getResolution());
+ }
+ }  // namespace frontier_exploration
+diff --git a/explore/test/test_explore.cpp b/explore/test/test_explore.cpp
+index c3ba18d..068fc3c 100644
+--- a/explore/test/test_explore.cpp
++++ b/explore/test/test_explore.cpp
+@@ -80,6 +80,53 @@ TEST(Explore, testSameGoal)
+     EXPECT_TRUE(same_goal);
+ }
+ 
++class FrontierSearchCostProbe : public frontier_exploration::FrontierSearch
++{
++public:
++  using frontier_exploration::FrontierSearch::FrontierSearch;
++
++  double cost(const frontier_exploration::Frontier& frontier)
++  {
++    return frontierCost(frontier);
++  }
++};
++
++TEST(FrontierSearchCost, keepsPhysicalScoreAcrossMapResolutions)
++{
++  nav2_costmap_2d::Costmap2D fine_map(100, 100, 0.05, 0.0, 0.0);
++  nav2_costmap_2d::Costmap2D coarse_map(50, 50, 0.10, 0.0, 0.0);
++  FrontierSearchCostProbe fine(
++      &fine_map, 2.0, 1.5, 0.45,
++      rclcpp::get_logger("frontier_cost_fine"));
++  FrontierSearchCostProbe coarse(
++      &coarse_map, 2.0, 1.5, 0.45,
++      rclcpp::get_logger("frontier_cost_coarse"));
++  frontier_exploration::Frontier fine_frontier;
++  fine_frontier.min_distance = 2.0;
++  fine_frontier.size = 20;  // 1.0 m physical frontier
++  auto coarse_frontier = fine_frontier;
++  coarse_frontier.size = 10;
++
++  EXPECT_NEAR(fine.cost(fine_frontier), coarse.cost(coarse_frontier), 1e-9);
++}
++
++TEST(FrontierSearchCost, doesNotLetCellCountEraseRealTravelCost)
++{
++  nav2_costmap_2d::Costmap2D map(100, 100, 0.05, 0.0, 0.0);
++  FrontierSearchCostProbe search(
++      &map, 2.0, 1.5, 0.45,
++      rclcpp::get_logger("frontier_cost_order"));
++  frontier_exploration::Frontier near_frontier;
++  near_frontier.min_distance = 2.0;
++  near_frontier.size = 10;
++  frontier_exploration::Frontier far_frontier;
++  far_frontier.min_distance = 5.0;
++  far_frontier.size = 50;
++
++  // 远端边界的信息增益不足以覆盖额外 3 m 路程时，应先探索近端目标。
++  EXPECT_LT(search.cost(near_frontier), search.cost(far_frontier));
++}
++
+ TEST(FrontierGoalCooldown, skipsReachedGoalUntilCooldownExpires)
+ {
+   explore::FrontierGoalCooldown cooldown;

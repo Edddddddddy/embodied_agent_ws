@@ -1,0 +1,38 @@
+schema_version: 1
+profile: unknown_world
+
+# 运行时只接收传感器策略和通用预算；不得出现静态地图、固定路线或语义坐标。
+exploration:
+  provider: explore_lite
+  config: frontier_exploration.yaml
+  # 600 秒实测仍在持续扩图且 meeting/office 分区不足；900 秒只是硬上限，
+  # 无地图增长仍由 stall monitor 提前进入恢复，不能靠空等制造完成状态。
+  timeout_s: 900.0
+  min_runtime_s: 60.0
+  stable_map_s: 15.0
+  # active=0 可能只是 Action 交接窗口；持续空闲超过该值后，才允许上层把
+  # frontier 状态解释为停滞或本 epoch 的物理 approach 已耗尽。
+  frontier_idle_grace_s: 20.0
+  # 同一批 approach 耗尽后会做一次 360°确认扫描；新增已知栅格低于该值，
+  # 才能以 no-map-gain 收敛。它只读取本次 SLAM 图，不读取 Gazebo 真值。
+  min_growth_cells: 40
+  completion_status: exploration_complete
+  max_recovery_attempts: 2
+  action_timeout_s: 60.0
+  initial_scan_text: 原地转一圈
+  recovery_scan_text: 原地转一圈
+
+navigation:
+  timeout_s: 330.0
+  goal_count: 3
+  goal_seed: 20260719
+  minimum_goal_separation_m: 1.50
+  # 0.40m 覆盖 0.22m 机器人半径、栅格离散和定位抖动；最终可达性仍由
+  # Nav2 ComputePathToPose 按实时 global costmap 独立准入。
+  goal_clearance_m: 0.40
+
+# 这些只是运行时故障下限，不代表地图完整；90/85/10 覆盖门槛只在 evaluator 侧。
+sanity:
+  min_known_map_cells: 3000
+  min_occupied_map_cells: 100
+  min_exploration_path_m: 2.0
