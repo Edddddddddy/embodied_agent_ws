@@ -50,6 +50,8 @@ def test_frontier_patch_and_setup_share_the_pinned_revision():
 def test_ci_replays_and_compiles_patch_stack_from_clean_upstream():
     setup = SETUP.read_text(encoding="utf-8")
     workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    workflow_config = yaml.safe_load(workflow)
+    replay_job = workflow_config["jobs"]["frontier-patch-replay"]
 
     assert "--prepare-only" in setup
     assert "frontier-patch-replay:" in workflow
@@ -58,6 +60,8 @@ def test_ci_replays_and_compiles_patch_stack_from_clean_upstream():
     assert "20-default.list" in workflow
     assert "rosdep init" in workflow
     assert "rosdep update" in workflow
+    # GitHub 容器的默认 /bin/sh 不支持 source；契约测试防止 shell 配置被误删。
+    assert replay_job["defaults"]["run"]["shell"] == "bash"
     assert "--base-paths third_party/m-explore-ros2" in workflow
     assert "ctest --test-dir build/explore_lite" in workflow
     assert "-R '^test_explore$' --output-on-failure" in workflow

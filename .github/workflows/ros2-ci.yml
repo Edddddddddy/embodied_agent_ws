@@ -23,6 +23,10 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: rostooling/setup-ros-docker:ubuntu-noble-latest
+    defaults:
+      run:
+        # 容器默认 shell 是 /bin/sh；固定 Bash 才能安全 source ROS 环境脚本。
+        shell: bash
     steps:
       - uses: actions/checkout@v5
       - name: Recreate pinned Explore Lite source
