@@ -27,6 +27,14 @@ jobs:
       - uses: actions/checkout@v5
       - name: Recreate pinned Explore Lite source
         run: bash scripts/setup_frontier_exploration.sh --prepare-only
+      - name: Initialize rosdep metadata
+        # setup-ros-docker 的精简镜像带 rosdep 可执行文件，但未必带 /etc/ros
+        # source list；先做幂等初始化，避免补丁已成功重放后误报依赖安装失败。
+        run: |
+          if [ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]; then
+            rosdep init
+          fi
+          rosdep update
       - name: Install Explore Lite dependencies
         run: >-
           rosdep install --from-paths third_party/m-explore-ros2 --ignore-src

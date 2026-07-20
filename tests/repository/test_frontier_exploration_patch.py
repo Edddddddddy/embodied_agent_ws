@@ -54,6 +54,10 @@ def test_ci_replays_and_compiles_patch_stack_from_clean_upstream():
     assert "--prepare-only" in setup
     assert "frontier-patch-replay:" in workflow
     assert "setup_frontier_exploration.sh --prepare-only" in workflow
+    assert "Initialize rosdep metadata" in workflow
+    assert "20-default.list" in workflow
+    assert "rosdep init" in workflow
+    assert "rosdep update" in workflow
     assert "--base-paths third_party/m-explore-ros2" in workflow
     assert "ctest --test-dir build/explore_lite" in workflow
     assert "-R '^test_explore$' --output-on-failure" in workflow
