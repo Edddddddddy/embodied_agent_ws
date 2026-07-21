@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import math
 import os
 from pathlib import Path
@@ -17,20 +18,24 @@ from embodied_agent_interfaces.msg import (
     FrontierExplorationEvidence,
     RobotCommand,
     RobotCommandResult,
+    SlamMappingCompletionEvidence,
     SlamNavigationGoalEvidence,
     SlamSessionState,
     SystemReadiness,
+    WakeEvent,
 )
 from lifecycle_msgs.msg import State
 from lifecycle_msgs.srv import GetState
-from geometry_msgs.msg import PoseWithCovarianceStamped
+from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
 from nav_msgs.msg import OccupancyGrid, Odometry, Path as NavPath
-from nav2_msgs.action import ComputePathToPose, FollowWaypoints, NavigateToPose
+from nav2_msgs.action import BackUp, ComputePathToPose, FollowWaypoints, NavigateToPose
 import rclpy
 from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.duration import Duration
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from rclpy.time import Time
 from rclpy.qos import (
     DurabilityPolicy,
     HistoryPolicy,
@@ -39,7 +44,8 @@ from rclpy.qos import (
     qos_profile_sensor_data,
 )
 from sensor_msgs.msg import LaserScan
-from std_msgs.msg import String
+from std_msgs.msg import Bool, String
+from tf2_ros import Buffer, TransformException, TransformListener
 
 try:
     from explore_lite_msgs.msg import ExploreStatus
@@ -48,6 +54,11 @@ except ImportError:  # 可选运行时由 setup_frontier_exploration.sh 安装�
 
 from .agent_action_gateway import AgentActionGateway, AgentActionOutcome
 from .frontier_monitor import FrontierExplorationMonitor
+from .exploration_saturation import (
+    SaturationAssessment,
+    SaturationRuntimeEvidence,
+    consecutive_low_yield_epoch_count,
+)
 from .mapped_goal_sampler import (
     OccupancySnapshot,
     inspect_path_occupancy,
@@ -59,6 +70,15 @@ from .mapping_evidence import (
     NavigationGoalEvidence,
     NavigationGoalLedger,
     NavigationGoalStatus,
+)
+from .mapping_return import (
+    PlanarPose,
+    ReturnActionKind,
+    ReturnActionStatus,
+    ReturnToStartEvidence,
+    ReturnToStartSpec,
+    build_return_to_start_report,
+    evaluate_return_to_start,
 )
 from .mission_configuration import MissionConfiguration
 from .mission_executor import (
@@ -102,6 +122,15 @@ _SKIPPABLE_PLANNER_ERROR_CODES = frozenset(
         ComputePathToPose.Result.NO_VALID_PATH,
     }
 )
+
+
+def _yaw_from_quaternion(quaternion) -> float:
+    """将 geometry_msgs Quaternion 转为平面 yaw。"""
+
+    return math.atan2(
+        2.0 * (quaternion.w * quaternion.z + quaternion.x * quaternion.y),
+        1.0 - 2.0 * (quaternion.y * quaternion.y + quaternion.z * quaternion.z),
+    )
 
 
 class _NavigationGoalRejected(RuntimeError):
@@ -378,6 +407,15 @@ class SessionOrchestratorNode(Node):
         mode = str(self.declare_parameter("mode", "offline").value)
         if mode not in {"offline", "online"}:
             raise ValueError("mode must be offline or online")
+        self._command_input_source = str(
+            self.declare_parameter(
+                "command_input_source", "raw_asr"
+            ).value
+        ).strip().lower()
+        if self._command_input_source not in {"raw_asr", "wake_event"}:
+            raise ValueError(
+                "command_input_source must be raw_asr or wake_event"
+            )
         default_prefix = workspace / "logs/showcase/voice_built_map"
         map_prefix = Path(
             self.declare_parameter("map_prefix", str(default_prefix)).value
@@ -453,6 +491,12 @@ class SessionOrchestratorNode(Node):
             log_info=self.get_logger().info,
         )
         if isinstance(mission_configuration.automatic, UnknownWorldMissionSpec):
+            self._return_to_start_spec = (
+                mission_configuration.automatic.return_to_start_spec
+            )
+            self._saturation_policy = (
+                mission_configuration.automatic.saturation_policy
+            )
             self._automatic_mission_executor = UnknownWorldMissionExecutor(
                 self,
                 self._manager,
@@ -460,6 +504,8 @@ class SessionOrchestratorNode(Node):
                 mission_configuration.automatic,
             )
         else:
+            self._return_to_start_spec = ReturnToStartSpec()
+            self._saturation_policy = None
             self._automatic_mission_executor = AutomaticMissionExecutor(
                 self,
                 self._manager,
@@ -491,8 +537,16 @@ class SessionOrchestratorNode(Node):
         self._mission_sequence = 0
         self._mission_outcome = SlamSessionState.MISSION_IDLE
         self._mission_message = ""
+        self._navigation_startup_failure_pending = False
         self._internal_command_sequence = 0
         self._navigation_goal_ledger = NavigationGoalLedger()
+        self._mapping_saturation_evidence: SaturationRuntimeEvidence | None = None
+        self._mapping_saturation_assessment: SaturationAssessment | None = None
+        self._return_to_start_evidence: ReturnToStartEvidence | None = None
+        self._cmd_vel_condition = threading.Condition()
+        self._cmd_vel_generation = 0
+        self._last_cmd_vel = (0.0, 0.0)
+        self._last_cmd_vel_observed_at_ns = 0
 
         state_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
@@ -507,6 +561,14 @@ class SessionOrchestratorNode(Node):
             durability=DurabilityPolicy.VOLATILE,
         )
         callback_group = ReentrantCallbackGroup()
+        self._tf_buffer = Buffer(cache_time=Duration(seconds=30.0))
+        # 节点已经运行在 MultiThreadedExecutor；不另起 TF spin 线程，避免同一
+        # subscription 被两个 executor 竞争并放大 WSL 内存占用。
+        self._tf_listener = TransformListener(
+            self._tf_buffer,
+            self,
+            spin_thread=False,
+        )
         self._state_pub = self.create_publisher(
             SlamSessionState, "/slam/session_state", state_qos
         )
@@ -515,6 +577,9 @@ class SessionOrchestratorNode(Node):
         )
         self._internal_action_pub = self.create_publisher(
             RobotCommand, "/agent/action_candidate", event_qos
+        )
+        self._explore_control_pub = self.create_publisher(
+            Bool, "/explore/resume", event_qos
         )
         self._agent_action_gateway = AgentActionGateway(
             publish_text=lambda text: self._agent_text_pub.publish(
@@ -525,13 +590,24 @@ class SessionOrchestratorNode(Node):
             dry_run=dry_run,
             log_dry_run=lambda message: print(message, flush=True),
         )
-        self.create_subscription(
-            String,
-            "/agent/asr_final",
-            self._on_asr_final,
-            event_qos,
-            callback_group=callback_group,
-        )
+        # Agent 会同时发布裸 ASR 与经过会话门控的 WakeEvent。节点只订阅选定
+        # 的一种来源，防止同一句话形成两个任务；raw_asr 默认值保留旧验收兼容性。
+        if self._command_input_source == "raw_asr":
+            self.create_subscription(
+                String,
+                "/agent/asr_final",
+                self._on_asr_final,
+                event_qos,
+                callback_group=callback_group,
+            )
+        else:
+            self.create_subscription(
+                WakeEvent,
+                "/agent/wake_event",
+                self._on_wake_event,
+                event_qos,
+                callback_group=callback_group,
+            )
         self.create_subscription(
             SystemReadiness,
             readiness_topic,
@@ -565,6 +641,13 @@ class SessionOrchestratorNode(Node):
             "/odom",
             self._on_odom,
             qos_profile_sensor_data,
+            callback_group=callback_group,
+        )
+        self.create_subscription(
+            Twist,
+            "/cmd_vel",
+            self._on_cmd_vel,
+            event_qos,
             callback_group=callback_group,
         )
         self.create_subscription(
@@ -614,6 +697,12 @@ class SessionOrchestratorNode(Node):
             "/follow_waypoints",
             callback_group=callback_group,
         )
+        self._backup_client = ActionClient(
+            self,
+            BackUp,
+            "/backup",
+            callback_group=callback_group,
+        )
         self._bt_navigator_state_client = self.create_client(
             GetState,
             "/bt_navigator/get_state",
@@ -637,6 +726,127 @@ class SessionOrchestratorNode(Node):
         self._publish_state()
         self._worker.start()
 
+    def _mapping_completion_message(self) -> SlamMappingCompletionEvidence:
+        message = SlamMappingCompletionEvidence()
+        message.stamp = self.get_clock().now().to_msg()
+        saturation = self._mapping_saturation_evidence
+        assessment = self._mapping_saturation_assessment
+        return_evidence = self._return_to_start_evidence
+        message.trigger_reason = self._mapping_evidence.completion_reason
+        message.mode = (
+            SlamMappingCompletionEvidence.MODE_BOUNDED_SATURATION
+            if saturation is not None
+            else SlamMappingCompletionEvidence.MODE_STRICT_FRONTIER
+            if return_evidence is not None
+            else SlamMappingCompletionEvidence.MODE_UNSPECIFIED
+        )
+        if saturation is not None:
+            saturation_policy = self._saturation_policy
+            if saturation_policy is None:
+                raise RuntimeError(
+                    "saturation evidence exists outside unknown-world profile"
+                )
+            message.low_yield_epoch_count = consecutive_low_yield_epoch_count(
+                saturation.history,
+                saturation_policy,
+            )
+            message.required_low_yield_epoch_count = (
+                saturation_policy.minimum_low_yield_epochs
+            )
+            message.residual_available_frontiers = (
+                saturation.residual_available_frontiers
+            )
+            message.ledger_drained = (
+                saturation.active_goal_count == 0
+                and saturation.pending_goal_count == 0
+            )
+            if saturation.history.final_probe is not None:
+                message.final_probe_gain_cells = (
+                    saturation.history.final_probe.map_gain_cells
+                )
+                message.final_probe_gain_ratio = (
+                    saturation.history.final_probe.map_gain_ratio
+                )
+            message.typed_stop_succeeded = saturation.typed_stop_confirmed
+
+        return_report = (
+            build_return_to_start_report(
+                return_evidence,
+                self._return_to_start_spec,
+            )
+            if return_evidence is not None
+            else None
+        )
+        checks = (
+            dict(return_report.get("checks", {}))
+            if return_report is not None
+            else {}
+        )
+        message.return_home_valid = bool(
+            return_report and return_report.get("passed") is True
+        )
+        message.return_typed_action_command = bool(
+            checks.get("typed_action_command")
+        )
+        message.return_typed_action_succeeded = bool(
+            checks.get("typed_action_succeeded")
+        )
+        message.return_before_map_save = bool(
+            checks.get("return_before_map_save")
+        )
+        message.return_same_pose_frame = bool(checks.get("same_pose_frame"))
+        message.return_final_pose_in_window = bool(
+            checks.get("final_pose_in_return_window")
+        )
+        message.return_xy_within_tolerance = bool(
+            checks.get("xy_within_tolerance")
+        )
+        message.return_yaw_within_tolerance = bool(
+            checks.get("yaw_within_tolerance")
+        )
+        message.return_cmd_vel_after_return = bool(
+            checks.get("cmd_vel_after_return")
+        )
+        message.return_final_cmd_vel_fresh = bool(
+            checks.get("final_cmd_vel_fresh")
+        )
+        message.return_final_cmd_vel_zero = bool(
+            checks.get("final_cmd_vel_zero")
+        )
+        if return_report is not None:
+            errors = return_report.get("errors", {})
+            thresholds = return_report.get("thresholds", {})
+            message.return_xy_error_m = float(errors.get("xy_error_m") or 0.0)
+            message.return_yaw_error_rad = float(
+                errors.get("yaw_error_rad") or 0.0
+            )
+            message.return_max_xy_error_m = float(
+                thresholds.get("max_xy_error_m", 0.0)
+            )
+            message.return_max_yaw_error_rad = float(
+                thresholds.get("max_yaw_error_rad", 0.0)
+            )
+            message.return_zero_velocity_tolerance = float(
+                thresholds.get("zero_velocity_tolerance", 0.0)
+            )
+            message.return_max_cmd_vel_age_s = float(
+                thresholds.get("max_cmd_vel_age_s", 0.0)
+            )
+        message.valid = bool(
+            message.return_home_valid
+            and (
+                saturation is None
+                or assessment is not None
+                and assessment.complete
+            )
+        )
+        message.detail = (
+            "mapping completion evidence valid"
+            if message.valid
+            else "mapping completion evidence pending or invalid"
+        )
+        return message
+
     def _state_message(self) -> SlamSessionState:
         snapshot = self._fsm.snapshot
         evidence = self._mapping_evidence.snapshot()
@@ -658,6 +868,7 @@ class SessionOrchestratorNode(Node):
             evidence.frontier_telemetry,
             mission_completion_reason=evidence.exploration_completion_reason,
         )
+        message.mapping_completion = self._mapping_completion_message()
         message.sampled_navigation_goals = [
             _navigation_goal_evidence_message(item)
             for item in self._navigation_goal_ledger.snapshot()
@@ -729,6 +940,20 @@ class SessionOrchestratorNode(Node):
 
         position = message.pose.pose.position
         self._mapping_evidence.record_odom(position.x, position.y)
+
+    def _on_cmd_vel(self, message: Twist) -> None:
+        """记录真实控制输出；初始默认零值不能充当停车证据。"""
+
+        with self._cmd_vel_condition:
+            self._cmd_vel_generation += 1
+            self._last_cmd_vel = (
+                float(message.linear.x),
+                float(message.angular.z),
+            )
+            self._last_cmd_vel_observed_at_ns = (
+                self.get_clock().now().nanoseconds
+            )
+            self._cmd_vel_condition.notify_all()
 
     def _on_amcl_pose(self, message: PoseWithCovarianceStamped) -> None:
         position = message.pose.pose.position
@@ -807,7 +1032,15 @@ class SessionOrchestratorNode(Node):
         *,
         timeout_s: float,
     ) -> None:
-        """旁路文本意图层停车，并等待 typed Action 终态。"""
+        """旁路文本意图层停车，并等待 typed Action 终态与新鲜零速度。"""
+
+        deadline = time.monotonic() + timeout_s
+        cmd_vel_condition = getattr(self, "_cmd_vel_condition", None)
+        if cmd_vel_condition is not None:
+            with cmd_vel_condition:
+                cmd_vel_generation = self._cmd_vel_generation
+        else:  # 只用于不构造完整 ROS Node 的纯单元 fake。
+            cmd_vel_generation = -1
 
         self._internal_command_sequence += 1
         command = RobotCommand()
@@ -828,6 +1061,306 @@ class SessionOrchestratorNode(Node):
             expected_action_name="stop",
             timeout_s=timeout_s,
         )
+        if cmd_vel_condition is None:
+            return
+        with cmd_vel_condition:
+            while True:
+                linear_x, angular_z = self._last_cmd_vel
+                if (
+                    self._cmd_vel_generation > cmd_vel_generation
+                    and abs(linear_x) <= 1.0e-3
+                    and abs(angular_z) <= 1.0e-3
+                ):
+                    return
+                remaining = deadline - time.monotonic()
+                if remaining <= 0.0:
+                    raise TimeoutError(
+                        "typed STOP completed without a fresh zero /cmd_vel"
+                    )
+                cmd_vel_condition.wait(timeout=min(0.1, remaining))
+
+    def run_recovery_backup(
+        self,
+        request: CommandRequest,
+        *,
+        distance_m: float,
+        speed_mps: float,
+        timeout_s: float,
+    ) -> float:
+        """执行碰撞检查后退，并返回独立 `/odom` 净位移证据。"""
+
+        if self._dry_run:
+            return float(distance_m)
+        deadline = time.monotonic() + timeout_s
+        start = self._wait_for_recovery_odom(
+            request,
+            after_generation=-1,
+            deadline_monotonic=deadline,
+        )
+        self._execute_nav2_backup(
+            request,
+            distance_m=distance_m,
+            speed_mps=speed_mps,
+            time_allowance_s=timeout_s,
+            deadline_monotonic=deadline,
+        )
+        end = self._wait_for_recovery_odom(
+            request,
+            after_generation=start.odom_generation,
+            deadline_monotonic=deadline,
+        )
+        assert start.latest_odom_xy is not None
+        assert end.latest_odom_xy is not None
+        displacement_m = math.hypot(
+            end.latest_odom_xy[0] - start.latest_odom_xy[0],
+            end.latest_odom_xy[1] - start.latest_odom_xy[1],
+        )
+        self.get_logger().info(
+            "Nav2 recovery BackUp completed: "
+            f"requested={distance_m:.3f}m odom={displacement_m:.3f}m"
+        )
+        return displacement_m
+
+    def _wait_for_recovery_odom(
+        self,
+        request: CommandRequest,
+        *,
+        after_generation: int,
+        deadline_monotonic: float,
+    ):
+        """等待恢复动作前后的不同里程计样本，拒绝复用陈旧位姿。"""
+
+        with self._mapping_evidence.condition:
+            while True:
+                if request.canceled:
+                    raise AutomaticMissionCancelled(
+                        "automatic mission canceled during recovery backup"
+                    )
+                snapshot = self._mapping_evidence.snapshot()
+                if (
+                    snapshot.latest_odom_xy is not None
+                    and snapshot.odom_generation > after_generation
+                ):
+                    return snapshot
+                remaining = deadline_monotonic - time.monotonic()
+                if remaining <= 0.0:
+                    raise TimeoutError(
+                        "fresh odometry unavailable for recovery backup"
+                    )
+                self._mapping_evidence.condition.wait(
+                    timeout=min(0.1, remaining)
+                )
+
+    def _execute_nav2_backup(
+        self,
+        request: CommandRequest,
+        *,
+        distance_m: float,
+        speed_mps: float,
+        time_allowance_s: float,
+        deadline_monotonic: float,
+    ) -> None:
+        """执行 Nav2 BackUp Action；失败分支必须形成停车终态。"""
+
+        values = (distance_m, speed_mps, time_allowance_s)
+        if not all(math.isfinite(value) and value > 0.0 for value in values):
+            raise ValueError("Nav2 backup values must be finite and positive")
+        remaining = deadline_monotonic - time.monotonic()
+        if remaining <= 0.0 or not self._backup_client.wait_for_server(
+            timeout_sec=min(5.0, max(0.0, remaining))
+        ):
+            raise TimeoutError("Nav2 BackUp Action server unavailable")
+
+        goal = BackUp.Goal()
+        # Jazzy BackUp 客户端传正的距离/速度幅值；Behavior Server 内部转换
+        # 为机器人负 X 运动，并使用 local costmap 在每个周期预测碰撞。
+        goal.target.x = float(distance_m)
+        goal.target.y = 0.0
+        goal.target.z = 0.0
+        goal.speed = float(speed_mps)
+        whole_seconds = int(time_allowance_s)
+        nanoseconds = int(round((time_allowance_s - whole_seconds) * 1e9))
+        if nanoseconds >= 1_000_000_000:
+            whole_seconds += 1
+            nanoseconds -= 1_000_000_000
+        goal.time_allowance.sec = whole_seconds
+        goal.time_allowance.nanosec = nanoseconds
+
+        response = self._backup_client.send_goal_async(goal)
+        while not response.done():
+            if request.canceled or time.monotonic() >= deadline_monotonic:
+                reason = (
+                    "automatic mission canceled during recovery backup"
+                    if request.canceled
+                    else "Nav2 BackUp goal response timeout"
+                )
+                self._resolve_pending_nav2_goal_safely(
+                    request,
+                    response=response,
+                    reason=reason,
+                )
+                if request.canceled:
+                    raise AutomaticMissionCancelled(reason)
+                raise TimeoutError(reason)
+            time.sleep(0.05)
+        handle = response.result()
+        if handle is None or not handle.accepted:
+            raise RuntimeError("Nav2 BackUp goal rejected")
+        try:
+            result_future = handle.get_result_async()
+        except Exception as exc:
+            reason = f"cannot get Nav2 BackUp result future: {exc}"
+            self._cancel_nav2_goal_and_force_stop(
+                request,
+                handle=handle,
+                result_future=None,
+                reason=reason,
+            )
+            raise RuntimeError(reason)
+        while not result_future.done():
+            if request.canceled or time.monotonic() >= deadline_monotonic:
+                reason = (
+                    "automatic mission canceled during recovery backup"
+                    if request.canceled
+                    else "Nav2 BackUp result timeout"
+                )
+                self._cancel_nav2_goal_and_force_stop(
+                    request,
+                    handle=handle,
+                    result_future=result_future,
+                    reason=reason,
+                )
+                if request.canceled:
+                    raise AutomaticMissionCancelled(reason)
+                raise TimeoutError(reason)
+            time.sleep(0.05)
+        wrapped, terminal_error = _read_nav2_terminal_wrapper(result_future)
+        if terminal_error is not None:
+            raise RuntimeError(f"invalid Nav2 BackUp terminal result: {terminal_error}")
+        assert wrapped is not None
+        error_code = int(getattr(wrapped.result, "error_code", BackUp.Result.UNKNOWN))
+        if (
+            int(wrapped.status) != GoalStatus.STATUS_SUCCEEDED
+            or error_code != BackUp.Result.NONE
+        ):
+            # BackUp behavior 已终止，但仍补一个 typed priority STOP，避免插件
+            # 异常终态后最后一帧速度残留；失败不会回退到裸负速度控制。
+            self.stop_motion_and_wait(
+                _navigation_safety_stop_request(),
+                timeout_s=_NAV2_SAFETY_STOP_TIMEOUT_S,
+            )
+            error_message = str(
+                getattr(wrapped.result, "error_msg", "")
+            ).strip()
+            raise RuntimeError(
+                "Nav2 BackUp failed: "
+                f"status={wrapped.status} error={error_code} "
+                f"message={error_message or 'unknown'}"
+            )
+
+    def capture_mapping_start_pose(
+        self,
+        request: CommandRequest,
+        *,
+        timeout_s: float,
+    ) -> PlanarPose:
+        """在首次运动前动态捕获 map-frame 起点，不接受 YAML 固定坐标。"""
+
+        return self._lookup_mapping_pose(request, timeout_s=timeout_s)
+
+    def _lookup_mapping_pose(
+        self,
+        request: CommandRequest,
+        *,
+        timeout_s: float,
+    ) -> PlanarPose:
+        """读取一帧实时 map->base_link；起点与返航终点共用同一坐标口径。"""
+
+        if self._dry_run:
+            return PlanarPose(
+                0.0,
+                0.0,
+                0.0,
+                "map",
+                self.get_clock().now().nanoseconds,
+            )
+        deadline = time.monotonic() + timeout_s
+        last_error = "transform unavailable"
+        while time.monotonic() < deadline:
+            if request.canceled:
+                raise AutomaticMissionCancelled("automatic mission canceled")
+            try:
+                transform = self._tf_buffer.lookup_transform(
+                    "map",
+                    "base_link",
+                    Time(),
+                    timeout=Duration(seconds=0.2),
+                )
+                translation = transform.transform.translation
+                rotation = transform.transform.rotation
+                return PlanarPose(
+                    x=float(translation.x),
+                    y=float(translation.y),
+                    yaw=_yaw_from_quaternion(rotation),
+                    frame_id="map",
+                    # 统一使用本节点 ROS 时钟，确保后续 Action/存图时间线可比较。
+                    observed_at_ns=self.get_clock().now().nanoseconds,
+                )
+            except TransformException as exc:
+                last_error = str(exc)
+                time.sleep(0.05)
+        raise TimeoutError(
+            "cannot capture mapping start pose from map->base_link: "
+            + last_error
+        )
+
+    def quiesce_frontier(
+        self,
+        request: CommandRequest,
+        *,
+        timeout_s: float,
+    ) -> FrontierTelemetry:
+        """优雅暂停 Explore Lite，并等待其 NavigateToPose 总账完全结算。"""
+
+        del request  # 安全收口不能因上层取消位而跳过 active UUID 排空。
+        if self._dry_run:
+            return self._mapping_evidence.snapshot().frontier_telemetry
+        deadline = time.monotonic() + timeout_s
+        next_publish_at = 0.0
+        with self._mapping_evidence.condition:
+            while True:
+                now = time.monotonic()
+                if now >= next_publish_at:
+                    # Explore Lite 已有 /explore/resume Bool 控制面；false 会停止
+                    # 派发、取消 owner goal，并在 result callback 后发布 active=0。
+                    self._explore_control_pub.publish(Bool(data=False))
+                    next_publish_at = now + 0.5
+                telemetry = (
+                    self._mapping_evidence.snapshot().frontier_telemetry
+                )
+                terminal = (
+                    telemetry.succeeded_goal_count
+                    + telemetry.aborted_goal_count
+                    + telemetry.canceled_goal_count
+                )
+                if (
+                    telemetry.status == "exploration_paused"
+                    and telemetry.active_goal_count == 0
+                    and telemetry.accepted_goal_count == terminal
+                ):
+                    return telemetry
+                remaining = deadline - now
+                if remaining <= 0.0:
+                    raise TimeoutError(
+                        "frontier quiesce did not drain Action ledger: "
+                        f"status={telemetry.status} "
+                        f"active={telemetry.active_goal_count} "
+                        f"accepted={telemetry.accepted_goal_count} "
+                        f"terminal={terminal}"
+                    )
+                self._mapping_evidence.condition.wait(
+                    timeout=min(0.1, remaining)
+                )
 
     def wait_for_frontier(
         self,
@@ -1061,6 +1594,225 @@ class SessionOrchestratorNode(Node):
                 detail=str(exc),
             )
             raise
+
+    def run_mapping_return_goal(
+        self,
+        request: CommandRequest,
+        *,
+        start_pose: PlanarPose,
+        spec: ReturnToStartSpec,
+        timeout_s: float,
+    ) -> ReturnToStartEvidence:
+        """在 SLAM stage 内返航；Action 成功后仍用 TF 与零速度二次验证。"""
+
+        command_id = f"slam-return-home-{self._mission_sequence}"
+        started_at_ns = self.get_clock().now().nanoseconds
+        if self._dry_run:
+            finished_at_ns = max(started_at_ns + 1, 2)
+            return ReturnToStartEvidence(
+                start_pose=start_pose,
+                final_pose=replace(
+                    start_pose,
+                    observed_at_ns=finished_at_ns,
+                ),
+                action_kind=ReturnActionKind.NAVIGATE_TO_POSE,
+                action_status=ReturnActionStatus.SUCCEEDED,
+                action_command_id=command_id,
+                action_started_at_ns=started_at_ns,
+                action_finished_at_ns=finished_at_ns,
+                map_saved_at_ns=0,
+                cmd_vel_linear_x=0.0,
+                cmd_vel_angular_z=0.0,
+                cmd_vel_observed_at_ns=finished_at_ns,
+                evaluated_at_ns=finished_at_ns,
+            )
+
+        deadline = time.monotonic() + timeout_s
+        # ComputePathToPose 是执行前安全准入；它证明返航不穿越本次图中的未知区。
+        self._request_preflight_path(
+            request,
+            goal_xy=(start_pose.x, start_pose.y),
+            deadline=deadline,
+        )
+        wrapped = self._execute_untracked_nav2_goal(
+            request,
+            goal_pose=start_pose,
+            deadline=deadline,
+        )
+        result = getattr(wrapped, "result", None)
+        error_code = int(
+            getattr(
+                result,
+                "error_code",
+                getattr(NavigateToPose.Result, "UNKNOWN", -1),
+            )
+        )
+        if (
+            int(wrapped.status) != GoalStatus.STATUS_SUCCEEDED
+            or result is None
+            or error_code != NavigateToPose.Result.NONE
+        ):
+            raise RuntimeError(
+                "mapping return NavigateToPose failed: "
+                f"status={wrapped.status} error={error_code}"
+            )
+        finished_at_ns = self.get_clock().now().nanoseconds
+
+        final_pose: PlanarPose | None = None
+        consecutive_matches = 0
+        while time.monotonic() < deadline:
+            pose = self._lookup_mapping_pose(
+                request,
+                timeout_s=min(0.5, max(0.05, deadline - time.monotonic())),
+            )
+            xy_error = math.hypot(pose.x - start_pose.x, pose.y - start_pose.y)
+            yaw_error = abs(
+                math.atan2(
+                    math.sin(pose.yaw - start_pose.yaw),
+                    math.cos(pose.yaw - start_pose.yaw),
+                )
+            )
+            if (
+                xy_error <= spec.max_xy_error_m
+                and yaw_error <= spec.max_yaw_error_rad
+            ):
+                consecutive_matches += 1
+                final_pose = pose
+                if consecutive_matches >= 3:
+                    break
+            else:
+                consecutive_matches = 0
+            time.sleep(0.05)
+        if final_pose is None or consecutive_matches < 3:
+            self.stop_motion_and_wait(
+                _navigation_safety_stop_request(),
+                timeout_s=_NAV2_SAFETY_STOP_TIMEOUT_S,
+            )
+            raise TimeoutError(
+                "mapping return Action succeeded but TF did not enter "
+                "return-to-start tolerance"
+            )
+
+        self.stop_motion_and_wait(
+            _navigation_safety_stop_request(),
+            timeout_s=min(
+                _NAV2_SAFETY_STOP_TIMEOUT_S,
+                max(0.1, deadline - time.monotonic()),
+            ),
+        )
+        with self._cmd_vel_condition:
+            linear_x, angular_z = self._last_cmd_vel
+            cmd_vel_observed_at_ns = self._last_cmd_vel_observed_at_ns
+        evaluated_at_ns = self.get_clock().now().nanoseconds
+        return ReturnToStartEvidence(
+            start_pose=start_pose,
+            final_pose=final_pose,
+            action_kind=ReturnActionKind.NAVIGATE_TO_POSE,
+            action_status=ReturnActionStatus.SUCCEEDED,
+            action_command_id=command_id,
+            action_started_at_ns=started_at_ns,
+            action_finished_at_ns=finished_at_ns,
+            map_saved_at_ns=0,
+            cmd_vel_linear_x=linear_x,
+            cmd_vel_angular_z=angular_z,
+            cmd_vel_observed_at_ns=cmd_vel_observed_at_ns,
+            evaluated_at_ns=evaluated_at_ns,
+        )
+
+    def _execute_untracked_nav2_goal(
+        self,
+        request: CommandRequest,
+        *,
+        goal_pose: PlanarPose,
+        deadline: float,
+    ):
+        """执行不进入 sampled-goal 账本的返航目标，复用统一故障收口。"""
+
+        remaining = max(0.0, deadline - time.monotonic())
+        if not self._navigate_to_pose_client.wait_for_server(
+            timeout_sec=min(10.0, remaining)
+        ):
+            raise TimeoutError("NavigateToPose Action server unavailable for return")
+        goal = NavigateToPose.Goal()
+        goal.pose.header.frame_id = goal_pose.frame_id
+        goal.pose.pose.position.x = goal_pose.x
+        goal.pose.pose.position.y = goal_pose.y
+        goal.pose.pose.orientation.z = math.sin(goal_pose.yaw * 0.5)
+        goal.pose.pose.orientation.w = math.cos(goal_pose.yaw * 0.5)
+        response = self._navigate_to_pose_client.send_goal_async(goal)
+        while not response.done():
+            if request.canceled or time.monotonic() >= deadline:
+                reason = (
+                    "automatic mission canceled before return goal response"
+                    if request.canceled
+                    else "mapping return goal response timeout"
+                )
+                self._resolve_pending_nav2_goal_safely(
+                    request,
+                    response=response,
+                    reason=reason,
+                )
+                if request.canceled:
+                    raise AutomaticMissionCancelled(reason)
+                raise TimeoutError(reason)
+            time.sleep(0.05)
+        handle = response.result()
+        if handle is None or not handle.accepted:
+            raise _NavigationGoalRejected("mapping return goal rejected")
+        result_future = handle.get_result_async()
+        while not result_future.done():
+            if request.canceled or time.monotonic() >= deadline:
+                reason = (
+                    "automatic mission canceled during mapping return"
+                    if request.canceled
+                    else "mapping return goal result timeout"
+                )
+                self._cancel_nav2_goal_and_force_stop(
+                    request,
+                    handle=handle,
+                    result_future=result_future,
+                    reason=reason,
+                )
+                if request.canceled:
+                    raise AutomaticMissionCancelled(reason)
+                raise TimeoutError(reason)
+            time.sleep(0.05)
+        wrapped, terminal_error = _read_nav2_terminal_wrapper(result_future)
+        if terminal_error is not None:
+            self._cancel_nav2_goal_and_force_stop(
+                request,
+                handle=handle,
+                result_future=result_future,
+                reason="invalid mapping return terminal: " + terminal_error,
+            )
+            raise RuntimeError(
+                "invalid mapping return terminal: " + terminal_error
+            )
+        assert wrapped is not None
+        return wrapped
+
+    def record_mapping_completion(
+        self,
+        *,
+        completion_reason: str,
+        saturation_evidence: SaturationRuntimeEvidence | None,
+        saturation_assessment: SaturationAssessment | None,
+        return_to_start: ReturnToStartEvidence,
+    ) -> None:
+        """缓存 typed 建图收口证据；save_map 会补上真实保存时间。"""
+
+        del completion_reason  # reason 已由 MappingEvidenceTracker 进入 frontier msg。
+        self._mapping_saturation_evidence = saturation_evidence
+        self._mapping_saturation_assessment = saturation_assessment
+        self._return_to_start_evidence = return_to_start
+        self._publish_state()
+
+    def _reset_mapping_completion_evidence(self) -> None:
+        """开始新 mission 时丢弃上一轮的瞬态收口证据。"""
+
+        self._mapping_saturation_evidence = None
+        self._mapping_saturation_assessment = None
+        self._return_to_start_evidence = None
 
     def _execute_sampled_nav2_goal(
         self,
@@ -1422,6 +2174,19 @@ class SessionOrchestratorNode(Node):
 
         if self._dry_run:
             return
+        try:
+            self._wait_navigation_ready_impl(request)
+        except AutomaticMissionCancelled:
+            # 用户主动取消是正常控制流，外层会恢复到仍存活的 stage；不能把它
+            # 误标为导航启动故障，也不能在这里重复停止进程。
+            raise
+        except Exception as exc:
+            self._cleanup_failed_navigation_startup(exc)
+            raise
+
+    def _wait_navigation_ready_impl(self, request: CommandRequest) -> None:
+        """等待 Nav2 运行依赖；失败关闭由公开入口统一处理。"""
+
         deadline = time.monotonic() + self._startup_timeout_s
         clients = (
             ("navigate_to_pose", self._navigate_to_pose_client),
@@ -1461,6 +2226,21 @@ class SessionOrchestratorNode(Node):
             "Nav2 navigation Action servers and lifecycle nodes are active"
         )
 
+    def _cleanup_failed_navigation_startup(self, primary_error: Exception) -> None:
+        """回收半启动导航 stage，同时保留最先暴露的根因。"""
+
+        # stage 启动失败或 readiness 超时后，进程是否完整存活已经不可证明。
+        # 必须 fail-close；若 stop 也失败，只把它作为异常附注，不能覆盖首因。
+        self._navigation_startup_failure_pending = True
+        try:
+            self._manager.stop()
+        except Exception as cleanup_error:
+            note = f"navigation startup cleanup failed: {cleanup_error}"
+            add_note = getattr(primary_error, "add_note", None)
+            if callable(add_note):
+                add_note(note)
+            self.get_logger().error(note)
+
     def _readiness_generation(self) -> int:
         with self._ready_condition:
             return self._ready_generation
@@ -1498,23 +2278,44 @@ class SessionOrchestratorNode(Node):
             return False
 
     def _on_asr_final(self, message: String) -> None:
+        # strict live-voice 验收必须证明“通过唤醒门控的命令”触发任务。
+        # wake_event 模式若继续消费裸 ASR，会让 filler 或未唤醒语音绕过门控，
+        # 从而产生语义因果上的假阳性；默认 raw_asr 仍兼容旧演示与合成探针。
+        if getattr(self, "_command_input_source", "raw_asr") != "raw_asr":
+            return
+        SessionOrchestratorNode._handle_session_command_text(self, message.data)
+
+    def _on_wake_event(self, message: WakeEvent) -> None:
+        if getattr(self, "_command_input_source", "raw_asr") != "wake_event":
+            return
+        if (
+            message.kind not in {WakeEvent.KIND_WAKE, WakeEvent.KIND_CONTINUE}
+            or not message.command_known
+            or not message.command.strip()
+        ):
+            return
+        SessionOrchestratorNode._handle_session_command_text(
+            self, message.command
+        )
+
+    def _handle_session_command_text(self, text: str) -> None:
         active_request = self._active_request
         if (
             active_request is not None
             and active_request.command == SessionCommand.RUN_AUTOMATIC_MISSION
-            and is_automatic_mission_cancel_text(message.data)
+            and is_automatic_mission_cancel_text(text)
         ):
             active_request.canceled = True
             self.get_logger().warning("canceling active automatic mission by voice")
             return
-        if is_truncated_automatic_mission_text(message.data):
+        if is_truncated_automatic_mission_text(text):
             # 该别名来自真实 ZipFormer 尾部漏字样本。只对完全相等的“开始自动”
             # 生效，既让现场演示可恢复，也不会把“开始自动播放音乐”误判为建图。
             self.get_logger().warning(
                 "ASR final truncated to '开始自动'; recovering the explicit "
                 "automatic mapping mission intent"
             )
-        command = parse_session_command(message.data)
+        command = parse_session_command(text)
         if command is None:
             return
         now = time.monotonic()
@@ -1593,6 +2394,48 @@ class SessionOrchestratorNode(Node):
                 map_yaml_path="",
             )
             raise
+        if self._return_to_start_evidence is not None:
+            draft = self._return_to_start_evidence
+            # map_saver 是同步调用，现场一次保存耗时超过 5 秒。返航时拿到的
+            # 零速到这里可能已经超过 freshness 门槛，因此不能通过放宽阈值
+            # 或改写时间戳“续期”。先记录真实存图边界，再经 typed STOP 链路
+            # 获取一帧保存后的真实零速，作为切换 Nav2 前的第二道安全确认。
+            saved_at_ns = max(
+                self.get_clock().now().nanoseconds,
+                draft.action_finished_at_ns + 1,
+                draft.evaluated_at_ns + 1,
+            )
+            self.stop_motion_and_wait(
+                _navigation_safety_stop_request(),
+                timeout_s=_NAV2_SAFETY_STOP_TIMEOUT_S,
+            )
+            with self._cmd_vel_condition:
+                linear_x, angular_z = self._last_cmd_vel
+                cmd_vel_observed_at_ns = self._last_cmd_vel_observed_at_ns
+            evaluated_at_ns = max(
+                self.get_clock().now().nanoseconds,
+                saved_at_ns,
+                cmd_vel_observed_at_ns,
+            )
+            finalized = replace(
+                draft,
+                map_saved_at_ns=saved_at_ns,
+                cmd_vel_linear_x=linear_x,
+                cmd_vel_angular_z=angular_z,
+                cmd_vel_observed_at_ns=cmd_vel_observed_at_ns,
+                evaluated_at_ns=evaluated_at_ns,
+            )
+            decision = evaluate_return_to_start(
+                finalized,
+                self._return_to_start_spec,
+            )
+            if not decision.passed:
+                raise RuntimeError(
+                    "return-to-start evidence invalid after map save "
+                    "and before navigation: "
+                    + ",".join(decision.failed_checks)
+                )
+            self._return_to_start_evidence = finalized
         self.transition(
             SessionPhase.MAP_SAVED,
             detail="map saved; ready to start navigation",
@@ -1610,27 +2453,31 @@ class SessionOrchestratorNode(Node):
             detail="stopping mapping stage",
         )
         self.feedback(request, 0.65)
-        self._manager.stop()
-        with self._map_pose_condition:
-            # mapping 进程停止后再开启新代际，并在 navigation 启动前清缓存；否则
-            # transient-local 或迟到的 SLAM /map 会与旧 AMCL pose 拼成“新保存图”，
-            # 让候选采样读到跨阶段快照。回调和 admission 都检查同一代际。
-            self._navigation_input_generation += 1
-            self._latest_occupancy = None
-            self._latest_map_pose_xy = None
-            self._latest_occupancy_generation = -1
-            self._latest_map_pose_generation = -1
-            self._map_pose_condition.notify_all()
-        generation = self._readiness_generation()
-        self.transition(
-            SessionPhase.STARTING_NAVIGATION,
-            detail="starting saved-map AMCL/Nav2 stage",
-        )
-        # 进程切换很快时 transient-local state topic 只保证新订阅者拿到“最新状态”，
-        # 不保证测试或 UI 一定调度到每个中间快照；Action feedback 因此同步承载阶段进度。
-        self.feedback(request, 0.8)
-        self._manager.start("navigation")
-        self._wait_for_new_ready(generation)
+        try:
+            self._manager.stop()
+            with self._map_pose_condition:
+                # mapping 进程停止后再开启新代际，并在 navigation 启动前清缓存；否则
+                # transient-local 或迟到的 SLAM /map 会与旧 AMCL pose 拼成“新保存图”，
+                # 让候选采样读到跨阶段快照。回调和 admission 都检查同一代际。
+                self._navigation_input_generation += 1
+                self._latest_occupancy = None
+                self._latest_map_pose_xy = None
+                self._latest_occupancy_generation = -1
+                self._latest_map_pose_generation = -1
+                self._map_pose_condition.notify_all()
+            generation = self._readiness_generation()
+            self.transition(
+                SessionPhase.STARTING_NAVIGATION,
+                detail="starting saved-map AMCL/Nav2 stage",
+            )
+            # 进程切换很快时 transient-local state topic 只保证新订阅者拿到“最新状态”，
+            # 不保证测试或 UI 一定调度到每个中间快照；Action feedback因此同步承载阶段进度。
+            self.feedback(request, 0.8)
+            self._manager.start("navigation")
+            self._wait_for_new_ready(generation)
+        except Exception as exc:
+            self._cleanup_failed_navigation_startup(exc)
+            raise
         self.transition(
             SessionPhase.NAVIGATING,
             detail="navigation ready; semantic goals accepted",
@@ -1648,6 +2495,8 @@ class SessionOrchestratorNode(Node):
             return
         self._operation_active.set()
         self._active_request = request
+        # 每条 request 独立记录阶段启动故障，避免上一轮失败污染下一轮状态。
+        self._navigation_startup_failure_pending = False
         try:
             if request.command == SessionCommand.RUN_AUTOMATIC_MISSION:
                 # 同一 orchestrator 可运行多次任务；显式 mission_sequence 能阻止
@@ -1656,6 +2505,14 @@ class SessionOrchestratorNode(Node):
                 self._mission_outcome = SlamSessionState.MISSION_RUNNING
                 self._mission_message = "automatic mission running"
                 self._navigation_goal_ledger.reset(self._mission_sequence)
+                # 收口证据只属于单次 mission。若不先清空，第二轮刚启动时发布的
+                # transient-local state 会携带上一轮 return/saturation PASS，验收器
+                # 可能在机器人尚未运动前误判本轮已经返航并完成建图。
+                # 使用类方法显式调用，也让不构造完整 rclpy Node 的故障注入
+                # fake 走到同一重置逻辑，而不要求测试对象伪造一个绑定方法。
+                SessionOrchestratorNode._reset_mapping_completion_evidence(
+                    self
+                )
                 self._publish_state()
                 self._automatic_mission_executor.run(request)
             if request.command in {
@@ -1695,19 +2552,29 @@ class SessionOrchestratorNode(Node):
             if request.command == SessionCommand.RUN_AUTOMATIC_MISSION:
                 self._mission_outcome = SlamSessionState.MISSION_FAILED
                 self._mission_message = request.message
-                recovery_phase = (
-                    SessionPhase.NAVIGATING
-                    if self._manager.stage == "navigation"
-                    else SessionPhase.MAPPING
-                )
-                self.transition(
-                    recovery_phase,
-                    detail=f"automatic mission failed: {exc}",
-                )
+                if self._navigation_startup_failure_pending:
+                    # manager.stage 只能说明“start 被调用过”，不能证明 Nav2 ready。
+                    # 启动/就绪失败后若回写 MAPPING 或 NAVIGATING，会向 UI 和验收器
+                    # 发布一个并不存在的可用系统；因此这里必须显式进入 FAILED。
+                    self.transition(
+                        SessionPhase.FAILED,
+                        detail=f"automatic mission failed: {exc}",
+                    )
+                else:
+                    recovery_phase = (
+                        SessionPhase.NAVIGATING
+                        if self._manager.stage == "navigation"
+                        else SessionPhase.MAPPING
+                    )
+                    self.transition(
+                        recovery_phase,
+                        detail=f"automatic mission failed: {exc}",
+                    )
             elif self._fsm.snapshot.phase != SessionPhase.MAPPING:
                 self.transition(SessionPhase.FAILED, detail=f"session failed: {exc}")
             self.get_logger().error(request.message)
         finally:
+            self._navigation_startup_failure_pending = False
             self._active_request = None
             self._operation_active.clear()
             request.completed.set()

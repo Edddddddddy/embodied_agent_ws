@@ -8,19 +8,55 @@ exploration:
   # 600 秒实测仍在持续扩图且 meeting/office 分区不足；900 秒只是硬上限，
   # 无地图增长仍由 stall monitor 提前进入恢复，不能靠空等制造完成状态。
   timeout_s: 900.0
+  # 末次扫描若显著扩图，只给 post-scan Explorer 一次独立时间盒；它不重置
+  # 普通探索预算，也不再执行 BackUp/扫描，因此总时长仍严格有界。
+  final_confirmation_timeout_s: 240.0
   min_runtime_s: 60.0
   stable_map_s: 15.0
   # active=0 可能只是 Action 交接窗口；持续空闲超过该值后，才允许上层把
   # frontier 状态解释为停滞或本 epoch 的物理 approach 已耗尽。
   frontier_idle_grace_s: 20.0
-  # 同一批 approach 耗尽后会做一次 360°确认扫描；新增已知栅格低于该值，
-  # 才能以 no-map-gain 收敛。它只读取本次 SLAM 图，不读取 Gazebo 真值。
+  # 同一批 approach 耗尽后会换视角并做 360° 确认扫描。首个 epoch
+  # 低增益绝不能直接完成；只有已验证的恢复 epoch 耗尽后，才允许
+  # 以 no-map-gain 做有界收敛。它只读取本次 SLAM 图，不读取 Gazebo 真值。
+  # 双门槛同时满足才视为“仍发现新区域”：固定 cells 抑制小图噪声，比例门槛
+  # 抑制大图边缘细化。0.20% 不依赖房间坐标或真值地图。
   min_growth_cells: 40
+  min_growth_ratio: 0.002
   completion_status: exploration_complete
   max_recovery_attempts: 2
   action_timeout_s: 60.0
   initial_scan_text: 原地转一圈
   recovery_scan_text: 原地转一圈
+  # Explore Lite 明确报告“没有 clearance-safe approach”或“本 epoch
+  # approach 已耗尽”时，先用 Nav2 Behavior Server 做带局部代价地图
+  # 碰撞检查的短距离后退，再重新扫描。
+  # 这里全部是机器人局部动作幅值，不包含房间坐标或已知地图路线。
+  recovery_backup:
+    distance_m: 0.30
+    speed_mps: 0.08
+    timeout_s: 10.0
+    minimum_displacement_m: 0.20
+
+  # 不知道场地总面积时，以连续多轮“单位 frontier 目标的信息增益”判断收益
+  # 是否耗尽。它只读本轮 SLAM 图与 Action 账本，绝不读取 truth map。
+  saturation:
+    minimum_low_yield_epochs: 2
+    minimum_terminal_goals_per_epoch: 3
+    minimum_mapping_path_m: 20.0
+    maximum_residual_available_frontiers: 4
+    required_map_quiet_s: 15.0
+    maximum_final_stop_age_s: 5.0
+
+  # 起点在机器人首次运动前从 map->base_link TF 动态捕获，不允许在 YAML
+  # 写死 x/y/yaw；返航完成并等待回环尾帧后才保存地图。
+  return_to_start:
+    timeout_s: 180.0
+    map_settle_s: 15.0
+    max_xy_error_m: 0.35
+    max_yaw_error_rad: 0.35
+    zero_velocity_tolerance: 0.001
+    max_cmd_vel_age_s: 1.0
 
 navigation:
   timeout_s: 330.0

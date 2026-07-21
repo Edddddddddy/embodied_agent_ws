@@ -54,6 +54,33 @@ EOF
   export WORKSPACE="$selected_workspace"
 }
 
+embodied_resolve_runtime_root() {
+  local selected_root="${EMBODIED_RUNTIME_ROOT:-}"
+  local git_common_dir=""
+
+  if [[ -z "$selected_root" && -n "${WORKSPACE:-}" ]]; then
+    git_common_dir="$(
+      git -C "$WORKSPACE" rev-parse --path-format=absolute --git-common-dir \
+        2>/dev/null || true
+    )"
+    case "$git_common_dir" in
+      */.git) selected_root="${git_common_dir%/.git}" ;;
+    esac
+  fi
+  if [[ -z "$selected_root" ]]; then
+    selected_root="${WORKSPACE:-}"
+  fi
+  if [[ -z "$selected_root" || ! -d "$selected_root" ]]; then
+    echo "ERROR: 运行时资产根目录不存在：${selected_root:-<empty>}" >&2
+    return 2
+  fi
+
+  # 代码和 install 必须跟随当前 worktree；模型、第三方二进制和现场校准则默认
+  # 复用 Git 主 worktree，避免每个 linked worktree 重复下载数 GB 非跟踪资产。
+  EMBODIED_RUNTIME_ROOT="$(cd -- "$selected_root" 2>/dev/null && pwd -P)" || return 2
+  export EMBODIED_RUNTIME_ROOT
+}
+
 embodied_workspace_doctor() {
   local require_frontier="${1:-false}"
   local install_root="$WORKSPACE/install"

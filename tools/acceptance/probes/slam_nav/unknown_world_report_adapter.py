@@ -91,6 +91,7 @@ def build_session_report(
         regions=scene_context.regions,
         map_provenance=map_provenance,
         frontier_telemetry=node.frontier_evidence,
+        mapping_completion_evidence=node.mapping_completion_evidence,
         navigation_goals=navigation_goals,
         amcl_samples=amcl_samples,
         gazebo_samples=gazebo_samples,

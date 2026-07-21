@@ -18,6 +18,10 @@ from tools.acceptance.dynamic_scenario_transaction import (
     cancel_pending_navigation,
 )
 from tools.acceptance.probes.slam_nav.artifacts import robot_traveled_distance
+from tools.acceptance.probes.slam_nav.dynamic_cost_evidence import (
+    confirm_predicted_lethal_cost,
+    prediction_cost_evidence_fields,
+)
 from tools.acceptance.probes.slam_nav.session_observer import (
     SessionObserver,
     nav_path_points,
@@ -213,9 +217,10 @@ def run_showcase_dynamic_navigation(
 
     def verify_stopped() -> None:
         wait_until(
-            node.has_fresh_final_motion_stop,
+            node.has_fresh_terminal_stop,
             8.0,
-            "dynamic navigation cleanup did not publish a fresh zero velocity",
+            "dynamic navigation cleanup did not observe a fresh terminal "
+            "zero velocity",
         )
 
     def verify_scene_cleared() -> None:
@@ -314,11 +319,12 @@ def run_showcase_dynamic_navigation(
             predicted_x = track.position.x + track.velocity.x * horizon
             predicted_y = track.position.y + track.velocity.y * horizon
             last_predicted = (predicted_x, predicted_y)
-            wait_until(
-                lambda: node.cost_at(predicted_x, predicted_y)
-                >= thresholds.minimum_predicted_cost,
-                5.0,
-                "predicted dynamic cost was not marked lethal",
+            predicted_cost_confirmation = confirm_predicted_lethal_cost(
+                node,
+                x=predicted_x,
+                y=predicted_y,
+                minimum_cost=thresholds.minimum_predicted_cost,
+                timeout_s=5.0,
             )
             errors: list[str] = []
             dynamic_path = None
@@ -363,7 +369,10 @@ def run_showcase_dynamic_navigation(
             "track": track,
             "predicted_x": predicted_x,
             "predicted_y": predicted_y,
-            "predicted_cost": node.cost_at(predicted_x, predicted_y),
+            "predicted_cost_confirmation": predicted_cost_confirmation,
+            # ComputePath 重试可能超过动态层 0.8s TTL；保留此值只用于诊断，
+            # PASS 判定必须使用上面等待窗口中已经锁存的 lethal 快照。
+            "route_commit_cost": node.cost_at(predicted_x, predicted_y),
         }
 
     with transaction:
@@ -381,7 +390,10 @@ def run_showcase_dynamic_navigation(
         track = selected["track"]
         predicted_x = selected["predicted_x"]
         predicted_y = selected["predicted_y"]
-        predicted_cost = selected["predicted_cost"]
+        predicted_cost_confirmation = selected[
+            "predicted_cost_confirmation"
+        ]
+        route_commit_cost = selected["route_commit_cost"]
 
         if not node.navigation_client.wait_for_server(timeout_sec=20.0):
             raise TimeoutError("NavigateToPose action server unavailable")
@@ -452,7 +464,9 @@ def run_showcase_dynamic_navigation(
         track_velocity_y_mps=float(track.velocity.y),
         predicted_x=float(predicted_x),
         predicted_y=float(predicted_y),
-        predicted_cost=int(predicted_cost),
+        predicted_cost=int(
+            predicted_cost_confirmation.maximum_observed_cost
+        ),
         baseline_path=nav_path_points(baseline_path),
         dynamic_path=nav_path_points(dynamic_path),
         published_plans=tuple(
@@ -464,4 +478,14 @@ def run_showcase_dynamic_navigation(
         final_linear_x=float(motion_evidence["linear_x"]),
         final_angular_z=float(motion_evidence["angular_z"]),
     )
-    return evaluate_dynamic_navigation(observation, thresholds)
+    report = evaluate_dynamic_navigation(observation, thresholds)
+    prediction = report.get("prediction")
+    if not isinstance(prediction, dict):
+        raise RuntimeError("dynamic evaluator returned no prediction section")
+    prediction.update(
+        prediction_cost_evidence_fields(
+            predicted_cost_confirmation,
+            route_commit_cost=int(route_commit_cost),
+        )
+    )
+    return report

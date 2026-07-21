@@ -203,14 +203,22 @@ def test_timeout_budget_is_derived_from_the_same_mission_document():
         dynamic_navigation_s=180.0,
     )
 
-    # 3 个目标各 330s；2 次恢复各含 STOP + scan 两个 60s typed action，
-    # 并各自保留 max(stable_map_s, action_timeout_s)=60s 的地图静稳确认硬预算。
+    # 3 个目标各 330s；2 次恢复各含 STOP + scan 两个 60s typed action、
+    # 10s BackUp，以及 max(stable_map_s, action_timeout_s)=60s 静稳确认。
+    # 预算耗尽分支还必须排空 Explorer 并完成 STOP/scan/quiet/STOP（300s）；
+    # 所有完成路径都在建图 stage 返航（180s）并等待地图静稳（60s）。
     assert budget.sampled_navigation_s == 990.0
+    assert budget.mapping_start_pose_s == 60.0
     assert budget.recovery_actions_s == 240.0
+    assert budget.recovery_backup_s == 20.0
     assert budget.recovery_confirmation_s == 120.0
+    assert budget.final_confirmation_s == 240.0
+    assert budget.saturation_assessment_s == 300.0
+    assert budget.return_to_start_s == 180.0
+    assert budget.return_map_settle_s == 60.0
     assert budget.exploration_s == 900.0
-    assert budget.mission_transition_s == 2830.0
-    assert budget.gate_s == 3245.0
+    assert budget.mission_transition_s == 3690.0
+    assert budget.gate_s == 4105.0
     budget.validate_outer_timeouts(
         transition_timeout_s=budget.mission_transition_s,
         gate_timeout_s=budget.gate_s,
@@ -232,6 +240,58 @@ def test_recovery_confirmation_uses_larger_mission_declared_hard_budget():
 
     # 两次 recovery confirmation 各取 max(75s, 60s)，与 executor 语义一致。
     assert budget.recovery_confirmation_s == 150.0
+
+
+def test_saturation_and_return_budgets_follow_mission_configuration():
+    contract = _contract_module()
+    mission = _mission_document()
+    mission["exploration"]["action_timeout_s"] = 20.0
+    mission["exploration"]["stable_map_s"] = 12.0
+    mission["exploration"]["saturation"]["required_map_quiet_s"] = 80.0
+    mission["exploration"]["return_to_start"]["timeout_s"] = 42.0
+    mission["exploration"]["return_to_start"]["map_settle_s"] = 75.0
+
+    budget = contract.build_unknown_world_timeout_budget(
+        mission,
+        mapping_startup_s=150.0,
+        scan_startup_s=20.0,
+        stage_stop_s=15.0,
+        map_save_s=35.0,
+        dynamic_navigation_s=180.0,
+    )
+
+    # quiesce 20 + 三个 typed action 60 + required quiet 80；返航后的
+    # settle 也直接使用 YAML 中更大的 75s，而不是硬编码默认值。
+    assert budget.mapping_start_pose_s == 20.0
+    assert budget.saturation_assessment_s == 160.0
+    assert budget.return_to_start_s == 42.0
+    assert budget.return_map_settle_s == 75.0
+
+
+@pytest.mark.parametrize(
+    ("section", "expected_error"),
+    [
+        ("saturation", "exploration.saturation"),
+        ("return_to_start", "exploration.return_to_start"),
+    ],
+)
+def test_timeout_budget_requires_new_bounded_completion_sections(
+    section: str,
+    expected_error: str,
+):
+    contract = _contract_module()
+    mission = _mission_document()
+    del mission["exploration"][section]
+
+    with pytest.raises(ValueError, match=expected_error):
+        contract.build_unknown_world_timeout_budget(
+            mission,
+            mapping_startup_s=150.0,
+            scan_startup_s=20.0,
+            stage_stop_s=15.0,
+            map_save_s=35.0,
+            dynamic_navigation_s=180.0,
+        )
 
 
 def test_timeout_budget_rejects_outer_probe_that_would_expire_first():
@@ -297,6 +357,22 @@ def test_unknown_world_environment_overrides_spawn_and_clears_policy_priors(
     assert environment[
         "UNKNOWN_WORLD_RECOVERY_CONFIRMATION_BUDGET_S"
     ] == "120.000"
+    assert environment[
+        "UNKNOWN_WORLD_FINAL_CONFIRMATION_BUDGET_S"
+    ] == "240.000"
+    assert environment["UNKNOWN_WORLD_RECOVERY_BACKUP_BUDGET_S"] == "20.000"
+    assert environment[
+        "UNKNOWN_WORLD_SATURATION_ASSESSMENT_BUDGET_S"
+    ] == "300.000"
+    assert environment[
+        "UNKNOWN_WORLD_MAPPING_START_POSE_BUDGET_S"
+    ] == "60.000"
+    assert environment[
+        "UNKNOWN_WORLD_RETURN_TO_START_BUDGET_S"
+    ] == "180.000"
+    assert environment[
+        "UNKNOWN_WORLD_RETURN_MAP_SETTLE_BUDGET_S"
+    ] == "60.000"
     assert "EMBODIED_NAV2_PLACES_FILE" in (
         contract.UNKNOWN_WORLD_CLEARED_ENVIRONMENT_KEYS
     )

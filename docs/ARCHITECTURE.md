@@ -151,15 +151,24 @@ Explore Lite 选择 free/unknown 边界，SLAM Toolbox 只负责建图和定位�
 
 ```text
 no_frontiers + no_reachable_frontiers
-frontier_attempts_exhausted_recoverable + frontier_attempts_exhausted_no_map_gain
+frontier_attempts_exhausted_recoverable + frontier_attempts_exhausted_below_material_gain
+frontier_attempts_exhausted_recoverable + frontier_attempts_exhausted_after_final_confirmation
 ```
 
 第二组要求最后一次传感器驱动的 360° 确认扫描没有达到地图增益阈值；它不等价于 provider 声称
-“没有 frontier”。两组都必须同时满足：available=0、active=0、blacklisted=0，且 accepted goal 全部
-进入 succeeded/aborted/canceled 终态。代码锚点是
+“没有 frontier”。第三组表示预算边界的恢复扫描显著扩图后，Explorer 在唯一一次 budget-neutral 确认
+epoch 消费了 post-scan 地图，并再次给出 typed attempts exhaustion。三组都要求 available=0、active=0，
+且 accepted goal 全部进入 succeeded/aborted/canceled 终态；`no_frontiers` 要求 blacklisted=0，typed
+attempts exhaustion 只允许 `blacklisted<=detected`，再由独立地图质量门禁否决残缺地图。代码锚点是
 `frontier_monitor.py:FrontierExplorationMonitor._unknown_world_reason()`、
 `mission_executor.py:decide_epoch_recovery()` 与
 `unknown_world_evidence.py:evaluate_frontier_completion()`。
+
+all-blacklisted 先等待 `20 s` provider goal handoff；它本身不授权移动。只有 provider typed
+`frontier_attempts_exhausted_recoverable`（以及独立 no-clearance typed 原因）、Action 总账排空且仍有预算，
+任务层才执行碰撞检查 BackUp，并用 odom 位移验证换视角。final confirmation 使用独立且只创建一次的
+`240 s` 时间盒，不再 BackUp/扫描；只接受 `no_frontiers` 或 typed attempts exhaustion，其余原因失败。
+生产地图增益门槛保持 `40 cells + 0.2%`。
 
 Explore 的运行安全还有一条独立恢复路径，它**不是完成原因**：
 
@@ -238,14 +247,18 @@ orchestrator 常驻于 Gazebo stage 外部，typed 目标生命周期使用 `SYS
 运行中 plan 与 Action terminal 契约；扩展实体硬件时实现 `RobotExecutor`，不得绕过 Guard/Scheduler。
 这些 seam 足够承载替换，不为每个小函数增加空壳层。
 
+`mapping -> navigation` 阶段切换采用 fail-closed：导航进程启动或 readiness 失败时回收半启动 stage 并进入
+`FAILED`，不再根据进程标签猜测一个虚假的 `MAPPING/NAVIGATING` 状态。清理失败以异常附注保留，不能
+覆盖最先发生的启动错误。
+
 ## 8. 证据状态
 
-fresh session `20260720T031306Z-1114546-814430c3` 已在当前安全/恢复语义下通过 schema v4 六阶段 E2E：
-reachable coverage `99.67%`，四区域最低覆盖 `97.76%`，reachable unknown `0.33%`，障碍边界召回
-`80.93%`、false-free `0.21%`；20 个 accepted frontier 全部 terminal，结束时
-available/active/blacklisted 均为 0；AMCL 246 个对齐样本 P95 `0.154 m`；运行时采样导航 3/3 成功，
-最小间距 `5.57 m` 且路径 unknown/occupied/map-outside 均为 0；动态路径净空由 `0.0245 m` 提升到
-`1.021 m` 并成功重规划，最后得到 fresh `cmd_vel=0`。
+fresh session `20260720T165331Z-1770278-a421b687` 已在当前安全/恢复语义下通过 schema v4 六阶段 E2E：
+reachable coverage `99.75%`，四区域最低覆盖 `98.30%`，reachable unknown `0.25%`，障碍边界召回
+`78.52%`、false-free `0.34%`；38 个 accepted frontier 全部 terminal，结束时 available/active 为 0，
+残余 blacklist `1<=detected 7` 且匹配 typed attempts exhaustion；AMCL 215 个对齐样本 P95 `0.133 m`；
+运行时采样导航 3/3 成功，最小间距 `5.58 m` 且路径 unknown/occupied/map-outside 均为 0；动态路径净空
+由 `0.029 m` 提升到 `0.972 m` 并成功重规划，最后得到 fresh `cmd_vel=0`。
 
 这次修复没有下调严格 evaluator：总体/分区覆盖、unknown、障碍、定位、3 点间距、全路径安全、动态
 重规划与终态零速门槛保持原值。完整阈值和报告位置仍以 [测试手册](TESTING.md) 为唯一事实源。

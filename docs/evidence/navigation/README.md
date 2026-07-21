@@ -32,11 +32,12 @@ logs/acceptance/unknown_world_slam_nav/<session_id>/
 静态 truth map、场地区域和 Gazebo pose 仅供 `unknown_world_evidence.py` 离线评分。它们不得进入 robot
 policy、mission YAML、frontier 恢复或目标抽样，否则证据失效。
 
-当前发布候选 session `20260720T031306Z-1114546-814430c3` 已取得 schema v4 PASS：总体覆盖
-`99.6657%`，最低分区 office `97.7593%`，reachable unknown `0.3343%`，障碍边界召回/false-free
-`80.9322% / 0.2119%`；frontier available/active/blacklisted 为 `0/0/0`、accepted/terminal 为
-`20/20`；AMCL/Gazebo 246 个对齐样本的 P95 为 `0.154311m`；3/3 目标成功、最小间距
-`5.570m`，路径 unknown/occupied/map-outside 均为 0；动态重规划与终态新鲜零速通过。
+当前发布候选 session `20260720T165331Z-1770278-a421b687` 已取得 schema v4 PASS：总体覆盖
+`99.7462%`，最低分区 office `98.2988%`，reachable unknown `0.2538%`，障碍边界召回/false-free
+`78.5169% / 0.3390%`；frontier available/active 为 `0/0`、accepted/terminal 为 `38/38`，残余
+blacklist `1<=detected 7` 与 typed attempts exhaustion 一致；AMCL/Gazebo 215 个对齐样本的 P95 为
+`0.132641m`；3/3 目标成功、最小间距 `5.584m`，路径 unknown/occupied/map-outside 均为 0；动态重规划
+与终态新鲜零速通过。
 
 诊断会话继续保留：`20260720T013943Z-1054618-0887ac81` 暴露了 `0.605m` 盲袋与厨房仅
 `25%` 覆盖；`20260720T025009Z-1101237-7f8143c7` 暴露了 `0.38m` 观测近失与真实绕行被误认为

@@ -88,6 +88,14 @@ def decide_exploration(
         return ExplorationDecision.CONTINUE
 
     if observation.blacklisted_frontier_count > 0:
+        if (
+            observation.frontier_idle_s
+            < observation.required_frontier_idle_s
+        ):
+            # Nav2 goal 进入终态后，Explore Lite 需要到下一次 makePlan 才会
+            # 重新发布 available frontier。交接窗内的 active=available=0 是
+            # 瞬态，不能立刻重启 explorer、清空本 epoch 的尝试记忆。
+            return ExplorationDecision.CONTINUE
         return (
             ExplorationDecision.RECOVER
             if observation.recovery_attempts_remaining > 0
@@ -199,7 +207,10 @@ class FrontierExplorationMonitor:
                     recovery_attempts_remaining=recovery_attempts_remaining,
                 )
                 if reason is not None:
-                    if reason.startswith("recovery_required:"):
+                    if reason.startswith((
+                        "recovery_required:",
+                        "assessment_required:",
+                    )):
                         self._log_info(reason)
                         return reason
                     return self._complete(snapshot, reason)
@@ -220,7 +231,11 @@ class FrontierExplorationMonitor:
             recovery_attempts_remaining=recovery_attempts_remaining,
         )
         if reason is not None:
-            if reason.startswith("recovery_required:"):
+            if reason.startswith((
+                "recovery_required:",
+                "assessment_required:",
+            )):
+                self._log_info(reason)
                 return reason
             return self._complete(snapshot, reason)
         stats = snapshot.map_stats or {}
@@ -317,9 +332,93 @@ class FrontierExplorationMonitor:
         time_budget_reached: bool,
         recovery_attempts_remaining: int,
     ) -> str | None:
+        telemetry = snapshot.frontier_telemetry
+        no_clearance = (
+            telemetry.status == "exploration_blocked"
+            and telemetry.completion_reason
+            == "no_clearance_safe_frontier_approach"
+        )
+        if no_clearance:
+            # 这是 provider 完成一次真实 frontier 搜索后给出的类型化阻塞，
+            # 不是“运行时间太短”。若仍套用 min_runtime_s，第二个 epoch 会在
+            # 已知不可接近的状态下空等 60 秒，随后还会丢失真正的恢复原因。
+            if (
+                telemetry.detected_frontier_count <= 0
+                or telemetry.available_frontier_count != 0
+                or telemetry.blacklisted_frontier_count != 0
+            ):
+                raise RuntimeError(
+                    "invalid no-clearance telemetry: "
+                    f"detected={telemetry.detected_frontier_count} "
+                    f"available={telemetry.available_frontier_count} "
+                    f"blacklisted={telemetry.blacklisted_frontier_count}"
+                )
+            if telemetry.active_goal_count > 0:
+                # provider 已请求停止不代表 Nav2 goal 已进入终态；必须等 UUID
+                # 清空后，上层才可独占底盘执行 BackUp 恢复。
+                return None
+            terminal_count = (
+                telemetry.succeeded_goal_count
+                + telemetry.aborted_goal_count
+                + telemetry.canceled_goal_count
+            )
+            if telemetry.accepted_goal_count != terminal_count:
+                raise RuntimeError(
+                    "no-clearance recovery refused: Action ledger is not "
+                    "drained "
+                    f"accepted={telemetry.accepted_goal_count} "
+                    f"terminal={terminal_count}"
+                )
+            return "recovery_required:no_clearance_safe_frontier_approach"
+        attempts_exhausted = (
+            telemetry.completion_reason
+            == "frontier_attempts_exhausted_recoverable"
+        )
+        if attempts_exhausted:
+            # attempts_exhausted 与 no_clearance 一样，是 provider 完成一次
+            # 真实搜索后的 typed epoch terminal；放在 min_runtime_s 之前，
+            # 避免新 epoch 快速耗尽时空等，或在超时分支丢失真实原因。
+            if (
+                telemetry.status != "exploration_blocked"
+                or telemetry.detected_frontier_count <= 0
+                or telemetry.available_frontier_count != 0
+                or telemetry.blacklisted_frontier_count
+                > telemetry.detected_frontier_count
+            ):
+                raise RuntimeError(
+                    "invalid attempt-exhaustion telemetry: "
+                    f"status={telemetry.status} "
+                    f"detected={telemetry.detected_frontier_count} "
+                    f"available={telemetry.available_frontier_count} "
+                    f"blacklisted={telemetry.blacklisted_frontier_count}"
+                )
+            # blacklisted 表示本 epoch 中已失败/不可取的 approach。provider
+            # 明确发布 attempts_exhausted 时，这正是 BackUp 后重建观察视角的
+            # 输入，不能误判为遥测非法；最终是否允许完成仍由任务层预算与
+            # 地图质量门禁决定。
+            if telemetry.active_goal_count > 0:
+                return None
+            terminal_count = (
+                telemetry.succeeded_goal_count
+                + telemetry.aborted_goal_count
+                + telemetry.canceled_goal_count
+            )
+            if telemetry.accepted_goal_count != terminal_count:
+                raise RuntimeError(
+                    "attempt-exhaustion recovery refused: Action ledger is "
+                    "not drained "
+                    f"accepted={telemetry.accepted_goal_count} "
+                    f"terminal={terminal_count}"
+                )
+            map_quiet_s = max(
+                0.0, self._clock() - snapshot.last_map_growth_at
+            )
+            if map_quiet_s < self._config.stable_map_s:
+                return None
+            # 这里只授权上层停车、换视角并重新观测，不表示地图完成。
+            return "recovery_required:frontier_attempts_exhausted"
         if elapsed_s < self._config.min_runtime_s:
             return None
-        telemetry = snapshot.frontier_telemetry
         map_quiet_s = max(0.0, self._clock() - snapshot.last_map_growth_at)
         progress_stalled = (
             telemetry.status == "exploration_blocked"
@@ -346,17 +445,12 @@ class FrontierExplorationMonitor:
             # 连续真实停滞本身就是恢复证据，无需再等待地图 quiet；上层仍会
             # 先 typed STOP、再旋转扫描并用地图增益决定是否开启新 epoch。
             return "recovery_required:frontier_progress_stalled"
-        attempts_exhausted = (
-            telemetry.completion_reason
-            == "frontier_attempts_exhausted_recoverable"
-            and telemetry.available_frontier_count == 0
-            and telemetry.active_goal_count == 0
-            and telemetry.blacklisted_frontier_count == 0
-        )
-        if attempts_exhausted and map_quiet_s >= self._config.stable_map_s:
-            # provider 只证明“本 epoch 的可执行 approach 已耗尽”，不能声称
-            # unknown 已清零。任务层会跨 recovery 比较地图增益后再决定收敛或失败。
-            return "recovery_required:frontier_attempts_exhausted"
+        if time_budget_reached:
+            # 硬预算只触发“是否边际收益耗尽”的收口评估，不能在这里自证地图
+            # 完整，也不能带着 active Nav2 UUID 直接失败并杀掉仿真。任务层会
+            # 先暂停 Explorer、排空 Action 账本、停车并做最后一次传感器扫描；
+            # 任何证据不足仍会 fail-close。
+            return "assessment_required:time_budget"
         observation = ExplorationObservation(
             native_completion_reported=(
                 telemetry.status == self._config.completion_status
@@ -385,13 +479,6 @@ class FrontierExplorationMonitor:
                 return "recovery_required:blacklisted_frontiers"
             return "recovery_required:reachable_frontiers_stalled"
 
-        if time_budget_reached:
-            raise TimeoutError(
-                "frontiers unresolved at exploration time budget: "
-                f"available={telemetry.available_frontier_count} "
-                f"active={telemetry.active_goal_count} "
-                f"blacklisted={telemetry.blacklisted_frontier_count}"
-            )
         # all-blacklisted 和平台期都只是可恢复故障；恢复次数耗尽后必须明确失败，
         # 不能复用旧 coverage_plateau 名称伪装成完整地图。
         raise RuntimeError(

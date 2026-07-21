@@ -160,7 +160,16 @@ def test_loads_unknown_world_plan_without_scene_route_or_named_places():
     assert configuration.frontier.frontier_idle_grace_s == 20.0
     assert isinstance(configuration.automatic, UnknownWorldMissionSpec)
     assert configuration.automatic.max_recovery_attempts == 2
+    assert configuration.automatic.final_confirmation_timeout_s == 240.0
+    assert configuration.automatic.recovery_backup.distance_m == pytest.approx(0.30)
+    assert configuration.automatic.recovery_backup.speed_mps == pytest.approx(0.08)
+    assert configuration.automatic.recovery_backup.timeout_s == pytest.approx(10.0)
+    assert (
+        configuration.automatic.recovery_backup.minimum_displacement_m
+        == pytest.approx(0.20)
+    )
     assert configuration.automatic.minimum_epoch_map_gain_cells == 40
+    assert configuration.automatic.minimum_epoch_map_gain_ratio == 0.002
     assert (
         configuration.automatic.minimum_epoch_map_gain_cells
         == configuration.evidence_min_growth_cells
@@ -173,6 +182,49 @@ def test_loads_unknown_world_plan_without_scene_route_or_named_places():
     assert configuration.automatic.navigation_goal_seed == 20260719
     assert not hasattr(configuration.automatic, "bootstrap_route")
     assert not hasattr(configuration.automatic, "navigate_text")
+
+
+def test_unknown_world_recovery_backup_rejects_unknown_nested_key(tmp_path):
+    plan = tmp_path / "unknown-world-invalid-backup.yaml"
+    contents = UNKNOWN_WORLD_MISSION_PLAN.read_text(encoding="utf-8")
+    contents = contents.replace(
+        "    minimum_displacement_m: 0.20\n",
+        "    minimum_displacement_m: 0.20\n"
+        "    global_goal_x: 8.0\n",
+    )
+    plan.write_text(contents, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="unsupported keys: global_goal_x"):
+        MissionConfiguration.load(
+            workspace=WORKSPACE,
+            mission_plan_path=plan,
+            scan_startup_timeout_s=20.0,
+            status_available=True,
+            dry_run=False,
+            dry_run_delay_s=0.0,
+        )
+
+
+def test_unknown_world_requires_explicit_final_confirmation_budget(tmp_path):
+    plan = tmp_path / "unknown-world-missing-final-confirmation.yaml"
+    contents = UNKNOWN_WORLD_MISSION_PLAN.read_text(encoding="utf-8")
+    plan.write_text(
+        contents.replace("  final_confirmation_timeout_s: 240.0\n", ""),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="exploration.final_confirmation_timeout_s is required",
+    ):
+        MissionConfiguration.load(
+            workspace=WORKSPACE,
+            mission_plan_path=plan,
+            scan_startup_timeout_s=20.0,
+            status_available=True,
+            dry_run=False,
+            dry_run_delay_s=0.0,
+        )
 
 
 @pytest.mark.parametrize("invalid", ["-0.1", ".nan", ".inf", "-.inf"])

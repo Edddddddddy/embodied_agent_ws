@@ -108,10 +108,25 @@ def test_time_budget_with_reachable_frontier_fails_instead_of_passing():
     assert decision is ExplorationDecision.FAIL
 
 
-def test_blacklisted_frontier_recovers_while_budget_remains():
+def test_recent_blacklisted_frontier_handoff_keeps_monitor_waiting():
     decision = decide_exploration(
         _observation(
             blacklisted_frontier_count=1,
+            frontier_idle_s=19.9,
+            recovery_attempts_remaining=1,
+        )
+    )
+
+    # Nav2 goal 终态与 Explore Lite 下一次 makePlan 之间会短暂出现
+    # active=available=0；这段交接窗口不能被误判成“全部 frontier 耗尽”。
+    assert decision is ExplorationDecision.CONTINUE
+
+
+def test_blacklisted_frontier_recovers_after_handoff_grace():
+    decision = decide_exploration(
+        _observation(
+            blacklisted_frontier_count=1,
+            frontier_idle_s=20.0,
             recovery_attempts_remaining=1,
         )
     )
@@ -123,6 +138,7 @@ def test_blacklisted_frontier_fails_after_recovery_budget_is_exhausted():
     decision = decide_exploration(
         _observation(
             blacklisted_frontier_count=1,
+            frontier_idle_s=20.0,
             recovery_attempts_remaining=0,
         )
     )

@@ -7,7 +7,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Sequence
 
 import yaml
 
@@ -19,15 +19,24 @@ from tools.acceptance.scenarios.unknown_world_contract import (
     build_unknown_world_timeout_budget,
     validate_unknown_world_mission,
 )
+from tools.acceptance.scenarios.unknown_world_run_profile import (
+    DEFAULT_LIVE_VOICE_TRIGGER_TIMEOUT_S,
+    EVIDENCE_KIND,
+    LIVE_VOICE_EVIDENCE_KIND,
+    MAPPING_STARTUP_TIMEOUT_S,
+    UnknownWorldRunProfile,
+    _resolve_profile_runtime_environment,
+    _verify_profile_report,
+    verify_report,
+)
 from tools.acceptance.session import (
     AcceptanceCommandError,
     AcceptanceSession,
     AcceptanceSessionConfig,
+    RosEnvironmentIsolation,
 )
 
 
-EVIDENCE_KIND = "unknown_world_slam_nav_dynamic_replan"
-MAPPING_STARTUP_TIMEOUT_S = 150.0
 SCAN_STARTUP_TIMEOUT_S = 20.0
 STAGE_STOP_TIMEOUT_S = 15.0
 MAP_SAVE_TIMEOUT_S = 35.0
@@ -42,33 +51,6 @@ def _positive_float(name: str, default: float) -> float:
     if value <= 0.0:
         raise ValueError(f"{name} must be positive")
     return value
-
-
-def verify_report(
-    report: Mapping[str, Any],
-    *,
-    expected_session_id: str,
-) -> dict[str, float | int]:
-    """二次校验 schema v4，避免探针写出不属于本会话的陈旧 PASS。"""
-
-    if report.get("schema_version") != 4 or report.get("passed") is not True:
-        raise ValueError("unknown-world report did not pass schema v4")
-    if report.get("session_id") != expected_session_id:
-        raise ValueError("unknown-world report belongs to another session")
-    checks = report.get("checks") or {}
-    if not checks or not all(checks.values()):
-        raise ValueError(f"unknown-world evidence checks failed: {checks}")
-    coverage = report["map_quality"]["metrics"]
-    localization = report["localization"]["metrics"]
-    navigation = report["sampled_navigation"]["metrics"]
-    return {
-        "coverage_ratio": float(coverage["reachable_free_coverage_ratio"]),
-        "minimum_region_ratio": float(
-            min(coverage["region_coverage_ratios"].values())
-        ),
-        "localization_p95_m": float(localization["position_error_p95_m"]),
-        "navigation_goal_count": int(navigation["goal_count"]),
-    }
 
 
 def _try_save_failed_exploration_map(
@@ -129,13 +111,18 @@ def _run_probe_and_verify(
     expected_session_id: str,
     gate_timeout_s: float,
     failed_map_prefix: Path,
+    profile: UnknownWorldRunProfile | None = None,
 ) -> dict[str, float | int]:
     """运行探针并验证报告；失败快照只用于诊断，不代表 map_saved。"""
 
     try:
         session.run(probe_command, timeout_s=gate_timeout_s)
         report = json.loads(report_path.read_text(encoding="utf-8"))
-        return verify_report(report, expected_session_id=expected_session_id)
+        return _verify_profile_report(
+            report,
+            profile=profile or UnknownWorldRunProfile.synthetic(),
+            expected_session_id=expected_session_id,
+        )
     except Exception:
         # 此处仍在 AcceptanceSession 内，仿真和 SLAM /map 尚未被 finally 清理。
         try:
@@ -146,7 +133,129 @@ def _run_probe_and_verify(
         raise
 
 
-def main() -> int:
+def _build_orchestrator_command(
+    *,
+    profile: UnknownWorldRunProfile,
+    workspace: Path,
+    map_prefix: Path,
+    mission_plan: Path,
+) -> list[str]:
+    """构造真实启动命令，Agent 模式必须来自本次验收 profile。"""
+
+    command = [
+        "ros2",
+        "run",
+        "embodied_slam_tools",
+        "voice_slam_session_orchestrator",
+        "--ros-args",
+        "-p",
+        f"workspace:={workspace}",
+        "-p",
+        f"mode:={profile.agent_mode}",
+        "-p",
+        "command_input_source:="
+        + ("wake_event" if profile.trigger_source == "live_voice" else "raw_asr"),
+        "-p",
+        f"map_prefix:={map_prefix}",
+        "-p",
+        f"mission_plan:={mission_plan}",
+        "-p",
+        f"startup_timeout_s:={profile.mapping_startup_timeout_s}",
+        "-p",
+        f"scan_startup_timeout_s:={SCAN_STARTUP_TIMEOUT_S}",
+        "-p",
+        f"stop_timeout_s:={STAGE_STOP_TIMEOUT_S}",
+    ]
+    return command
+
+
+def _build_probe_command(
+    *,
+    profile: UnknownWorldRunProfile,
+    workspace: Path,
+    report_path: Path,
+    transition_timeout_s: float,
+    gate_timeout_s: float,
+    heartbeat_s: float,
+    runtime_log: Path,
+    session_id: str,
+    session_started_ns: int,
+    world_file: Path,
+    mission_plan: Path,
+    dynamic_scenario: Path,
+    scene_spec: Path,
+    truth_map: Path,
+    voice_trigger_timeout_s: float,
+) -> list[str]:
+    """构造联合探针 argv；显式传递触发来源，禁止探针自行猜测。"""
+
+    evidence_kind = (
+        LIVE_VOICE_EVIDENCE_KIND
+        if profile.trigger_source == "live_voice"
+        else EVIDENCE_KIND
+    )
+    total_gate_timeout_s = gate_timeout_s + (
+        voice_trigger_timeout_s
+        if profile.trigger_source == "live_voice"
+        else 0.0
+    )
+    command = [
+        "bash",
+        str(workspace / "tools/acceptance/run_probe.sh"),
+        str(
+            workspace
+            / "tools/acceptance/probes/slam_nav/session_orchestrator.py"
+        ),
+        "--output",
+        str(report_path),
+        "--transition-timeout",
+        str(transition_timeout_s),
+        "--gate-timeout-s",
+        str(total_gate_timeout_s),
+        "--dynamic-navigation-timeout",
+        str(DYNAMIC_NAVIGATION_TIMEOUT_S),
+        "--progress-heartbeat-s",
+        str(heartbeat_s),
+        "--runtime-log",
+        str(runtime_log),
+        "--summary-only",
+        "--evidence-kind",
+        evidence_kind,
+        "--session-id",
+        session_id,
+        "--session-start-ns",
+        str(session_started_ns),
+        "--world-file",
+        str(world_file),
+        "--mission-plan",
+        str(mission_plan),
+        "--dynamic-scenario",
+        str(dynamic_scenario),
+        "--scene-spec",
+        str(scene_spec),
+        "--truth-map",
+        str(truth_map),
+        "--unknown-world",
+        "--automatic-mission",
+    ]
+    if profile.trigger_source == "live_voice":
+        # 合成门禁保持原 argv 不变；只有联合验收需要启用新增探针接口。
+        command.extend(
+            [
+                "--automatic-trigger-source",
+                profile.trigger_source,
+                "--agent-mode",
+                profile.agent_mode,
+                "--voice-trigger-timeout",
+                str(voice_trigger_timeout_s),
+            ]
+        )
+    return command
+
+
+def run(profile: UnknownWorldRunProfile) -> int:
+    """运行 strict unknown-world 门禁，差异仅由显式 profile 注入。"""
+
     workspace = repository_root(Path(__file__))
     heartbeat_s = _positive_float("SLAM_NAV_PROGRESS_HEARTBEAT_S", 15.0)
     preferred_domain = (
@@ -154,9 +263,14 @@ def main() -> int:
         if os.environ.get("SLAM_NAV_ROS_DOMAIN_ID")
         else None
     )
+    artifact_environment_key = (
+        "VOICE_UNKNOWN_WORLD_ARTIFACT_DIR"
+        if profile.trigger_source == "live_voice"
+        else "UNKNOWN_WORLD_ARTIFACT_DIR"
+    )
     artifact_dir = (
-        Path(os.environ["UNKNOWN_WORLD_ARTIFACT_DIR"])
-        if os.environ.get("UNKNOWN_WORLD_ARTIFACT_DIR")
+        Path(os.environ[artifact_environment_key])
+        if os.environ.get(artifact_environment_key)
         else None
     )
     mission_plan = (
@@ -179,7 +293,7 @@ def main() -> int:
     )
     budget = build_unknown_world_timeout_budget(
         mission_document,
-        mapping_startup_s=MAPPING_STARTUP_TIMEOUT_S,
+        mapping_startup_s=profile.mapping_startup_timeout_s,
         scan_startup_s=SCAN_STARTUP_TIMEOUT_S,
         stage_stop_s=STAGE_STOP_TIMEOUT_S,
         map_save_s=MAP_SAVE_TIMEOUT_S,
@@ -193,6 +307,17 @@ def main() -> int:
         "UNKNOWN_WORLD_GATE_TIMEOUT_S",
         budget.gate_s,
     )
+    voice_trigger_timeout_s = (
+        _positive_float(
+            "VOICE_TRIGGER_TIMEOUT_S",
+            DEFAULT_LIVE_VOICE_TRIGGER_TIMEOUT_S,
+        )
+        if profile.trigger_source == "live_voice"
+        else 0.0
+    )
+    # 真人说出口令的等待窗口是交互成本，不属于探索/定位/导航预算；外层
+    # deadline 必须显式叠加，否则用户稍晚开口会压缩 strict core 的执行时间。
+    probe_timeout_s = gate_timeout_s + voice_trigger_timeout_s
     budget.validate_outer_timeouts(
         transition_timeout_s=transition_timeout_s,
         gate_timeout_s=gate_timeout_s,
@@ -206,38 +331,35 @@ def main() -> int:
         gate_timeout_s=gate_timeout_s,
         transition_timeout_s=transition_timeout_s,
     )
-    runtime_environment.update(
-        {
-            "NAV2_PROVIDER_MODE": "mock",
-            "NAV2_MICROPHONE_ENABLED": "false",
-            "NAV2_CAPTURE_ENABLED": "false",
-            "WAKE_WORD_ENABLED": "false",
-            "CONTINUOUS_PREFLIGHT_ENABLED": "false",
-            "CONTINUOUS_MONITOR_ENABLED": "false",
-            "CONTINUOUS_READINESS_ENABLED": "false",
-            "VAD_PROVIDER": "energy",
-            "SYSTEM_READINESS_TIMEOUT": "120",
-            "SHOWCASE_DYNAMIC_OBSTACLE_ENABLED": "true",
-        }
-    )
+    runtime_environment["SHOWCASE_DYNAMIC_OBSTACLE_ENABLED"] = "true"
+    runtime_environment.update(_resolve_profile_runtime_environment(profile))
     config = AcceptanceSessionConfig(
-        name="unknown-world-slam-e2e",
+        name=(
+            "voice-unknown-world-slam-e2e"
+            if profile.trigger_source == "live_voice"
+            else "unknown-world-slam-e2e"
+        ),
         workspace=workspace,
-        artifact_root=workspace / "logs/acceptance/unknown_world_slam_nav",
+        artifact_root=(
+            workspace / "logs/acceptance" / profile.artifact_directory_name
+        ),
         artifact_dir=artifact_dir,
         session_id=os.environ.get("SLAM_NAV_SESSION_ID"),
-        timeout_s=gate_timeout_s + 60.0,
+        timeout_s=probe_timeout_s + 60.0,
         preferred_domain=preferred_domain,
         inherit_ros_domain_id=False,
         environment=runtime_environment,
         unset_environment_keys=UNKNOWN_WORLD_CLEARED_ENVIRONMENT_KEYS,
         manifest_environment_keys=tuple(runtime_environment),
+        # 公开 strict 与真人语音入口必须复用同一套受控 ROS/Nav2 来源；宿主
+        # 终端 source 过的 ~/nav2_ws 不能改变现场验收所运行的二进制。
+        ros_environment_isolation=RosEnvironmentIsolation(),
     )
 
     with AcceptanceSession(config) as session:
         map_prefix = session.artifact_dir / "unknown_world_map"
         failed_map_prefix = session.artifact_dir / "failed_exploration_map"
-        report_path = session.artifact_dir / "unknown_world_slam_e2e_report.json"
+        report_path = session.artifact_dir / profile.report_filename
         runtime_log = session.log_path("runtime")
         for stale in (
             map_prefix.with_suffix(".yaml"),
@@ -251,6 +373,10 @@ def main() -> int:
 
         print("Unknown-world SLAM/Nav2 end-to-end acceptance")
         print(f"  session: {session.session_id}")
+        print(
+            f"  trigger: {profile.trigger_source}; "
+            f"agent: {profile.agent_mode}"
+        )
         print("  robot policy: online scan/odom/TF/map only; no truth map or route")
         print(
             "  stages: frontier exploration -> fresh map -> AMCL/Gazebo P95 -> "
@@ -274,27 +400,12 @@ def main() -> int:
                 "Explore Lite is missing. Run: bash scripts/setup_frontier_exploration.sh"
             )
 
-        orchestrator_command = [
-            "ros2",
-            "run",
-            "embodied_slam_tools",
-            "voice_slam_session_orchestrator",
-            "--ros-args",
-            "-p",
-            f"workspace:={workspace}",
-            "-p",
-            "mode:=offline",
-            "-p",
-            f"map_prefix:={map_prefix}",
-            "-p",
-            f"mission_plan:={mission_plan}",
-            "-p",
-            f"startup_timeout_s:={MAPPING_STARTUP_TIMEOUT_S}",
-            "-p",
-            f"scan_startup_timeout_s:={SCAN_STARTUP_TIMEOUT_S}",
-            "-p",
-            f"stop_timeout_s:={STAGE_STOP_TIMEOUT_S}",
-        ]
+        orchestrator_command = _build_orchestrator_command(
+            profile=profile,
+            workspace=workspace,
+            map_prefix=map_prefix,
+            mission_plan=mission_plan,
+        )
         # 审计最终的 session.environment，而不是另造一份“看起来安全”的测试
         # argv/env。这样宿主 shell 遗留的地图或路线变量也会在真正 spawn 前失败。
         audit_unknown_world_policy_spawn(
@@ -305,52 +416,31 @@ def main() -> int:
             truth_map_path=truth_map,
         )
         session.spawn("orchestrator", orchestrator_command, log_path=runtime_log)
-        probe_command = [
-            "bash",
-            str(workspace / "tools/acceptance/run_probe.sh"),
-            str(
-                workspace
-                / "tools/acceptance/probes/slam_nav/session_orchestrator.py"
-            ),
-            "--output",
-            str(report_path),
-            "--transition-timeout",
-            str(transition_timeout_s),
-            "--gate-timeout-s",
-            str(gate_timeout_s),
-            "--dynamic-navigation-timeout",
-            str(DYNAMIC_NAVIGATION_TIMEOUT_S),
-            "--progress-heartbeat-s",
-            str(heartbeat_s),
-            "--runtime-log",
-            str(runtime_log),
-            "--summary-only",
-            "--evidence-kind",
-            EVIDENCE_KIND,
-            "--session-id",
-            session.session_id,
-            "--session-start-ns",
-            str(session.started_ns),
-            "--world-file",
-            str(world_file),
-            "--mission-plan",
-            str(mission_plan),
-            "--dynamic-scenario",
-            str(dynamic_scenario),
-            "--scene-spec",
-            str(scene_spec),
-            "--truth-map",
-            str(truth_map),
-            "--unknown-world",
-            "--automatic-mission",
-        ]
+        probe_command = _build_probe_command(
+            profile=profile,
+            workspace=workspace,
+            report_path=report_path,
+            transition_timeout_s=transition_timeout_s,
+            gate_timeout_s=gate_timeout_s,
+            heartbeat_s=heartbeat_s,
+            runtime_log=runtime_log,
+            session_id=session.session_id,
+            session_started_ns=session.started_ns,
+            world_file=world_file,
+            mission_plan=mission_plan,
+            dynamic_scenario=dynamic_scenario,
+            scene_spec=scene_spec,
+            truth_map=truth_map,
+            voice_trigger_timeout_s=voice_trigger_timeout_s,
+        )
         summary = _run_probe_and_verify(
             session,
             probe_command=probe_command,
             report_path=report_path,
             expected_session_id=session.session_id,
-            gate_timeout_s=gate_timeout_s,
+            gate_timeout_s=probe_timeout_s,
             failed_map_prefix=failed_map_prefix,
+            profile=profile,
         )
         print("Evidence verified; cleaning up acceptance process groups ...")
 
@@ -369,6 +459,12 @@ def main() -> int:
     print(f"Session manifest: {session.manifest_path}")
     print(f"Runtime log: {runtime_log}")
     return 0
+
+
+def main() -> int:
+    """兼容原公开入口，继续执行确定性的无麦克风 strict 门禁。"""
+
+    return run(UnknownWorldRunProfile.synthetic())
 
 
 if __name__ == "__main__":

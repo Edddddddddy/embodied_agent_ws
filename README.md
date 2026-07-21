@@ -19,10 +19,9 @@
 - SLAM/Nav2：frontier 探索、SLAM Toolbox、地图保存、AMCL、Nav2 目标导航与动态障碍重规划。
 - 算法证据：Ceres/GTSAM 后端、LiDAR 回环 shadow pipeline、动态障碍关联/预测/costmap 消融。
 
-当前修订版已取得 fresh schema v4 Gazebo PASS：session
-`20260720T031306Z-1114546-814430c3` 完成未知场景探索、本次地图定位、3 个运行时采样目标导航、动态障碍
-重规划与安全停车。可达自由区覆盖率为 `99.67%`，AMCL 位置误差 P95 为 `0.154m`，3/3 目标全部成功。
-known-world 演示继续作为稳定回归；历史 PASS、历史 FAIL 与当前 fresh PASS 均保留原始 session 边界，不互相继承。
+当前 schema v4 session `20260721T072342Z-2344751-5452a492` 已完成 unknown-world 探索、动态起点返航、
+本次地图定位、3 个运行时目标、动态重规划与停车：覆盖 `99.81%`、区域最低 `98.76%`、AMCL P95
+`0.120m`，全部 checks 为 true。机器人运行时不读取真值；truth 只供验收结束后的 evaluator 复核。
 
 ## 核心架构
 
@@ -89,9 +88,8 @@ bash scripts/acceptance_test.sh offline-runtime-versions
 
 在线模式在 `.env` 配置 `DASHSCOPE_API_KEY`。密钥、模型、`build/install/log` 不提交 Git。
 
-> 本阶段新增了 `FrontierExplorationEvidence`、`SlamNavigationGoalEvidence`，并扩展
-> `SlamSessionState`。ROS 2 接口 type hash 已变化；切换到本分支后必须全量重建依赖包，不能复用旧
-> overlay 或旧 rosbag 作为当前接口证据。
+本阶段扩展了 `SlamSessionState`、`SlamMappingCompletionEvidence` 等 SLAM 证据接口；切换分支后须全量
+重建，旧 overlay/rosbag 不能作为当前证据。
 
 ```bash
 # 重新配置全部自有包；不在文档里提供可能误删其他 worktree 的递归删除命令。
@@ -99,6 +97,9 @@ colcon build --symlink-install --cmake-clean-cache --executor sequential
 source install/setup.bash
 embodied_workspace_doctor true
 ```
+
+重型验收会隔离外部 Nav2 overlay，并在 manifest 记录包来源。linked worktree 的真人离线入口自动复用
+Git 主工作区的 llama/GGUF/VAD/校准资产；自定义位置用 `EMBODIED_RUNTIME_ROOT` 覆盖。
 
 ## 推荐演示
 
@@ -113,10 +114,12 @@ HEADLESS=false USE_RVIZ=true \
 frontier 完整终止、AMCL 与 Gazebo evaluator-only truth 对齐、从本次已知自由区采样至少 3 个目标并
 成功导航、动态障碍重规划以及最终零速度。证据写入：
 
-探索器使用 `0.33 m` 可逃逸连通域、基于真实位移的 progress watchdog 和 terminal 后恢复熔断。Burger
-profile 将 frontier 观测容差设为 `0.40 m`（上游通用默认仍为 `0.30 m`），且只在最新地图仍证明目标安全时记录
-reached；真实逃离上次卡点会打断“连续静止超时”计数，避免将有效绕行误熔断。Nav2 实际生效的
-`0.10 m / 30 s` SimpleProgressChecker 会写入 session 参数文件留档。这些策略不包含房间坐标或预设建图路线。
+all-blacklisted 先等 `20 s` goal handoff；只有 typed attempts exhaustion/no-clearance 且 Action 账本排空，
+才允许碰撞检查 BackUp 和 odom 位移验证。硬预算不是成功：系统先优雅暂停 Explorer、排空 Action、执行
+一次 final probe；只有多轮单位目标收益递减且 evaluator 仍满足原地图质量门槛，才允许近似收口。
+
+探索结束后，机器人会在 mapping stage 内返回动态捕获的起点、复核 TF/零速并等待回环尾帧后存图。
+map_saver 返回后再执行 typed STOP 并观察真实新零速，才切换 AMCL/Nav2；起点不写死，也不读取 truth。
 
 ```text
 logs/acceptance/unknown_world_slam_nav/<session_id>/unknown_world_slam_e2e_report.json
@@ -125,10 +128,28 @@ logs/acceptance/unknown_world_slam_nav/<session_id>/acceptance_session.json
 ```
 
 报告必须是 schema v4、`evidence_kind=unknown_world_slam_nav_dynamic_replan` 且所有 checks 为 true。
-当前发布候选证据为 `20260720T031306Z-1114546-814430c3`；完整门槛、全部实测值和历史失败链见
+`20260720T165331Z-1770278-a421b687` 仅为旧 strict 基线；当前 Goal 的可视化验收步骤、完整门槛和失败链见
 [TESTING.md](docs/TESTING.md) 与 [Navigation 证据索引](docs/evidence/navigation/README.md)。
 
-### 2. Known-world 稳定回归与语音交互
+### 2. 真人语音 + unknown-world 联合验收（待现场）
+
+```bash
+bash scripts/acceptance_test.sh wsl-microphone-preflight
+HEADLESS=false USE_RVIZ=true \
+  bash scripts/acceptance_test.sh voice-unknown-world-slam-e2e offline
+# 将 offline 换成 online 可补跑在线 Agent
+```
+
+看到提示后说“**小智，开始自动巡检建图**”。真人编排器只消费通过唤醒门的 WakeEvent；synthetic 核心
+入口才使用 raw ASR。报告写入
+`logs/acceptance/voice_unknown_world_slam_nav/<session_id>/voice_unknown_world_slam_e2e_report.json`；
+schema v1 的五个语音 checks 与内嵌同 session strict v4 必须全部为 true。当前尚无真人现场 PASS；完整
+契约和故障定位见 [TESTING.md §5.5](docs/TESTING.md)。
+
+正常冷启动时，离线模型 warmup 可能持续十几秒；终端会每 5 秒打印一次 `WAIT: system readiness` 及缺失
+组件。若阶段子进程失败，入口会立即输出原始原因并生成失败报告，不再留下“界面已开但车不动”的静默等待。
+
+### 3. Known-world 稳定回归与语音交互
 
 ```bash
 bash scripts/acceptance_test.sh slam-nav-e2e
@@ -139,7 +160,7 @@ bash scripts/acceptance_test.sh voice-slam-workplace-demo offline
 `slam-nav-e2e` 保留已知场景的确定性集成回归，语音 demo 验证真人触发和阶段交互。它们可能使用场景
 bootstrap/语义地点，不能作为“机器人面对未知环境自主完成探索”的证据。
 
-### 3. 连续语音控制
+### 4. 连续语音控制
 
 ```bash
 bash scripts/acceptance_test.sh continuous-offline
@@ -151,7 +172,7 @@ bash scripts/acceptance_test.sh continuous-online
 
 ## 测试与验收
 
-公开入口共 8 个，实际列表以脚本帮助和注册表为准：
+公开入口共 9 个，实际列表以脚本帮助和注册表为准：
 
 ```bash
 bash scripts/acceptance_test.sh --help
@@ -162,19 +183,14 @@ bash scripts/acceptance_test.sh gazebo
 bash scripts/acceptance_test.sh nav2-stage
 bash scripts/acceptance_test.sh slam-nav-e2e
 bash scripts/acceptance_test.sh unknown-world-slam-e2e
+bash scripts/acceptance_test.sh voice-unknown-world-slam-e2e offline
 bash scripts/acceptance_test.sh robotics-gate
 ```
 
 `--help-all` 仅用于维护内部回归和实验模式。分层测试、严格阈值和故障排查见
 [TESTING.md](docs/TESTING.md)。
 
-常用补充证据：
-
-```bash
-bash scripts/acceptance_test.sh offline-latency
-bash scripts/acceptance_test.sh offline-voice-e2e-report
-bash scripts/acceptance_test.sh release-gate
-```
+常用补充入口：`offline-latency`、`offline-voice-e2e-report`、`release-gate`。
 
 `offline-latency` 的组件目标为 LLM 首 token `≤ 1000ms`、短句完整 TTS 合成 `≤ 600ms`，不等于
 真人语音整链路。release/demo gate 产物分别为 `logs/acceptance_report.json`、

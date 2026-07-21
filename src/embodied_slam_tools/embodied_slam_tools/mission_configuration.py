@@ -8,8 +8,14 @@ from typing import Any
 
 import yaml
 
+from .exploration_saturation import SaturationPolicy
 from .frontier_monitor import FrontierMonitorConfig
-from .mission_executor import AutomaticMissionSpec, UnknownWorldMissionSpec
+from .mapping_return import ReturnToStartSpec
+from .mission_executor import (
+    AutomaticMissionSpec,
+    RecoveryBackUpSpec,
+    UnknownWorldMissionSpec,
+)
 from .showcase_session import parse_mapping_bootstrap_route
 
 
@@ -165,17 +171,74 @@ class MissionConfiguration:
                 "provider",
                 "config",
                 "timeout_s",
+                "final_confirmation_timeout_s",
                 "min_runtime_s",
                 "stable_map_s",
                 "frontier_idle_grace_s",
                 "min_growth_cells",
+                "min_growth_ratio",
                 "completion_status",
                 "max_recovery_attempts",
                 "action_timeout_s",
                 "initial_scan_text",
                 "recovery_scan_text",
+                "recovery_backup",
+                "saturation",
+                "return_to_start",
             },
             "exploration",
+        )
+        recovery_backup = _mapping(
+            exploration.get("recovery_backup", {}),
+            "exploration.recovery_backup",
+        )
+        saturation = _mapping(
+            exploration.get("saturation", {}),
+            "exploration.saturation",
+        )
+        return_to_start = _mapping(
+            exploration.get("return_to_start", {}),
+            "exploration.return_to_start",
+        )
+        if "final_confirmation_timeout_s" not in exploration:
+            # 最终确认轮会进入外层 acceptance 总预算，因此不能在运行时悄悄
+            # 使用代码默认值；YAML 与验收预算必须共享同一个显式事实源。
+            raise ValueError(
+                "exploration.final_confirmation_timeout_s is required"
+            )
+        _reject_unexpected_keys(
+            recovery_backup,
+            {
+                "distance_m",
+                "speed_mps",
+                "timeout_s",
+                "minimum_displacement_m",
+            },
+            "exploration.recovery_backup",
+        )
+        _reject_unexpected_keys(
+            saturation,
+            {
+                "minimum_low_yield_epochs",
+                "minimum_terminal_goals_per_epoch",
+                "minimum_mapping_path_m",
+                "maximum_residual_available_frontiers",
+                "required_map_quiet_s",
+                "maximum_final_stop_age_s",
+            },
+            "exploration.saturation",
+        )
+        _reject_unexpected_keys(
+            return_to_start,
+            {
+                "timeout_s",
+                "map_settle_s",
+                "max_xy_error_m",
+                "max_yaw_error_rad",
+                "zero_velocity_tolerance",
+                "max_cmd_vel_age_s",
+            },
+            "exploration.return_to_start",
         )
         _reject_unexpected_keys(
             navigation,
@@ -208,6 +271,15 @@ class MissionConfiguration:
             / str(exploration.get("config", "frontier_exploration.yaml"))
         )
         min_growth_cells = int(exploration.get("min_growth_cells", 40))
+        min_growth_ratio = float(
+            exploration.get("min_growth_ratio", 0.002)
+        )
+        # 这两个值同时进入 recovery 与 saturation；先在配置边界保留稳定的
+        # 错误语义，避免后创建的任一值对象抢先抛出更模糊的异常。
+        if min_growth_cells < 0:
+            raise ValueError(
+                "minimum epoch map gain cells must be non-negative"
+            )
         frontier = FrontierMonitorConfig(
             timeout_s=float(exploration.get("timeout_s", 600.0)),
             min_runtime_s=float(exploration.get("min_runtime_s", 60.0)),
@@ -230,6 +302,9 @@ class MissionConfiguration:
             explorer_config_path=explorer_config_path,
             scan_startup_timeout_s=scan_startup_timeout_s,
             exploration_timeout_s=float(exploration.get("timeout_s", 600.0)),
+            final_confirmation_timeout_s=float(
+                exploration["final_confirmation_timeout_s"]
+            ),
             action_timeout_s=float(exploration.get("action_timeout_s", 60.0)),
             navigation_timeout_s=float(navigation.get("timeout_s", 330.0)),
             initial_scan_text=_required_text(
@@ -238,12 +313,21 @@ class MissionConfiguration:
             recovery_scan_text=_required_text(
                 exploration, "recovery_scan_text", "exploration"
             ),
+            recovery_backup=RecoveryBackUpSpec(
+                distance_m=float(recovery_backup.get("distance_m", 0.30)),
+                speed_mps=float(recovery_backup.get("speed_mps", 0.08)),
+                timeout_s=float(recovery_backup.get("timeout_s", 10.0)),
+                minimum_displacement_m=float(
+                    recovery_backup.get("minimum_displacement_m", 0.20)
+                ),
+            ),
             max_recovery_attempts=int(
                 exploration.get("max_recovery_attempts", 2)
             ),
             # 与 MappingEvidenceTracker 复用同一个最小增长口径，避免 monitor
             # 和跨 epoch 收敛各自发明一套“有进展”阈值。
             minimum_epoch_map_gain_cells=min_growth_cells,
+            minimum_epoch_map_gain_ratio=min_growth_ratio,
             # 恢复扫描结束后沿用 frontier 的地图静默窗；一个 profile 只保留
             # 一套 settle 语义，避免两个超时参数随配置演进发生漂移。
             map_settle_s=frontier.stable_map_s,
@@ -254,6 +338,52 @@ class MissionConfiguration:
             ),
             navigation_goal_clearance_m=float(
                 navigation.get("goal_clearance_m", 0.25)
+            ),
+            saturation_policy=SaturationPolicy(
+                minimum_low_yield_epochs=int(
+                    saturation.get("minimum_low_yield_epochs", 2)
+                ),
+                minimum_terminal_goals_per_epoch=int(
+                    saturation.get("minimum_terminal_goals_per_epoch", 3)
+                ),
+                minimum_mapping_path_m=float(
+                    saturation.get("minimum_mapping_path_m", 20.0)
+                ),
+                maximum_residual_available_frontiers=int(
+                    saturation.get(
+                        "maximum_residual_available_frontiers", 4
+                    )
+                ),
+                # 复用 recovery 的双增益阈值，避免同一 profile 出现两套互相
+                # 冲突的“有效扩图”定义。
+                maximum_low_yield_gain_cells=min_growth_cells,
+                maximum_low_yield_gain_ratio=min_growth_ratio,
+                required_map_quiet_s=float(
+                    saturation.get("required_map_quiet_s", 15.0)
+                ),
+                maximum_final_stop_age_s=float(
+                    saturation.get("maximum_final_stop_age_s", 5.0)
+                ),
+            ),
+            return_to_start_spec=ReturnToStartSpec(
+                max_xy_error_m=float(
+                    return_to_start.get("max_xy_error_m", 0.35)
+                ),
+                max_yaw_error_rad=float(
+                    return_to_start.get("max_yaw_error_rad", 0.35)
+                ),
+                zero_velocity_tolerance=float(
+                    return_to_start.get("zero_velocity_tolerance", 0.001)
+                ),
+                max_cmd_vel_age_s=float(
+                    return_to_start.get("max_cmd_vel_age_s", 1.0)
+                ),
+            ),
+            return_to_start_timeout_s=float(
+                return_to_start.get("timeout_s", 180.0)
+            ),
+            return_map_settle_s=float(
+                return_to_start.get("map_settle_s", 15.0)
             ),
         )
         return cls(

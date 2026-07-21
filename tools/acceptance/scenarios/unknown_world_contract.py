@@ -84,10 +84,16 @@ class UnknownWorldTimeoutBudget:
     mapping_startup_s: float
     probe_subscription_s: float
     scan_startup_s: float
+    mapping_start_pose_s: float
     initial_action_s: float
     exploration_s: float
     recovery_actions_s: float
+    recovery_backup_s: float
     recovery_confirmation_s: float
+    final_confirmation_s: float
+    saturation_assessment_s: float
+    return_to_start_s: float
+    return_map_settle_s: float
     stage_switch_s: float
     sampled_navigation_s: float
     terminal_evidence_s: float
@@ -100,10 +106,16 @@ class UnknownWorldTimeoutBudget:
 
         return (
             self.scan_startup_s
+            + self.mapping_start_pose_s
             + self.initial_action_s
             + self.exploration_s
             + self.recovery_actions_s
+            + self.recovery_backup_s
             + self.recovery_confirmation_s
+            + self.final_confirmation_s
+            + self.saturation_assessment_s
+            + self.return_to_start_s
+            + self.return_map_settle_s
             + self.stage_switch_s
             + self.sampled_navigation_s
         )
@@ -150,14 +162,32 @@ class UnknownWorldTimeoutBudget:
             ),
             "UNKNOWN_WORLD_REQUIRED_GATE_TIMEOUT_S": f"{self.gate_s:.3f}",
             "UNKNOWN_WORLD_EXPLORATION_TIMEOUT_S": f"{self.exploration_s:.3f}",
+            "UNKNOWN_WORLD_MAPPING_START_POSE_BUDGET_S": (
+                f"{self.mapping_start_pose_s:.3f}"
+            ),
             "UNKNOWN_WORLD_NAVIGATION_BUDGET_S": (
                 f"{self.sampled_navigation_s:.3f}"
             ),
             "UNKNOWN_WORLD_RECOVERY_ACTION_BUDGET_S": (
                 f"{self.recovery_actions_s:.3f}"
             ),
+            "UNKNOWN_WORLD_RECOVERY_BACKUP_BUDGET_S": (
+                f"{self.recovery_backup_s:.3f}"
+            ),
             "UNKNOWN_WORLD_RECOVERY_CONFIRMATION_BUDGET_S": (
                 f"{self.recovery_confirmation_s:.3f}"
+            ),
+            "UNKNOWN_WORLD_FINAL_CONFIRMATION_BUDGET_S": (
+                f"{self.final_confirmation_s:.3f}"
+            ),
+            "UNKNOWN_WORLD_SATURATION_ASSESSMENT_BUDGET_S": (
+                f"{self.saturation_assessment_s:.3f}"
+            ),
+            "UNKNOWN_WORLD_RETURN_TO_START_BUDGET_S": (
+                f"{self.return_to_start_s:.3f}"
+            ),
+            "UNKNOWN_WORLD_RETURN_MAP_SETTLE_BUDGET_S": (
+                f"{self.return_map_settle_s:.3f}"
             ),
             "UNKNOWN_WORLD_DYNAMIC_NAVIGATION_TIMEOUT_S": (
                 f"{self.dynamic_navigation_s:.3f}"
@@ -225,16 +255,66 @@ def build_unknown_world_timeout_budget(
     exploration_timeout = _positive_number(
         exploration.get("timeout_s"), "exploration.timeout_s"
     )
+    final_confirmation_timeout = _positive_number(
+        exploration.get("final_confirmation_timeout_s"),
+        "exploration.final_confirmation_timeout_s",
+    )
+    saturation = exploration.get("saturation")
+    if not isinstance(saturation, Mapping):
+        raise ValueError(
+            "unknown-world mission requires exploration.saturation"
+        )
+    saturation_map_quiet = _nonnegative_number(
+        saturation.get("required_map_quiet_s"),
+        "exploration.saturation.required_map_quiet_s",
+    )
+    return_to_start = exploration.get("return_to_start")
+    if not isinstance(return_to_start, Mapping):
+        raise ValueError(
+            "unknown-world mission requires exploration.return_to_start"
+        )
+    return_timeout = _positive_number(
+        return_to_start.get("timeout_s"),
+        "exploration.return_to_start.timeout_s",
+    )
+    return_map_settle = _nonnegative_number(
+        return_to_start.get("map_settle_s"),
+        "exploration.return_to_start.map_settle_s",
+    )
+    recovery_backup = exploration.get("recovery_backup")
+    if not isinstance(recovery_backup, Mapping):
+        raise ValueError(
+            "unknown-world mission requires exploration.recovery_backup"
+        )
+    recovery_backup_timeout = _positive_number(
+        recovery_backup.get("timeout_s"),
+        "exploration.recovery_backup.timeout_s",
+    )
     navigation_timeout = _positive_number(
         navigation.get("timeout_s"), "navigation.timeout_s"
     )
     # 一次恢复包含 typed STOP 和一次传感器驱动原地扫描，两者都可能使用完整
     # action timeout；这里不按“通常很快”折扣，否则外层 probe 仍可能先杀内层。
     recovery_actions = recovery_attempts * 2.0 * action
+    # BackUp 会在 no-clearance 或 approach-attempts-exhausted 这两个 typed
+    # 恢复分支触发；外层门禁按每次恢复的最坏路径计费，不能让
+    # probe 比合法的内层 Action 更早超时。
+    recovery_backup_budget = recovery_attempts * recovery_backup_timeout
     # mission executor 在每次恢复扫描后还会等待地图静稳，并用下面两项的较大值
     # 作为硬 deadline。预算必须从同一份 mission YAML 复刻这条语义，不能漏掉
     # confirmation 后让外层 transition probe 提前终止一个仍合法运行的任务。
     recovery_confirmation = recovery_attempts * max(map_settle, action)
+    # 探索硬预算耗尽后，任务不会立刻宣布完成：先在一个 action timeout 内
+    # 暂停 Explorer 并排空 UUID 账本，再执行 STOP -> 360° scan -> map quiet
+    # -> STOP。这里逐段计费，防止外层 probe 在“最后停车”前误杀合法事务。
+    saturation_assessment = (
+        action
+        + 3.0 * action
+        + max(map_settle, saturation_map_quiet, action)
+    )
+    # 返航 NavigateToPose、TF/零速度验证共享 return_to_start.timeout_s；返航后
+    # 仍要等回环与 SLAM 尾帧静稳，二者必须分账，不能把 settle 藏进 stage switch。
+    return_map_settle_budget = max(return_map_settle, action)
     stage_switch = (
         _positive_number(map_save_s, "map_save_s")
         + _positive_number(stage_stop_s, "stage_stop_s")
@@ -246,12 +326,21 @@ def build_unknown_world_timeout_budget(
             probe_subscription_s, "probe_subscription_s"
         ),
         scan_startup_s=_positive_number(scan_startup_s, "scan_startup_s"),
+        # 第一次运动前捕获 map->base_link TF，同样使用 action timeout。
+        mapping_start_pose_s=action,
         initial_action_s=action,
         # Executor 与 monitor 共享一个绝对 deadline，因此 recovery 不会把
         # exploration.timeout_s 重置成 (attempts + 1) 倍。
         exploration_s=exploration_timeout,
         recovery_actions_s=recovery_actions,
+        recovery_backup_s=recovery_backup_budget,
         recovery_confirmation_s=recovery_confirmation,
+        # 只在预算边界的 post-scan 地图仍显著增长时使用一次；它与普通
+        # exploration deadline 分账，但仍计入外层最坏时间，不能隐式续期。
+        final_confirmation_s=final_confirmation_timeout,
+        saturation_assessment_s=saturation_assessment,
+        return_to_start_s=return_timeout,
+        return_map_settle_s=return_map_settle_budget,
         stage_switch_s=stage_switch,
         sampled_navigation_s=goal_count * navigation_timeout,
         terminal_evidence_s=_positive_number(

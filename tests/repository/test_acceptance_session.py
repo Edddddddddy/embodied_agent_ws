@@ -11,7 +11,11 @@ import time
 import pytest
 
 from repository_test_support import ROOT
+from tools.acceptance.scenarios import unknown_world_slam_e2e
 from tools.acceptance.scenarios.slam_nav_e2e import verify_report
+from tools.acceptance.scenarios.unknown_world_run_profile import (
+    UnknownWorldRunProfile,
+)
 from tools.acceptance.session import (
     ArtifactLeaseUnavailable,
     AcceptanceCommandError,
@@ -20,6 +24,7 @@ from tools.acceptance.session import (
     AcceptanceSessionError,
     DomainLeaseUnavailable,
     RosDomainLeasePool,
+    RosEnvironmentIsolation,
     RunResult,
     SessionCleanupResult,
     StopResult,
@@ -200,6 +205,191 @@ def test_session_removes_ambient_priors_and_audits_only_allowlisted_environment(
     )
 
 
+def test_isolated_ros_environment_rejects_ambient_nav2_but_keeps_frontier(
+    tmp_path,
+):
+    def install_package(prefix: Path, package: str) -> Path:
+        marker = (
+            prefix
+            / "share/ament_index/resource_index/packages"
+            / package
+        )
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.touch()
+        return prefix
+
+    workspace_install = tmp_path / "feature" / "install"
+    project_prefix = install_package(
+        workspace_install / "embodied_slam_tools", "embodied_slam_tools"
+    )
+    system_prefix = tmp_path / "opt/ros/jazzy"
+    for package in ("nav2_bringup", "nav2_lifecycle_manager", "nav2_util"):
+        install_package(system_prefix, package)
+    external_install = tmp_path / "nav2_ws/install"
+    external_nav2 = [
+        install_package(external_install / package, package)
+        for package in ("nav2_bringup", "nav2_lifecycle_manager", "nav2_util")
+    ]
+    frontier_install = tmp_path / "frontier_ws/install"
+    frontier_prefix = install_package(
+        frontier_install / "explore_lite", "explore_lite"
+    )
+    adapter = FakeProcessAdapter()
+    session = AcceptanceSession(
+        _config(
+            tmp_path,
+            workspace=workspace_install.parent,
+            ros_environment_isolation=RosEnvironmentIsolation(
+                system_prefix=system_prefix
+            ),
+        ),
+        process_adapter=adapter,
+        base_environment={
+            "AMENT_PREFIX_PATH": os.pathsep.join(
+                [
+                    str(project_prefix),
+                    *(str(prefix) for prefix in external_nav2),
+                    str(frontier_prefix),
+                    str(system_prefix),
+                ]
+            ),
+            "CMAKE_PREFIX_PATH": os.pathsep.join(
+                [
+                    str(project_prefix),
+                    *(str(prefix) for prefix in external_nav2),
+                    str(frontier_prefix),
+                    str(system_prefix),
+                ]
+            ),
+            "COLCON_PREFIX_PATH": os.pathsep.join(
+                [
+                    str(workspace_install),
+                    str(external_install),
+                    str(frontier_install),
+                ]
+            ),
+            "LD_LIBRARY_PATH": os.pathsep.join(
+                [
+                    str(external_nav2[-1] / "lib"),
+                    str(frontier_prefix / "lib"),
+                    str(system_prefix / "lib"),
+                ]
+            ),
+            "PATH": os.pathsep.join(
+                [
+                    str(external_nav2[0] / "bin"),
+                    str(frontier_prefix / "bin"),
+                    "/usr/bin",
+                ]
+            ),
+        },
+    )
+
+    with session as active:
+        for variable in (
+            "AMENT_PREFIX_PATH",
+            "CMAKE_PREFIX_PATH",
+            "COLCON_PREFIX_PATH",
+            "LD_LIBRARY_PATH",
+            "PATH",
+        ):
+            assert "nav2_ws" not in active.environment[variable]
+        assert str(project_prefix) in active.environment["AMENT_PREFIX_PATH"]
+        assert str(system_prefix) in active.environment["AMENT_PREFIX_PATH"]
+        assert str(frontier_prefix) in active.environment["AMENT_PREFIX_PATH"]
+        assert str(frontier_prefix / "lib") in active.environment[
+            "LD_LIBRARY_PATH"
+        ]
+
+    manifest = json.loads(session.manifest_path.read_text(encoding="utf-8"))
+    provenance = manifest["ros_environment"]
+    assert provenance["isolated"] is True
+    assert provenance["package_prefixes"] == {
+        "explore_lite": str(frontier_prefix),
+        "explore_lite_msgs": None,
+        "nav2_bringup": str(system_prefix),
+        "nav2_lifecycle_manager": str(system_prefix),
+        "nav2_util": str(system_prefix),
+    }
+    assert all(
+        "nav2_ws" not in value
+        for values in provenance["paths"].values()
+        for value in values
+    )
+
+
+def test_isolated_ros_environment_fails_for_unsafe_merged_frontier_prefix(
+    tmp_path,
+):
+    def install_package(prefix: Path, package: str) -> None:
+        marker = (
+            prefix
+            / "share/ament_index/resource_index/packages"
+            / package
+        )
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.touch()
+
+    system_prefix = tmp_path / "opt/ros/jazzy"
+    for package in ("nav2_bringup", "nav2_lifecycle_manager", "nav2_util"):
+        install_package(system_prefix, package)
+    merged_prefix = tmp_path / "mixed_ws/install"
+    install_package(merged_prefix, "explore_lite")
+    install_package(merged_prefix, "nav2_bringup")
+    session = AcceptanceSession(
+        _config(
+            tmp_path,
+            ros_environment_isolation=RosEnvironmentIsolation(
+                system_prefix=system_prefix
+            ),
+        ),
+        process_adapter=FakeProcessAdapter(),
+        base_environment={
+            "AMENT_PREFIX_PATH": os.pathsep.join(
+                (str(merged_prefix), str(system_prefix))
+            ),
+        },
+    )
+
+    with pytest.raises(
+        AcceptanceSessionError,
+        match="external frontier prefix also provides non-allowlisted packages",
+    ):
+        session.__enter__()
+
+
+@pytest.mark.parametrize(
+    "profile",
+    (
+        UnknownWorldRunProfile.synthetic(),
+        UnknownWorldRunProfile.live_voice("offline"),
+    ),
+)
+def test_public_unknown_world_profiles_enable_ros_environment_isolation(
+    monkeypatch,
+    profile,
+):
+    observed = []
+
+    class ConfigCaptured(Exception):
+        pass
+
+    def capture_config(config):
+        observed.append(config)
+        raise ConfigCaptured
+
+    monkeypatch.setattr(
+        unknown_world_slam_e2e,
+        "AcceptanceSession",
+        capture_config,
+    )
+
+    with pytest.raises(ConfigCaptured):
+        unknown_world_slam_e2e.run(profile)
+
+    assert observed[0].ros_environment_isolation == RosEnvironmentIsolation()
+
+
 def test_artifact_directory_lease_blocks_concurrent_writers(tmp_path):
     artifact_dir = tmp_path / "shared-evidence"
     first = AcceptanceSession(
@@ -331,10 +521,17 @@ time.sleep(60)
     with session as active:
         active.spawn("parent", [sys.executable, "-c", parent_script])
         deadline = time.monotonic() + 2.0
-        while not nested_pid_file.is_file() and time.monotonic() < deadline:
+        nested_pid_text = ""
+        while time.monotonic() < deadline:
+            if nested_pid_file.is_file():
+                # write_text 会先创建目录项再写内容；只等 is_file() 存在一个
+                # 很短的 TOCTOU 窗口，负载较高时会读到空串并造成随机失败。
+                nested_pid_text = nested_pid_file.read_text().strip()
+                if nested_pid_text.isdigit():
+                    break
             time.sleep(0.02)
-        assert nested_pid_file.is_file(), "nested child did not publish its pid"
-        nested_pid = int(nested_pid_file.read_text().strip())
+        assert nested_pid_text.isdigit(), "nested child did not publish its pid"
+        nested_pid = int(nested_pid_text)
         os.kill(nested_pid, 0)
 
     deadline = time.monotonic() + 2.0

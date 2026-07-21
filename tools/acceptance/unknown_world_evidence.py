@@ -33,6 +33,21 @@ _DYNAMIC_NAVIGATION_CHECKS = frozenset(
     }
 )
 
+_RETURN_TO_START_CHECKS = frozenset(
+    {
+        "typed_action_command",
+        "typed_action_succeeded",
+        "return_before_map_save",
+        "same_pose_frame",
+        "final_pose_in_return_window",
+        "xy_within_tolerance",
+        "yaw_within_tolerance",
+        "cmd_vel_after_return",
+        "final_cmd_vel_fresh",
+        "final_cmd_vel_zero",
+    }
+)
+
 
 @dataclass(frozen=True, slots=True)
 class MapQualityThresholds:
@@ -184,6 +199,9 @@ class UnknownWorldObservation:
     final_stop_boundary_at_s: float = 0.0
     cmd_vel_samples_after_boundary: int = 0
     nonzero_cmd_vel_samples_after_boundary: int = 0
+    # 运行时只提供与场景尺寸无关的饱和证据；是否达到地图质量门槛仍由
+    # evaluator 使用 truth map 独立判定，避免任务层“自己宣布自己完成”。
+    mapping_completion_evidence: Mapping[str, object] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -803,6 +821,7 @@ def evaluate_frontier_completion(telemetry: Mapping[str, object]) -> dict[str, o
     available = int(telemetry.get("available_frontier_count", 0))
     active = int(telemetry.get("active_goal_count", 0))
     blacklisted = int(telemetry.get("blacklisted_frontier_count", 0))
+    detected = int(telemetry.get("detected_frontier_count", 0))
     accepted = int(telemetry.get("accepted_goal_count", 0))
     terminal = sum(
         int(telemetry.get(name, 0))
@@ -819,13 +838,26 @@ def evaluate_frontier_completion(telemetry: Mapping[str, object]) -> dict[str, o
         )
     )
     mission_reason = str(telemetry.get("mission_completion_reason", ""))
-    accepted_reason_pairs = {
-        ("no_frontiers", "no_reachable_frontiers"),
+    exhausted_reason_pairs = {
         (
             "frontier_attempts_exhausted_recoverable",
-            "frontier_attempts_exhausted_no_map_gain",
+            "frontier_attempts_exhausted_below_material_gain",
+        ),
+        (
+            "frontier_attempts_exhausted_recoverable",
+            "frontier_attempts_exhausted_after_final_confirmation",
         ),
     }
+    accepted_reason_pairs = {
+        ("no_frontiers", "no_reachable_frontiers"),
+        *exhausted_reason_pairs,
+    }
+    reason_pair = (provider_reason, mission_reason)
+    residual_blacklist_is_terminal = (
+        reason_pair in exhausted_reason_pairs
+        and detected > 0
+        and 0 <= blacklisted <= detected
+    )
     checks = {
         "typed_evidence_valid": telemetry.get("valid") is True,
         # provider 原因与任务层结论必须成对出现；交叉组合会把“本轮尝试耗尽”
@@ -833,13 +865,15 @@ def evaluate_frontier_completion(telemetry: Mapping[str, object]) -> dict[str, o
         "completion_reason_pair": (
             provider_reason,
             mission_reason,
-        )
-        in accepted_reason_pairs,
+        ) in accepted_reason_pairs,
         "no_reachable_frontier": available == 0,
         "no_active_goal": active == 0,
-        # 黑名单代表探索器知道还有边界但放弃了它；这种状态必须恢复或失败，
-        # 不能通过把黑名单从 available 集合扣除来制造“建图完成”。
-        "no_blacklisted_frontier": blacklisted == 0,
+        # no_frontiers 必须没有黑名单；多视角恢复预算已消费完时，provider
+        # 的黑名单只是本 epoch 已尝试失败的候选子集，可由独立地图质量门禁
+        # 最终否决，但绝不能大于 detected 或与错误 reason pair 混用。
+        "blacklist_consistent_with_reason": (
+            blacklisted == 0 or residual_blacklist_is_terminal
+        ),
         "all_accepted_goals_terminal": accepted == terminal,
     }
     return {
@@ -849,10 +883,237 @@ def evaluate_frontier_completion(telemetry: Mapping[str, object]) -> dict[str, o
             "available_frontier_count": available,
             "active_goal_count": active,
             "blacklisted_frontier_count": blacklisted,
+            "detected_frontier_count": detected,
             "accepted_goal_count": accepted,
             "terminal_goal_count": terminal,
         },
         "telemetry": dict(telemetry),
+    }
+
+
+def evaluate_return_to_start_evidence(
+    mapping_completion: Mapping[str, object] | None,
+) -> dict[str, object]:
+    """独立复核建图阶段的返航证据，strict 与近似完成共用同一门禁。
+
+    运行时报告中的 ``passed`` 只是 producer 结论。这里仍逐项检查强类型 Action
+    请求/结果、位姿容差、返航后新鲜零速度，以及“返航完成早于地图保存”。这样
+    strict frontier 收敛也不能绕过返航，避免保存一张地图后在导航阶段重启 Gazebo
+    再声称“已经回到起点”。
+    """
+
+    completion = dict(mapping_completion) if mapping_completion else {}
+    return_home_value = completion.get("return_home")
+    return_home = (
+        dict(return_home_value)
+        if isinstance(return_home_value, Mapping)
+        else {}
+    )
+    raw_checks = return_home.get("checks")
+    producer_checks = dict(raw_checks) if isinstance(raw_checks, Mapping) else {}
+    failed_checks = return_home.get("failed_checks")
+    thresholds_value = return_home.get("thresholds")
+    errors_value = return_home.get("errors")
+    thresholds = (
+        dict(thresholds_value)
+        if isinstance(thresholds_value, Mapping)
+        else {}
+    )
+    errors = dict(errors_value) if isinstance(errors_value, Mapping) else {}
+
+    def finite_positive(name: str) -> float | None:
+        try:
+            value = float(thresholds[name])
+        except (KeyError, TypeError, ValueError):
+            return None
+        return value if math.isfinite(value) and value > 0.0 else None
+
+    def finite_non_negative(name: str) -> float | None:
+        try:
+            value = float(errors[name])
+        except (KeyError, TypeError, ValueError):
+            return None
+        return value if math.isfinite(value) and value >= 0.0 else None
+
+    max_xy_error_m = finite_positive("max_xy_error_m")
+    max_yaw_error_rad = finite_positive("max_yaw_error_rad")
+    zero_velocity_tolerance = finite_positive("zero_velocity_tolerance")
+    max_cmd_vel_age_s = finite_positive("max_cmd_vel_age_s")
+    xy_error_m = finite_non_negative("xy_error_m")
+    yaw_error_rad = finite_non_negative("yaw_error_rad")
+    required_checks_present = _RETURN_TO_START_CHECKS.issubset(producer_checks)
+    all_producer_checks_pass = bool(producer_checks) and all(
+        value is True for value in producer_checks.values()
+    )
+
+    checks = {
+        "typed_mapping_completion_evidence": (
+            completion.get("valid") is True
+            and completion.get("mode")
+            in {"strict_frontier", "bounded_saturation"}
+        ),
+        "return_report_schema_v1": return_home.get("schema_version") == 1,
+        "return_report_passed": return_home.get("passed") is True,
+        "required_return_checks_present": required_checks_present,
+        "typed_action_command": producer_checks.get("typed_action_command")
+        is True,
+        "typed_action_succeeded": producer_checks.get("typed_action_succeeded")
+        is True,
+        "return_before_map_save": producer_checks.get("return_before_map_save")
+        is True,
+        "same_pose_frame": producer_checks.get("same_pose_frame") is True,
+        "final_pose_in_return_window": producer_checks.get(
+            "final_pose_in_return_window"
+        )
+        is True,
+        "xy_within_tolerance": (
+            producer_checks.get("xy_within_tolerance") is True
+            and xy_error_m is not None
+            and max_xy_error_m is not None
+            and xy_error_m <= max_xy_error_m
+        ),
+        "yaw_within_tolerance": (
+            producer_checks.get("yaw_within_tolerance") is True
+            and yaw_error_rad is not None
+            and max_yaw_error_rad is not None
+            and max_yaw_error_rad <= math.pi
+            and yaw_error_rad <= max_yaw_error_rad
+        ),
+        "cmd_vel_after_return": producer_checks.get("cmd_vel_after_return")
+        is True,
+        "final_cmd_vel_fresh": (
+            producer_checks.get("final_cmd_vel_fresh") is True
+            and max_cmd_vel_age_s is not None
+        ),
+        "final_cmd_vel_zero": (
+            producer_checks.get("final_cmd_vel_zero") is True
+            and zero_velocity_tolerance is not None
+        ),
+        # required-set 防旧报告缺字段；all-values 防未来新增检查失败却被忽略。
+        "all_producer_checks_pass": all_producer_checks_pass,
+        "no_failed_checks": (
+            isinstance(failed_checks, (list, tuple)) and not failed_checks
+        ),
+    }
+    return {
+        "passed": all(checks.values()),
+        "checks": checks,
+        "mode": completion.get("mode"),
+        "producer_report": return_home or None,
+        "metrics": {
+            "xy_error_m": xy_error_m,
+            "yaw_error_rad": yaw_error_rad,
+        },
+        "thresholds": {
+            "max_xy_error_m": max_xy_error_m,
+            "max_yaw_error_rad": max_yaw_error_rad,
+            "zero_velocity_tolerance": zero_velocity_tolerance,
+            "max_cmd_vel_age_s": max_cmd_vel_age_s,
+        },
+    }
+
+
+def _return_to_start_evidence_valid(
+    mapping_completion: Mapping[str, object] | None,
+) -> bool:
+    """兼容内部调用；唯一真相来自完整返航 evaluator。"""
+
+    return bool(evaluate_return_to_start_evidence(mapping_completion)["passed"])
+
+
+def evaluate_approximate_completion(
+    *,
+    telemetry: Mapping[str, object],
+    evidence: Mapping[str, object] | None,
+    map_quality_passed: bool,
+    final_cmd_vel_fresh: bool,
+    final_cmd_vel_zero: bool,
+) -> dict[str, object]:
+    """派生“近似完成”，运行时超时原因本身不具有完成语义。
+
+    unknown-world 运行时看不到真值地图和场景总面积，所以它只能报告“在硬预算
+    边界上连续低收益”。最终是否允许收口，由本函数把运行时证据、离线地图质量、
+    Action 总账、返航和真实零速度合并后独立派生。
+    """
+
+    completion = dict(evidence) if evidence else {}
+    provider_reason = str(
+        telemetry.get(
+            "provider_completion_reason",
+            telemetry.get("completion_reason", ""),
+        )
+    )
+    mission_reason = str(telemetry.get("mission_completion_reason", ""))
+    active = int(telemetry.get("active_goal_count", 0))
+    available = int(telemetry.get("available_frontier_count", 0))
+    accepted = int(telemetry.get("accepted_goal_count", 0))
+    terminal = sum(
+        int(telemetry.get(name, 0))
+        for name in (
+            "succeeded_goal_count",
+            "aborted_goal_count",
+            "canceled_goal_count",
+        )
+    )
+
+    try:
+        low_yield_epochs = int(completion.get("low_yield_epoch_count", -1))
+        required_epochs = int(
+            completion.get("required_low_yield_epoch_count", -1)
+        )
+        residual = int(completion.get("residual_available_frontiers", -1))
+        final_gain_cells = int(completion.get("final_probe_gain_cells", -1))
+        final_gain_ratio = float(completion.get("final_probe_gain_ratio", -1.0))
+    except (TypeError, ValueError):
+        low_yield_epochs = required_epochs = residual = final_gain_cells = -1
+        final_gain_ratio = -1.0
+
+    checks = {
+        # time_budget_exhausted 是中性观测，不允许 provider 伪造 complete reason。
+        "neutral_runtime_reason": (
+            mission_reason == "time_budget_exhausted" and not provider_reason
+        ),
+        "typed_saturation_evidence_valid": (
+            completion.get("mode") == "bounded_saturation"
+            and completion.get("valid") is True
+        ),
+        "consecutive_low_yield_epochs": (
+            required_epochs >= 2 and low_yield_epochs >= required_epochs
+        ),
+        "residual_frontier_count_consistent": (
+            residual >= 0 and residual == available
+        ),
+        "final_probe_recorded": (
+            final_gain_cells >= 0
+            and math.isfinite(final_gain_ratio)
+            and final_gain_ratio >= 0.0
+        ),
+        "no_active_goal": active == 0,
+        "all_accepted_goals_terminal": (
+            completion.get("ledger_drained") is True and accepted == terminal
+        ),
+        "typed_stop_succeeded": completion.get("typed_stop_succeeded") is True,
+        "map_quality": map_quality_passed,
+        "return_to_start": _return_to_start_evidence_valid(completion),
+        "final_cmd_vel_fresh": final_cmd_vel_fresh,
+        "final_cmd_vel_zero": final_cmd_vel_zero,
+    }
+    return {
+        "passed": all(checks.values()),
+        "checks": checks,
+        "metrics": {
+            "available_frontier_count": available,
+            "active_goal_count": active,
+            "accepted_goal_count": accepted,
+            "terminal_goal_count": terminal,
+            "low_yield_epoch_count": low_yield_epochs,
+            "required_low_yield_epoch_count": required_epochs,
+            "final_probe_gain_cells": final_gain_cells,
+            "final_probe_gain_ratio": final_gain_ratio,
+        },
+        "runtime_reason": mission_reason,
+        "evidence": completion or None,
+        "return_to_start": evaluate_return_to_start_evidence(completion),
     }
 
 
@@ -977,6 +1238,29 @@ def build_unknown_world_report(
         and int(provenance.get("image_mtime_ns", 0))
         >= observation.session_start_ns
     )
+    final_cmd_vel_fresh = (
+        observation.final_stop_boundary_at_s > 0.0
+        and observation.last_cmd_vel_received_at_s
+        >= observation.final_stop_boundary_at_s
+    )
+    final_cmd_vel_zero = abs(observation.final_linear_x) < 1e-3 and abs(
+        observation.final_angular_z
+    ) < 1e-3
+    return_to_start = evaluate_return_to_start_evidence(
+        observation.mapping_completion_evidence
+    )
+    approximate_completion = evaluate_approximate_completion(
+        telemetry=observation.frontier_telemetry,
+        evidence=observation.mapping_completion_evidence,
+        map_quality_passed=bool(map_quality["passed"]),
+        # approximate 分支比旧 strict 路径多要求一帧可计数的边界后 Twist，
+        # 防止仅靠初始化时间戳拼出“新鲜零速度”。
+        final_cmd_vel_fresh=(
+            final_cmd_vel_fresh
+            and observation.cmd_vel_samples_after_boundary > 0
+        ),
+        final_cmd_vel_zero=final_cmd_vel_zero,
+    )
     checks = {
         "unknown_world_profile": observation.mission_profile_unknown,
         "mission_sequence_present": observation.mission_sequence > 0,
@@ -989,7 +1273,11 @@ def build_unknown_world_report(
         "map_saved": observation.map_saved,
         "fresh_session_map": fresh_map,
         "map_quality": bool(map_quality["passed"]),
-        "frontier_complete": bool(frontier["passed"]),
+        "frontier_complete": bool(frontier["passed"])
+        or bool(approximate_completion["passed"]),
+        # strict 与 bounded-saturation 都必须在建图进程仍运行时真实返航，
+        # 并在返航完成之后保存地图；二者不能拥有不同的安全收口标准。
+        "return_to_start": bool(return_to_start["passed"]),
         "localization_quality": bool(localization["passed"])
         and not observation.gazebo_truth_error,
         "sampled_navigation": bool(navigation["passed"]),
@@ -1003,13 +1291,8 @@ def build_unknown_world_report(
             observation.nonzero_cmd_vel_samples_after_boundary > 0
         ),
         # 初始化值也是 0；必须看到任务终态之后的新 Twist，才能证明控制链真的停住。
-        "final_cmd_vel_fresh": (
-            observation.final_stop_boundary_at_s > 0.0
-            and observation.last_cmd_vel_received_at_s
-            >= observation.final_stop_boundary_at_s
-        ),
-        "final_cmd_vel_zero": abs(observation.final_linear_x) < 1e-3
-        and abs(observation.final_angular_z) < 1e-3,
+        "final_cmd_vel_fresh": final_cmd_vel_fresh,
+        "final_cmd_vel_zero": final_cmd_vel_zero,
     }
     return {
         "schema_version": 4,
@@ -1025,6 +1308,8 @@ def build_unknown_world_report(
         "map_provenance": dict(provenance) if provenance else None,
         "map_quality": map_quality,
         "frontier": frontier,
+        "approximate_completion": approximate_completion,
+        "return_to_start": return_to_start,
         "localization": {
             **localization,
             "gazebo_truth_error": observation.gazebo_truth_error or None,

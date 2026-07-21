@@ -1,0 +1,36 @@
+builtin_interfaces/Time stamp
+
+uint8 MODE_UNSPECIFIED=0
+uint8 MODE_STRICT_FRONTIER=1
+uint8 MODE_BOUNDED_SATURATION=2
+
+bool valid
+uint8 mode
+string trigger_reason
+uint32 low_yield_epoch_count
+uint32 required_low_yield_epoch_count
+uint32 residual_available_frontiers
+bool ledger_drained
+uint32 final_probe_gain_cells
+float64 final_probe_gain_ratio
+bool typed_stop_succeeded
+
+# 返航证据必须逐项传输，evaluator 不只相信一个 passed 位。
+bool return_home_valid
+bool return_typed_action_command
+bool return_typed_action_succeeded
+bool return_before_map_save
+bool return_same_pose_frame
+bool return_final_pose_in_window
+bool return_xy_within_tolerance
+bool return_yaw_within_tolerance
+bool return_cmd_vel_after_return
+bool return_final_cmd_vel_fresh
+bool return_final_cmd_vel_zero
+float64 return_xy_error_m
+float64 return_yaw_error_rad
+float64 return_max_xy_error_m
+float64 return_max_yaw_error_rad
+float64 return_zero_velocity_tolerance
+float64 return_max_cmd_vel_age_s
+string detail
