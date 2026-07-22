@@ -65,6 +65,7 @@ flowchart LR
 | `src/embodied_simulation` | BT、pluginlib、Gazebo/Nav2 executor 与场景 |
 | `src/embodied_slam_tools` | 自动建图任务、证据状态与阶段进程 |
 | `src/embodied_slam` / `src/embodied_navigation` | SLAM 后端/回环与动态障碍算法 |
+| `Dockerfile` / `compose.yaml` / `docker` | 多阶段构建、容器测试门禁与运行镜像入口 |
 | `tools/acceptance` | 验收注册表、session、probe、evaluator 与报告判定 |
 | `tests` | pytest/GTest、仓库契约和确定性 evaluation |
 
@@ -88,6 +89,20 @@ bash scripts/acceptance_test.sh offline-runtime-versions
 ```
 
 在线模式在 `.env` 配置 `DASHSCOPE_API_KEY`。密钥、模型、`build/install/log` 不提交 Git。
+
+### Docker 构建与可追溯交付
+
+不安装本机 ROS 依赖也可以用多阶段镜像执行全工作区构建和核心测试：
+
+```bash
+docker compose build test
+docker compose run --rm test
+docker compose build runtime-smoke
+docker compose run --rm runtime-smoke
+```
+
+PR 和 `dev/main` push 执行相同容器门禁；合入 `main` 后的稳定 SemVer 标签才允许发布 GHCR 运行镜像，
+并保存 digest、Git revision、OCI labels 和发布 manifest。详见 [Docker 与交付流程](docs/deployment/CONTAINER_DELIVERY.md)。
 
 > 本阶段新增了 `FrontierExplorationEvidence`、`SlamNavigationGoalEvidence`，并扩展
 > `SlamSessionState`。ROS 2 接口 type hash 已变化；切换到本分支后必须全量重建依赖包，不能复用旧
@@ -188,6 +203,7 @@ bash scripts/acceptance_test.sh release-gate
 
 - [系统架构与调用关系](docs/ARCHITECTURE.md)
 - [测试与验收契约](docs/TESTING.md)
+- [Docker 与交付流程](docs/deployment/CONTAINER_DELIVERY.md)
 - [SLAM/Nav2 学习笔记](docs/learning/SLAM_NAV2.md)
 - [语音 Agent 学习笔记](docs/learning/VOICE_AGENT.md)
 - [ROS 2/C++ 控制学习笔记](docs/learning/ROS2_CPP_CONTROL.md)

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -eo pipefail
+
+# 容器只在入口处装配环境，业务命令保持透明，便于 compose、CI 和交互终端复用。
+# ROS/Colcon 生成的 setup 会探测未定义变量，因此 source 完成前不能开启 nounset。
+source "/opt/ros/${ROS_DISTRO}/setup.bash"
+
+overlay="${EMBODIED_INSTALL_PREFIX:-}"
+if [[ -n "${overlay}" && -f "${overlay}/setup.bash" ]]; then
+  source "${overlay}/setup.bash"
+elif [[ -f /opt/embodied/install/setup.bash ]]; then
+  source /opt/embodied/install/setup.bash
+elif [[ -f /workspace/install/setup.bash ]]; then
+  # test target 保留完整工作区；运行镜像不会进入这个兼容分支。
+  source /workspace/install/setup.bash
+else
+  echo "ERROR: container overlay not found: ${overlay:-/opt/embodied/install}" >&2
+  exit 2
+fi
+
+set -u
+exec "$@"
