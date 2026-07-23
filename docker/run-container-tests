@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -eo pipefail
+
+export WORKSPACE="${WORKSPACE:-/workspace}"
+export EMBODIED_INSTALL_PREFIX="${EMBODIED_INSTALL_PREFIX:-${WORKSPACE}/install}"
+
+# build stage 已完成全工作区 Colcon 构建；这里复用项目唯一核心门禁，验证仓库合同、
+# Python Agent 以及 C++/仿真包，避免 Docker 与本机维护两套不同测试口径。
+source "/opt/ros/${ROS_DISTRO}/setup.bash"
+source "${WORKSPACE}/install/setup.bash"
+set -u
+bash "${WORKSPACE}/scripts/run_core_tests.sh"
