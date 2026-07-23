@@ -12,6 +12,7 @@ from embodied_slam_tools.exploration_saturation import (
     SaturationEvidenceTracker,
     SaturationHistory,
     SaturationRuntimeEvidence,
+    SaturationTrigger,
     assess_bounded_frontier_saturation,
 )
 
@@ -38,7 +39,7 @@ def _passing_history() -> SaturationHistory:
         )
         tracker.finish_epoch()
 
-    tracker.begin_final_probe(hard_budget_reached=True)
+    tracker.begin_final_probe(trigger=SaturationTrigger.TIME_BUDGET)
     tracker.observe(
         current_known_cells=known + 10,
         terminal_goal_count=terminals,
@@ -51,7 +52,7 @@ def _passing_history() -> SaturationHistory:
 def _passing_evidence() -> SaturationRuntimeEvidence:
     return SaturationRuntimeEvidence(
         history=_passing_history(),
-        hard_budget_reached=True,
+        trigger=SaturationTrigger.TIME_BUDGET,
         recovery_attempts_remaining=0,
         residual_available_frontiers=4,
         active_goal_count=0,
@@ -60,6 +61,27 @@ def _passing_evidence() -> SaturationRuntimeEvidence:
         typed_stop_confirmed=True,
         typed_stop_after_final_probe=True,
         final_stop_age_s=1.0,
+    )
+
+
+def _repeated_stall_evidence() -> SaturationRuntimeEvidence:
+    """复用相同收益证据，但把最终探测绑定到重复停滞触发源。"""
+
+    evidence = _passing_evidence()
+    probe = evidence.history.final_probe
+    assert probe is not None
+    return replace(
+        evidence,
+        trigger=SaturationTrigger.REPEATED_REACHABLE_STALL,
+        recovery_attempts_remaining=0,
+        residual_available_frontiers=0,
+        history=replace(
+            evidence.history,
+            final_probe=replace(
+                probe,
+                trigger=SaturationTrigger.REPEATED_REACHABLE_STALL,
+            ),
+        ),
     )
 
 
@@ -73,7 +95,6 @@ def test_complete_requires_all_bounded_saturation_evidence():
 @pytest.mark.parametrize(
     ("overrides", "reason"),
     [
-        ({"hard_budget_reached": False}, "hard_budget_not_reached"),
         (
             {"residual_available_frontiers": 5},
             "too_many_residual_frontiers",
@@ -107,6 +128,38 @@ def test_unused_recovery_budget_does_not_block_hard_budget_saturation():
     )
 
     assert result.decision is SaturationDecision.COMPLETE
+
+
+def test_repeated_reachable_stall_requires_all_confirmation_evidence():
+    result = assess_bounded_frontier_saturation(_repeated_stall_evidence())
+
+    assert result.decision is SaturationDecision.COMPLETE
+    assert result.unmet_requirements == ()
+
+
+@pytest.mark.parametrize(
+    ("overrides", "reason"),
+    [
+        (
+            {"recovery_attempts_remaining": 1},
+            "stall_confirmation_budget_remaining",
+        ),
+        (
+            {"residual_available_frontiers": 1},
+            "reachable_frontiers_remain_after_stall",
+        ),
+    ],
+)
+def test_repeated_stall_cannot_skip_confirmation_or_leave_reachable_frontier(
+    overrides,
+    reason,
+):
+    result = assess_bounded_frontier_saturation(
+        replace(_repeated_stall_evidence(), **overrides)
+    )
+
+    assert result.decision is SaturationDecision.CONTINUE
+    assert reason in result.unmet_requirements
 
 
 def test_two_recent_low_yield_epochs_are_required():
@@ -201,32 +254,29 @@ def test_twenty_metres_of_mapping_path_is_a_hard_floor():
     assert "insufficient_mapping_path" in result.unmet_requirements
 
 
-def test_final_probe_must_exist_and_start_after_hard_budget():
+def test_final_probe_must_exist_and_match_saturation_trigger():
     evidence = _passing_evidence()
 
     missing = assess_bounded_frontier_saturation(
         replace(evidence, history=replace(evidence.history, final_probe=None))
     )
-    before_budget_probe = replace(
+    mismatched_probe = replace(
         evidence.history.final_probe,
-        started_after_hard_budget=False,
+        trigger=SaturationTrigger.REPEATED_REACHABLE_STALL,
     )
-    assert isinstance(before_budget_probe, FinalProbeEvidence)
-    before_budget = assess_bounded_frontier_saturation(
+    assert isinstance(mismatched_probe, FinalProbeEvidence)
+    mismatched = assess_bounded_frontier_saturation(
         replace(
             evidence,
             history=replace(
                 evidence.history,
-                final_probe=before_budget_probe,
+                final_probe=mismatched_probe,
             ),
         )
     )
 
     assert "final_probe_missing" in missing.unmet_requirements
-    assert (
-        "final_probe_not_after_hard_budget"
-        in before_budget.unmet_requirements
-    )
+    assert "final_probe_trigger_mismatch" in mismatched.unmet_requirements
 
 
 def test_final_probe_gain_must_be_below_both_thresholds():
@@ -280,7 +330,7 @@ def test_loop_closure_current_shrink_cannot_hide_material_epoch_growth():
         mapping_path_m=20.0,
     )
     tracker.finish_epoch()
-    tracker.begin_final_probe(hard_budget_reached=True)
+    tracker.begin_final_probe(trigger=SaturationTrigger.TIME_BUDGET)
     tracker.observe(
         current_known_cells=10_150,
         terminal_goal_count=6,

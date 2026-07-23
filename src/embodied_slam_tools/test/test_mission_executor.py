@@ -6,7 +6,10 @@ import time
 
 import pytest
 
-from embodied_slam_tools.exploration_saturation import SaturationPolicy
+from embodied_slam_tools.exploration_saturation import (
+    SaturationPolicy,
+    SaturationTrigger,
+)
 from embodied_slam_tools.mapping_evidence import (
     FrontierTelemetry,
     MappingEvidenceTracker,
@@ -1125,14 +1128,8 @@ def test_exhausted_frontiers_restart_only_when_recovery_scan_grows_map():
     assert evidence.completion_reason == "no_reachable_frontiers"
 
 
-@pytest.mark.parametrize(
-    "outcome",
-    [
-        "recovery_required:blacklisted_frontiers",
-        "recovery_required:reachable_frontiers_stalled",
-    ],
-)
-def test_nonterminal_recovery_with_low_gain_fails_without_new_epoch(outcome):
+def test_blacklisted_recovery_with_low_gain_fails_without_new_epoch():
+    outcome = "recovery_required:blacklisted_frontiers"
     evidence = MappingEvidenceTracker(1)
     evidence.record_map([0] * 100)
     evidence.mark_scan_ready()
@@ -1167,6 +1164,137 @@ def test_nonterminal_recovery_with_low_gain_fails_without_new_epoch(outcome):
     assert f"reason={outcome}" in detail
     assert "known_before=100 known_after=110 gain=10 threshold=40" in detail
     assert "decision=fail_below_material_gain" in detail
+
+
+def test_reachable_stall_decision_requires_bounded_confirmation_epochs():
+    common = {
+        "recovery_reason": (
+            "recovery_required:reachable_frontiers_stalled"
+        ),
+        "map_gain_cells": 28,
+        "minimum_gain_cells": 40,
+        "map_gain_ratio": 28 / 25_746,
+        "minimum_gain_ratio": 0.002,
+        "available_frontier_count": 0,
+        "active_goal_count": 0,
+        # 现场允许残留不可达黑名单 frontier；门槛约束的是可达/活动账本。
+        "blacklisted_frontier_count": 2,
+        "detected_frontier_count": 13,
+    }
+
+    assert decide_epoch_recovery(
+        **common,
+        recovery_attempts_remaining=2,
+        completed_recovery_epochs=0,
+    ) is EpochRecoveryDecision.RUN_STALL_CONFIRMATION_EPOCH
+    assert decide_epoch_recovery(
+        **common,
+        recovery_attempts_remaining=0,
+        completed_recovery_epochs=2,
+    ) is EpochRecoveryDecision.ASSESS_STALL_SATURATION
+
+
+def test_repeated_reachable_stall_saturates_then_returns_saves_and_navigates():
+    """现场假阴性回放：两轮 fresh 低收益后才允许进入原收口链。"""
+
+    evidence = MappingEvidenceTracker(1)
+    evidence.record_map([0] * 25_000)
+    evidence.mark_scan_ready()
+    events: list[str] = []
+
+    class _RepeatedStallRuntime(_UnknownWorldRuntime):
+        def __init__(self):
+            super().__init__(
+                evidence,
+                (
+                    "recovery_required:reachable_frontiers_stalled",
+                    "recovery_required:reachable_frontiers_stalled",
+                    "recovery_required:reachable_frontiers_stalled",
+                ),
+                recovery_map_sizes=(25_774, 25_790, 25_800),
+            )
+            self._epoch = 0
+            self._odom_x = 0.0
+            self.completion = None
+
+        def wait_for_frontier(self, request, **kwargs):
+            self._epoch += 1
+            known_cells = (25_746, 25_784, 25_798)[self._epoch - 1]
+            terminal_goals = (21, 3, 3)[self._epoch - 1]
+            self.evidence.record_map([0] * known_cells)
+            # 每轮约 7m；reset 只切断跨恢复段连线，不得清零任务级累计里程。
+            for _ in range(21):
+                self.evidence.record_odom(self._odom_x, 0.0)
+                self._odom_x += 0.35
+            self.evidence.record_frontier_telemetry(
+                FrontierTelemetry(
+                    status="exploration_in_progress",
+                    detected_frontier_count=13,
+                    available_frontier_count=0,
+                    active_goal_count=0,
+                    blacklisted_frontier_count=2,
+                    accepted_goal_count=terminal_goals,
+                    succeeded_goal_count=terminal_goals,
+                )
+            )
+            return super().wait_for_frontier(request, **kwargs)
+
+        def run_mapping_return_goal(self, request, **kwargs):
+            events.append("return_home")
+            return super().run_mapping_return_goal(request, **kwargs)
+
+        def record_mapping_completion(self, **kwargs):
+            events.append("record_completion")
+            self.completion = kwargs
+
+        def save_map(self, request):
+            events.append("save_map")
+            super().save_map(request)
+
+        def start_navigation(self, request):
+            events.append("start_navigation")
+            super().start_navigation(request)
+
+    manager = _Manager(dry_run=False)
+    runtime = _RepeatedStallRuntime()
+    spec = replace(
+        _unknown_spec(max_recovery_attempts=2),
+        saturation_policy=SaturationPolicy(required_map_quiet_s=0.001),
+    )
+
+    UnknownWorldMissionExecutor(runtime, manager, evidence, spec).run(
+        _request()
+    )
+
+    assert evidence.completion_reason == (
+        "reachable_frontiers_stalled_bounded_saturation"
+    )
+    assert manager.calls.count(
+        ("start_explorer", Path("/tmp/frontier.yaml"))
+    ) == 3
+    assert manager.calls.count(("stop_explorer",)) == 3
+    frontier_waits = [
+        call for call in runtime.calls if call[0] == "wait_frontier"
+    ]
+    assert [call[1] for call in frontier_waits] == [2, 1, 0]
+    # 三个 Explorer epoch 必须共享最初的绝对 deadline，不能因确认重启续期。
+    assert len({call[2] for call in frontier_waits}) == 1
+    assert events == [
+        "return_home",
+        "record_completion",
+        "save_map",
+        "start_navigation",
+    ]
+    assert runtime.completion is not None
+    saturation = runtime.completion["saturation_evidence"]
+    assessment = runtime.completion["saturation_assessment"]
+    assert saturation.trigger is SaturationTrigger.REPEATED_REACHABLE_STALL
+    assert saturation.history.counters.mapping_path_m >= 20.0
+    assert len(saturation.history.epochs) == 3
+    assert assessment.complete
+    assert len(
+        [call for call in runtime.calls if call[0] == "navigation_goal"]
+    ) == 3
 
 
 @pytest.mark.parametrize(

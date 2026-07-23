@@ -15,6 +15,7 @@ from .exploration_saturation import (
     SaturationEvidenceTracker,
     SaturationPolicy,
     SaturationRuntimeEvidence,
+    SaturationTrigger,
     assess_bounded_frontier_saturation,
 )
 from .mapping_evidence import FrontierTelemetry, MappingEvidenceTracker
@@ -115,6 +116,8 @@ class EpochRecoveryDecision(str, Enum):
     """恢复扫描后，任务层对下一个 frontier epoch 的唯一决策。"""
 
     ADVANCE_EPOCH = "advance_epoch"
+    RUN_STALL_CONFIRMATION_EPOCH = "run_stall_confirmation_epoch"
+    ASSESS_STALL_SATURATION = "assess_stall_saturation"
     RUN_FINAL_CONFIRMATION_EPOCH = "run_final_confirmation_epoch"
     COMPLETE_BELOW_MATERIAL_GAIN = "complete_below_material_gain"
     FAIL_BELOW_MATERIAL_GAIN = "fail_below_material_gain"
@@ -224,6 +227,20 @@ def decide_epoch_recovery(
             if recovery_attempts_remaining > 0
             else EpochRecoveryDecision.FAIL_BUDGET_EXHAUSTED
         )
+
+    if (
+        recovery_reason
+        == "recovery_required:reachable_frontiers_stalled"
+        and counters_are_terminal
+    ):
+        if recovery_attempts_remaining > 0:
+            # 一次 plateau 可能只是局部最小值。低增益时不直接完成，也不立即
+            # 失败，而是消费有界预算，让 fresh Explorer 形成独立 epoch 证据。
+            return EpochRecoveryDecision.RUN_STALL_CONFIRMATION_EPOCH
+        if completed_recovery_epochs > 0:
+            # 是否真的连续低收益、里程/账本/停车是否充分，统一交给 saturation
+            # 深模块评估；这里仅判断已到达允许评估的状态机边界。
+            return EpochRecoveryDecision.ASSESS_STALL_SATURATION
 
     if (
         recovery_reason
@@ -881,6 +898,24 @@ class UnknownWorldMissionExecutor:
             recovery_start_known_cells = int(
                 recovery_start_stats.get("known_cells", 0)
             )
+            recovery_telemetry = recovery_snapshot.frontier_telemetry
+            completed_recovery_epochs = (
+                self._spec.max_recovery_attempts - remaining
+            )
+            stall_probe_active = (
+                outcome
+                == "recovery_required:reachable_frontiers_stalled"
+                and remaining == 0
+                and completed_recovery_epochs > 0
+                and recovery_telemetry.available_frontier_count == 0
+                and recovery_telemetry.active_goal_count == 0
+            )
+            if stall_probe_active:
+                # 最后一次 360° 扫描是独立 final probe，不得混进 Explorer
+                # epoch 的收益；这样 evaluator 能证明“重复停滞后仍无新区域”。
+                saturation_tracker.begin_final_probe(
+                    trigger=SaturationTrigger.REPEATED_REACHABLE_STALL
+                )
             recovery_displacement_m: float | None = None
             if outcome in _RELOCATION_RECOVERY_REASONS and remaining > 0:
                 backup = self._spec.recovery_backup
@@ -916,8 +951,16 @@ class UnknownWorldMissionExecutor:
             settled = self._wait_for_map_quiet(
                 request,
                 deadline_monotonic=confirmation_settle_deadline,
+                required_quiet_s=(
+                    self._spec.saturation_policy.required_map_quiet_s
+                    if stall_probe_active
+                    else None
+                ),
             )
             settled_stats = settled.map_stats or {}
+            if stall_probe_active:
+                self._observe_saturation_tracker(saturation_tracker)
+                saturation_tracker.finish_final_probe()
             recovery_end_known_cells = int(
                 settled_stats.get("known_cells", 0)
             )
@@ -929,7 +972,7 @@ class UnknownWorldMissionExecutor:
                 recovery_start_known_cells,
                 1,
             )
-            telemetry = recovery_snapshot.frontier_telemetry
+            telemetry = recovery_telemetry
             decision = decide_epoch_recovery(
                 recovery_reason=outcome,
                 map_gain_cells=map_gain_cells,
@@ -947,9 +990,7 @@ class UnknownWorldMissionExecutor:
                 detected_frontier_count=(
                     telemetry.detected_frontier_count
                 ),
-                completed_recovery_epochs=(
-                    self._spec.max_recovery_attempts - remaining
-                ),
+                completed_recovery_epochs=completed_recovery_epochs,
                 final_confirmation_used=final_confirmation_active,
                 map_gain_ratio=map_gain_ratio,
                 minimum_gain_ratio=(
@@ -997,6 +1038,22 @@ class UnknownWorldMissionExecutor:
                 )
                 self._evidence.completion_reason = terminal_reason
                 return ExplorationRunOutcome(terminal_reason)
+            if decision is EpochRecoveryDecision.ASSESS_STALL_SATURATION:
+                if not stall_probe_active:
+                    raise RuntimeError(
+                        "stall saturation assessment has no final probe"
+                    )
+                return self._finalize_saturation_assessment(
+                    request,
+                    tracker=saturation_tracker,
+                    telemetry=telemetry,
+                    recovery_attempts_remaining=remaining,
+                    trigger=SaturationTrigger.REPEATED_REACHABLE_STALL,
+                    settled=settled,
+                    terminal_reason=(
+                        "reachable_frontiers_stalled_bounded_saturation"
+                    ),
+                )
             if decision is EpochRecoveryDecision.RUN_FINAL_CONFIRMATION_EPOCH:
                 final_confirmation_active = True
                 # final confirmation 是独立且仅一次的 phase：普通 epoch 仍共享
@@ -1032,8 +1089,16 @@ class UnknownWorldMissionExecutor:
                     f"exhausted: {decision_detail}"
                 )
 
-            # 预算只在 ADVANCE_EPOCH 时消费；低增益扫描不允许通过重建 Explorer
-            # 让成功/失败 approach 复活，也不会重置 typed Action 累计账本。
+            if decision not in {
+                EpochRecoveryDecision.ADVANCE_EPOCH,
+                EpochRecoveryDecision.RUN_STALL_CONFIRMATION_EPOCH,
+            }:
+                raise RuntimeError(
+                    f"unsupported epoch recovery decision: {decision.value}"
+                )
+            # 普通 ADVANCE 由显著扩图/真实位移授权；stall confirmation 则只为
+            # 收集固定数量的独立低收益 epoch。二者都消费同一个有界预算，
+            # 并复用原绝对 deadline，绝不能通过重启无限延长探索。
             remaining -= 1
             self._evidence.reset_exploration(preserve_action_totals=True)
             self._evidence.resume_mapping_path()
@@ -1066,15 +1131,6 @@ class UnknownWorldMissionExecutor:
     ) -> ExplorationRunOutcome:
         """在已排空 Explorer 后做一次最终扫描，再决定是否停止追逐角落。"""
 
-        terminal_goal_count = (
-            telemetry.succeeded_goal_count
-            + telemetry.aborted_goal_count
-            + telemetry.canceled_goal_count
-        )
-        pending_goal_count = max(
-            0,
-            telemetry.accepted_goal_count - terminal_goal_count,
-        )
         # 第一次 STOP 建立最终扫描的互斥边界；扫描结束后还会再发一次新 STOP，
         # 因而最终证据不会复用探索阶段的陈旧零速度。
         self._runtime.stop_motion_and_wait(
@@ -1082,7 +1138,7 @@ class UnknownWorldMissionExecutor:
             timeout_s=self._spec.action_timeout_s,
         )
         self._evidence.finish_mapping_path()
-        tracker.begin_final_probe(hard_budget_reached=True)
+        tracker.begin_final_probe(trigger=SaturationTrigger.TIME_BUDGET)
         self._runtime.run_agent_action(
             request,
             text=self._spec.recovery_scan_text,
@@ -1099,6 +1155,40 @@ class UnknownWorldMissionExecutor:
         )
         self._observe_saturation_tracker(tracker)
         tracker.finish_final_probe()
+        return self._finalize_saturation_assessment(
+            request,
+            tracker=tracker,
+            telemetry=telemetry,
+            recovery_attempts_remaining=recovery_attempts_remaining,
+            trigger=SaturationTrigger.TIME_BUDGET,
+            settled=settled,
+            terminal_reason="time_budget_exhausted",
+        )
+
+    def _finalize_saturation_assessment(
+        self,
+        request: CommandRequest,
+        *,
+        tracker: SaturationEvidenceTracker,
+        telemetry: FrontierTelemetry,
+        recovery_attempts_remaining: int,
+        trigger: SaturationTrigger,
+        settled,
+        terminal_reason: str,
+    ) -> ExplorationRunOutcome:
+        """在 final probe 后统一完成停车、证据评估与任务层原因落盘。"""
+
+        terminal_goal_count = (
+            telemetry.succeeded_goal_count
+            + telemetry.aborted_goal_count
+            + telemetry.canceled_goal_count
+        )
+        pending_goal_count = max(
+            0,
+            telemetry.accepted_goal_count - terminal_goal_count,
+        )
+        # 两种饱和触发都必须在 final probe 之后再产生一帧 typed STOP；
+        # 不能把探索前或扫描前的旧零速度冒充最终停车证据。
         self._runtime.stop_motion_and_wait(
             request,
             timeout_s=self._spec.action_timeout_s,
@@ -1109,7 +1199,7 @@ class UnknownWorldMissionExecutor:
         )
         runtime_evidence = SaturationRuntimeEvidence(
             history=tracker.snapshot(),
-            hard_budget_reached=True,
+            trigger=trigger,
             recovery_attempts_remaining=recovery_attempts_remaining,
             residual_available_frontiers=(
                 telemetry.available_frontier_count
@@ -1129,15 +1219,16 @@ class UnknownWorldMissionExecutor:
         )
         if not assessment.complete:
             raise RuntimeError(
-                "time budget reached but bounded saturation evidence is "
-                "insufficient: " + ",".join(assessment.unmet_requirements)
+                "bounded saturation evidence is insufficient "
+                f"trigger={trigger.value}: "
+                + ",".join(assessment.unmet_requirements)
             )
-        terminal_reason = "time_budget_exhausted"
         self._evidence.completion_reason = terminal_reason
         self._runtime.transition(
             SessionPhase.AUTOMATIC_MAPPING,
             detail=(
                 "bounded frontier saturation accepted "
+                f"trigger={trigger.value} "
                 f"residual={telemetry.available_frontier_count} "
                 f"epochs={len(runtime_evidence.history.epochs)}"
             ),

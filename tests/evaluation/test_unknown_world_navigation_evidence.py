@@ -64,6 +64,7 @@ def _bounded_saturation_evidence() -> dict[str, object]:
     return {
         "mode": "bounded_saturation",
         "valid": True,
+        "trigger_reason": "time_budget_exhausted",
         "low_yield_epoch_count": 2,
         "required_low_yield_epoch_count": 2,
         "residual_available_frontiers": 4,
@@ -457,6 +458,61 @@ def test_bounded_saturation_is_derived_from_independent_evidence_layers():
     assert all(report["checks"].values())
 
 
+def test_repeated_reachable_stall_uses_the_same_independent_evidence_gate():
+    evidence = _bounded_saturation_evidence()
+    evidence.update(
+        {
+            "trigger_reason": (
+                "reachable_frontiers_stalled_bounded_saturation"
+            ),
+            "residual_available_frontiers": 0,
+        }
+    )
+    report = evaluate_approximate_completion(
+        telemetry={
+            "valid": True,
+            "provider_completion_reason": "",
+            "mission_completion_reason": (
+                "reachable_frontiers_stalled_bounded_saturation"
+            ),
+            "available_frontier_count": 0,
+            "active_goal_count": 0,
+            "accepted_goal_count": 6,
+            "succeeded_goal_count": 6,
+        },
+        evidence=evidence,
+        map_quality_passed=True,
+        final_cmd_vel_fresh=True,
+        final_cmd_vel_zero=True,
+    )
+
+    assert report["passed"] is True
+    assert all(report["checks"].values())
+
+
+def test_bounded_saturation_rejects_mismatched_runtime_and_trigger_reason():
+    report = evaluate_approximate_completion(
+        telemetry={
+            "provider_completion_reason": "",
+            "mission_completion_reason": (
+                "reachable_frontiers_stalled_bounded_saturation"
+            ),
+            "available_frontier_count": 4,
+            "active_goal_count": 0,
+            "accepted_goal_count": 1,
+            "succeeded_goal_count": 1,
+        },
+        # helper 仍声明 time_budget_exhausted，不能套用到另一个终止来源。
+        evidence=_bounded_saturation_evidence(),
+        map_quality_passed=True,
+        final_cmd_vel_fresh=True,
+        final_cmd_vel_zero=True,
+    )
+
+    assert report["passed"] is False
+    assert report["checks"]["trigger_reason_matches"] is False
+
+
 @pytest.mark.parametrize(
     ("mutation", "failed_check"),
     [
@@ -704,6 +760,11 @@ def test_schema_v4_requires_every_unknown_world_evidence_layer(tmp_path: Path):
         final_stop_boundary_at_s=10.0,
         cmd_vel_samples_after_boundary=4,
         nonzero_cmd_vel_samples_after_boundary=3,
+        final_phase=12,
+        mapping_path_m=42.1254,
+        frontier_goal_count=32,
+        source_revision="0123456789abcdef",
+        source_dirty=False,
     )
     thresholds = UnknownWorldThresholds(
         map_quality=MapQualityThresholds(0.90, 0.85, 0.10),
@@ -716,6 +777,11 @@ def test_schema_v4_requires_every_unknown_world_evidence_layer(tmp_path: Path):
     assert report["passed"] is True
     assert all(report["checks"].values())
     assert report["return_to_start"]["passed"] is True
+    assert report["final_phase"] == 12
+    assert report["mapping_path_m"] == 42.125
+    assert report["frontier_goal_count"] == 32
+    assert report["source_revision"] == "0123456789abcdef"
+    assert report["source_dirty"] is False
     assert verify_report(report, expected_session_id="unit")[
         "navigation_goal_count"
     ] == 3

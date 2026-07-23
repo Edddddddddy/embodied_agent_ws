@@ -37,7 +37,7 @@
   资源后置条件由事务在报告生成前独立强制。
 - `handlers/`：保留必须依赖 Bash/ROS setup 的 control、voice、slam_nav 实现。
 
-公开模式固定为 8 个。其中 `slam-nav-e2e` 是已知场景确定性回归，
+公开模式固定为 9 个。其中 `slam-nav-e2e` 是已知场景确定性回归，
 `unknown-world-slam-e2e` 才是未知世界自主探索与导航验收。内部回归仍可通过 `--help-all` 发现，
 但不能写进新手必跑步骤。
 新增模式时必须同时补充注册表测试；不要在 `acceptance_test.sh` 中重新增加 `case`。

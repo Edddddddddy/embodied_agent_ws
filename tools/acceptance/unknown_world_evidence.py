@@ -202,6 +202,13 @@ class UnknownWorldObservation:
     # 运行时只提供与场景尺寸无关的饱和证据；是否达到地图质量门槛仍由
     # evaluator 使用 truth map 独立判定，避免任务层“自己宣布自己完成”。
     mapping_completion_evidence: Mapping[str, object] | None = None
+    # 以下三项是展示/诊断字段，不参与 PASS 判定；仍由同一 ROS 会话采集，
+    # 避免控制台在链路成功时打印 null，给现场验收造成“证据缺失”的误解。
+    final_phase: int = 0
+    mapping_path_m: float = 0.0
+    frontier_goal_count: int = 0
+    source_revision: str = ""
+    source_dirty: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1031,9 +1038,9 @@ def evaluate_approximate_completion(
 ) -> dict[str, object]:
     """派生“近似完成”，运行时超时原因本身不具有完成语义。
 
-    unknown-world 运行时看不到真值地图和场景总面积，所以它只能报告“在硬预算
-    边界上连续低收益”。最终是否允许收口，由本函数把运行时证据、离线地图质量、
-    Action 总账、返航和真实零速度合并后独立派生。
+    unknown-world 运行时看不到真值地图和场景总面积，所以它只能报告“硬时间
+    预算耗尽”或“重复可达停滞”这类有界触发。最终是否允许收口，由本函数把
+    运行时证据、离线地图质量、Action 总账、返航和真实零速度合并后独立派生。
     """
 
     completion = dict(evidence) if evidence else {}
@@ -1044,6 +1051,11 @@ def evaluate_approximate_completion(
         )
     )
     mission_reason = str(telemetry.get("mission_completion_reason", ""))
+    trigger_reason = str(completion.get("trigger_reason", ""))
+    bounded_runtime_reasons = {
+        "time_budget_exhausted",
+        "reachable_frontiers_stalled_bounded_saturation",
+    }
     active = int(telemetry.get("active_goal_count", 0))
     available = int(telemetry.get("available_frontier_count", 0))
     accepted = int(telemetry.get("accepted_goal_count", 0))
@@ -1069,10 +1081,12 @@ def evaluate_approximate_completion(
         final_gain_ratio = -1.0
 
     checks = {
-        # time_budget_exhausted 是中性观测，不允许 provider 伪造 complete reason。
+        # 两种 reason 都只是“允许进入独立证据评估”的中性运行时事实；
+        # provider 不能自行伪造完成，producer 写入的触发原因也必须逐字一致。
         "neutral_runtime_reason": (
-            mission_reason == "time_budget_exhausted" and not provider_reason
+            mission_reason in bounded_runtime_reasons and not provider_reason
         ),
+        "trigger_reason_matches": trigger_reason == mission_reason,
         "typed_saturation_evidence_valid": (
             completion.get("mode") == "bounded_saturation"
             and completion.get("valid") is True
@@ -1112,6 +1126,7 @@ def evaluate_approximate_completion(
             "final_probe_gain_ratio": final_gain_ratio,
         },
         "runtime_reason": mission_reason,
+        "trigger_reason": trigger_reason,
         "evidence": completion or None,
         "return_to_start": evaluate_return_to_start_evidence(completion),
     }
@@ -1303,6 +1318,11 @@ def build_unknown_world_report(
         "mission_sequence": observation.mission_sequence,
         "mission_outcome": observation.mission_outcome,
         "mission_message": observation.mission_message,
+        "final_phase": observation.final_phase,
+        "mapping_path_m": round(observation.mapping_path_m, 3),
+        "frontier_goal_count": observation.frontier_goal_count,
+        "source_revision": observation.source_revision,
+        "source_dirty": observation.source_dirty,
         "map_saved": observation.map_saved,
         "map_yaml_path": str(observation.built_map_yaml),
         "map_provenance": dict(provenance) if provenance else None,
