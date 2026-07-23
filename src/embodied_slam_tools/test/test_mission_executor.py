@@ -82,6 +82,10 @@ class _Runtime:
         self.evidence.record_odom(0.4, 0.0)
         self.evidence.completion_reason = "coverage_plateau"
 
+    def quiesce_frontier(self, _request, *, timeout_s):
+        self.calls.append(("quiesce_frontier", timeout_s))
+        return self.evidence.snapshot().frontier_telemetry
+
     def save_map(self, _request):
         self.calls.append(("save_map",))
 
@@ -166,6 +170,7 @@ def test_frontier_failure_always_stops_explorer_and_freezes_path():
     with pytest.raises(RuntimeError, match="frontier failed"):
         executor.run(_request())
 
+    assert ("quiesce_frontier", 4.0) in runtime.calls
     assert manager.calls[-1] == ("stop_explorer",)
     evidence.record_odom(0.0, 0.0)
     evidence.record_odom(0.3, 0.0)

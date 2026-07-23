@@ -13,6 +13,8 @@ uint8 STOPPING=9
 uint8 AUTOMATIC_MAPPING=10
 uint8 AUTOMATIC_NAVIGATING=11
 uint8 MISSION_COMPLETED=12
+# 撤销自治后保持业务互斥，直到 Nav2/Explore/STOP/零速证据完成同代 ACK。
+uint8 QUIESCING=13
 
 uint8 phase
 bool map_saved

@@ -63,6 +63,16 @@ def test_automatic_mission_only_starts_from_ready_mapping_phase():
     )
 
 
+def test_quiescing_phase_rejects_every_stage_mutation():
+    machine = ShowcaseSessionStateMachine()
+    machine.transition(SessionPhase.QUIESCING, detail="waiting for terminal ACK")
+
+    for command in SessionCommand:
+        accepted, reason = machine.validate(command)
+        assert not accepted
+        assert "busy" in reason
+
+
 def test_automatic_mission_cancel_phrases_bypass_normal_intent_parsing():
     assert is_automatic_mission_cancel_text("急停！")
     assert is_automatic_mission_cancel_text("请停止自动任务")

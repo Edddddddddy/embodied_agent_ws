@@ -15,6 +15,7 @@ from action_msgs.msg import GoalStatus
 from builtin_interfaces.msg import Time as TimeMessage
 from embodied_agent_interfaces.action import ManageSlamSession
 from embodied_agent_interfaces.msg import (
+    ControlAuthorityState,
     FrontierExplorationEvidence,
     RobotCommand,
     RobotCommandResult,
@@ -53,6 +54,17 @@ except ImportError:  # 可选运行时由 setup_frontier_exploration.sh 安装�
     ExploreStatus = None
 
 from .agent_action_gateway import AgentActionGateway, AgentActionOutcome
+from .autonomy_quiescence import (
+    AutonomyQuiescenceBarrier,
+    QuiescenceError,
+    QuiescenceIdentity,
+    QuiescenceState,
+)
+from .control_authority_lease import (
+    AUTONOMY,
+    AuthoritySnapshot,
+    ControlAuthorityLease,
+)
 from .frontier_monitor import FrontierExplorationMonitor
 from .exploration_saturation import (
     SaturationAssessment,
@@ -97,6 +109,11 @@ from .showcase_session import (
     is_truncated_automatic_mission_text,
     parse_session_command,
 )
+
+try:
+    from embodied_agent_interfaces.srv import AcknowledgeAutonomyQuiescence
+except ImportError:  # source-only 单测可通过依赖注入绕过尚未生成的 ROS 接口。
+    AcknowledgeAutonomyQuiescence = None
 
 
 _ACTION_TYPES = {
@@ -204,6 +221,41 @@ def _read_nav2_terminal_wrapper(result_future) -> tuple[Any | None, str | None]:
     if result is None:
         return None, "Nav2 terminal result payload is missing"
     return wrapped, None
+
+
+def _begin_nav2_quiescence_transaction(
+    owner: Any,
+    kind: str,
+) -> str | None:
+    """登记可能产生速度的 Nav2 事务；source-only fake 无屏障时保持兼容。"""
+
+    barrier = getattr(owner, "_autonomy_quiescence", None)
+    if barrier is None:
+        return None
+    state_lock = getattr(owner, "_state_lock", None)
+    if state_lock is None:
+        sequence = int(
+            getattr(owner, "_nav2_quiescence_sequence", 0)
+        ) + 1
+        owner._nav2_quiescence_sequence = sequence
+    else:
+        with state_lock:
+            sequence = owner._nav2_quiescence_sequence + 1
+            owner._nav2_quiescence_sequence = sequence
+    token = f"{kind}:{sequence}"
+    barrier.nav2_goal_started(token)
+    return token
+
+
+def _finish_nav2_quiescence_transaction(
+    owner: Any,
+    token: str | None,
+) -> None:
+    if token is None:
+        return
+    barrier = getattr(owner, "_autonomy_quiescence", None)
+    if barrier is not None:
+        barrier.nav2_goal_terminal(token)
 
 
 def _admit_goal_candidates(
@@ -528,6 +580,34 @@ class SessionOrchestratorNode(Node):
         self._stopping = threading.Event()
         self._operation_active = threading.Event()
         self._active_request: CommandRequest | None = None
+        self._authority_gate_enabled = bool(
+            self.declare_parameter("authority_gate_enabled", False).value
+        )
+        authority_state_timeout_s = float(
+            self.declare_parameter(
+                "authority_state_timeout_s", 1.0
+            ).value
+        )
+        self._authority_lease = ControlAuthorityLease(
+            authority_state_timeout_s
+        )
+        self._authority_lease_failure_reported = False
+        self._autonomy_quiescence_timeout_s = float(
+            self.declare_parameter(
+                "autonomy_quiescence_timeout_s", 15.0
+            ).value
+        )
+        if (
+            not math.isfinite(self._autonomy_quiescence_timeout_s)
+            or self._autonomy_quiescence_timeout_s <= 0.0
+        ):
+            raise ValueError(
+                "autonomy_quiescence_timeout_s must be greater than zero"
+            )
+        self._autonomy_quiescence = AutonomyQuiescenceBarrier()
+        self._quiescence_worker_lock = threading.Lock()
+        self._quiescence_worker: threading.Thread | None = None
+        self._nav2_quiescence_sequence = 0
         self._map_pose_condition = threading.Condition()
         self._latest_occupancy: OccupancySnapshot | None = None
         self._latest_map_pose_xy: tuple[float, float] | None = None
@@ -612,6 +692,13 @@ class SessionOrchestratorNode(Node):
             SystemReadiness,
             readiness_topic,
             self._on_readiness,
+            state_qos,
+            callback_group=callback_group,
+        )
+        self.create_subscription(
+            ControlAuthorityState,
+            "/control/authority/state",
+            self._on_control_authority_state,
             state_qos,
             callback_group=callback_group,
         )
@@ -713,6 +800,18 @@ class SessionOrchestratorNode(Node):
             "/waypoint_follower/get_state",
             callback_group=callback_group,
         )
+        self._quiescence_ack_client = None
+        if self._authority_gate_enabled:
+            if AcknowledgeAutonomyQuiescence is None:
+                raise RuntimeError(
+                    "authority gate requires generated "
+                    "AcknowledgeAutonomyQuiescence service"
+                )
+            self._quiescence_ack_client = self.create_client(
+                AcknowledgeAutonomyQuiescence,
+                "/control/acknowledge_autonomy_quiescence",
+                callback_group=callback_group,
+            )
         self._action_server = ActionServer(
             self,
             ManageSlamSession,
@@ -723,6 +822,9 @@ class SessionOrchestratorNode(Node):
             callback_group=callback_group,
         )
         self.create_timer(1.0, self._check_child_process)
+        # manager 心跳失联不会产生新的 ROS 回调；独立 steady-clock 定时检查可在
+        # 租约过期时主动取消正在运行的 Explore/Nav2 事务。
+        self.create_timer(0.2, self._check_authority_lease)
         self._publish_state()
         self._worker.start()
 
@@ -907,13 +1009,21 @@ class SessionOrchestratorNode(Node):
         )
 
     def _on_agent_result(self, message: RobotCommandResult) -> None:
+        command_id = str(message.command_id)
         self._agent_action_gateway.record_result(
-            str(message.command_id),
+            command_id,
             AgentActionOutcome(
                 success=bool(message.success),
                 status=int(message.status),
                 message=str(message.message),
             ),
+        )
+        # 屏障只接受自己发布的 exact command_id；普通动作与旧 STOP 的结果
+        # 会在深模块中被忽略，不能误完成本轮控制权撤销。
+        self._autonomy_quiescence.observe_priority_stop_result(
+            command_id,
+            success=bool(message.success),
+            detail=str(message.message),
         )
 
     def _on_map(self, message: OccupancyGrid) -> None:
@@ -946,6 +1056,7 @@ class SessionOrchestratorNode(Node):
 
         with self._cmd_vel_condition:
             self._cmd_vel_generation += 1
+            generation = self._cmd_vel_generation
             self._last_cmd_vel = (
                 float(message.linear.x),
                 float(message.angular.z),
@@ -954,6 +1065,11 @@ class SessionOrchestratorNode(Node):
                 self.get_clock().now().nanoseconds
             )
             self._cmd_vel_condition.notify_all()
+        self._autonomy_quiescence.observe_cmd_vel(
+            generation=generation,
+            linear_x=float(message.linear.x),
+            angular_z=float(message.angular.z),
+        )
 
     def _on_amcl_pose(self, message: PoseWithCovarianceStamped) -> None:
         position = message.pose.pose.position
@@ -968,8 +1084,17 @@ class SessionOrchestratorNode(Node):
             self._map_pose_condition.notify_all()
 
     def _on_explore_status(self, message: Any) -> None:
-        self._mapping_evidence.record_frontier_telemetry(
-            _frontier_telemetry_from_message(message)
+        telemetry = _frontier_telemetry_from_message(message)
+        self._mapping_evidence.record_frontier_telemetry(telemetry)
+        self._autonomy_quiescence.observe_frontier(
+            status=telemetry.status,
+            active_goal_count=telemetry.active_goal_count,
+            accepted_goal_count=telemetry.accepted_goal_count,
+            terminal_goal_count=(
+                telemetry.succeeded_goal_count
+                + telemetry.aborted_goal_count
+                + telemetry.canceled_goal_count
+            ),
         )
 
     def _record_navigation_plan(self, sequence: int, message: NavPath) -> bool:
@@ -1006,6 +1131,11 @@ class SessionOrchestratorNode(Node):
 
     def _cancel_automatic_motion(self) -> None:
         self._agent_text_pub.publish(String(data="停下"))
+        if self._autonomy_quiescence.active:
+            # 接管事务中只能先走 Explore 的 typed pause/ledger terminal；
+            # 直接杀进程会丢掉 owner goal 的 result callback，无法形成 ACK 证据。
+            self._explore_control_pub.publish(Bool(data=False))
+            return
         self._manager.stop_explorer()
 
     def run_agent_action(
@@ -1186,7 +1316,16 @@ class SessionOrchestratorNode(Node):
         goal.time_allowance.sec = whole_seconds
         goal.time_allowance.nanosec = nanoseconds
 
-        response = self._backup_client.send_goal_async(goal)
+        quiescence_token = _begin_nav2_quiescence_transaction(
+            self, "backup"
+        )
+        try:
+            response = self._backup_client.send_goal_async(goal)
+        except Exception:
+            _finish_nav2_quiescence_transaction(
+                self, quiescence_token
+            )
+            raise
         while not response.done():
             if request.canceled or time.monotonic() >= deadline_monotonic:
                 reason = (
@@ -1198,6 +1337,7 @@ class SessionOrchestratorNode(Node):
                     request,
                     response=response,
                     reason=reason,
+                    quiescence_token=quiescence_token,
                 )
                 if request.canceled:
                     raise AutomaticMissionCancelled(reason)
@@ -1205,6 +1345,9 @@ class SessionOrchestratorNode(Node):
             time.sleep(0.05)
         handle = response.result()
         if handle is None or not handle.accepted:
+            _finish_nav2_quiescence_transaction(
+                self, quiescence_token
+            )
             raise RuntimeError("Nav2 BackUp goal rejected")
         try:
             result_future = handle.get_result_async()
@@ -1215,6 +1358,7 @@ class SessionOrchestratorNode(Node):
                 handle=handle,
                 result_future=None,
                 reason=reason,
+                quiescence_token=quiescence_token,
             )
             raise RuntimeError(reason)
         while not result_future.done():
@@ -1229,6 +1373,7 @@ class SessionOrchestratorNode(Node):
                     handle=handle,
                     result_future=result_future,
                     reason=reason,
+                    quiescence_token=quiescence_token,
                 )
                 if request.canceled:
                     raise AutomaticMissionCancelled(reason)
@@ -1236,7 +1381,20 @@ class SessionOrchestratorNode(Node):
             time.sleep(0.05)
         wrapped, terminal_error = _read_nav2_terminal_wrapper(result_future)
         if terminal_error is not None:
+            self._cancel_nav2_goal_and_force_stop(
+                request,
+                handle=handle,
+                result_future=result_future,
+                reason=(
+                    "invalid Nav2 BackUp terminal result: "
+                    + terminal_error
+                ),
+                quiescence_token=quiescence_token,
+            )
             raise RuntimeError(f"invalid Nav2 BackUp terminal result: {terminal_error}")
+        _finish_nav2_quiescence_transaction(
+            self, quiescence_token
+        )
         assert wrapped is not None
         error_code = int(getattr(wrapped.result, "error_code", BackUp.Result.UNKNOWN))
         if (
@@ -1739,7 +1897,16 @@ class SessionOrchestratorNode(Node):
         goal.pose.pose.position.y = goal_pose.y
         goal.pose.pose.orientation.z = math.sin(goal_pose.yaw * 0.5)
         goal.pose.pose.orientation.w = math.cos(goal_pose.yaw * 0.5)
-        response = self._navigate_to_pose_client.send_goal_async(goal)
+        quiescence_token = _begin_nav2_quiescence_transaction(
+            self, "mapping-return"
+        )
+        try:
+            response = self._navigate_to_pose_client.send_goal_async(goal)
+        except Exception:
+            _finish_nav2_quiescence_transaction(
+                self, quiescence_token
+            )
+            raise
         while not response.done():
             if request.canceled or time.monotonic() >= deadline:
                 reason = (
@@ -1751,6 +1918,7 @@ class SessionOrchestratorNode(Node):
                     request,
                     response=response,
                     reason=reason,
+                    quiescence_token=quiescence_token,
                 )
                 if request.canceled:
                     raise AutomaticMissionCancelled(reason)
@@ -1758,6 +1926,9 @@ class SessionOrchestratorNode(Node):
             time.sleep(0.05)
         handle = response.result()
         if handle is None or not handle.accepted:
+            _finish_nav2_quiescence_transaction(
+                self, quiescence_token
+            )
             raise _NavigationGoalRejected("mapping return goal rejected")
         result_future = handle.get_result_async()
         while not result_future.done():
@@ -1772,6 +1943,7 @@ class SessionOrchestratorNode(Node):
                     handle=handle,
                     result_future=result_future,
                     reason=reason,
+                    quiescence_token=quiescence_token,
                 )
                 if request.canceled:
                     raise AutomaticMissionCancelled(reason)
@@ -1784,11 +1956,15 @@ class SessionOrchestratorNode(Node):
                 handle=handle,
                 result_future=result_future,
                 reason="invalid mapping return terminal: " + terminal_error,
+                quiescence_token=quiescence_token,
             )
             raise RuntimeError(
                 "invalid mapping return terminal: " + terminal_error
             )
         assert wrapped is not None
+        _finish_nav2_quiescence_transaction(
+            self, quiescence_token
+        )
         return wrapped
 
     def record_mapping_completion(
@@ -1836,7 +2012,16 @@ class SessionOrchestratorNode(Node):
         goal.pose.pose.position.x = float(goal_xy[0])
         goal.pose.pose.position.y = float(goal_xy[1])
         goal.pose.pose.orientation.w = 1.0
-        response = self._navigate_to_pose_client.send_goal_async(goal)
+        quiescence_token = _begin_nav2_quiescence_transaction(
+            self, f"sampled-{sequence}"
+        )
+        try:
+            response = self._navigate_to_pose_client.send_goal_async(goal)
+        except Exception:
+            _finish_nav2_quiescence_transaction(
+                self, quiescence_token
+            )
+            raise
         while not response.done():
             if request.canceled:
                 reason = "automatic mission canceled before goal response"
@@ -1846,6 +2031,7 @@ class SessionOrchestratorNode(Node):
                     request,
                     response=response,
                     reason=reason,
+                    quiescence_token=quiescence_token,
                 )
                 raise AutomaticMissionCancelled("automatic mission canceled")
             if time.monotonic() >= deadline:
@@ -1854,6 +2040,7 @@ class SessionOrchestratorNode(Node):
                     request,
                     response=response,
                     reason=reason,
+                    quiescence_token=quiescence_token,
                 )
                 raise TimeoutError(reason)
             time.sleep(0.05)
@@ -1868,6 +2055,9 @@ class SessionOrchestratorNode(Node):
                 cleanup_errors=[f"Nav2 goal response failed: {exc}"],
             )
         if handle is None or not handle.accepted:
+            _finish_nav2_quiescence_transaction(
+                self, quiescence_token
+            )
             raise _NavigationGoalRejected(f"navigation goal rejected: {goal_xy}")
         self._set_navigation_goal_status(
             sequence,
@@ -1892,6 +2082,7 @@ class SessionOrchestratorNode(Node):
                 handle=handle,
                 result_future=None,
                 reason=reason,
+                quiescence_token=quiescence_token,
             )
             raise RuntimeError(reason)
         while not result_future.done():
@@ -1902,6 +2093,7 @@ class SessionOrchestratorNode(Node):
                     handle=handle,
                     result_future=result_future,
                     reason=reason,
+                    quiescence_token=quiescence_token,
                 )
                 raise AutomaticMissionCancelled("automatic mission canceled")
             record = self._navigation_goal_ledger.get(sequence)
@@ -1914,6 +2106,7 @@ class SessionOrchestratorNode(Node):
                     handle=handle,
                     result_future=result_future,
                     reason=reason,
+                    quiescence_token=quiescence_token,
                 )
                 raise RuntimeError(reason)
             if time.monotonic() >= deadline:
@@ -1923,6 +2116,7 @@ class SessionOrchestratorNode(Node):
                     handle=handle,
                     result_future=result_future,
                     reason=reason,
+                    quiescence_token=quiescence_token,
                 )
                 raise TimeoutError(reason)
             time.sleep(0.05)
@@ -1934,6 +2128,7 @@ class SessionOrchestratorNode(Node):
                 handle=handle,
                 result_future=result_future,
                 reason=reason,
+                quiescence_token=quiescence_token,
             )
             raise RuntimeError(reason)
         # `/plan` 与 Action result 属于不同 ROS topic，回调没有全局顺序；
@@ -1948,8 +2143,12 @@ class SessionOrchestratorNode(Node):
                 handle=handle,
                 result_future=result_future,
                 reason=reason,
+                quiescence_token=quiescence_token,
             )
             raise RuntimeError(reason)
+        _finish_nav2_quiescence_transaction(
+            self, quiescence_token
+        )
         return wrapped
 
     def _resolve_pending_nav2_goal_safely(
@@ -1959,6 +2158,7 @@ class SessionOrchestratorNode(Node):
         response,
         reason: str,
         timeout_s: float = _NAV2_SAFETY_STOP_TIMEOUT_S,
+        quiescence_token: str | None = None,
     ) -> None:
         """等待 pending response，并关闭可能迟到 accepted 的 Nav2 事务。"""
 
@@ -1984,6 +2184,9 @@ class SessionOrchestratorNode(Node):
                 cleanup_errors=[f"Nav2 goal response failed: {exc}"],
             )
         if handle is None or not handle.accepted:
+            _finish_nav2_quiescence_transaction(
+                self, quiescence_token
+            )
             return
         try:
             result_future = handle.get_result_async()
@@ -1998,6 +2201,7 @@ class SessionOrchestratorNode(Node):
             result_future=result_future,
             reason=reason,
             timeout_s=timeout_s,
+            quiescence_token=quiescence_token,
         )
 
     def _cancel_nav2_goal_and_force_stop(
@@ -2008,6 +2212,7 @@ class SessionOrchestratorNode(Node):
         result_future,
         reason: str,
         timeout_s: float = _NAV2_SAFETY_STOP_TIMEOUT_S,
+        quiescence_token: str | None = None,
     ) -> None:
         """取消直接 Nav2 goal，并用 typed STOP 形成可等待的安全终态。"""
 
@@ -2049,6 +2254,10 @@ class SessionOrchestratorNode(Node):
         _, terminal_error = _read_nav2_terminal_wrapper(result_future)
         if terminal_error is not None:
             cleanup_errors.append(terminal_error)
+        else:
+            _finish_nav2_quiescence_transaction(
+                self, quiescence_token
+            )
         if cleanup_errors:
             _raise_navigation_cleanup_failure(
                 self._manager,
@@ -2250,8 +2459,20 @@ class SessionOrchestratorNode(Node):
             command = SessionCommand(goal_request.command)
         except ValueError:
             return GoalResponse.REJECT
+        barrier = getattr(self, "_autonomy_quiescence", None)
+        if barrier is not None and barrier.active:
+            return GoalResponse.REJECT
         with self._state_lock:
             accepted, _ = self._fsm.validate(command)
+            if (
+                accepted
+                and getattr(self, "_authority_gate_enabled", False)
+                and command == SessionCommand.RUN_AUTOMATIC_MISSION
+                and not self._authority_lease.fresh_autonomy(
+                    time.monotonic()
+                )
+            ):
+                accepted = False
         if not accepted or self._operation_active.is_set():
             return GoalResponse.REJECT
         return GoalResponse.ACCEPT
@@ -2261,9 +2482,39 @@ class SessionOrchestratorNode(Node):
         return CancelResponse.ACCEPT
 
     def _enqueue(self, request: CommandRequest) -> bool:
+        barrier = getattr(self, "_autonomy_quiescence", None)
+        if barrier is not None and barrier.active:
+            # SAVE_MAP/START_NAV 同样会启停 stage，必须等本轮 Explore/Nav2
+            # terminal ACK 后才能进入队列；只门控自动任务仍会破坏静默证据。
+            request.message = "autonomy quiescence is still in progress"
+            request.completed.set()
+            return False
         if self._operation_active.is_set():
             return False
         with self._state_lock:
+            if (
+                getattr(self, "_authority_gate_enabled", False)
+                and request.command == SessionCommand.RUN_AUTOMATIC_MISSION
+                and not self._authority_lease.fresh_autonomy(
+                    time.monotonic()
+                )
+            ):
+                # 高层 SLAM 会话不会经过 ActionGuard；必须在任务入口再次检查
+                # 控制权租约，否则 HOLD、manager 失联或迟到状态仍可能启动子进程。
+                request.message = (
+                    "automatic mission requires fresh AUTONOMY authority"
+                )
+                request.completed.set()
+                return False
+            if (
+                getattr(self, "_authority_gate_enabled", False)
+                and request.command == SessionCommand.RUN_AUTOMATIC_MISSION
+            ):
+                # admission 与 worker 启动之间仍可能切权；把本地安全代际绑定到
+                # request，worker 必须再次匹配后才能创建 Explore/Nav2 goal。
+                request.authority_generation = (
+                    self._authority_lease.generation
+                )
             accepted, reason = self._fsm.validate(request.command)
         if not accepted:
             request.message = reason
@@ -2299,14 +2550,11 @@ class SessionOrchestratorNode(Node):
         )
 
     def _handle_session_command_text(self, text: str) -> None:
-        active_request = self._active_request
-        if (
-            active_request is not None
-            and active_request.command == SessionCommand.RUN_AUTOMATIC_MISSION
-            and is_automatic_mission_cancel_text(text)
+        if is_automatic_mission_cancel_text(text) and (
+            SessionOrchestratorNode._cancel_active_automatic_mission(
+                self, "voice_cancel"
+            )
         ):
-            active_request.canceled = True
-            self.get_logger().warning("canceling active automatic mission by voice")
             return
         if is_truncated_automatic_mission_text(text):
             # 该别名来自真实 ZipFormer 尾部漏字样本。只对完全相等的“开始自动”
@@ -2332,6 +2580,442 @@ class SessionOrchestratorNode(Node):
             self.get_logger().warning(
                 f"rejected voice session command={command.name.lower()}: "
                 f"{request.message or 'busy'}"
+            )
+
+    def _cancel_active_automatic_mission(
+        self,
+        reason: str,
+        revocation_identity: QuiescenceIdentity | None = None,
+    ) -> bool:
+        """把人工接管转换为现有 mission cancel，不在 ROS 回调中阻塞停进程。"""
+
+        with self._state_lock:
+            request = self._active_request
+            if (
+                request is None
+                or request.command
+                != SessionCommand.RUN_AUTOMATIC_MISSION
+                or request.canceled
+            ):
+                return False
+            request.canceled = True
+            if revocation_identity is not None:
+                request.authority_revocation_identity = (
+                    revocation_identity.manager_epoch,
+                    revocation_identity.revocation_sequence,
+                )
+        # Explore Lite 的取消和 Nav2 terminal 等待仍由 worker 中现有清理路径完成。
+        # 回调只发布边沿，避免在 MultiThreadedExecutor 中并发调用非线程安全 manager。
+        self._explore_control_pub.publish(Bool(data=False))
+        self.get_logger().warning(
+            f"canceling active automatic mission: {reason}"
+        )
+        return True
+
+    def _on_control_authority_state(
+        self, message: ControlAuthorityState
+    ) -> None:
+        if not self._authority_gate_enabled:
+            return
+        received_at = time.monotonic()
+        snapshot = AuthoritySnapshot(
+            authority=int(message.authority),
+            estop_latched=bool(message.estop_latched),
+            manager_epoch=int(message.manager_epoch),
+            transition_sequence=int(message.transition_sequence),
+            active_source=str(message.active_source),
+            reason=str(message.reason),
+            pending_autonomy_revocation_sequence=int(
+                getattr(
+                    message,
+                    "pending_autonomy_revocation_sequence",
+                    0,
+                )
+            ),
+            autonomy_quiescence_acknowledged=bool(
+                getattr(
+                    message,
+                    "autonomy_quiescence_acknowledged",
+                    False,
+                )
+            ),
+        )
+        with self._state_lock:
+            was_observed = self._authority_lease.observed
+            was_fresh_autonomy = (
+                self._authority_lease.fresh_autonomy(received_at)
+            )
+            update = self._authority_lease.update(
+                snapshot, received_at
+            )
+            authority = self._authority_lease.authority
+        if not update.accepted:
+            self.get_logger().error(
+                "ignored control authority state "
+                f"epoch={message.manager_epoch} "
+                f"sequence={message.transition_sequence} "
+                f"reason={update.decision.value}"
+            )
+            return
+        self._authority_lease_failure_reported = False
+        pending_revocation = (
+            snapshot.pending_autonomy_revocation_sequence
+        )
+        quiescence_identity = QuiescenceIdentity(
+            manager_epoch=snapshot.manager_epoch,
+            revocation_sequence=pending_revocation,
+        )
+        if self._autonomy_quiescence.active:
+            self._autonomy_quiescence.observe_authority(
+                quiescence_identity,
+                autonomy_active=authority == AUTONOMY,
+            )
+            barrier_snapshot = self._autonomy_quiescence.snapshot()
+            if barrier_snapshot.state is QuiescenceState.FAILED:
+                self._fail_autonomy_quiescence(
+                    QuiescenceError(barrier_snapshot.failure_reason)
+                )
+                return
+
+        revocation_started = False
+        if (
+            authority != AUTONOMY
+            and not snapshot.autonomy_quiescence_acknowledged
+        ):
+            # 先把撤销身份写入屏障，再启动后台收口。若反过来先 cancel，
+            # Action result 或零速回调可能抢先到达，导致本轮证据被错误丢弃。
+            self._autonomy_quiescence.observe_authority(
+                quiescence_identity
+            )
+            try:
+                manager = getattr(self, "_manager", None)
+                explorer_process = getattr(
+                    manager, "explorer_process", None
+                )
+                explorer_running = (
+                    explorer_process is not None
+                    and explorer_process.poll() is None
+                )
+                started = self._autonomy_quiescence.begin(
+                    quiescence_identity,
+                    # 进程刚启动而首帧 ExploreStatus 尚未到达时，也必须要求
+                    # ledger terminal，不能把“没有缓存遥测”误当成“没有 goal”。
+                    require_frontier=explorer_running,
+                )
+            except QuiescenceError as exc:
+                self._fail_autonomy_quiescence(exc)
+                return
+            if started:
+                revocation_started = True
+                with self._state_lock:
+                    active_request = self._active_request
+                    active_automatic_mission = (
+                        active_request is not None
+                        and active_request.command
+                        == SessionCommand.RUN_AUTOMATIC_MISSION
+                        and not active_request.canceled
+                    )
+                transition = getattr(self, "transition", None)
+                if active_automatic_mission and callable(transition):
+                    # QUIESCING 描述的是“正在退出的自动任务”，而不是控制权
+                    # manager 的空闲握手。若当前根本没有自动任务仍切入该 phase，
+                    # ACK 完成后便没有 mission worker 负责恢复 MAPPING/NAVIGATING，
+                    # UI 会永久停在 quiescing。空闲撤销仍由 barrier 阻塞新命令。
+                    transition(
+                        SessionPhase.QUIESCING,
+                        detail=(
+                            "control authority revoked; waiting for "
+                            "Explore/Nav2 terminal, STOP result and fresh zero"
+                        ),
+                    )
+                self._explore_control_pub.publish(Bool(data=False))
+                self._start_autonomy_quiescence_worker(
+                    quiescence_identity
+                )
+
+        # 屏障必须先绑定 revocation，随后才能设置用户 request 的 canceled 位；
+        # 否则 Action result/零速回调可能抢在 begin() 前到达并被本轮错误丢弃。
+        if authority != AUTONOMY or (
+            was_observed and not was_fresh_autonomy
+        ):
+            reason = {
+                ControlAuthorityState.HOLD: "authority_hold",
+                ControlAuthorityState.KEYBOARD: "keyboard_takeover",
+                ControlAuthorityState.ESTOP: "emergency_stop",
+            }.get(authority, "authority_lease_discontinuity")
+            SessionOrchestratorNode._cancel_active_automatic_mission(
+                self,
+                reason,
+                (
+                    quiescence_identity
+                    if revocation_started
+                    or self._autonomy_quiescence.identity
+                    == quiescence_identity
+                    else None
+                ),
+            )
+
+    def _start_autonomy_quiescence_worker(
+        self, identity: QuiescenceIdentity
+    ) -> None:
+        """确保至少一个持久 worker 会接棒当前及紧随其后的 revocation。"""
+
+        with self._quiescence_worker_lock:
+            current = self._quiescence_worker
+            if current is not None and current.is_alive():
+                return
+            worker = threading.Thread(
+                target=SessionOrchestratorNode._autonomy_quiescence_worker_loop,
+                args=(self, identity),
+                name=(
+                    "autonomy-quiescence-"
+                    f"{identity.manager_epoch}-"
+                    f"{identity.revocation_sequence}"
+                ),
+                daemon=True,
+            )
+            self._quiescence_worker = worker
+            worker.start()
+
+    def _autonomy_quiescence_worker_loop(
+        self, identity: QuiescenceIdentity
+    ) -> None:
+        """串行收口 revocation；退出边沿再次检查，避免丢掉第二代任务。"""
+
+        current_identity = identity
+        try:
+            while True:
+                if not self._autonomy_quiescence.acknowledged(
+                    current_identity
+                ):
+                    self._complete_autonomy_quiescence(current_identity)
+                snapshot = self._autonomy_quiescence.snapshot()
+                if snapshot.state is QuiescenceState.FAILED:
+                    return
+                if (
+                    snapshot.identity is not None
+                    and snapshot.identity != current_identity
+                    and self._autonomy_quiescence.active
+                ):
+                    current_identity = snapshot.identity
+                    continue
+                return
+        finally:
+            restart_identity: QuiescenceIdentity | None = None
+            with self._quiescence_worker_lock:
+                if self._quiescence_worker is threading.current_thread():
+                    self._quiescence_worker = None
+                snapshot = self._autonomy_quiescence.snapshot()
+                if (
+                    self._autonomy_quiescence.active
+                    and snapshot.identity is not None
+                ):
+                    restart_identity = snapshot.identity
+            if restart_identity is not None:
+                # 新 revocation 可能落在上一次 loop 的最终快照之后；finally
+                # 重新走同一个原子启动门，保证回调无需依赖固定 sleep 重试。
+                SessionOrchestratorNode._start_autonomy_quiescence_worker(
+                    self, restart_identity
+                )
+
+    def _complete_autonomy_quiescence(
+        self, identity: QuiescenceIdentity
+    ) -> None:
+        """排空 Explore/Nav2、验证 STOP/零速，再向 manager 发送 typed ACK。"""
+
+        deadline = (
+            time.monotonic() + self._autonomy_quiescence_timeout_s
+        )
+
+        def remaining() -> float:
+            value = deadline - time.monotonic()
+            if value <= 0.0:
+                raise TimeoutError(
+                    "autonomy quiescence safety budget exhausted"
+                )
+            return value
+
+        try:
+            if self._autonomy_quiescence.acknowledged(identity):
+                return
+            snapshot = self._autonomy_quiescence.snapshot()
+            if snapshot.identity != identity:
+                raise QuiescenceError(
+                    "quiescence worker identity no longer current"
+                )
+            if snapshot.frontier_required:
+                telemetry = self.quiesce_frontier(
+                    _navigation_safety_stop_request(),
+                    timeout_s=remaining(),
+                )
+                self._autonomy_quiescence.observe_frontier(
+                    status=telemetry.status,
+                    active_goal_count=telemetry.active_goal_count,
+                    accepted_goal_count=telemetry.accepted_goal_count,
+                    terminal_goal_count=(
+                        telemetry.succeeded_goal_count
+                        + telemetry.aborted_goal_count
+                        + telemetry.canceled_goal_count
+                    ),
+                )
+                # 账本结算后才允许回收进程；这里的 stop 只是资源清理，
+                # 绝不会被屏障当成 Explore terminal 的替代证据。
+                self._manager.stop_explorer()
+            self._request_quiescence_priority_stop(
+                identity,
+                timeout_s=remaining(),
+            )
+            self._autonomy_quiescence.wait_ready(
+                timeout_s=remaining()
+            )
+            # READY 与 service ACK 之间显式进入 ACK_IN_FLIGHT。此后任一新
+            # Explore/Nav2/non-zero 证据都会把屏障置为 FAILED，而不是静默退回
+            # WAITING 后让远端 manager 消费一张已经失效的许可。
+            self._autonomy_quiescence.begin_acknowledgement(identity)
+            self._acknowledge_autonomy_quiescence(
+                identity,
+                timeout_s=remaining(),
+            )
+            self._autonomy_quiescence.complete_acknowledgement(identity)
+            self.get_logger().info(
+                "autonomy quiescence acknowledged: "
+                f"epoch={identity.manager_epoch} "
+                f"revocation={identity.revocation_sequence}"
+            )
+        except Exception as exc:
+            # service response 与 authority topic 没有跨通道顺序。若 manager 的
+            # AUTONOMY/下一撤销回调已经权威完成本 identity，迟到 future 异常不应
+            # 反向污染下一代屏障；其余情况一律 fail-closed。
+            if self._autonomy_quiescence.acknowledged(identity):
+                return
+            self._fail_autonomy_quiescence(exc)
+
+    def _request_quiescence_priority_stop(
+        self,
+        identity: QuiescenceIdentity,
+        *,
+        timeout_s: float,
+    ) -> None:
+        """发布与本轮 revocation 绑定的 priority STOP，并等待 exact result。"""
+
+        command_id = (
+            f"quiescence-stop-{identity.manager_epoch}-"
+            f"{identity.revocation_sequence}"
+        )
+        with self._cmd_vel_condition:
+            cmd_vel_generation = self._cmd_vel_generation
+        self._autonomy_quiescence.mark_priority_stop_requested(
+            command_id,
+            cmd_vel_generation=cmd_vel_generation,
+        )
+
+        command = RobotCommand()
+        command.header.stamp = self.get_clock().now().to_msg()
+        command.command_id = command_id
+        command.source = "slam_session_quiescence"
+        command.priority = True
+        command.action_type = RobotCommand.STOP
+        self._agent_action_gateway.run_typed(
+            _navigation_safety_stop_request(),
+            command_id=command_id,
+            publish_command=lambda: self._internal_action_pub.publish(
+                command
+            ),
+            expected_action_name="stop",
+            timeout_s=timeout_s,
+        )
+
+    def _acknowledge_autonomy_quiescence(
+        self,
+        identity: QuiescenceIdentity,
+        *,
+        timeout_s: float,
+    ) -> None:
+        """调用 exact epoch/revocation ACK；服务不可用或拒绝都保持 fail-closed。"""
+
+        client = self._quiescence_ack_client
+        service_type = AcknowledgeAutonomyQuiescence
+        if client is None or service_type is None:
+            raise RuntimeError(
+                "autonomy quiescence ACK service is unavailable"
+            )
+        deadline = time.monotonic() + timeout_s
+        if not client.wait_for_service(timeout_sec=timeout_s):
+            raise TimeoutError(
+                "autonomy quiescence ACK service unavailable"
+            )
+        request = service_type.Request()
+        request.manager_epoch = identity.manager_epoch
+        request.autonomy_revocation_sequence = (
+            identity.revocation_sequence
+        )
+        request.requester = "slam_session_orchestrator"
+        request.detail = (
+            "Explore/Nav2 terminal, priority STOP result and fresh zero "
+            "cmd_vel verified"
+        )
+        response_future = client.call_async(request)
+        completed = threading.Event()
+        response_future.add_done_callback(lambda _future: completed.set())
+        response_timeout_s = max(0.0, deadline - time.monotonic())
+        if not completed.wait(timeout=response_timeout_s):
+            raise TimeoutError(
+                "autonomy quiescence ACK response timeout"
+            )
+        response = response_future.result()
+        if response is None or not bool(response.accepted):
+            message = (
+                "empty response"
+                if response is None
+                else str(response.message)
+            )
+            raise RuntimeError(
+                f"autonomy quiescence ACK rejected: {message}"
+            )
+        state = response.state
+        if (
+            int(state.manager_epoch) != identity.manager_epoch
+            or int(state.pending_autonomy_revocation_sequence)
+            != identity.revocation_sequence
+            or not bool(state.autonomy_quiescence_acknowledged)
+        ):
+            raise RuntimeError(
+                "autonomy quiescence ACK returned stale state"
+            )
+
+    def _fail_autonomy_quiescence(self, error: BaseException) -> None:
+        reason = f"autonomy quiescence failed: {error}"
+        self._autonomy_quiescence.fail(reason)
+        with self._state_lock:
+            self._mission_outcome = SlamSessionState.MISSION_FAILED
+            self._mission_message = reason
+        # timeout、manager 重启或任一终态缺失都不能回到 MAPPING/NAVIGATING；
+        # FAILED 会阻止“按 R 恢复后旧任务继续跑”的假恢复。
+        self.transition(SessionPhase.FAILED, detail=reason)
+        self.get_logger().error(reason)
+
+    def _check_authority_lease(self) -> None:
+        if not self._authority_gate_enabled:
+            return
+        with self._state_lock:
+            authority = self._authority_lease.authority
+            fresh = self._authority_lease.fresh(time.monotonic())
+            already_reported = getattr(
+                self, "_authority_lease_failure_reported", False
+            )
+            if authority == AUTONOMY and not fresh and not already_reported:
+                self._authority_lease_failure_reported = True
+                should_fail = True
+            else:
+                should_fail = False
+        if should_fail:
+            SessionOrchestratorNode._cancel_active_automatic_mission(
+                self, "authority_lease_expired"
+            )
+            self._fail_autonomy_quiescence(
+                TimeoutError(
+                    "authority manager lease expired before typed revocation"
+                )
             )
 
     def _execute_action(self, goal_handle):
@@ -2489,12 +3173,32 @@ class SessionOrchestratorNode(Node):
         # 两个几乎同时到达的 ASR final 都基于旧 MAPPING 状态被接受。
         with self._state_lock:
             accepted, reason = self._fsm.validate(request.command)
-        if not accepted:
-            request.message = reason
-            request.completed.set()
-            return
-        self._operation_active.set()
-        self._active_request = request
+            if (
+                accepted
+                and getattr(self, "_authority_gate_enabled", False)
+                and request.command
+                == SessionCommand.RUN_AUTOMATIC_MISSION
+                and (
+                    not self._authority_lease.fresh_autonomy(
+                        time.monotonic()
+                    )
+                    or request.authority_generation
+                    != self._authority_lease.generation
+                )
+            ):
+                accepted = False
+                reason = (
+                    "automatic mission authority generation expired "
+                    "before execution"
+                )
+            if not accepted:
+                request.message = reason
+                request.completed.set()
+                return
+            # 安装 active request 与 authority 二次检查必须在同一把锁内：
+            # 切权回调要么先改变 generation 令本请求失败，要么随后看见本请求并取消。
+            self._operation_active.set()
+            self._active_request = request
         # 每条 request 独立记录阶段启动故障，避免上一轮失败污染下一轮状态。
         self._navigation_startup_failure_pending = False
         try:
@@ -2537,6 +3241,53 @@ class SessionOrchestratorNode(Node):
                 request.message = "session command completed"
         except AutomaticMissionCancelled as exc:
             request.message = str(exc)
+            revocation = request.authority_revocation_identity
+            if (
+                request.command == SessionCommand.RUN_AUTOMATIC_MISSION
+                and revocation is not None
+            ):
+                identity = QuiescenceIdentity(*revocation)
+                # 用户任务 worker 保持 `_operation_active`，直到后台安全 worker
+                # 完成 exact ACK/FAILED。这样保存地图或切换 Nav2 stage 不会在
+                # Explore/Nav2 result 尚未结算时抢跑。
+                self.transition(
+                    SessionPhase.QUIESCING,
+                    detail=(
+                        "automatic mission canceled; waiting for control "
+                        "authority quiescence ACK"
+                    ),
+                )
+                try:
+                    self._autonomy_quiescence.wait_acknowledged(
+                        identity,
+                        timeout_s=self._autonomy_quiescence_timeout_s,
+                    )
+                except Exception as quiescence_error:
+                    if (
+                        self._autonomy_quiescence.snapshot().state
+                        is not QuiescenceState.FAILED
+                    ):
+                        self._fail_autonomy_quiescence(quiescence_error)
+            quiescence_failed = (
+                self._autonomy_quiescence.snapshot().state
+                is QuiescenceState.FAILED
+            )
+            if (
+                request.command == SessionCommand.RUN_AUTOMATIC_MISSION
+                and quiescence_failed
+            ):
+                request.message = (
+                    self._autonomy_quiescence.snapshot().failure_reason
+                    or request.message
+                )
+                self._mission_outcome = SlamSessionState.MISSION_FAILED
+                self._mission_message = request.message
+                self.transition(
+                    SessionPhase.FAILED,
+                    detail=request.message,
+                )
+                self.get_logger().error(request.message)
+                return
             if request.command == SessionCommand.RUN_AUTOMATIC_MISSION:
                 self._mission_outcome = SlamSessionState.MISSION_CANCELED
                 self._mission_message = request.message
@@ -2575,7 +3326,11 @@ class SessionOrchestratorNode(Node):
             self.get_logger().error(request.message)
         finally:
             self._navigation_startup_failure_pending = False
-            self._active_request = None
+            with self._state_lock:
+                # 只清除本 worker 安装的 request；并发控制权回调只能标 canceled，
+                # 不能把下一轮请求或别的测试 fake 覆盖掉。
+                if self._active_request is request:
+                    self._active_request = None
             self._operation_active.clear()
             request.completed.set()
 

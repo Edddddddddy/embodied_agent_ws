@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <optional>
 #include <string>
 #include <vector>
@@ -12,18 +13,57 @@
 namespace embodied_simulation
 {
 
+using StopClock = std::chrono::steady_clock;
+using StopTimePoint = StopClock::time_point;
+
+enum class StopExecutionState
+{
+  kStopping,
+  kQuiesced,
+  kFailed,
+  kTimedOut,
+};
+
+struct StopExecutionUpdate
+{
+  StopExecutionState state{StopExecutionState::kQuiesced};
+  std::string detail{"executor_quiesced"};
+
+  bool terminal() const {return state != StopExecutionState::kStopping;}
+  bool succeeded() const {return state == StopExecutionState::kQuiesced;}
+};
+
+inline ActionExecutionUpdate stop_as_action_update(const StopExecutionUpdate & update)
+{
+  switch (update.state) {
+    case StopExecutionState::kStopping:
+      return {ActionExecutionState::kRunning, 0.0};
+    case StopExecutionState::kQuiesced:
+      return {ActionExecutionState::kSucceeded, 1.0};
+    case StopExecutionState::kTimedOut:
+      return {ActionExecutionState::kTimedOut, 1.0};
+    case StopExecutionState::kFailed:
+      return {ActionExecutionState::kBlocked, 1.0};
+  }
+  return {ActionExecutionState::kBlocked, 1.0};
+}
+
 class RobotExecutor
 {
 public:
   virtual ~RobotExecutor() = default;
 
-  // 插件契约：execute/step 不得长时间阻塞 ROS executor；stop 必须幂等并立即归零。
+  // 插件契约：execute/step/request_stop 均不得长时间阻塞 ROS executor。
+  // 对本地速度执行器，request_stop 可同步归零；对 Nav2 等外部 Action Server，
+  // request_stop 只发起取消，调用方必须持续 poll_stop，直到收到 terminal result。
   // Gazebo 与 mock 两个 adapter 共同证明这个 pluginlib seam 是真实可替换点。
   virtual void configure(const ControllerConfig & config) = 0;
   virtual bool execute(
     const embodied_agent_interfaces::msg::RobotCommand & command,
     double now_s) = 0;
-  virtual void stop() = 0;
+  virtual void request_stop(StopTimePoint requested_at) = 0;
+  virtual StopExecutionUpdate poll_stop(StopTimePoint now) = 0;
+  virtual bool is_quiesced() const = 0;
   virtual void update_scan(
     const std::vector<float> & ranges,
     double angle_min,

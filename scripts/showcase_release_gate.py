@@ -133,6 +133,10 @@ ROBOTICS_COMMANDS: tuple[tuple[str, str], ...] = (
         "bash scripts/acceptance_test.sh continuous-multi-command",
     ),
     (
+        "robotics_control_authority",
+        "bash scripts/acceptance_test.sh control-authority-stage",
+    ),
+    (
         "robotics_nav2_stage",
         "bash scripts/acceptance_test.sh nav2-stage",
     ),
@@ -178,6 +182,7 @@ EVIDENCE_KIND_BY_COMMAND = {
     "robotics_repository_and_agent_units": "ci_compatible",
     "robotics_cpp_packages": "cpp_ros",
     "robotics_continuous_multi_command": "mock_ros",
+    "robotics_control_authority": "ros_stage",
     "robotics_nav2_stage": "mock_ros",
     "robotics_slam_public_bag": "public_bag",
     "robotics_dynamic_obstacle": "mock_ros",

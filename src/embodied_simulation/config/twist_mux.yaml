@@ -1,0 +1,15 @@
+# twist_mux 只仲裁两个“自治速度”来源；人工/急停权限由 typed C++ gate 统一处理。
+twist_mux:
+  ros__parameters:
+    # Jazzy 的 Nav2 与当前键盘/语音节点发布 geometry_msgs/Twist；
+    # 显式关闭新版 twist_mux 的 TwistStamped 默认值，避免同名 topic 类型不匹配。
+    use_stamped: false
+    topics:
+      nav2:
+        topic: /control/nav2/cmd_vel
+        timeout: 0.5
+        priority: 50
+      voice:
+        topic: /control/voice/cmd_vel
+        timeout: 0.5
+        priority: 70

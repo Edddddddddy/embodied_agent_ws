@@ -38,6 +38,11 @@ class CommandRequest:
     success: bool = False
     message: str = ""
     canceled: bool = False
+    # 只对受控自动任务赋值；worker 启动前必须仍与当前 authority generation 一致。
+    authority_generation: int | None = None
+    # 控制权撤销时绑定 exact manager epoch/revocation。任务 worker 必须等这一代
+    # 静默 ACK/FAILED 后才能释放 stage 互斥，不能让 SAVE/START_NAV 抢跑。
+    authority_revocation_identity: tuple[int, int] | None = None
 
 
 class AutomaticMissionCancelled(RuntimeError):
@@ -104,6 +109,13 @@ class MissionRuntimePort(Protocol):
     ) -> None: ...
 
     def wait_for_frontier(self, request: CommandRequest) -> None: ...
+
+    def quiesce_frontier(
+        self,
+        request: CommandRequest,
+        *,
+        timeout_s: float,
+    ) -> FrontierTelemetry: ...
 
     def save_map(self, request: CommandRequest) -> None: ...
 
@@ -519,6 +531,25 @@ class AutomaticMissionExecutor:
         self._manager.start_explorer(self._spec.explorer_config_path)
         try:
             self._runtime.wait_for_frontier(request)
+        except BaseException as primary_error:
+            try:
+                # 旧流程只在 finally 中杀进程，可能丢失 Explore owner Action
+                # 的 terminal callback。先排空账本，失败则把原因附着到主异常。
+                self._runtime.quiesce_frontier(
+                    CommandRequest(
+                        command=SessionCommand.STOP_SESSION,
+                        source="automatic_frontier_quiescence",
+                    ),
+                    timeout_s=self._spec.bootstrap_action_timeout_s,
+                )
+            except BaseException as cleanup_error:
+                add_note = getattr(primary_error, "add_note", None)
+                if callable(add_note):
+                    add_note(
+                        "frontier ledger quiescence failed: "
+                        f"{cleanup_error}"
+                    )
+            raise
         finally:
             # 任何失败或取消都必须停 explorer，否则定位阶段仍会收到旧目标。
             self._manager.stop_explorer()
@@ -732,6 +763,21 @@ class UnknownWorldMissionExecutor:
                 add_note(f"{stage}: {cleanup_error}")
 
         if stop_explorer:
+            try:
+                # 进程退出不是 Explore goal 的 terminal 证据。先通过控制面暂停并
+                # 排空 owner ledger；即使失败也只记录为清理错误，原始异常仍保留。
+                self._runtime.quiesce_frontier(
+                    CommandRequest(
+                        command=SessionCommand.STOP_SESSION,
+                        source="frontier_failure_quiescence",
+                    ),
+                    timeout_s=self._spec.action_timeout_s,
+                )
+            except BaseException as cleanup_error:
+                add_cleanup_note(
+                    "frontier ledger quiescence failed",
+                    cleanup_error,
+                )
             try:
                 self._manager.stop_explorer()
             except BaseException as cleanup_error:

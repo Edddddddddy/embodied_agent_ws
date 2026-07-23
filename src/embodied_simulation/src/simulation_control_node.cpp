@@ -166,7 +166,7 @@ protected:
       finish_active_action(ActionExecutionState::kCanceled, "deactivated");
     }
     if (executor_) {
-      executor_->stop();
+      executor_->request_stop(StopClock::now());
     }
     ros_io_->publish_zero_velocity();
     if (timer_) {
@@ -191,7 +191,7 @@ protected:
   CallbackReturn on_shutdown(const rclcpp_lifecycle::State &) override
   {
     if (executor_) {
-      executor_->stop();
+      executor_->request_stop(StopClock::now());
     }
     reset_interfaces();
     executor_.reset();
@@ -244,6 +244,7 @@ private:
     config.autonomous_linear_speed = double_parameter("autonomous_linear_speed", 0.14);
     config.obstacle_turn_speed = double_parameter("obstacle_turn_speed", 0.65);
     config.scan_timeout = double_parameter("scan_timeout", 0.50);
+    config.stop_timeout_s = double_parameter("stop_timeout_s", 3.0);
     config.wall_kp = double_parameter("wall_kp", 1.8);
     config.wall_ki = double_parameter("wall_ki", 0.0);
     config.wall_kd = double_parameter("wall_kd", 0.15);
@@ -266,6 +267,16 @@ private:
     }
     if (!is_executable_robot_command(goal->command) && !behavior_tree_) {
       RCLCPP_WARN(get_logger(), "rejected unsupported typed action goal");
+      return rclcpp_action::GoalResponse::REJECT;
+    }
+    using Command = embodied_agent_interfaces::msg::RobotCommand;
+    const bool is_stop =
+      goal->command.action_type == Command::STOP ||
+      goal->command.action_type == Command::CANCEL_NAVIGATION;
+    if (!is_stop && executor_ && !executor_->is_quiesced()) {
+      // 上一个 Nav2 goal 未收到 terminal 前，普通命令不能重新获得速度控制权；
+      // STOP/CANCEL 仍可进入，以便调用方等待真正的 quiescence。
+      RCLCPP_WARN(get_logger(), "rejected goal while executor is not quiesced");
       return rclcpp_action::GoalResponse::REJECT;
     }
     return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
@@ -294,21 +305,11 @@ private:
     const auto & command = goal_handle->get_goal()->command;
     using Command = embodied_agent_interfaces::msg::RobotCommand;
     if (command.action_type == Command::STOP) {
-      executor_->stop();
-      if (executor_->publishes_cmd_vel()) {
-        ros_io_->publish_zero_velocity();
-      }
-      finish_immediate_action(goal_handle, true, "stopped");
-      publish_action_ack("stop", "accepted");
+      start_stop_action(goal_handle, "stop");
       return;
     }
     if (command.action_type == Command::CANCEL_NAVIGATION) {
-      executor_->stop();
-      if (executor_->publishes_cmd_vel()) {
-        ros_io_->publish_zero_velocity();
-      }
-      finish_immediate_action(goal_handle, true, "navigation_canceled");
-      publish_action_ack("cancel_navigation", "accepted");
+      start_stop_action(goal_handle, "cancel_navigation");
       return;
     }
     if (command.action_type == Command::SET_MODE) {
@@ -423,6 +424,49 @@ private:
     }
   }
 
+  void start_stop_action(
+    const std::shared_ptr<GoalHandle> & goal_handle,
+    const std::string & action_name)
+  {
+    const auto requested_at = StopClock::now();
+    executor_->request_stop(requested_at);
+    if (executor_->publishes_cmd_vel()) {
+      // 本地速度 adapter 可立即归零；Nav2 adapter 没有 /cmd_vel 写权限，
+      // 必须等待其 Action terminal，而不是额外抢写速度话题。
+      ros_io_->publish_zero_velocity();
+    }
+    const auto stop = executor_->poll_stop(requested_at);
+    if (stop.succeeded()) {
+      finish_immediate_action(goal_handle, true, stop.detail);
+      publish_action_ack(action_name, "accepted", stop.detail);
+      return;
+    }
+    if (stop.terminal()) {
+      finish_immediate_action(goal_handle, false, stop.detail);
+      publish_action_ack(action_name, "rejected", stop.detail);
+      return;
+    }
+
+    active_goal_ = goal_handle;
+    action_active_ = true;
+    if (behavior_tree_) {
+      behavior_tree_->start(goal_handle->get_goal()->command);
+      const auto initial = behavior_tree_->tick(
+        false, ActionExecutionState::kRunning, stop.detail);
+      publish_bt_status(initial);
+    }
+    // STOP 自身由 executor 的 quiescence 状态驱动；本地 hard timeout 只作为
+    // 第二道保险，不能用固定 sleep 代替底层 NavigateToPose result。
+    action_runtime_->start(
+      action_name, action_timeout_s_ + 1.0, action_timeout_s_,
+      now_seconds(), true);
+    publish_action_feedback(
+      ExecuteRobotCommand::Feedback::PHASE_STOPPING, 0.0F, stop.detail);
+    // ACK 仅表示 STOP 请求已被本节点接受；是否真正停止仍以 typed Action
+    // terminal result 为准，等待期间通过 PHASE_STOPPING 持续反馈。
+    publish_action_ack(action_name, "accepted", "stopping;" + stop.detail);
+  }
+
   void clear_pending_long_action()
   {
     // BT 校验发生在 executor 接受之前；启动失败时必须同时清掉诊断状态，
@@ -453,7 +497,7 @@ private:
     if (!active_goal_) {
       return;
     }
-    executor_->stop();
+    executor_->request_stop(StopClock::now());
     // reset 前先保存名称，确保最终 ACK 仍能关联到刚完成的 goal。
     const std::string action_name = action_runtime_ ?
       action_runtime_->action_name() : "unknown";
@@ -496,17 +540,28 @@ private:
     input.safety_stopped = output.safety_stopped;
     input.safety_reason = output.reason;
     if (action_runtime_->uses_external_result()) {
-      // Nav2 是外部 Action Server，完成/失败以其 result 为准；本地计时只负责
-      // 进度下限和最终超时，避免 duration_s 到点便错误宣告到达目标。
-      input.external_update = executor_->external_action_update();
-      input.external_detail = executor_->external_action_detail();
+      const auto action_name = action_runtime_->action_name();
+      if (action_name == "stop" || action_name == "cancel_navigation") {
+        const auto stop = executor_->poll_stop(StopClock::now());
+        input.external_update = stop_as_action_update(stop);
+        input.external_detail = stop.detail;
+      } else {
+        // Nav2 是外部 Action Server，完成/失败以其 result 为准；本地计时只负责
+        // 进度下限和最终超时，避免 duration_s 到点便错误宣告到达目标。
+        input.external_update = executor_->external_action_update();
+        input.external_detail = executor_->external_action_detail();
+      }
     }
     const auto decision = action_runtime_->update(input);
     if (decision.tree_result) {
       publish_bt_status(*decision.tree_result);
     }
     if (!decision.terminal()) {
+      const bool stopping =
+        action_runtime_->action_name() == "stop" ||
+        action_runtime_->action_name() == "cancel_navigation";
       publish_action_feedback(
+        stopping ? ExecuteRobotCommand::Feedback::PHASE_STOPPING :
         ExecuteRobotCommand::Feedback::PHASE_EXECUTING,
         static_cast<float>(decision.progress), decision.detail);
       return false;
@@ -528,12 +583,15 @@ private:
     if (!is_active()) {
       return;
     }
-    executor_->stop();
+    executor_->request_stop(StopClock::now());
     if (executor_->publishes_cmd_vel()) {
       ros_io_->publish_zero_velocity();
     }
     publish_mode();
-    publish_action_ack("stop", "accepted", "emergency_stop");
+    const auto stop = executor_->poll_stop(StopClock::now());
+    publish_action_ack(
+      "stop", "accepted",
+      "emergency_stop;" + stop.detail);
     RCLCPP_WARN(get_logger(), "emergency stop received; switched to manual");
   }
 
