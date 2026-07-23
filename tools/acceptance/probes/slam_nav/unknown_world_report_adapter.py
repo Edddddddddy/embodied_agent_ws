@@ -44,6 +44,14 @@ def build_session_report(
 ) -> dict[str, object]:
     """在一个边界内完成 ROS snapshot → evaluator domain 的转换。"""
 
+    source_dirty_value = os.environ.get("ACCEPTANCE_SOURCE_DIRTY")
+    source_dirty = (
+        True
+        if source_dirty_value == "true"
+        else False
+        if source_dirty_value == "false"
+        else None
+    )
     amcl_samples, gazebo_samples, gazebo_truth_error = (
         node.localization_evidence()
     )
@@ -126,11 +134,7 @@ def build_session_report(
         source_revision=os.environ.get(
             "ACCEPTANCE_SOURCE_REVISION", ""
         ),
-        source_dirty=(
-            os.environ.get("ACCEPTANCE_SOURCE_DIRTY") == "true"
-            if os.environ.get("ACCEPTANCE_SOURCE_DIRTY") is not None
-            else None
-        ),
+        source_dirty=source_dirty,
     )
     return build_unknown_world_report(
         observation,

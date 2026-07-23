@@ -51,6 +51,13 @@ def test_source_revision_environment_binds_clean_and_dirty_git_state(tmp_path):
     ] == "true"
 
 
+def test_source_revision_environment_marks_source_archive_unknown(tmp_path):
+    assert _source_revision_environment(tmp_path) == {
+        "ACCEPTANCE_SOURCE_REVISION": "unavailable",
+        "ACCEPTANCE_SOURCE_DIRTY": "unknown",
+    }
+
+
 def test_live_voice_profile_enables_real_audio_without_startup_utterance_race():
     profile = UnknownWorldRunProfile.live_voice("offline")
 
