@@ -64,6 +64,7 @@ flowchart LR
 | `src/embodied_simulation` | BT、pluginlib、Gazebo/Nav2 executor 与场景 |
 | `src/embodied_slam_tools` | 自动建图任务、证据状态与阶段进程 |
 | `src/embodied_slam` / `src/embodied_navigation` | SLAM 后端/回环与动态障碍算法 |
+| `Dockerfile` / `compose.yaml` / `docker` | 多阶段构建、容器测试门禁与运行镜像入口 |
 | `tools/acceptance` | 验收注册表、session、probe、evaluator 与报告判定 |
 | `tests` | pytest/GTest、仓库契约和确定性 evaluation |
 
@@ -88,8 +89,18 @@ bash scripts/acceptance_test.sh offline-runtime-versions
 
 在线模式在 `.env` 配置 `DASHSCOPE_API_KEY`。密钥、模型、`build/install/log` 不提交 Git。
 
-本阶段扩展了 `SlamSessionState`、`SlamMappingCompletionEvidence` 等 SLAM 证据接口；切换分支后须全量
-重建，旧 overlay/rosbag 不能作为当前证据。
+### Docker 构建与可追溯交付
+
+```bash
+docker compose build test && docker compose run --rm test
+docker compose build runtime-smoke && docker compose run --rm runtime-smoke
+```
+
+PR 和 `dev/main` push 执行相同容器门禁；合入 `main` 后的稳定 SemVer 标签才允许发布 GHCR 运行镜像，
+并保存 digest、Git revision、OCI labels 和发布 manifest。详见 [Docker 与交付流程](docs/deployment/CONTAINER_DELIVERY.md)。
+
+本阶段扩展了 `SlamSessionState`、`SlamMappingCompletionEvidence` 等 SLAM 证据接口；ROS 2 接口
+type hash 已变化。切换分支后须全量重建依赖包，旧 overlay 或旧 rosbag 不能作为当前证据。
 
 ```bash
 # 重新配置全部自有包；不在文档里提供可能误删其他 worktree 的递归删除命令。
@@ -110,26 +121,11 @@ HEADLESS=false USE_RVIZ=true \
   bash scripts/acceptance_test.sh unknown-world-slam-e2e
 ```
 
-机器人运行时不读取真值地图、bootstrap 路线或预生成语义坐标。验收要求本次地图覆盖可达自由空间、
-frontier 完整终止、AMCL 与 Gazebo evaluator-only truth 对齐、从本次已知自由区采样至少 3 个目标并
-成功导航、动态障碍重规划以及最终零速度。证据写入：
-
-all-blacklisted 先等 `20 s` goal handoff；只有 typed attempts exhaustion/no-clearance 且 Action 账本排空，
-才允许碰撞检查 BackUp 和 odom 位移验证。硬预算不是成功：系统先优雅暂停 Explorer、排空 Action、执行
-一次 final probe；只有多轮单位目标收益递减且 evaluator 仍满足原地图质量门槛，才允许近似收口。
-
-探索结束后，机器人会在 mapping stage 内返回动态捕获的起点、复核 TF/零速并等待回环尾帧后存图。
-map_saver 返回后再执行 typed STOP 并观察真实新零速，才切换 AMCL/Nav2；起点不写死，也不读取 truth。
-
-```text
-logs/acceptance/unknown_world_slam_nav/<session_id>/unknown_world_slam_e2e_report.json
-logs/acceptance/unknown_world_slam_nav/<session_id>/runtime.log
-logs/acceptance/unknown_world_slam_nav/<session_id>/acceptance_session.json
-```
-
-报告必须是 schema v4、`evidence_kind=unknown_world_slam_nav_dynamic_replan` 且所有 checks 为 true。
-`20260720T165331Z-1770278-a421b687` 仅为旧 strict 基线；当前 Goal 的可视化验收步骤、完整门槛和失败链见
-[TESTING.md](docs/TESTING.md) 与 [Navigation 证据索引](docs/evidence/navigation/README.md)。
+机器人运行时不读取真值地图、bootstrap 路线或预生成语义坐标；truth 只由验收结束后的 evaluator 使用。
+任务需完成可达空间探索、动态起点返航、本次地图定位、至少 3 个运行时采样目标、动态重规划和最终零速。
+证据保存在 `logs/acceptance/unknown_world_slam_nav/<session_id>`；报告必须为 schema v4 且全部 checks
+为 true。探索收口、typed STOP、地图质量门槛和失败链见 [TESTING.md](docs/TESTING.md) 与
+[Navigation 证据索引](docs/evidence/navigation/README.md)。
 
 ### 2. 真人语音 + unknown-world 联合验收（待现场）
 
@@ -204,6 +200,7 @@ bash scripts/acceptance_test.sh robotics-gate
 
 - [系统架构与调用关系](docs/ARCHITECTURE.md)
 - [测试与验收契约](docs/TESTING.md)
+- [Docker 与交付流程](docs/deployment/CONTAINER_DELIVERY.md)
 - [SLAM/Nav2 学习笔记](docs/learning/SLAM_NAV2.md)
 - [语音 Agent 学习笔记](docs/learning/VOICE_AGENT.md)
 - [ROS 2/C++ 控制学习笔记](docs/learning/ROS2_CPP_CONTROL.md)

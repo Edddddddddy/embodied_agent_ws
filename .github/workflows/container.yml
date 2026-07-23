@@ -1,0 +1,230 @@
+name: Container Delivery
+
+on:
+  pull_request:
+    branches: [main, dev]
+  push:
+    branches: [main, dev]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  container-test:
+    name: Build and test container
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Validate Compose model
+        run: docker compose config --quiet
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Build test image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          target: test
+          load: true
+          push: false
+          tags: embodied-agent:test
+          cache-from: type=gha,scope=embodied-agent
+          cache-to: type=gha,mode=max,scope=embodied-agent
+
+      - name: Run Colcon and core tests inside container
+        run: docker compose run --rm --no-deps test
+
+      - name: Build and verify source-free runtime image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          target: runtime
+          load: true
+          push: false
+          tags: embodied-agent:runtime
+          cache-from: type=gha,scope=embodied-agent
+
+      - name: Run runtime installation smoke
+        run: docker compose run --rm --no-deps runtime-smoke
+
+  publish:
+    name: Publish versioned runtime image
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: container-test
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: container-publish
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+
+      - name: Require the release revision to belong to main
+        run: |
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+      - name: Require a stable SemVer release tag
+        shell: bash
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Release tags must be stable SemVer, for example v0.4.0" >&2
+            exit 1
+          fi
+
+      - name: Resolve lowercase GHCR image name
+        id: image
+        shell: bash
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate version tags and OCI labels
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: ${{ steps.image.outputs.name }}
+          flavor: latest=false
+          tags: |
+            type=ref,event=tag
+            type=sha,format=long
+            type=raw,value=latest
+          labels: |
+            org.opencontainers.image.title=Embodied Voice Agent for ROS 2
+            org.opencontainers.image.description=ROS 2 Jazzy voice agent and navigation runtime
+            org.opencontainers.image.documentation=https://github.com/${{ github.repository }}/blob/${{ github.sha }}/docs/deployment/CONTAINER_DELIVERY.md
+            org.opencontainers.image.licenses=Apache-2.0
+
+      # 先按 digest 推送候选物；只有这个不可变产物通过 smoke 后才赋予版本标签。
+      - name: Build and push candidate by digest
+        id: push
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: Dockerfile
+          target: runtime
+          outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
+            VCS_REF=${{ github.sha }}
+            VERSION=${{ github.ref_name }}
+            SOURCE_URL=https://github.com/${{ github.repository }}
+          cache-from: type=gha,scope=embodied-agent
+          provenance: mode=max
+          sbom: true
+
+      - name: Smoke the exact candidate digest
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          docker pull "${IMAGE}@${DIGEST}"
+          docker run --rm --init "${IMAGE}@${DIGEST}" /opt/embodied/bin/runtime-smoke
+
+      - name: Promote verified digest to release tags
+        id: promote
+        shell: bash
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          immutable_tags=(
+            "${IMAGE}:${GITHUB_REF_NAME}"
+            "${IMAGE}:sha-${GITHUB_SHA}"
+          )
+          for tag in "${immutable_tags[@]}"; do
+            if inspection="$(docker buildx imagetools inspect "$tag" 2>&1)"; then
+              existing_digest="$(awk '$1 == "Digest:" {print $2; exit}' <<< "$inspection")"
+              if [[ "$existing_digest" != "$DIGEST" ]]; then
+                echo "refusing to overwrite immutable tag ${tag}: ${existing_digest:-unknown} != ${DIGEST}" >&2
+                exit 1
+              fi
+            else
+              inspect_status=$?
+              if grep -Eqi 'manifest unknown|name unknown|not found|no such manifest' <<< "$inspection"; then
+                continue
+              fi
+              echo "unable to inspect immutable tag ${tag}; refusing unsafe promotion" >&2
+              printf '%s\n' "$inspection" >&2
+              exit "$inspect_status"
+            fi
+          done
+          tags=(
+            "${immutable_tags[@]}"
+            "${IMAGE}:latest"
+          )
+          args=()
+          for tag in "${tags[@]}"; do
+            args+=(--tag "$tag")
+          done
+          docker buildx imagetools create "${args[@]}" "${IMAGE}@${DIGEST}"
+          for tag in "${immutable_tags[@]}"; do
+            promoted="$(docker buildx imagetools inspect "$tag")"
+            promoted_digest="$(awk '$1 == "Digest:" {print $2; exit}' <<< "$promoted")"
+            if [[ "$promoted_digest" != "$DIGEST" ]]; then
+              echo "promoted immutable tag does not resolve to candidate digest: ${tag} -> ${promoted_digest:-unknown}" >&2
+              exit 1
+            fi
+          done
+          {
+            echo 'tags<<EOF'
+            printf '%s\n' "${tags[@]}"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Record immutable release evidence
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+          TAGS: ${{ steps.promote.outputs.tags }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          evidence = {
+              "schema_version": 1,
+              "image": os.environ["IMAGE"],
+              "digest": os.environ["DIGEST"],
+              "tags": os.environ["TAGS"].splitlines(),
+              "source_revision": os.environ["GITHUB_SHA"],
+              "source_ref": os.environ["GITHUB_REF"],
+              "workflow_run": (
+                  f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}"
+                  f"/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+              ),
+          }
+          with open("container-release-manifest.json", "w", encoding="utf-8") as stream:
+              json.dump(evidence, stream, ensure_ascii=False, indent=2)
+          PY
+          {
+            echo "### Container release"
+            echo "- Image: \`${IMAGE}\`"
+            echo "- Digest: \`${DIGEST}\`"
+            echo "- Revision: \`${GITHUB_SHA}\`"
+            echo "- Tag: \`${GITHUB_REF_NAME}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload container release manifest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: container-release-manifest
+          path: container-release-manifest.json
+          if-no-files-found: error
+          retention-days: 90

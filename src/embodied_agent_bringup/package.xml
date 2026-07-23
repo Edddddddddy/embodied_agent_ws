@@ -2,9 +2,11 @@
 <package format="3">
   <name>embodied_agent_bringup</name>
   <version>0.1.0</version>
-  <description>Reusable launch contracts for Agent, voice frontend, safety and hardware topology</description>
+  <description>Reusable launch and lifecycle contracts for the embodied agent stack</description>
   <maintainer email="Edddddddddy@users.noreply.github.com">Edddddddddy</maintainer>
   <license>Apache-2.0</license>
+
+  <!-- 新环境依赖 rosdep 解析整个工作区；清单必须完整描述 launch 运行时依赖。 -->
   <buildtool_depend>ament_python</buildtool_depend>
   <exec_depend>embodied_agent_core</exec_depend>
   <exec_depend>embodied_agent_cpp</exec_depend>
@@ -12,6 +14,10 @@
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>nav2_lifecycle_manager</exec_depend>
+
   <test_depend>python3-pytest</test_depend>
-  <export><build_type>ament_python</build_type></export>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
 </package>

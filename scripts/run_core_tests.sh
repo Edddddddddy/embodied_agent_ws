@@ -50,11 +50,20 @@ CORE_TEST_PACKAGES=(
   embodied_navigation
 )
 
-# --allow-overriding 只声明 overlay 规则，并不会筛选构建包；必须显式
-# --packages-select，否则 core 会误编译整个工作区并把第三方仓库的 lint 债务混入结果。
-colcon build --symlink-install \
-  --packages-select "${CORE_CPP_PACKAGES[@]}" \
-  --allow-overriding "${CORE_CPP_PACKAGES[@]}"
+# Docker build 阶段已经完成普通 install 的全工作区构建；测试阶段不能在同一
+# build 目录切换为 symlink-install。宿主机默认仍增量重建，容器显式关闭此步骤。
+if [[ "${EMBODIED_CORE_REBUILD:-true}" == "true" ]]; then
+  COLCON_OVERRIDE_ARGS=()
+  # --allow-overriding 来自可选的 colcon-override-check 插件；开发机有该插件时消除
+  # overlay 警告，最小环境没有插件时则安全省略。参数必须放在 packages-select 前。
+  if colcon build --help 2>&1 | grep -q -- '--allow-overriding'; then
+    COLCON_OVERRIDE_ARGS=(--allow-overriding "${CORE_CPP_PACKAGES[@]}")
+  fi
+  colcon build --symlink-install \
+    "${COLCON_OVERRIDE_ARGS[@]}" \
+    --packages-select "${CORE_CPP_PACKAGES[@]}" \
+    --executor sequential
+fi
 colcon test --packages-select "${CORE_TEST_PACKAGES[@]}" \
   --event-handlers console_direct+
 

@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# 先验证交付边界：运行镜像必须使用非 root 用户，也不能携带工作区 checkout、
+# build 或 test 树。这里检查的是仓库树，不把已安装到 prefix 的 Python 文件误报为源码。
+if [[ "$(id -u)" -eq 0 ]]; then
+  echo "ERROR: runtime image must not run as root" >&2
+  exit 1
+fi
+for forbidden_tree in /workspace/src /workspace/build /tmp/context/src; do
+  if [[ -e "${forbidden_tree}" ]]; then
+    echo "ERROR: runtime image contains forbidden tree: ${forbidden_tree}" >&2
+    exit 1
+  fi
+done
+if [[ ! -r /licenses/LICENSE ]]; then
+  echo "ERROR: runtime image does not contain its Apache-2.0 license text" >&2
+  exit 1
+fi
+
+# 再通过安装索引、typed Action 和 Python provider 三个层面证明产物可加载；
+# smoke 不启动 Gazebo GUI，图形仿真仍由宿主机专项验收负责。
+ros2 pkg prefix embodied_agent_interfaces >/dev/null
+ros2 pkg prefix embodied_agent_cpp >/dev/null
+ros2 interface show embodied_agent_interfaces/action/ExecuteRobotCommand >/dev/null
+python3 -c "import rclpy, sherpa_onnx; print('runtime Python providers: PASS')"
+echo "PASS: embodied agent runtime image is loadable"
