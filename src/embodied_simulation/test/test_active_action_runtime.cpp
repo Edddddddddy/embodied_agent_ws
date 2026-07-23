@@ -1,6 +1,7 @@
 #include "gtest/gtest.h"
 
 #include "embodied_simulation/active_action_runtime.hpp"
+#include "embodied_simulation/robot_executor.hpp"
 
 namespace
 {
@@ -9,6 +10,9 @@ using embodied_simulation::ActionExecutionState;
 using embodied_simulation::ActionExecutionUpdate;
 using embodied_simulation::ActiveActionInput;
 using embodied_simulation::ActiveActionRuntime;
+using embodied_simulation::StopExecutionState;
+using embodied_simulation::StopExecutionUpdate;
+using embodied_simulation::stop_as_action_update;
 
 const char * kTreeXml = R"(
 <root BTCPP_format="4" main_tree_to_execute="CommandExecution">
@@ -76,6 +80,57 @@ TEST(ActiveActionRuntimeTest, CancellationAndTimeoutHaveStableDetails)
   const auto decision = timed_out.update({1.0, false, false, "moving", {}, ""});
   EXPECT_EQ(decision.state, ActionExecutionState::kTimedOut);
   EXPECT_EQ(decision.detail, "timed_out");
+}
+
+TEST(ActiveActionRuntimeTest, ExternalStopTimeoutKeepsExecutorEvidence)
+{
+  ActiveActionRuntime runtime;
+  runtime.start("stop", 13.0, 12.0, 0.0, true);
+  ActiveActionInput input;
+  input.now_s = 3.0;
+  input.external_update =
+    ActionExecutionUpdate{ActionExecutionState::kTimedOut, 1.0};
+  input.external_detail = "nav2:stop:terminal_timeout";
+
+  const auto decision = runtime.update(input);
+
+  EXPECT_EQ(decision.state, ActionExecutionState::kTimedOut);
+  EXPECT_EQ(decision.detail, "nav2:stop:terminal_timeout");
+}
+
+TEST(ActiveActionRuntimeTest, StopBehaviorTreeRunsUntilExecutorIsQuiesced)
+{
+  embodied_simulation::CommandBehaviorTree tree(kTreeXml);
+  auto stop = valid_move();
+  stop.action_type = stop.STOP;
+  stop.linear_x = 0.0;
+  stop.duration_s = 0.0;
+  tree.start(stop);
+  ActiveActionRuntime runtime(&tree);
+  runtime.start("stop", 13.0, 12.0, 0.0, true);
+
+  ActiveActionInput stopping;
+  stopping.now_s = 0.5;
+  stopping.external_update = stop_as_action_update(
+    StopExecutionUpdate{
+      StopExecutionState::kStopping, "nav2:stop:waiting_terminal"});
+  stopping.external_detail = "nav2:stop:waiting_terminal";
+  const auto before_terminal = runtime.update(stopping);
+  EXPECT_EQ(before_terminal.state, ActionExecutionState::kRunning);
+  ASSERT_TRUE(before_terminal.tree_result.has_value());
+  EXPECT_EQ(before_terminal.tree_result->outcome,
+    embodied_simulation::CommandTreeOutcome::kRunning);
+
+  stopping.now_s = 0.6;
+  stopping.external_update = stop_as_action_update(
+    StopExecutionUpdate{
+      StopExecutionState::kQuiesced, "nav2:stop:terminal canceled"});
+  stopping.external_detail = "nav2:stop:terminal canceled";
+  const auto after_terminal = runtime.update(stopping);
+  EXPECT_EQ(after_terminal.state, ActionExecutionState::kSucceeded);
+  ASSERT_TRUE(after_terminal.tree_result.has_value());
+  EXPECT_EQ(after_terminal.tree_result->outcome,
+    embodied_simulation::CommandTreeOutcome::kSucceeded);
 }
 
 TEST(ActiveActionRuntimeTest, ResetClearsAllPerGoalState)

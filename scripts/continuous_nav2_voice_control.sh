@@ -140,6 +140,12 @@ NAV2_PARAMS_FILE="${NAV2_PARAMS_FILE:-}"
 NAV2_PLACES_FILE="${NAV2_PLACES_FILE:-}"
 NAV2_EXECUTOR_PLUGIN="${NAV2_EXECUTOR_PLUGIN:-embodied_simulation/Nav2RobotExecutor}"
 NAV2_ENABLE_DYNAMIC_OBSTACLE_LAYER="${NAV2_ENABLE_DYNAMIC_OBSTACLE_LAYER:-false}"
+# 多控制源演示显式开启；旧的语音/Nav2 验收默认关闭以保持兼容。
+CONTROL_AUTHORITY_ENABLED="${CONTROL_AUTHORITY_ENABLED:-false}"
+# manager 与 quiescence coordinator 必须由整场 showcase 会话持有。阶段脚本
+# 只消费控制权状态，不能在没有旧 Explore/Nav2 terminal 证据时自行恢复自治。
+CONTROL_AUTHORITY_MANAGER_ENABLED="${CONTROL_AUTHORITY_MANAGER_ENABLED:-false}"
+AUTHORITY_STATE_HEARTBEAT_MS="${AUTHORITY_STATE_HEARTBEAT_MS:-200}"
 MONITOR_ENABLED="${CONTINUOUS_MONITOR_ENABLED:-true}"
 MONITOR_AUDIO_SAMPLE_LIMIT="${CONTINUOUS_MONITOR_AUDIO_SAMPLE_LIMIT:-600}"
 PREFLIGHT_ENABLED="${CONTINUOUS_PREFLIGHT_ENABLED:-true}"
@@ -165,6 +171,22 @@ export IGN_PARTITION="${IGN_PARTITION:-$GZ_PARTITION}"
 
 if [[ "$MODE" != "offline" && "$MODE" != "online" ]]; then
   echo "Usage: $0 {offline|online}" >&2
+  exit 2
+fi
+if [[ "$CONTROL_AUTHORITY_ENABLED" != "true" && \
+      "$CONTROL_AUTHORITY_ENABLED" != "false" ]]; then
+  echo "FAIL: CONTROL_AUTHORITY_ENABLED must be true or false." >&2
+  exit 2
+fi
+if [[ "$CONTROL_AUTHORITY_MANAGER_ENABLED" != "true" && \
+      "$CONTROL_AUTHORITY_MANAGER_ENABLED" != "false" ]]; then
+  echo "FAIL: CONTROL_AUTHORITY_MANAGER_ENABLED must be true or false." >&2
+  exit 2
+fi
+if [[ "$CONTROL_AUTHORITY_ENABLED" == "true" && \
+      "$CONTROL_AUTHORITY_MANAGER_ENABLED" == "true" ]]; then
+  echo "FAIL: stage launch cannot own control_authority without a quiescence coordinator." >&2
+  echo "      Use voice_slam_nav_showcase.sh auto, which owns one session-level manager." >&2
   exit 2
 fi
 
@@ -281,6 +303,9 @@ build_launch_args() {
   add_launch_arg readiness_stale_timeout_s "$SYSTEM_READINESS_STALE_TIMEOUT_S"
   add_launch_arg executor_plugin "$NAV2_EXECUTOR_PLUGIN"
   add_launch_arg enable_dynamic_obstacle_layer "$NAV2_ENABLE_DYNAMIC_OBSTACLE_LAYER"
+  add_launch_arg control_authority_enabled "$CONTROL_AUTHORITY_ENABLED"
+  add_launch_arg control_authority_manager_enabled "$CONTROL_AUTHORITY_MANAGER_ENABLED"
+  add_launch_arg authority_state_heartbeat_ms "$AUTHORITY_STATE_HEARTBEAT_MS"
   add_launch_arg slam "$NAV2_SLAM"
   add_optional_launch_arg world "$NAV2_WORLD"
   add_optional_launch_arg map "$NAV2_MAP"
@@ -359,6 +384,9 @@ NAV2_MAP=${NAV2_MAP:-<default>}
 NAV2_PARAMS_FILE=${NAV2_PARAMS_FILE:-<default>}
 NAV2_PLACES_FILE=${NAV2_PLACES_FILE:-<default>}
 NAV2_EXECUTOR_PLUGIN=$NAV2_EXECUTOR_PLUGIN
+CONTROL_AUTHORITY_ENABLED=$CONTROL_AUTHORITY_ENABLED
+CONTROL_AUTHORITY_MANAGER_ENABLED=$CONTROL_AUTHORITY_MANAGER_ENABLED
+AUTHORITY_STATE_HEARTBEAT_MS=$AUTHORITY_STATE_HEARTBEAT_MS
 
 ros2 launch \\
 EOF
@@ -373,6 +401,28 @@ if [[ "$PRINT_CONFIG" == "true" ]]; then
   print_configuration
   exit 0
 fi
+
+wait_for_external_authority_manager() {
+  [[ "$CONTROL_AUTHORITY_ENABLED" == "true" ]] || return 0
+  local attempt set_type ack_type coordinator_type
+  for attempt in $(seq 1 30); do
+    set_type="$(ros2 service type /control/set_authority 2>/dev/null || true)"
+    ack_type="$(ros2 service type /control/acknowledge_autonomy_quiescence 2>/dev/null || true)"
+    coordinator_type="$(ros2 topic type /slam/session_state 2>/dev/null || true)"
+    if [[ "$set_type" == "embodied_agent_interfaces/srv/SetControlAuthority" && \
+          "$ack_type" == "embodied_agent_interfaces/srv/AcknowledgeAutonomyQuiescence" && \
+          "$coordinator_type" == "embodied_agent_interfaces/msg/SlamSessionState" ]]; then
+      return 0
+    fi
+    sleep 0.2
+  done
+  echo "FAIL: control authority enabled, but typed manager/coordinator readiness is incomplete." >&2
+  echo "      Expected /control services and /slam/session_state from the session orchestrator." >&2
+  echo "      Start this stage through: bash scripts/voice_slam_nav_showcase.sh auto $MODE" >&2
+  return 1
+}
+
+wait_for_external_authority_manager
 
 if [[ "$PREFLIGHT_ENABLED" == "true" ]]; then
   bash "$WORKSPACE/scripts/smoke_test_nav2_preflight.sh"

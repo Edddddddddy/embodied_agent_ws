@@ -55,6 +55,7 @@ PUBLIC_MODE_NAMES = (
 _MODE_SPECS = (
     ('core', 'Typical developer gate: repository, Python unit, C++ unit tests', 'accept_core', 'public', True, True, HandlerDomain.CONTROL),
     ('architecture-facts', 'Verify generated package/CI/CLI/release-gate architecture evidence', 'accept_architecture_facts', 'internal', False, False, HandlerDomain.CONTROL),
+    ('control-authority-stage', 'Typed authority and autonomy/keyboard velocity allowlist gate', 'accept_control_authority_stage', 'internal', False, True, HandlerDomain.CONTROL),
     ('agent-lifecycle', 'Online/offline configure -> activate -> deactivate -> reactivate', 'accept_agent_lifecycle', 'internal', False, True, HandlerDomain.CONTROL),
     ('preflight', 'Check offline model/runtime files', 'accept_preflight', 'internal', False, True, HandlerDomain.CONTROL),
     ('mock', 'Build, unit tests, and dependency-free ROS smokes', 'accept_mock', 'internal', False, True, HandlerDomain.CONTROL),

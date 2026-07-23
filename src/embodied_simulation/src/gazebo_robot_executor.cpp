@@ -34,7 +34,7 @@ public:
       return true;
     }
     if (command.action_type == RobotCommand::STOP) {
-      controller_->stop();
+      request_stop(StopClock::now());
       return true;
     }
     if (command.action_type == RobotCommand::NAVIGATE_TO) {
@@ -47,7 +47,7 @@ public:
       return true;
     }
     if (command.action_type == RobotCommand::CANCEL_NAVIGATION) {
-      controller_->stop();
+      request_stop(StopClock::now());
       return true;
     }
     if (command.action_type == RobotCommand::SET_MODE) {
@@ -63,12 +63,19 @@ public:
     return false;
   }
 
-  void stop() override
+  void request_stop(StopTimePoint) override
   {
     if (controller_) {
       controller_->stop();
     }
   }
+
+  StopExecutionUpdate poll_stop(StopTimePoint) override
+  {
+    return {StopExecutionState::kQuiesced, "gazebo:velocity_zero"};
+  }
+
+  bool is_quiesced() const override {return true;}
 
   void update_scan(
     const std::vector<float> & ranges, double angle_min, double angle_increment,

@@ -56,6 +56,60 @@ def test_continuous_nav2_voice_control_prints_nav2_launch_config():
     assert "yaw:=0.2" in result.stdout
     assert "speech_end_silence_s:=0.66" in result.stdout
     assert "asr_commit_delay_ms:=250" in result.stdout
+    assert "control_authority_enabled:=false" in result.stdout
+    assert "control_authority_manager_enabled:=false" in result.stdout
+
+
+def test_stage_rejects_a_self_contained_manager_without_coordinator():
+    env = os.environ.copy()
+    env.update(
+        {
+            "WORKSPACE": str(ROOT),
+            "CONTINUOUS_PRINT_CONFIG": "true",
+            "CONTROL_AUTHORITY_ENABLED": "true",
+            "CONTROL_AUTHORITY_MANAGER_ENABLED": "true",
+            "VAD_PROVIDER": "energy",
+        }
+    )
+
+    result = subprocess.run(
+        ["bash", str(ROOT / "scripts" / "continuous_nav2_voice_control.sh"), "offline"],
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "cannot own control_authority" in result.stderr
+    assert "voice_slam_nav_showcase.sh auto" in result.stderr
+
+
+def test_authority_enabled_stage_declares_an_external_session_manager():
+    env = os.environ.copy()
+    env.update(
+        {
+            "WORKSPACE": str(ROOT),
+            "CONTINUOUS_PRINT_CONFIG": "true",
+            "CONTROL_AUTHORITY_ENABLED": "true",
+            "VAD_PROVIDER": "energy",
+        }
+    )
+
+    result = subprocess.run(
+        ["bash", str(ROOT / "scripts" / "continuous_nav2_voice_control.sh"), "offline"],
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+
+    assert "CONTROL_AUTHORITY_ENABLED=true" in result.stdout
+    assert "CONTROL_AUTHORITY_MANAGER_ENABLED=false" in result.stdout
+    assert "control_authority_enabled:=true" in result.stdout
+    assert "control_authority_manager_enabled:=false" in result.stdout
 
 
 def test_continuous_nav2_voice_control_low_gain_profile_lowers_vad_and_disables_aec():

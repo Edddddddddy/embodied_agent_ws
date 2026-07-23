@@ -17,6 +17,17 @@ FRONTIER_NAV2_PARAMS="$SESSION_DIR/frontier_nav2_params.yaml"
 FRONTIER_SLAM_PARAMS="$WORKSPACE/src/embodied_simulation/config/frontier_slam_toolbox.yaml"
 DYNAMIC_NAV2_PARAMS="$SESSION_DIR/showcase_dynamic_nav2_params.yaml"
 SHOWCASE_DYNAMIC_OBSTACLE_ENABLED="${SHOWCASE_DYNAMIC_OBSTACLE_ENABLED:-true}"
+# 统一语音+键盘演示才开启控制权安全门；严格旧验收保持 false。
+CONTROL_AUTHORITY_ENABLED="${CONTROL_AUTHORITY_ENABLED:-false}"
+# 只有 auto 会话根可以创建 manager，并把 false 透传给阶段子进程。手工
+# mapping/navigation 若开启控制权，必须复用已经运行的外部会话 manager；
+# 阶段 launch 不具备聚合旧任务 terminal 证据的资格。
+CONTROL_AUTHORITY_MANAGER_ENABLED="${CONTROL_AUTHORITY_MANAGER_ENABLED:-$CONTROL_AUTHORITY_ENABLED}"
+SESSION_CONTROL_AUTHORITY_MANAGER_ENABLED="$CONTROL_AUTHORITY_MANAGER_ENABLED"
+AUTHORITY_STATE_HEARTBEAT_MS="${AUTHORITY_STATE_HEARTBEAT_MS:-200}"
+export CONTROL_AUTHORITY_ENABLED CONTROL_AUTHORITY_MANAGER_ENABLED
+export AUTHORITY_STATE_HEARTBEAT_MS
+AUTHORITY_MANAGER_PID=""
 SLAM_MISSION_PROFILE="${SLAM_MISSION_PROFILE:-known_world}"
 if [[ "$SLAM_MISSION_PROFILE" != "known_world" && \
       "$SLAM_MISSION_PROFILE" != "unknown_world" ]]; then
@@ -63,6 +74,84 @@ EOF
 activate() {
   # shellcheck source=activate.sh
   source "$WORKSPACE/scripts/activate.sh"
+}
+
+cleanup_session_authority_manager() {
+  local pid="${AUTHORITY_MANAGER_PID:-}"
+  [[ -n "$pid" ]] || return 0
+  AUTHORITY_MANAGER_PID=""
+  # manager 使用独立进程组，确保 ros2 run 包装器及真正 C++ 子进程一起回收。
+  kill -TERM -- "-$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+}
+
+authority_service_is_ready() {
+  ros2 service list 2>/dev/null | grep -Fxq "/control/set_authority"
+}
+
+wait_for_authority_service() {
+  local attempt
+  for attempt in $(seq 1 30); do
+    if authority_service_is_ready; then
+      return 0
+    fi
+    if [[ -n "$AUTHORITY_MANAGER_PID" ]] && \
+      ! kill -0 "$AUTHORITY_MANAGER_PID" 2>/dev/null; then
+      local exit_code=0
+      wait "$AUTHORITY_MANAGER_PID" || exit_code=$?
+      AUTHORITY_MANAGER_PID=""
+      echo "FAIL: session control_authority exited during startup (exit=$exit_code)." >&2
+      return 1
+    fi
+    sleep 0.2
+  done
+  echo "FAIL: /control/set_authority was not ready within 6s." >&2
+  return 1
+}
+
+start_session_authority_manager() {
+  # auto 的 child mapping/navigation 无论如何都不得再次启动 manager。
+  # false 表示调用者已在外部提供 manager；true 表示当前会话根负责其生命周期。
+  export CONTROL_AUTHORITY_MANAGER_ENABLED=false
+  if [[ "$CONTROL_AUTHORITY_ENABLED" != "true" ]]; then
+    if [[ "$SESSION_CONTROL_AUTHORITY_MANAGER_ENABLED" == "true" ]]; then
+      echo "FAIL: manager cannot be enabled while control authority is disabled." >&2
+      return 2
+    fi
+    return 0
+  fi
+
+  if [[ "$SESSION_CONTROL_AUTHORITY_MANAGER_ENABLED" == "true" ]]; then
+    # 只有会话根能把 bootstrap ACK 设为 true，而且必须先证明整套运动栈冷启动。
+    # 若存在旧 Gazebo/Nav2/SLAM 进程，本脚本直接失败并要求用户显式清理，
+    # 不能在旧 goal 可能存活时伪造“初始静默”。
+    bash "$WORKSPACE/scripts/cleanup_simulation_processes.sh"
+    if authority_service_is_ready; then
+      echo "FAIL: /control/set_authority already exists; refusing a second manager." >&2
+      echo "      Set CONTROL_AUTHORITY_MANAGER_ENABLED=false only when that manager is intentional." >&2
+      return 2
+    fi
+    # 使用 wall/system time 让 manager 在 mapping -> navigation 的 Gazebo /clock
+    # 间隙仍能持续发布租约心跳；业务节点只按接收时的 steady clock 判定新鲜度。
+    setsid ros2 run embodied_agent_cpp control_authority --ros-args \
+      -p use_sim_time:=false \
+      -p bootstrap_quiescence_acknowledged:=true \
+      -p "state_heartbeat_ms:=$AUTHORITY_STATE_HEARTBEAT_MS" &
+    AUTHORITY_MANAGER_PID=$!
+    echo "[showcase] session control_authority started pid=$AUTHORITY_MANAGER_PID"
+  elif [[ "$SESSION_CONTROL_AUTHORITY_MANAGER_ENABLED" == "false" ]]; then
+    echo "FAIL: auto showcase must own its session-level control_authority manager." >&2
+    echo "      External-manager handoff is not supported until it has a typed coordinator lease." >&2
+    return 2
+  else
+    echo "FAIL: CONTROL_AUTHORITY_MANAGER_ENABLED must be true or false." >&2
+    return 2
+  fi
+
+  wait_for_authority_service
+  # 冷启动许可只表示“可以恢复”，不会自动从 HOLD 进入 AUTONOMY。通过
+  # typed service 完成显式 RESUME，并等待同 epoch 状态可见后再启动编排器。
+  ros2 run embodied_slam_tools control_authority_bootstrap
 }
 
 print_mission_plan() {
@@ -123,11 +212,20 @@ case "$COMMAND" in
     print_mission_plan
     echo "[showcase] ROS_DOMAIN_ID=$ROS_DOMAIN_ID"
     echo "[showcase] 单终端自动编排：办公巡检建图 -> 保存 -> AMCL -> 多目标 Nav2"
-    exec ros2 run embodied_slam_tools voice_slam_session_orchestrator --ros-args \
+    # 整场会话只保留一个 manager；StageProcessManager 启停 mapping/navigation
+    # 时继承 CONTROL_AUTHORITY_MANAGER_ENABLED=false，因此 epoch 不会随阶段改变。
+    trap cleanup_session_authority_manager EXIT INT TERM
+    start_session_authority_manager
+    status=0
+    ros2 run embodied_slam_tools voice_slam_session_orchestrator --ros-args \
       -p "workspace:=$WORKSPACE" \
       -p "mode:=$MODE" \
       -p "map_prefix:=$SAVED_MAP_PREFIX" \
-      -p "dry_run:=${SHOWCASE_ORCHESTRATOR_DRY_RUN:-false}"
+      -p "authority_gate_enabled:=$CONTROL_AUTHORITY_ENABLED" \
+      -p "dry_run:=${SHOWCASE_ORCHESTRATOR_DRY_RUN:-false}" || status=$?
+    cleanup_session_authority_manager
+    trap - EXIT INT TERM
+    exit "$status"
     ;;
   trigger-auto)
     activate

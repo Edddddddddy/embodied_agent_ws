@@ -1,6 +1,6 @@
 {
   "acceptance_cli": {
-    "advanced_help_mode_count": 135,
+    "advanced_help_mode_count": 136,
     "public_mode_count": 9,
     "public_modes": [
       "continuous-offline",
@@ -13,7 +13,7 @@
       "unknown-world-slam-e2e",
       "voice-unknown-world-slam-e2e"
     ],
-    "router_mode_count": 135,
+    "router_mode_count": 136,
     "undocumented_router_modes": []
   },
   "ci": {
@@ -137,6 +137,10 @@
           "name": "robotics_continuous_multi_command"
         },
         {
+          "command": "bash scripts/acceptance_test.sh control-authority-stage",
+          "name": "robotics_control_authority"
+        },
+        {
           "command": "bash scripts/acceptance_test.sh nav2-stage",
           "name": "robotics_nav2_stage"
         },
@@ -153,6 +157,7 @@
     "robotics_coverage": {
       "architecture_facts": true,
       "continuous_multi_command": true,
+      "control_authority": true,
       "dynamic_obstacle": true,
       "nav2_stage": true,
       "openloris_fixture": true,
@@ -164,8 +169,8 @@
   "repository_scale": {
     "offline_agent_node_lines": 686,
     "online_agent_node_lines": 549,
-    "scripts_recursive_file_count": 133,
-    "scripts_top_level_file_count": 133
+    "scripts_recursive_file_count": 134,
+    "scripts_top_level_file_count": 134
   },
   "ros_packages": {
     "ci_count": 12,
@@ -210,7 +215,7 @@
       ]
     },
     "messages": {
-      "count": 37,
+      "count": 38,
       "files": [
         "AgentTurnMetrics.msg",
         "AudioFrontendStatus.msg",
@@ -220,6 +225,7 @@
         "CommandQueueEvent.msg",
         "CommandSlot.msg",
         "ComponentHealth.msg",
+        "ControlAuthorityState.msg",
         "DynamicObstacle.msg",
         "DynamicObstacleArray.msg",
         "FrontierExplorationEvidence.msg",
@@ -252,11 +258,13 @@
       ]
     },
     "services": {
-      "count": 1,
+      "count": 3,
       "files": [
+        "AcknowledgeAutonomyQuiescence.srv",
+        "SetControlAuthority.srv",
         "SynthesizeSpeech.srv"
       ]
     },
-    "total": 40
+    "total": 43
   }
 }

@@ -116,6 +116,13 @@ if(BUILD_TESTING)
   ament_add_gtest(test_robot_executor_plugins test/test_robot_executor_plugins.cpp)
   target_link_libraries(test_robot_executor_plugins simulation_control_core)
   ament_target_dependencies(test_robot_executor_plugins pluginlib)
+  ament_add_gtest(
+    test_nav2_robot_executor_stop
+    test/test_nav2_robot_executor_stop.cpp)
+  target_link_libraries(test_nav2_robot_executor_stop simulation_control_core)
+  ament_target_dependencies(
+    test_nav2_robot_executor_stop
+    nav2_msgs pluginlib rclcpp rclcpp_action)
   ament_add_gtest(test_nav2_places test/test_nav2_places.cpp)
   target_link_libraries(test_nav2_places simulation_control_core)
   ament_add_gtest(test_node_configuration test/test_node_configuration.cpp)

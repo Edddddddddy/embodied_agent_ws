@@ -11,6 +11,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/CommandContext.msg"
   "msg/CommandQueueEvent.msg"
   "msg/CommandExecutionEvent.msg"
+  "msg/ControlAuthorityState.msg"
   "msg/WakeEvent.msg"
   "msg/TextRewrite.msg"
   "msg/RecognitionFeedback.msg"
@@ -46,6 +47,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/LidarLoopConstraintDecision.msg"
   "msg/LidarLoopConstraintResult.msg"
   "srv/SynthesizeSpeech.srv"
+  "srv/AcknowledgeAutonomyQuiescence.srv"
+  "srv/SetControlAuthority.srv"
   "action/ExecuteRobotCommand.action"
   "action/ManageSlamSession.action"
   DEPENDENCIES builtin_interfaces geometry_msgs std_msgs

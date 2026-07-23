@@ -72,8 +72,13 @@ TEST(RobotExecutorPluginsTest, SameCommandRunsThroughBothAdapters)
   EXPECT_EQ(gazebo->backend_name(), "simulation");
   EXPECT_EQ(mock->backend_name(), "mock");
 
-  gazebo->stop();
-  mock->stop();
+  const auto stop_requested_at = StopClock::now();
+  gazebo->request_stop(stop_requested_at);
+  mock->request_stop(stop_requested_at);
+  EXPECT_TRUE(gazebo->is_quiesced());
+  EXPECT_TRUE(mock->is_quiesced());
+  EXPECT_TRUE(gazebo->poll_stop(stop_requested_at).succeeded());
+  EXPECT_TRUE(mock->poll_stop(stop_requested_at).succeeded());
   EXPECT_DOUBLE_EQ(gazebo->step(0.10).velocity.linear_x, 0.0);
   EXPECT_DOUBLE_EQ(mock->step(0.10).velocity.linear_x, 0.0);
 }

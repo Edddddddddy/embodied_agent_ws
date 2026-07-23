@@ -1,11 +1,17 @@
 """Focused tests for ROS-facing showcase orchestrator helpers."""
 
+import queue
 import threading
 from types import SimpleNamespace
 
 from action_msgs.msg import GoalStatus
 from builtin_interfaces.msg import Time
-from embodied_agent_interfaces.msg import RobotCommand, WakeEvent
+from embodied_agent_interfaces.msg import (
+    ControlAuthorityState,
+    RobotCommand,
+    SlamSessionState,
+    WakeEvent,
+)
 from lifecycle_msgs.msg import State
 from lifecycle_msgs.srv import GetState
 from nav2_msgs.action import BackUp, NavigateToPose
@@ -13,6 +19,16 @@ import pytest
 from std_msgs.msg import String
 
 import embodied_slam_tools.showcase_session_node as showcase_session_node_module
+from embodied_slam_tools.autonomy_quiescence import (
+    AutonomyQuiescenceBarrier,
+    QuiescenceIdentity,
+    QuiescenceState,
+)
+from embodied_slam_tools.control_authority_lease import (
+    AUTONOMY,
+    AuthoritySnapshot,
+    ControlAuthorityLease,
+)
 from embodied_slam_tools.mission_executor import (
     AutomaticMissionCancelled,
     CommandRequest,
@@ -65,6 +81,726 @@ def _session_command_receiver(input_source="raw_asr"):
         get_logger=lambda: logger,
     )
     return receiver, queued
+
+
+class _MessagePublisher:
+    def __init__(self):
+        self.messages = []
+
+    def publish(self, message):
+        self.messages.append(message)
+
+
+def _authority_receiver(active_request=None):
+    publisher = _MessagePublisher()
+    warnings = []
+    errors = []
+    receiver = SimpleNamespace(
+        _authority_gate_enabled=True,
+        _authority_lease=ControlAuthorityLease(lease_s=1.0),
+        _autonomy_quiescence=AutonomyQuiescenceBarrier(),
+        _state_lock=threading.RLock(),
+        _active_request=active_request,
+        _explore_control_pub=publisher,
+        get_logger=lambda: SimpleNamespace(
+            warning=warnings.append,
+            error=errors.append,
+        ),
+        _fail_autonomy_quiescence=lambda error: errors.append(str(error)),
+    )
+    return receiver, publisher, warnings, errors
+
+
+def _authority_state(
+    authority,
+    sequence=1,
+    epoch=1,
+    *,
+    pending_revocation=0,
+    quiescence_acknowledged=None,
+):
+    message = ControlAuthorityState()
+    message.authority = authority
+    message.estop_latched = authority == ControlAuthorityState.ESTOP
+    message.manager_epoch = epoch
+    message.transition_sequence = sequence
+    message.active_source = {
+        ControlAuthorityState.HOLD: "",
+        ControlAuthorityState.AUTONOMY: "autonomy",
+        ControlAuthorityState.KEYBOARD: "keyboard_teleop",
+        ControlAuthorityState.ESTOP: "safety_panel",
+    }[authority]
+    message.reason = (
+        "initialized"
+        if authority == ControlAuthorityState.HOLD and sequence == 0
+        else "test"
+    )
+    if quiescence_acknowledged is None:
+        quiescence_acknowledged = authority != ControlAuthorityState.AUTONOMY
+    if hasattr(message, "pending_autonomy_revocation_sequence"):
+        message.pending_autonomy_revocation_sequence = pending_revocation
+    if hasattr(message, "autonomy_quiescence_acknowledged"):
+        message.autonomy_quiescence_acknowledged = quiescence_acknowledged
+    return message
+
+
+@pytest.mark.parametrize(
+    "authority",
+    [
+        ControlAuthorityState.HOLD,
+        ControlAuthorityState.KEYBOARD,
+        ControlAuthorityState.ESTOP,
+    ],
+)
+def test_authority_takeover_cancels_active_automatic_mission_once(authority):
+    request = CommandRequest(
+        SessionCommand.RUN_AUTOMATIC_MISSION, "test"
+    )
+    receiver, publisher, warnings, _errors = _authority_receiver(request)
+
+    SessionOrchestratorNode._on_control_authority_state(
+        receiver, _authority_state(authority)
+    )
+    SessionOrchestratorNode._on_control_authority_state(
+        receiver, _authority_state(authority, sequence=2)
+    )
+
+    assert request.canceled
+    assert [message.data for message in publisher.messages] == [False]
+    assert len(warnings) == 1
+
+
+def test_returning_to_autonomy_never_resumes_canceled_mission():
+    request = CommandRequest(
+        SessionCommand.RUN_AUTOMATIC_MISSION, "test"
+    )
+    request.canceled = True
+    receiver, publisher, _warnings, _errors = _authority_receiver(request)
+
+    SessionOrchestratorNode._on_control_authority_state(
+        receiver,
+        _authority_state(ControlAuthorityState.AUTONOMY),
+    )
+
+    assert request.canceled
+    assert publisher.messages == []
+
+
+def test_authority_takeover_does_not_cancel_non_automatic_request():
+    request = CommandRequest(SessionCommand.SAVE_MAP, "test")
+    receiver, publisher, _warnings, _errors = _authority_receiver(request)
+
+    SessionOrchestratorNode._on_control_authority_state(
+        receiver,
+        _authority_state(ControlAuthorityState.KEYBOARD),
+    )
+
+    assert not request.canceled
+    assert publisher.messages == []
+
+
+def test_reordered_or_conflicting_authority_cannot_cancel_or_replace_autonomy():
+    request = CommandRequest(
+        SessionCommand.RUN_AUTOMATIC_MISSION, "test"
+    )
+    receiver, publisher, _warnings, errors = _authority_receiver(request)
+
+    SessionOrchestratorNode._on_control_authority_state(
+        receiver,
+        _authority_state(ControlAuthorityState.AUTONOMY, sequence=2),
+    )
+    SessionOrchestratorNode._on_control_authority_state(
+        receiver,
+        _authority_state(ControlAuthorityState.HOLD, sequence=1),
+    )
+    SessionOrchestratorNode._on_control_authority_state(
+        receiver,
+        _authority_state(ControlAuthorityState.KEYBOARD, sequence=2),
+    )
+
+    assert not request.canceled
+    assert receiver._authority_lease.authority == AUTONOMY
+    assert publisher.messages == []
+    assert len(errors) == 2
+
+
+def test_authority_lease_expiry_cancels_and_fails_closed(monkeypatch):
+    clock = [1.0]
+    monkeypatch.setattr(
+        showcase_session_node_module.time, "monotonic", lambda: clock[0]
+    )
+    request = CommandRequest(
+        SessionCommand.RUN_AUTOMATIC_MISSION, "test"
+    )
+    receiver, publisher, warnings, errors = _authority_receiver(request)
+    receiver._authority_lease = ControlAuthorityLease(lease_s=0.1)
+    SessionOrchestratorNode._on_control_authority_state(
+        receiver,
+        _authority_state(ControlAuthorityState.AUTONOMY),
+    )
+    assert not request.canceled
+
+    clock[0] = 1.101
+    SessionOrchestratorNode._check_authority_lease(receiver)
+
+    assert request.canceled
+    assert [message.data for message in publisher.messages] == [False]
+    assert warnings == [
+        "canceling active automatic mission: authority_lease_expired"
+    ]
+    assert errors == [
+        "authority manager lease expired before typed revocation"
+    ]
+
+
+def test_authority_revocation_opens_exact_quiescence_before_worker_start():
+    request = CommandRequest(
+        SessionCommand.RUN_AUTOMATIC_MISSION, "test"
+    )
+    receiver, _publisher, _warnings, _errors = _authority_receiver(request)
+    started = []
+    receiver._start_autonomy_quiescence_worker = started.append
+
+    SessionOrchestratorNode._on_control_authority_state(
+        receiver,
+        _authority_state(
+            ControlAuthorityState.KEYBOARD,
+            sequence=4,
+            epoch=9,
+            pending_revocation=4,
+            quiescence_acknowledged=False,
+        ),
+    )
+
+    identity = QuiescenceIdentity(9, 4)
+    assert request.canceled
+    assert receiver._autonomy_quiescence.identity == identity
+    assert (
+        receiver._autonomy_quiescence.snapshot().state
+        is QuiescenceState.WAITING
+    )
+    assert started == [identity]
+
+
+def test_idle_authority_revocation_does_not_leave_session_quiescing():
+    receiver, _publisher, _warnings, _errors = _authority_receiver()
+    started = []
+    transitions = []
+    receiver._start_autonomy_quiescence_worker = started.append
+    receiver.transition = lambda phase, **kwargs: transitions.append(
+        (phase, kwargs)
+    )
+
+    SessionOrchestratorNode._on_control_authority_state(
+        receiver,
+        _authority_state(
+            ControlAuthorityState.KEYBOARD,
+            sequence=4,
+            epoch=9,
+            pending_revocation=4,
+            quiescence_acknowledged=False,
+        ),
+    )
+
+    # 没有 active automatic request 时屏障仍会收口并门控新命令，但 phase
+    # 不应进入无人负责恢复的 QUIESCING。
+    assert transitions == []
+    assert receiver._autonomy_quiescence.active
+    assert started == [QuiescenceIdentity(9, 4)]
+
+
+def test_missing_quiescence_ack_field_defaults_to_fail_closed():
+    receiver, _publisher, _warnings, errors = _authority_receiver()
+    started = []
+    receiver._start_autonomy_quiescence_worker = started.append
+    legacy_state = SimpleNamespace(
+        authority=ControlAuthorityState.HOLD,
+        estop_latched=False,
+        manager_epoch=11,
+        transition_sequence=0,
+        active_source="",
+        reason="initialized",
+    )
+
+    SessionOrchestratorNode._on_control_authority_state(
+        receiver, legacy_state
+    )
+
+    assert errors == []
+    assert receiver._autonomy_quiescence.active
+    assert started == [QuiescenceIdentity(11, 0)]
+
+
+def test_authority_callbacks_allow_fast_resume_then_open_next_revocation():
+    request = CommandRequest(
+        SessionCommand.RUN_AUTOMATIC_MISSION, "test"
+    )
+    receiver, _publisher, _warnings, errors = _authority_receiver(request)
+    started = []
+    receiver._start_autonomy_quiescence_worker = started.append
+
+    SessionOrchestratorNode._on_control_authority_state(
+        receiver,
+        _authority_state(
+            ControlAuthorityState.AUTONOMY,
+            sequence=1,
+            epoch=9,
+            quiescence_acknowledged=False,
+        ),
+    )
+    SessionOrchestratorNode._on_control_authority_state(
+        receiver,
+        _authority_state(
+            ControlAuthorityState.KEYBOARD,
+            sequence=2,
+            epoch=9,
+            pending_revocation=2,
+            quiescence_acknowledged=False,
+        ),
+    )
+    first = QuiescenceIdentity(9, 2)
+    barrier = receiver._autonomy_quiescence
+    barrier.mark_priority_stop_requested("stop-9-2", cmd_vel_generation=1)
+    barrier.observe_priority_stop_result("stop-9-2", success=True)
+    barrier.observe_cmd_vel(generation=2, linear_x=0.0, angular_z=0.0)
+    barrier.begin_acknowledgement(first)
+
+    # 合法 ACK topic 可能被 executor 跳过，直接先看到 RESUME。
+    SessionOrchestratorNode._on_control_authority_state(
+        receiver,
+        _authority_state(
+            ControlAuthorityState.AUTONOMY,
+            sequence=4,
+            epoch=9,
+            quiescence_acknowledged=False,
+        ),
+    )
+    SessionOrchestratorNode._on_control_authority_state(
+        receiver,
+        _authority_state(
+            ControlAuthorityState.HOLD,
+            sequence=5,
+            epoch=9,
+            pending_revocation=5,
+            quiescence_acknowledged=False,
+        ),
+    )
+
+    assert errors == []
+    assert barrier.identity == QuiescenceIdentity(9, 5)
+    assert barrier.snapshot().state is QuiescenceState.WAITING
+    assert started == [first, QuiescenceIdentity(9, 5)]
+
+
+def test_quiescence_worker_acknowledges_only_after_all_evidence():
+    identity = QuiescenceIdentity(7, 3)
+    barrier = AutonomyQuiescenceBarrier()
+    barrier.observe_authority(identity)
+    barrier.begin(identity)
+    calls = []
+
+    def request_stop(observed_identity, *, timeout_s):
+        calls.append(("stop", observed_identity, timeout_s))
+        barrier.mark_priority_stop_requested(
+            "quiescence-stop-7-3",
+            cmd_vel_generation=10,
+        )
+        barrier.observe_priority_stop_result(
+            "quiescence-stop-7-3",
+            success=True,
+        )
+        barrier.observe_cmd_vel(
+            generation=11,
+            linear_x=0.0,
+            angular_z=0.0,
+        )
+
+    fake = SimpleNamespace(
+        _autonomy_quiescence=barrier,
+        _autonomy_quiescence_timeout_s=1.0,
+        _request_quiescence_priority_stop=request_stop,
+        _acknowledge_autonomy_quiescence=lambda observed, *, timeout_s: (
+            calls.append(("ack", observed, timeout_s))
+        ),
+        _fail_autonomy_quiescence=lambda error: pytest.fail(str(error)),
+        get_logger=lambda: SimpleNamespace(info=lambda message: calls.append(
+            ("log", message)
+        )),
+    )
+
+    SessionOrchestratorNode._complete_autonomy_quiescence(
+        fake, identity
+    )
+
+    assert calls[0][0] == "stop"
+    assert calls[1][0] == "ack"
+    assert barrier.snapshot().state is QuiescenceState.ACKNOWLEDGED
+
+
+def test_quiescence_worker_accepts_resume_callback_before_service_returns():
+    identity = QuiescenceIdentity(7, 3)
+    barrier = AutonomyQuiescenceBarrier()
+    barrier.observe_authority(identity)
+    barrier.begin(identity)
+
+    def request_stop(_observed, *, timeout_s):
+        assert timeout_s > 0.0
+        barrier.mark_priority_stop_requested(
+            "quiescence-stop-7-3", cmd_vel_generation=10
+        )
+        barrier.observe_priority_stop_result(
+            "quiescence-stop-7-3", success=True
+        )
+        barrier.observe_cmd_vel(
+            generation=11, linear_x=0.0, angular_z=0.0
+        )
+
+    def acknowledge(_observed, *, timeout_s):
+        assert timeout_s > 0.0
+        # 模拟 MultiThreadedExecutor 先调度 authority topic，后唤醒 service future。
+        barrier.observe_authority(
+            QuiescenceIdentity(identity.manager_epoch, 0),
+            autonomy_active=True,
+        )
+
+    errors = []
+    fake = SimpleNamespace(
+        _autonomy_quiescence=barrier,
+        _autonomy_quiescence_timeout_s=1.0,
+        _request_quiescence_priority_stop=request_stop,
+        _acknowledge_autonomy_quiescence=acknowledge,
+        _fail_autonomy_quiescence=errors.append,
+        get_logger=lambda: SimpleNamespace(info=lambda _message: None),
+    )
+
+    SessionOrchestratorNode._complete_autonomy_quiescence(fake, identity)
+
+    assert errors == []
+    assert barrier.snapshot().state is QuiescenceState.ACKNOWLEDGED
+
+
+def test_quiescence_worker_rejects_evidence_invalidated_during_ack_future():
+    identity = QuiescenceIdentity(7, 3)
+    barrier = AutonomyQuiescenceBarrier()
+    barrier.observe_authority(identity)
+    barrier.begin(identity)
+
+    def request_stop(_observed, *, timeout_s):
+        assert timeout_s > 0.0
+        barrier.mark_priority_stop_requested("stop-7-3", cmd_vel_generation=10)
+        barrier.observe_priority_stop_result("stop-7-3", success=True)
+        barrier.observe_cmd_vel(
+            generation=11, linear_x=0.0, angular_z=0.0
+        )
+
+    def acknowledge(_observed, *, timeout_s):
+        assert timeout_s > 0.0
+        barrier.observe_cmd_vel(
+            generation=12, linear_x=0.1, angular_z=0.0
+        )
+
+    errors = []
+    fake = SimpleNamespace(
+        _autonomy_quiescence=barrier,
+        _autonomy_quiescence_timeout_s=1.0,
+        _request_quiescence_priority_stop=request_stop,
+        _acknowledge_autonomy_quiescence=acknowledge,
+        _fail_autonomy_quiescence=errors.append,
+        get_logger=lambda: SimpleNamespace(info=lambda _message: None),
+    )
+
+    SessionOrchestratorNode._complete_autonomy_quiescence(fake, identity)
+
+    assert len(errors) == 1
+    assert "evidence invalidated" in str(errors[0])
+    assert barrier.snapshot().state is QuiescenceState.FAILED
+
+
+def test_quiescence_worker_hands_off_second_identity_without_losing_it():
+    first = QuiescenceIdentity(7, 3)
+    second = QuiescenceIdentity(7, 6)
+    barrier = AutonomyQuiescenceBarrier()
+    barrier.observe_authority(first)
+    barrier.begin(first)
+    barrier.mark_priority_stop_requested("stop-1", cmd_vel_generation=1)
+    barrier.observe_priority_stop_result("stop-1", success=True)
+    barrier.observe_cmd_vel(generation=2, linear_x=0.0, angular_z=0.0)
+    barrier.begin_acknowledgement(first)
+
+    first_started = threading.Event()
+    release_first = threading.Event()
+    second_completed = threading.Event()
+    calls = []
+
+    def complete(identity):
+        calls.append(identity)
+        if identity == first:
+            first_started.set()
+            assert release_first.wait(timeout=1.0)
+            return
+        barrier.fail("second identity observed")
+        second_completed.set()
+
+    fake = SimpleNamespace(
+        _autonomy_quiescence=barrier,
+        _quiescence_worker_lock=threading.Lock(),
+        _quiescence_worker=None,
+        _complete_autonomy_quiescence=complete,
+    )
+    SessionOrchestratorNode._start_autonomy_quiescence_worker(fake, first)
+    assert first_started.wait(timeout=1.0)
+
+    barrier.observe_authority(second)
+    barrier.begin(second)
+    # 旧实现会因第一条线程仍 alive 而永久丢掉这次启动。
+    SessionOrchestratorNode._start_autonomy_quiescence_worker(fake, second)
+    release_first.set()
+
+    assert second_completed.wait(timeout=1.0)
+    assert calls == [first, second]
+
+
+class _ImmediateServiceFuture:
+    def __init__(self, response):
+        self._response = response
+
+    def add_done_callback(self, callback):
+        callback(self)
+
+    def result(self):
+        return self._response
+
+
+def test_quiescence_ack_service_is_bound_to_exact_epoch_and_revocation(
+    monkeypatch,
+):
+    class _ServiceType:
+        class Request:
+            def __init__(self):
+                self.manager_epoch = 0
+                self.autonomy_revocation_sequence = 0
+                self.requester = ""
+                self.detail = ""
+
+    identity = QuiescenceIdentity(12, 8)
+    requests = []
+    response = SimpleNamespace(
+        accepted=True,
+        message="acknowledged",
+        state=SimpleNamespace(
+            manager_epoch=12,
+            pending_autonomy_revocation_sequence=8,
+            autonomy_quiescence_acknowledged=True,
+        ),
+    )
+    client = SimpleNamespace(
+        wait_for_service=lambda timeout_sec: timeout_sec > 0.0,
+        call_async=lambda request: requests.append(request)
+        or _ImmediateServiceFuture(response),
+    )
+    fake = SimpleNamespace(_quiescence_ack_client=client)
+    monkeypatch.setattr(
+        showcase_session_node_module,
+        "AcknowledgeAutonomyQuiescence",
+        _ServiceType,
+    )
+
+    SessionOrchestratorNode._acknowledge_autonomy_quiescence(
+        fake,
+        identity,
+        timeout_s=0.1,
+    )
+
+    assert len(requests) == 1
+    assert requests[0].manager_epoch == 12
+    assert requests[0].autonomy_revocation_sequence == 8
+    assert requests[0].requester == "slam_session_orchestrator"
+
+
+def test_quiescence_timeout_marks_session_failed_and_never_recovers():
+    barrier = AutonomyQuiescenceBarrier()
+    identity = QuiescenceIdentity(5, 2)
+    barrier.observe_authority(identity)
+    barrier.begin(identity)
+    transitions = []
+    errors = []
+    fake = SimpleNamespace(
+        _autonomy_quiescence=barrier,
+        _state_lock=threading.RLock(),
+        _mission_outcome=SlamSessionState.MISSION_RUNNING,
+        _mission_message="",
+        transition=lambda phase, **kwargs: transitions.append(
+            (phase, kwargs["detail"])
+        ),
+        get_logger=lambda: SimpleNamespace(error=errors.append),
+    )
+
+    SessionOrchestratorNode._fail_autonomy_quiescence(
+        fake,
+        TimeoutError("Nav2 terminal missing"),
+    )
+
+    assert fake._mission_outcome == SlamSessionState.MISSION_FAILED
+    assert transitions[-1][0] is SessionPhase.FAILED
+    assert "Nav2 terminal missing" in transitions[-1][1]
+    assert barrier.snapshot().state is QuiescenceState.FAILED
+    assert errors == [transitions[-1][1]]
+
+
+def _authority_enqueue_receiver(tracker):
+    return SimpleNamespace(
+        _operation_active=threading.Event(),
+        _state_lock=threading.RLock(),
+        _authority_gate_enabled=True,
+        _authority_lease=tracker,
+        _autonomy_quiescence=AutonomyQuiescenceBarrier(),
+        _fsm=SimpleNamespace(validate=lambda _command: (True, "")),
+        _requests=queue.Queue(maxsize=2),
+    )
+
+
+def test_quiescence_rejects_save_and_stage_switch_before_ack():
+    tracker = ControlAuthorityLease(lease_s=1.0)
+    receiver = _authority_enqueue_receiver(tracker)
+    identity = QuiescenceIdentity(9, 4)
+    receiver._autonomy_quiescence.observe_authority(identity)
+    receiver._autonomy_quiescence.begin(identity)
+
+    for command in (
+        SessionCommand.SAVE_MAP,
+        SessionCommand.START_NAVIGATION,
+        SessionCommand.SAVE_AND_START_NAVIGATION,
+    ):
+        request = CommandRequest(command, "test")
+        assert not SessionOrchestratorNode._enqueue(receiver, request)
+        assert request.completed.is_set()
+        assert request.message == "autonomy quiescence is still in progress"
+
+    assert receiver._requests.empty()
+
+
+def test_automatic_mission_enqueue_requires_fresh_autonomy(monkeypatch):
+    clock = [1.0]
+    monkeypatch.setattr(
+        showcase_session_node_module.time, "monotonic", lambda: clock[0]
+    )
+    tracker = ControlAuthorityLease(lease_s=0.1)
+    tracker.update(
+        AuthoritySnapshot(AUTONOMY, False, 1, 1, "autonomy", "test"),
+        1.0,
+    )
+    receiver = _authority_enqueue_receiver(tracker)
+    clock[0] = 1.101
+    request = CommandRequest(
+        SessionCommand.RUN_AUTOMATIC_MISSION, "test"
+    )
+
+    assert not SessionOrchestratorNode._enqueue(receiver, request)
+    assert request.completed.is_set()
+    assert request.message == (
+        "automatic mission requires fresh AUTONOMY authority"
+    )
+
+
+def test_worker_rejects_request_from_previous_authority_generation():
+    tracker = ControlAuthorityLease(lease_s=1.0)
+    tracker.update(
+        AuthoritySnapshot(AUTONOMY, False, 1, 1, "autonomy", "test"),
+        showcase_session_node_module.time.monotonic(),
+    )
+    receiver = _authority_enqueue_receiver(tracker)
+    request = CommandRequest(
+        SessionCommand.RUN_AUTOMATIC_MISSION,
+        "test",
+        authority_generation=tracker.generation - 1,
+    )
+
+    SessionOrchestratorNode._execute_request(receiver, request)
+
+    assert request.completed.is_set()
+    assert not receiver._operation_active.is_set()
+    assert request.message == (
+        "automatic mission authority generation expired before execution"
+    )
+
+
+def test_canceled_mission_keeps_operation_locked_until_exact_quiescence_ack():
+    tracker = ControlAuthorityLease(lease_s=10.0)
+    tracker.update(
+        AuthoritySnapshot(AUTONOMY, False, 1, 1, "autonomy", "test"),
+        showcase_session_node_module.time.monotonic(),
+    )
+    barrier = AutonomyQuiescenceBarrier()
+    identity = QuiescenceIdentity(1, 2)
+    entered_cancel = threading.Event()
+    transitions = []
+
+    request = CommandRequest(
+        SessionCommand.RUN_AUTOMATIC_MISSION,
+        "test",
+        authority_generation=tracker.generation,
+    )
+
+    def run_and_cancel(active_request):
+        barrier.observe_authority(identity)
+        barrier.begin(identity)
+        active_request.authority_revocation_identity = (
+            identity.manager_epoch,
+            identity.revocation_sequence,
+        )
+        active_request.canceled = True
+        entered_cancel.set()
+        raise AutomaticMissionCancelled("authority revoked")
+
+    fake = SimpleNamespace(
+        _state_lock=threading.RLock(),
+        _fsm=SimpleNamespace(validate=lambda _command: (True, "")),
+        _authority_gate_enabled=True,
+        _authority_lease=tracker,
+        _operation_active=threading.Event(),
+        _active_request=None,
+        _navigation_startup_failure_pending=False,
+        _mission_sequence=0,
+        _mission_outcome=SlamSessionState.MISSION_IDLE,
+        _mission_message="",
+        _navigation_goal_ledger=SimpleNamespace(reset=lambda _sequence: None),
+        _mapping_saturation_evidence=None,
+        _mapping_saturation_assessment=None,
+        _return_to_start_evidence=None,
+        _publish_state=lambda: None,
+        _automatic_mission_executor=SimpleNamespace(run=run_and_cancel),
+        _autonomy_quiescence=barrier,
+        _autonomy_quiescence_timeout_s=1.0,
+        _manager=SimpleNamespace(stage="mapping"),
+        transition=lambda phase, **kwargs: transitions.append(
+            (phase, kwargs["detail"])
+        ),
+        get_logger=lambda: SimpleNamespace(
+            warning=lambda _message: None,
+            error=lambda _message: None,
+        ),
+    )
+
+    worker = threading.Thread(
+        target=SessionOrchestratorNode._execute_request,
+        args=(fake, request),
+    )
+    worker.start()
+    assert entered_cancel.wait(timeout=1.0)
+    # 没有 exact ACK 时事务必须仍占用，SAVE/START_NAV 才不能切走 stage。
+    assert fake._operation_active.is_set()
+    assert worker.is_alive()
+
+    barrier.mark_priority_stop_requested("stop-1-2", cmd_vel_generation=1)
+    barrier.observe_priority_stop_result("stop-1-2", success=True)
+    barrier.observe_cmd_vel(generation=2, linear_x=0.0, angular_z=0.0)
+    barrier.begin_acknowledgement(identity)
+    barrier.complete_acknowledgement(identity)
+
+    worker.join(timeout=1.0)
+    assert not worker.is_alive()
+    assert not fake._operation_active.is_set()
+    assert transitions[-1][0] is SessionPhase.MAPPING
 
 
 def test_wake_event_mode_does_not_accept_ungated_raw_asr():

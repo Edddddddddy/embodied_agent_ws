@@ -23,6 +23,7 @@ setup(
             "openloris_rosbag_inspect = embodied_slam_tools.bag_source:main",
             "openloris_rosbag_replay = embodied_slam_tools.replay_node:main",
             "slam_trajectory_recorder = embodied_slam_tools.trajectory_recorder:main",
+            "control_authority_bootstrap = embodied_slam_tools.control_authority_bootstrap:main",
             "voice_slam_session_orchestrator = embodied_slam_tools.showcase_session_node:main",
         ],
     },
