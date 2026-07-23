@@ -1,20 +1,37 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-WORKSPACE="${WORKSPACE:-/home/ubuntu/embodied_agent_ws}"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+source "$SCRIPT_DIR/lifecycle_utils.sh"
+embodied_resolve_workspace "${BASH_SOURCE[0]}"
+embodied_resolve_runtime_root
 
 source "$WORKSPACE/scripts/activate.sh"
 cd "$WORKSPACE"
+
+# linked worktree 只隔离代码与 install，不复制数 GB 的模型和 Python 环境。
+# core 的解释器因此优先取当前工作区，其次复用 Git 主工作区 runtime root；
+# 仍显式调用选定解释器，避免未激活 venv 时悄悄退回缺依赖的系统 Python。
+PYTHON_BIN="${CORE_PYTHON_BIN:-}"
+if [[ -z "$PYTHON_BIN" && -x "$WORKSPACE/.venv/bin/python" ]]; then
+  PYTHON_BIN="$WORKSPACE/.venv/bin/python"
+fi
+if [[ -z "$PYTHON_BIN" && -x "$EMBODIED_RUNTIME_ROOT/.venv/bin/python" ]]; then
+  PYTHON_BIN="$EMBODIED_RUNTIME_ROOT/.venv/bin/python"
+fi
+if [[ -z "$PYTHON_BIN" ]]; then
+  PYTHON_BIN="$(command -v python3)"
+fi
 
 echo "[core] acceptance CLI contract"
 bash tests/integration/control/test_acceptance_cli.sh
 bash tests/integration/voice/test_voice_benchmark_cli.sh
 
 echo "[core] repository and deterministic evaluation tests"
-python3 -m pytest -q tests/repository tests/evaluation
+"$PYTHON_BIN" -m pytest -q tests/repository tests/evaluation
 
 echo "[core] Python agent unit tests"
-python3 -m pytest -q \
+"$PYTHON_BIN" -m pytest -q \
   src/embodied_agent_core/test \
   src/embodied_voice_frontend/test \
   src/embodied_offline_agent/test \

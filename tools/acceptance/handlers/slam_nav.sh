@@ -64,7 +64,8 @@ accept_slam_nav_showcase_mapping() {
 accept_slam_session_orchestrator_stage() {
   PYTHONPATH="$WORKSPACE/src/embodied_slam_tools${PYTHONPATH:+:$PYTHONPATH}" \
     python3 -m pytest -q src/embodied_slam_tools/test/test_showcase_session.py
-  colcon build --symlink-install --packages-up-to embodied_slam_tools \
+  colcon build --symlink-install \
+    --packages-up-to embodied_agent_core embodied_slam_tools \
     --allow-overriding embodied_agent_interfaces embodied_slam_tools
   WORKSPACE="$WORKSPACE" bash scripts/smoke_test_voice_slam_session_orchestrator.sh
 }
@@ -72,7 +73,8 @@ accept_slam_session_orchestrator_stage() {
 accept_slam_autonomous_mission_stage() {
   PYTHONPATH="$WORKSPACE/src/embodied_slam_tools${PYTHONPATH:+:$PYTHONPATH}" \
     python3 -m pytest -q src/embodied_slam_tools/test/test_showcase_session.py
-  colcon build --symlink-install --packages-up-to embodied_slam_tools \
+  colcon build --symlink-install \
+    --packages-up-to embodied_agent_core embodied_slam_tools \
     --allow-overriding embodied_agent_interfaces embodied_slam_tools
   PYTHONPATH="$WORKSPACE/src/embodied_slam_tools${PYTHONPATH:+:$PYTHONPATH}" \
     python3 -m pytest -q \
@@ -92,6 +94,20 @@ accept_unknown_world_slam_e2e() {
   embodied_workspace_doctor true
   # 未知世界验收使用独立场景 Adapter；handler 不复制任务编排或证据判定逻辑。
   python3 -u -m tools.acceptance.scenarios.unknown_world_slam_e2e
+}
+
+accept_voice_unknown_world_slam_e2e() {
+  local check_mode="${1:-offline}"
+  if [[ "$check_mode" != "offline" && "$check_mode" != "online" ]]; then
+    echo "Usage: ${ACCEPTANCE_PROGRAM:-acceptance_test.sh} voice-unknown-world-slam-e2e {offline|online}" >&2
+    return 2
+  fi
+  embodied_workspace_doctor true
+  # linked worktree 只承载代码/install；模型与 llama.cpp 默认复用 Git 主工作区，
+  # 并把最终根目录传入 session manifest，避免现场再次出现“启动前缺模型、无界面”。
+  embodied_resolve_runtime_root
+  # 真人语音场景仍复用 strict unknown-world runner，避免出现一套较松的演示判定。
+  python3 -u -m tools.acceptance.scenarios.voice_unknown_world_slam_e2e "$check_mode"
 }
 
 accept_slam_session_orchestrator() {

@@ -43,6 +43,21 @@ def test_mapping_path_rejects_pose_jump_and_stops_after_finish():
     assert tracker.mapping_path_m == pytest.approx(0.5)
 
 
+def test_latest_odom_remains_available_while_mapping_path_is_paused():
+    tracker = MappingEvidenceTracker(1)
+
+    tracker.record_odom(1.0, 2.0)
+    first = tracker.snapshot()
+    tracker.record_odom(0.75, 2.0)
+    second = tracker.snapshot()
+
+    assert first.latest_odom_xy == pytest.approx((1.0, 2.0))
+    assert second.latest_odom_xy == pytest.approx((0.75, 2.0))
+    assert second.odom_generation == first.odom_generation + 1
+    # 恢复动作位移可审计，但不伪装成自主 frontier 探索里程。
+    assert tracker.mapping_path_m == 0.0
+
+
 def test_exploration_state_and_scan_readiness_have_explicit_lifecycle():
     tracker = MappingEvidenceTracker(1)
     tracker.record_explore_status("exploration_complete")

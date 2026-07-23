@@ -30,6 +30,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/ComponentHealth.msg"
   "msg/SystemReadiness.msg"
   "msg/FrontierExplorationEvidence.msg"
+  "msg/SlamMappingCompletionEvidence.msg"
   "msg/SlamNavigationGoalEvidence.msg"
   "msg/SlamSessionState.msg"
   "msg/AgentTurnMetrics.msg"

@@ -54,6 +54,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="一句系统意图触发自动探索、存图、定位切换和语义导航",
     )
     parser.add_argument(
+        "--automatic-trigger-source",
+        choices=("synthetic", "live_voice"),
+        default="synthetic",
+        help="自动任务由确定性测试文本或真人麦克风证据触发",
+    )
+    parser.add_argument(
+        "--agent-mode",
+        choices=("offline", "online"),
+        default="offline",
+        help="联合语音证据所对应的 Agent provider 模式",
+    )
+    parser.add_argument(
+        "--voice-trigger-timeout",
+        type=float,
+        default=90.0,
+        help="进入 MAPPING 后等待真人自动建图口令的秒数",
+    )
+    parser.add_argument(
         "--cancel-automatic-mission",
         action="store_true",
         help="在 dry-run 自动探索期间发送急停并验证恢复到 MAPPING",

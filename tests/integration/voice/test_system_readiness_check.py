@@ -44,3 +44,22 @@ def test_system_readiness_format_reports_success_without_missing_items():
 
     assert rendered.startswith("PASS: system readiness profile=demo")
     assert "missing: -" in rendered
+
+
+def test_system_readiness_progress_explains_which_gate_is_blocking():
+    rendered = MODULE.format_readiness_progress(
+        {
+            "profile": "voice_nav2",
+            "ready": False,
+            "ready_components": ["simulation_control", "typed_action_bridge"],
+            "missing_components": ["agent", "action_guard"],
+            "degraded_components": [],
+            "detail": "required_component_missing_or_stale",
+        },
+        elapsed_s=15.2,
+    )
+
+    assert rendered.startswith("WAIT: system readiness profile=voice_nav2")
+    assert "elapsed=15.2s" in rendered
+    assert "missing=agent, action_guard" in rendered
+    assert "Lifecycle" in rendered

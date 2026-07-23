@@ -8,14 +8,14 @@
 | --- | ---: |
 | ROS 2 package | 12 |
 | GitHub Actions 构建 package | 12 |
-| 公开验收入口 | 8 |
-| 高级帮助入口 | 134 |
-| CLI router mode | 134 |
+| 公开验收入口 | 9 |
+| 高级帮助入口 | 135 |
+| CLI router mode | 135 |
 | `scripts/` 顶层文件 | 133 |
 | `scripts/` 递归文件 | 133 |
 | online Agent 主节点行数 | 549 |
 | offline Agent 主节点行数 | 686 |
-| 自定义 msg/srv/action 总数 | 39 |
+| 自定义 msg/srv/action 总数 | 40 |
 
 ## ROS 2 package 与 CI 矩阵
 
@@ -23,13 +23,13 @@
 
 ## 公开验收入口
 
-`continuous-offline`, `continuous-online`, `core`, `gazebo`, `nav2-stage`, `robotics-gate`, `slam-nav-e2e`, `unknown-world-slam-e2e`
+`continuous-offline`, `continuous-online`, `core`, `gazebo`, `nav2-stage`, `robotics-gate`, `slam-nav-e2e`, `unknown-world-slam-e2e`, `voice-unknown-world-slam-e2e`
 
 ## 静态契约
 
 - PASS：`ci_matrix_matches_ros_packages`
 - PASS：`ci_push_and_pr_only_dev_main`
-- PASS：`public_mode_count_is_8`
+- PASS：`public_mode_count_is_9`
 - PASS：`shell_entry_is_thin`
 - PASS：`public_modes_are_routable`
 - PASS：`advanced_modes_are_routable`

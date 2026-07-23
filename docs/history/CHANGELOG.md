@@ -6,11 +6,35 @@
 
 详细架构见 [ARCHITECTURE.md](../ARCHITECTURE.md)，关键技术见 [三册学习笔记](../learning/)。
 
+> 当前待合并开发快照：`feature/voice-unknown-world-e2e` 已把公开入口增至 9 个，并新增
+> `voice-unknown-world-slam-e2e {offline|online}`。该入口用 schema v1 记录真实音频、VAD endpoint、
+> WakeEvent 授权和自动任务 ASR final，并内嵌同 session strict schema v4。核心 synthetic unknown-world
+> 现场验收已通过；真人语音联合入口仍作为独立可选验收，不冒充本次核心证据。
+
+本快照同时完成 unknown-world 收敛修复：all-blacklisted 先经过 `20 s` goal handoff grace，只有 provider
+typed attempts exhaustion/no-clearance 且 Action 账本排空才执行碰撞检查 BackUp 和 odom 位移验证。最后一
+次恢复扫描若仍显著扩图，会运行一次不 BackUp、不扫描、独立限时 `240 s` 的 final confirmation epoch，
+让 Explorer 消费 post-scan 地图。地图增益仍使用 `40 cells + known*0.2%` 双门槛，strict evaluator 阈值
+未下调；失败报告新增最后一帧 typed frontier/Action ledger。fresh strict session
+`20260720T165331Z-1770278-a421b687` 已通过：全局/最低区域覆盖 99.75%/98.30%，AMCL P95 0.133 m，
+3/3 动态采样目标、动态障碍重规划和最终新鲜零速全部 PASS；真人语音联合 PASS 仍留待现场验收。
+
+动态 challenge 改为沿本次 baseline path 搜索可绕行 anchor，锁存 TTL 窗口内的 lethal cost，并在清理时
+核对本次 Action terminal boundary 后的新鲜零速；失败路径也会归位实体并清空 tracker/costmap。相关
+确定性回归和上述同 session 长时 strict 报告均已通过。
+
+现场启动回归又修复了两类环境漂移：重型验收现在隔离宿主 `~/nav2_ws`，并在 manifest 留存 Nav2 包
+provenance；linked worktree 通过独立 `EMBODIED_RUNTIME_ROOT` 复用主工作区的 llama/GGUF/VAD/校准资产。
+readiness 会周期输出缺失 Lifecycle 组件，stage `FAILED` 会即时结束探针。短时真实回归已确认 synthetic
+入口进入自动探索并发布非零 `/cmd_vel`，真人 offline 入口能够启动 llama-server、Gazebo 与 RViz；完整
+strict/真人报告仍以之后不中断的现场验收为准。
+
 ## 1. 阶段性版本记录
 
 | 阶段 | 主要目标 | 结果 |
 | --- | --- | --- |
-| Unknown-world 探索安全与恢复收口 | 分离 `0.33 m` traversal clearance 与 `0.40 m` 可观测容差；靠近目标前复核最新安全；累计有效逃逸 `≥2×0.15 m` 打断连续静止 timeout，但保留失败 approach 记忆；将 Nav2 `0.10 m/30 s` 实际 progress 参数写入 session YAML | fresh schema v4 session `20260720T031306Z-1114546-814430c3` PASS：coverage 99.67%、区域最低 97.76%、unknown 0.33%、障碍召回/false-free 80.93%/0.21%、AMCL P95 0.154 m、3/3 目标且最小间距 5.57 m、动态净空 0.0245→1.021 m、最终 fresh 零速；严格 evaluator 门槛未下调 |
+| 未知总面积自动收口与真实返航 | strict frontier 或多轮低收益 bounded saturation 安全静默；动态捕获起点并在 mapping stage 返航；慢 map_saver 前后双 typed STOP；再切 AMCL/Nav2 | schema v4 session `20260721T072342Z-2344751-5452a492` PASS：coverage 99.81%、区域最低 98.76%、AMCL P95 0.120 m、3/3 目标、动态重规划、返航及 fresh zero 全通过；运行时 truth 隔离且 evaluator 阈值未下调 |
+| Unknown-world 探索安全与恢复收口 | 分离 `0.33 m` traversal clearance 与 `0.40 m` 可观测容差；靠近目标前复核最新安全；累计有效逃逸 `≥2×0.15 m` 打断连续静止 timeout，但保留失败 approach 记忆；将 Nav2 `0.10 m/30 s` 实际 progress 参数写入 session YAML | fresh schema v4 session `20260720T031306Z-1114546-814430c3` PASS：coverage 99.67%、区域最低 97.76%、unknown 0.33%、障碍召回/false-free 80.93%/0.21%、AMCL P95 0.154 m、3/3 目标且最小间距 5.57 m、动态净空 0.0245→1.021 m、最终 fresh 零速；严格 evaluator 门槛未下调；PR #84 已合入 `dev` |
 | Unknown-world 自主闭环 | 去除静态真值、bootstrap 路线与固定目标先验，用 frontier 在线探索、本次保存图、AMCL 和运行时目标完成建图导航 | schema v4 真实 Gazebo session `20260719T235926Z-978092-3c6b24eb` PASS；覆盖、定位、3/3 目标、动态重规划与终态零速均达门槛 |
 | 初始骨架 | 创建 ROS 2 workspace，搭建在线 Agent、动作 topic、stub 节点 | 完成无密钥 mock 链路 |
 | 在线 Agent | 接入在线 ASR/LLM/TTS，设计 prompt、记忆、动作格式 | 完成在线接口 smoke 与动作解析 |

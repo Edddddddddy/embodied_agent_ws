@@ -44,6 +44,7 @@ def test_public_surface_is_small_stable_and_ordered():
         "nav2-stage",
         "slam-nav-e2e",
         "unknown-world-slam-e2e",
+        "voice-unknown-world-slam-e2e",
         "robotics-gate",
     )
     assert {mode.name for mode in MODES if mode.public} == set(PUBLIC_MODE_NAMES)
@@ -112,6 +113,28 @@ def test_unknown_world_slam_entry_has_distinct_public_evidence_semantics():
     )
     assert status == 0
     assert runner.calls == [("unknown-world-slam-e2e", [])]
+
+
+def test_live_voice_unknown_world_entry_preserves_agent_mode_argument():
+    """真人语音联合门禁必须是公开的一键入口，并显式选择在线或离线 Agent。"""
+
+    mode = MODE_BY_NAME["voice-unknown-world-slam-e2e"]
+    assert mode.public is True
+    assert mode.handler == "accept_voice_unknown_world_slam_e2e"
+    assert "Live microphone" in mode.description
+    assert "full-evidence unknown-world" in mode.description
+    assert mode.domain is HandlerDomain.SLAM_NAV
+
+    runner = RecordingRunner(result=0)
+    status = main(
+        ["voice-unknown-world-slam-e2e", "offline"],
+        runner=runner,
+        stdout=io.StringIO(),
+        stderr=io.StringIO(),
+    )
+
+    assert status == 0
+    assert runner.calls == [("voice-unknown-world-slam-e2e", ["offline"])]
 
 
 def test_acceptance_probe_runner_is_owned_by_tools_and_is_valid_shell():

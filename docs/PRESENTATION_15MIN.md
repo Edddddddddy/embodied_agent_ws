@@ -6,7 +6,7 @@
 | 证据 | 展示内容 | 能证明什么 | 本轮状态 |
 | --- | --- | --- | --- |
 | 真人语音 known-world | 麦克风→Agent→typed Action→Gazebo/Nav2 | 真实声学输入与交互控制 | 本轮未重跑，现场前单独验收 |
-| Gazebo unknown-world 报告 | frontier 建图→存图→AMCL→动态三点→动态障碍 | 无场景先验的自主闭环与硬指标 | fresh session `20260720T031306Z-1114546-814430c3` PASS |
+| Gazebo unknown-world 报告 | frontier 建图→存图→AMCL→动态三点→动态障碍 | 无场景先验的自主闭环与硬指标 | fresh session `20260720T165331Z-1770278-a421b687` PASS |
 
 不要说“上面的 PASS session 包含真人语音”；它没有。硬件 UART/SPI 也是 Adapter seam，不属于当前
 Gazebo 交付。
@@ -40,7 +40,7 @@ USE_RVIZ=true bash scripts/acceptance_test.sh unknown-world-slam-e2e
 
 ```text
 logs/acceptance/unknown_world_slam_nav/
-└── 20260720T031306Z-1114546-814430c3/
+└── 20260720T165331Z-1770278-a421b687/
     ├── unknown_world_map.yaml / .pgm
     ├── unknown_world_slam_e2e_report.json
     └── runtime.log
@@ -116,11 +116,16 @@ profile 禁止 bootstrap、places、固定目标和静态图。timeout、地图�
 
 ```text
 no_frontiers + no_reachable_frontiers
-frontier_attempts_exhausted_recoverable + frontier_attempts_exhausted_no_map_gain
+frontier_attempts_exhausted_recoverable + frontier_attempts_exhausted_below_material_gain
+frontier_attempts_exhausted_recoverable + frontier_attempts_exhausted_after_final_confirmation
 ```
 
-两组都要求 available/active/blacklisted=0，accepted goal 全部有终态。第二组来自最后一次 360° 实时
-扫描后地图没有足够增益，不是把“尝试耗尽”偷换成“环境没有 frontier”。
+三组都要求 available/active=0、accepted goal 全部有终态。`no_frontiers` 要求 blacklisted=0；typed
+attempts exhaustion 允许 `blacklisted<=detected`，但仍受独立地图质量门禁约束。all-blacklisted 先经过
+`20 s` goal handoff grace，不能直接驱动 BackUp；只有 provider typed attempts exhaustion/no-clearance 且
+Action 账本排空，才执行碰撞检查 BackUp 和 odom 位移验证。第二组来自 360° 扫描后低于
+`40 cells + 0.2%` 双门槛；第三组是最后一次扫描显著扩图后，唯一一次不 BackUp、不扫描的 budget-neutral
+确认 epoch 再次收敛。timeout、平台期或任意其他确认结果仍失败。
 
 再展示本轮修复边界：`0.33m` 是整条 frontier 可逃逸连通域净空；Burger profile 的 `0.40m` 是
 `1.5+0.4<3.0m` 激光 raytrace 内的观测容差，上游通用默认仍为 `0.30m`。进入容差前必须复核最新地图
@@ -182,19 +187,19 @@ Nav2 status/error 和最小间距；这是“防危险”和“防自证”两�
 
 ## 4. 展示 PASS 报告（13:30–14:30）
 
-打开 fresh session `20260720T031306Z-1114546-814430c3` 的 schema v4 JSON，按以下顺序展示：
+打开 fresh session `20260720T165331Z-1770278-a421b687` 的 schema v4 JSON，按以下顺序展示：
 
 | 项目 | 实测 | 门槛 |
 | --- | ---: | ---: |
-| reachable free coverage | `99.67%` | `≥90%` |
-| 四区域 coverage | 最低 office `97.76%` | 各 `≥85%` |
-| reachable unknown | `0.33%` | `≤10%` |
-| obstacle boundary recall / false-free | `80.93% / 0.21%` | `≥60% / ≤5%` |
-| frontier Action | `20 accepted / 20 terminal`，剩余计数全 0 | 完整终态 |
-| AMCL/Gazebo position error P95 | `0.154 m`（246 对齐样本） | `≤0.25 m`；至少 20 样本 |
-| 动态采样导航 | `3/3` 成功；最小间距 `5.570 m` | `3/3`；`≥1.50 m` |
+| reachable free coverage | `99.75%` | `≥90%` |
+| 四区域 coverage | 最低 office `98.30%` | 各 `≥85%` |
+| reachable unknown | `0.25%` | `≤10%` |
+| obstacle boundary recall / false-free | `78.52% / 0.34%` | `≥60% / ≤5%` |
+| frontier Action | `38 accepted / 38 terminal`；available/active=`0/0` | 完整终态 |
+| AMCL/Gazebo position error P95 | `0.133 m`（215 对齐样本） | `≤0.25 m`；至少 20 样本 |
+| 动态采样导航 | `3/3` 成功；最小间距 `5.584 m` | `3/3`；`≥1.50 m` |
 | 路径栅格 | producer/evaluator unknown、occupied、outside 均 0 | 全为 0 |
-| 动态避障 | 净空 `0.0245→1.021 m`，28 个 unique plan | 必须 replan |
+| 动态避障 | 净空 `0.029→0.972 m`，28 个 unique plan | 必须 replan |
 | 最终速度 | fresh `/cmd_vel=0` | 必须为 0 |
 
 地图 YAML/PGM 带时间和 SHA256，报告同时检查 fresh session map，避免拿旧地图通过。

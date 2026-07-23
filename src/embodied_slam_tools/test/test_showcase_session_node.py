@@ -5,15 +5,17 @@ from types import SimpleNamespace
 
 from action_msgs.msg import GoalStatus
 from builtin_interfaces.msg import Time
-from embodied_agent_interfaces.msg import RobotCommand
+from embodied_agent_interfaces.msg import RobotCommand, WakeEvent
 from lifecycle_msgs.msg import State
 from lifecycle_msgs.srv import GetState
-from nav2_msgs.action import NavigateToPose
+from nav2_msgs.action import BackUp, NavigateToPose
 import pytest
+from std_msgs.msg import String
 
 import embodied_slam_tools.showcase_session_node as showcase_session_node_module
 from embodied_slam_tools.mission_executor import (
     AutomaticMissionCancelled,
+    CommandRequest,
     wait_for_required_event,
 )
 from embodied_slam_tools.showcase_session_node import (
@@ -27,12 +29,116 @@ from embodied_slam_tools.showcase_session_node import (
     _occupancy_snapshot_from_message,
     _path_points_for_goal,
 )
-from embodied_slam_tools.showcase_session import SessionCommand, SessionPhase
+from embodied_slam_tools.showcase_session import (
+    SessionCommand,
+    SessionPhase,
+    ShowcaseSessionStateMachine,
+)
 from embodied_slam_tools.mapping_evidence import (
     FrontierTelemetry,
+    MappingEvidenceTracker,
     NavigationGoalEvidence,
     NavigationGoalStatus,
 )
+from embodied_slam_tools.mapping_return import (
+    PlanarPose,
+    ReturnActionKind,
+    ReturnActionStatus,
+    ReturnToStartEvidence,
+    ReturnToStartSpec,
+    evaluate_return_to_start,
+)
+
+
+def _session_command_receiver(input_source="raw_asr"):
+    queued = []
+    logger = SimpleNamespace(
+        info=lambda _message: None,
+        warning=lambda _message: None,
+    )
+    receiver = SimpleNamespace(
+        _command_input_source=input_source,
+        _active_request=None,
+        _intent_lock=threading.Lock(),
+        _last_intent=(None, 0.0),
+        _enqueue=lambda request: queued.append(request) or True,
+        get_logger=lambda: logger,
+    )
+    return receiver, queued
+
+
+def test_wake_event_mode_does_not_accept_ungated_raw_asr():
+    receiver, queued = _session_command_receiver("wake_event")
+
+    SessionOrchestratorNode._on_asr_final(
+        receiver, String(data="开始自动建图")
+    )
+
+    assert queued == []
+
+
+def test_raw_asr_remains_the_compatible_default_command_source():
+    receiver, queued = _session_command_receiver()
+    del receiver._command_input_source
+
+    SessionOrchestratorNode._on_asr_final(
+        receiver, String(data="开始自动建图")
+    )
+
+    assert [request.command for request in queued] == [
+        SessionCommand.RUN_AUTOMATIC_MISSION
+    ]
+
+
+def test_wake_event_mode_accepts_known_command_after_wake():
+    receiver, queued = _session_command_receiver("wake_event")
+    event = WakeEvent()
+    event.kind = WakeEvent.KIND_WAKE
+    event.command_known = True
+    event.command = "开始自动建图"
+
+    SessionOrchestratorNode._on_wake_event(receiver, event)
+
+    assert [request.command for request in queued] == [
+        SessionCommand.RUN_AUTOMATIC_MISSION
+    ]
+
+
+def test_wake_event_mode_accepts_known_command_in_active_session():
+    receiver, queued = _session_command_receiver("wake_event")
+    event = WakeEvent()
+    event.kind = WakeEvent.KIND_CONTINUE
+    event.command_known = True
+    event.command = "开始自动建图"
+
+    SessionOrchestratorNode._on_wake_event(receiver, event)
+
+    assert [request.command for request in queued] == [
+        SessionCommand.RUN_AUTOMATIC_MISSION
+    ]
+
+
+@pytest.mark.parametrize(
+    ("kind", "command_known", "command"),
+    [
+        (WakeEvent.KIND_REJECTED, True, "开始自动建图"),
+        (WakeEvent.KIND_SLEEP, True, "开始自动建图"),
+        (WakeEvent.KIND_WAKE, False, ""),
+        (WakeEvent.KIND_CONTINUE, True, "   "),
+    ],
+)
+def test_wake_event_mode_ignores_events_without_accepted_command(
+    kind, command_known, command
+):
+    receiver, queued = _session_command_receiver("wake_event")
+    event = WakeEvent()
+    event.kind = kind
+    event.command_known = command_known
+    event.command = command
+
+    SessionOrchestratorNode._on_wake_event(receiver, event)
+
+    assert queued == []
 
 
 class _LifecycleClient:
@@ -158,6 +264,74 @@ def test_frontier_evidence_keeps_provider_and_mission_reasons_separate():
     assert message.mission_completion_reason == "no_reachable_frontiers"
 
 
+def test_frontier_quiesce_publishes_pause_and_requires_drained_ledger():
+    evidence = MappingEvidenceTracker(1)
+    evidence.record_frontier_telemetry(
+        FrontierTelemetry(
+            status="exploration_paused",
+            active_goal_count=0,
+            accepted_goal_count=3,
+            succeeded_goal_count=2,
+            canceled_goal_count=1,
+        )
+    )
+    published = []
+    fake = SimpleNamespace(
+        _dry_run=False,
+        _mapping_evidence=evidence,
+        _explore_control_pub=SimpleNamespace(
+            publish=lambda message: published.append(message.data)
+        ),
+    )
+
+    telemetry = SessionOrchestratorNode.quiesce_frontier(
+        fake,
+        CommandRequest(SessionCommand.RUN_AUTOMATIC_MISSION, "test"),
+        timeout_s=0.01,
+    )
+
+    assert published == [False]
+    assert telemetry.active_goal_count == 0
+    assert telemetry.accepted_goal_count == 3
+
+
+def test_frontier_quiesce_fails_closed_when_owner_goal_is_still_active():
+    evidence = MappingEvidenceTracker(1)
+    evidence.record_frontier_telemetry(
+        FrontierTelemetry(
+            status="exploration_running",
+            active_goal_count=1,
+            accepted_goal_count=1,
+        )
+    )
+    fake = SimpleNamespace(
+        _dry_run=False,
+        _mapping_evidence=evidence,
+        _explore_control_pub=SimpleNamespace(publish=lambda _message: None),
+    )
+
+    with pytest.raises(TimeoutError, match="did not drain Action ledger"):
+        SessionOrchestratorNode.quiesce_frontier(
+            fake,
+            CommandRequest(SessionCommand.RUN_AUTOMATIC_MISSION, "test"),
+            timeout_s=0.0,
+        )
+
+
+def test_new_mission_clears_previous_mapping_completion_evidence():
+    fake = SimpleNamespace(
+        _mapping_saturation_evidence=object(),
+        _mapping_saturation_assessment=object(),
+        _return_to_start_evidence=object(),
+    )
+
+    SessionOrchestratorNode._reset_mapping_completion_evidence(fake)
+
+    assert fake._mapping_saturation_evidence is None
+    assert fake._mapping_saturation_assessment is None
+    assert fake._return_to_start_evidence is None
+
+
 def test_navigation_goal_evidence_is_a_compact_typed_snapshot():
     message = _navigation_goal_evidence_message(
         NavigationGoalEvidence(
@@ -255,6 +429,166 @@ def test_navigation_switch_clears_mapping_inputs_before_stage_start():
     assert start_event == ("start", "navigation", 5, None, None)
     assert fake._latest_occupancy_generation == -1
     assert fake._latest_map_pose_generation == -1
+
+
+def _automatic_navigation_failure_fixture(manager, executor_callback):
+    """构造覆盖 request worker -> stage switch 的最小真实状态机夹具。"""
+
+    fsm = ShowcaseSessionStateMachine()
+    fsm.transition(SessionPhase.MAPPING, detail="mapping ready")
+    transitions = []
+    fake = SimpleNamespace(
+        _fsm=fsm,
+        _state_lock=threading.RLock(),
+        _operation_active=threading.Event(),
+        _active_request=None,
+        _mission_sequence=0,
+        _mission_outcome=0,
+        _mission_message="",
+        _navigation_goal_ledger=SimpleNamespace(reset=lambda _sequence: None),
+        _publish_state=lambda: None,
+        _manager=manager,
+        _map_pose_condition=threading.Condition(),
+        _navigation_input_generation=0,
+        _latest_occupancy=object(),
+        _latest_map_pose_xy=(0.0, 0.0),
+        _latest_occupancy_generation=0,
+        _latest_map_pose_generation=0,
+        _readiness_generation=lambda: 0,
+        _wait_for_new_ready=lambda _generation: None,
+        feedback=lambda _request, _progress: None,
+        get_logger=lambda: SimpleNamespace(
+            error=lambda _message: None,
+            warning=lambda _message: None,
+        ),
+    )
+
+    def transition(phase, *, detail, **kwargs):
+        transitions.append(phase)
+        return fsm.transition(phase, detail=detail, **kwargs)
+
+    fake.transition = transition
+    fake._cleanup_failed_navigation_startup = lambda error: (
+        SessionOrchestratorNode._cleanup_failed_navigation_startup(fake, error)
+    )
+    fake._wait_navigation_ready_impl = lambda request: (
+        SessionOrchestratorNode._wait_navigation_ready_impl(fake, request)
+    )
+    fake._automatic_mission_executor = SimpleNamespace(
+        run=lambda request: executor_callback(fake, request)
+    )
+    return fake, transitions
+
+
+def test_navigation_stage_start_failure_stops_partial_stage_and_fails_request():
+    class _Manager:
+        stage = "mapping"
+        stop_calls = 0
+
+        def stop(self):
+            self.stop_calls += 1
+            self.stage = ""
+
+        def start(self, stage):
+            assert stage == "navigation"
+            raise RuntimeError("navigation launch failed")
+
+    manager = _Manager()
+    fake, transitions = _automatic_navigation_failure_fixture(
+        manager,
+        lambda node, request: SessionOrchestratorNode.start_navigation(
+            node, request
+        ),
+    )
+    request = CommandRequest(
+        command=SessionCommand.RUN_AUTOMATIC_MISSION,
+        source="test",
+    )
+
+    SessionOrchestratorNode._execute_request(fake, request)
+
+    # 第一次 stop 切换 mapping，第二次 stop 回收可能已部分拉起的 navigation。
+    assert manager.stop_calls == 2
+    assert fake._fsm.snapshot.phase == SessionPhase.FAILED
+    assert transitions[-1] == SessionPhase.FAILED
+    assert request.message == "navigation launch failed"
+    assert request.success is False
+
+
+def test_navigation_readiness_timeout_stops_partial_stage_and_fails_request():
+    class _Manager:
+        stage = "navigation"
+        stop_calls = 0
+
+        def stop(self):
+            self.stop_calls += 1
+            self.stage = ""
+
+    manager = _Manager()
+
+    def wait_until_timeout(node, request):
+        node.transition(
+            SessionPhase.STARTING_NAVIGATION,
+            detail="navigation process started",
+        )
+        SessionOrchestratorNode.wait_navigation_ready(node, request)
+
+    fake, transitions = _automatic_navigation_failure_fixture(
+        manager, wait_until_timeout
+    )
+    fake._dry_run = False
+    fake._startup_timeout_s = 0.0
+    unavailable = SimpleNamespace(
+        server_is_ready=lambda: False,
+        wait_for_server=lambda timeout_sec: False,
+    )
+    fake._navigate_to_pose_client = unavailable
+    fake._follow_waypoints_client = unavailable
+    fake._cancel_automatic_motion = lambda: None
+    request = CommandRequest(
+        command=SessionCommand.RUN_AUTOMATIC_MISSION,
+        source="test",
+    )
+
+    SessionOrchestratorNode._execute_request(fake, request)
+
+    assert manager.stop_calls == 1
+    assert fake._fsm.snapshot.phase == SessionPhase.FAILED
+    assert transitions[-1] == SessionPhase.FAILED
+    assert "Nav2 Action server unavailable" in request.message
+
+
+def test_navigation_start_cleanup_failure_does_not_mask_primary_exception():
+    primary = RuntimeError("navigation launch failed")
+    cleanup = RuntimeError("navigation cleanup failed")
+
+    class _Manager:
+        stop_calls = 0
+
+        def stop(self):
+            self.stop_calls += 1
+            if self.stop_calls == 2:
+                raise cleanup
+
+        def start(self, _stage):
+            raise primary
+
+    manager = _Manager()
+    fake, _ = _automatic_navigation_failure_fixture(
+        manager, lambda _node, _request: None
+    )
+
+    with pytest.raises(RuntimeError) as raised:
+        SessionOrchestratorNode.start_navigation(
+            fake, SimpleNamespace(message="")
+        )
+
+    assert raised.value is primary
+    assert manager.stop_calls == 2
+    assert any(
+        "navigation cleanup failed" in note
+        for note in getattr(raised.value, "__notes__", ())
+    )
 
 
 def test_navigation_inputs_are_tagged_with_current_generation():
@@ -403,6 +737,121 @@ class _NeverGoalResponse:
     @staticmethod
     def done():
         return False
+
+
+def test_nav2_backup_goal_uses_positive_local_magnitudes_and_strong_success():
+    captured = []
+    result = BackUp.Result()
+    result.error_code = BackUp.Result.NONE
+    handle = SimpleNamespace(
+        accepted=True,
+        get_result_async=lambda: _DoneFuture(
+            SimpleNamespace(
+                status=GoalStatus.STATUS_SUCCEEDED,
+                result=result,
+            )
+        ),
+    )
+    fake = SimpleNamespace(
+        _backup_client=SimpleNamespace(
+            wait_for_server=lambda timeout_sec: True,
+            send_goal_async=lambda goal: captured.append(goal)
+            or _DoneFuture(handle),
+        )
+    )
+
+    SessionOrchestratorNode._execute_nav2_backup(
+        fake,
+        SimpleNamespace(canceled=False),
+        distance_m=0.30,
+        speed_mps=0.08,
+        time_allowance_s=10.0,
+        deadline_monotonic=10**12,
+    )
+
+    assert len(captured) == 1
+    goal = captured[0]
+    # Nav2 BackUp 的客户端契约使用正幅值，Behavior Server 内部负责负向运动。
+    assert goal.target.x == pytest.approx(0.30)
+    assert goal.target.y == 0.0
+    assert goal.target.z == 0.0
+    assert goal.speed == pytest.approx(0.08)
+    assert goal.time_allowance.sec == 10
+    assert goal.time_allowance.nanosec == 0
+
+
+def test_nav2_backup_collision_is_failure_and_forces_typed_stop():
+    result = BackUp.Result()
+    result.error_code = BackUp.Result.COLLISION_AHEAD
+    result.error_msg = "collision ahead"
+    handle = SimpleNamespace(
+        accepted=True,
+        get_result_async=lambda: _DoneFuture(
+            SimpleNamespace(
+                status=GoalStatus.STATUS_ABORTED,
+                result=result,
+            )
+        ),
+    )
+    stop_calls = []
+    fake = SimpleNamespace(
+        _backup_client=SimpleNamespace(
+            wait_for_server=lambda timeout_sec: True,
+            send_goal_async=lambda _goal: _DoneFuture(handle),
+        ),
+        stop_motion_and_wait=lambda request, *, timeout_s: stop_calls.append(
+            (request, timeout_s)
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="collision ahead"):
+        SessionOrchestratorNode._execute_nav2_backup(
+            fake,
+            SimpleNamespace(canceled=False),
+            distance_m=0.30,
+            speed_mps=0.08,
+            time_allowance_s=10.0,
+            deadline_monotonic=10**12,
+        )
+
+    assert len(stop_calls) == 1
+    assert stop_calls[0][0].source == "navigation_safety_stop"
+    assert stop_calls[0][0].canceled is False
+
+
+def test_recovery_backup_returns_independent_odom_displacement():
+    from embodied_slam_tools.mapping_evidence import MappingEvidenceTracker
+
+    evidence = MappingEvidenceTracker(1)
+    evidence.record_odom(1.0, 2.0)
+
+    class _Runtime:
+        _dry_run = False
+        _mapping_evidence = evidence
+
+        def _wait_for_recovery_odom(self, *args, **kwargs):
+            return SessionOrchestratorNode._wait_for_recovery_odom(
+                self, *args, **kwargs
+            )
+
+        @staticmethod
+        def _execute_nav2_backup(*_args, **_kwargs):
+            evidence.record_odom(0.76, 2.0)
+
+        @staticmethod
+        def get_logger():
+            return SimpleNamespace(info=lambda _message: None)
+
+    displacement = SessionOrchestratorNode.run_recovery_backup(
+        _Runtime(),
+        SimpleNamespace(canceled=False),
+        distance_m=0.30,
+        speed_mps=0.08,
+        timeout_s=10.0,
+    )
+
+    assert displacement == pytest.approx(0.24)
+    assert evidence.mapping_path_m == 0.0
 
 
 def _navigation_execution_fake(*, unsafe_runtime_path):
@@ -836,6 +1285,125 @@ def test_navigation_safety_request_publishes_priority_typed_stop():
     assert isinstance(published[0], RobotCommand)
     assert published[0].action_type == RobotCommand.STOP
     assert published[0].priority is True
+
+
+class _ManualNanosecondClock:
+    """让 map_saver 延迟与零速采样时刻在测试中完全可控。"""
+
+    def __init__(self, nanoseconds):
+        self.nanoseconds = nanoseconds
+
+    def now(self):
+        return SimpleNamespace(nanoseconds=self.nanoseconds)
+
+
+def _return_evidence_before_slow_map_save():
+    """构造返航已成功、但其零速会被慢 map_saver 拖旧的证据。"""
+
+    return ReturnToStartEvidence(
+        start_pose=PlanarPose(0.0, 0.0, 0.0, "map", 1_000_000_000),
+        final_pose=PlanarPose(0.02, 0.01, 0.01, "map", 5_050_000_000),
+        action_kind=ReturnActionKind.NAVIGATE_TO_POSE,
+        action_status=ReturnActionStatus.SUCCEEDED,
+        action_command_id="slam-return-home-1",
+        action_started_at_ns=2_000_000_000,
+        action_finished_at_ns=5_000_000_000,
+        map_saved_at_ns=0,
+        cmd_vel_linear_x=0.0,
+        cmd_vel_angular_z=0.0,
+        cmd_vel_observed_at_ns=5_100_000_000,
+        evaluated_at_ns=5_100_000_000,
+    )
+
+
+def test_save_map_refreshes_zero_velocity_after_slow_map_saver():
+    """耗时保存后必须重新停车取证，不能拿返航时的陈旧零速硬凑 PASS。"""
+
+    clock = _ManualNanosecondClock(5_100_000_000)
+    events = []
+    transitions = []
+    draft = _return_evidence_before_slow_map_save()
+
+    def save_map():
+        events.append("map_saved")
+        # 超过 max_cmd_vel_age_s=1.0，精确复放现场 final_cmd_vel_fresh=false。
+        clock.nanoseconds = 6_300_000_001
+        return "/tmp/unknown_world_map.yaml"
+
+    fake = SimpleNamespace(
+        _fsm=SimpleNamespace(snapshot=SimpleNamespace(map_saved=False)),
+        _manager=SimpleNamespace(save_map=save_map),
+        _return_to_start_evidence=draft,
+        _return_to_start_spec=ReturnToStartSpec(max_cmd_vel_age_s=1.0),
+        _cmd_vel_condition=threading.Condition(),
+        _last_cmd_vel=(0.0, 0.0),
+        _last_cmd_vel_observed_at_ns=draft.cmd_vel_observed_at_ns,
+        get_clock=lambda: clock,
+        transition=lambda phase, **kwargs: transitions.append((phase, kwargs)),
+        feedback=lambda *_args, **_kwargs: None,
+    )
+
+    def stop_motion_and_wait(request, *, timeout_s):
+        del request
+        assert timeout_s > 0.0
+        # 只有 map_saver 已经真实返回后，才允许刷新最终安全零速。
+        assert events == ["map_saved"]
+        events.append("post_save_stop")
+        clock.nanoseconds = 6_350_000_000
+        with fake._cmd_vel_condition:
+            fake._last_cmd_vel = (0.0, 0.0)
+            fake._last_cmd_vel_observed_at_ns = clock.nanoseconds
+
+    fake.stop_motion_and_wait = stop_motion_and_wait
+
+    SessionOrchestratorNode.save_map(fake, SimpleNamespace(message=""))
+
+    finalized = fake._return_to_start_evidence
+    decision = evaluate_return_to_start(finalized, fake._return_to_start_spec)
+    assert events == ["map_saved", "post_save_stop"]
+    assert finalized.action_finished_at_ns < finalized.map_saved_at_ns
+    assert finalized.map_saved_at_ns <= finalized.cmd_vel_observed_at_ns
+    assert finalized.cmd_vel_observed_at_ns <= finalized.evaluated_at_ns
+    assert decision.passed is True
+    assert transitions[-1][0] == SessionPhase.MAP_SAVED
+
+
+def test_save_map_fails_closed_without_post_save_fresh_zero_velocity():
+    """保存后 typed STOP 没有新零速时，不得发布 MAP_SAVED 或改写证据。"""
+
+    clock = _ManualNanosecondClock(5_100_000_000)
+    transitions = []
+    stop_calls = []
+    draft = _return_evidence_before_slow_map_save()
+
+    def save_map():
+        clock.nanoseconds = 6_300_000_001
+        return "/tmp/unknown_world_map.yaml"
+
+    def stop_motion_and_wait(request, *, timeout_s):
+        stop_calls.append((request, timeout_s))
+        raise TimeoutError("typed STOP completed without a fresh zero /cmd_vel")
+
+    fake = SimpleNamespace(
+        _fsm=SimpleNamespace(snapshot=SimpleNamespace(map_saved=False)),
+        _manager=SimpleNamespace(save_map=save_map),
+        _return_to_start_evidence=draft,
+        _return_to_start_spec=ReturnToStartSpec(max_cmd_vel_age_s=1.0),
+        _cmd_vel_condition=threading.Condition(),
+        _last_cmd_vel=(0.0, 0.0),
+        _last_cmd_vel_observed_at_ns=draft.cmd_vel_observed_at_ns,
+        get_clock=lambda: clock,
+        transition=lambda phase, **kwargs: transitions.append((phase, kwargs)),
+        feedback=lambda *_args, **_kwargs: None,
+        stop_motion_and_wait=stop_motion_and_wait,
+    )
+
+    with pytest.raises(TimeoutError, match="fresh zero /cmd_vel"):
+        SessionOrchestratorNode.save_map(fake, SimpleNamespace(message=""))
+
+    assert len(stop_calls) == 1
+    assert fake._return_to_start_evidence is draft
+    assert all(phase != SessionPhase.MAP_SAVED for phase, _ in transitions)
 
 
 def test_navigation_safety_cleanup_refuses_missing_nav2_terminal(monkeypatch):

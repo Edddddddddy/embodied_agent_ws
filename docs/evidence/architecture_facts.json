@@ -1,7 +1,7 @@
 {
   "acceptance_cli": {
-    "advanced_help_mode_count": 134,
-    "public_mode_count": 8,
+    "advanced_help_mode_count": 135,
+    "public_mode_count": 9,
     "public_modes": [
       "continuous-offline",
       "continuous-online",
@@ -10,9 +10,10 @@
       "nav2-stage",
       "robotics-gate",
       "slam-nav-e2e",
-      "unknown-world-slam-e2e"
+      "unknown-world-slam-e2e",
+      "voice-unknown-world-slam-e2e"
     ],
-    "router_mode_count": 134,
+    "router_mode_count": 135,
     "undocumented_router_modes": []
   },
   "ci": {
@@ -31,7 +32,7 @@
     "advanced_modes_are_routable": true,
     "ci_matrix_matches_ros_packages": true,
     "ci_push_and_pr_only_dev_main": true,
-    "public_mode_count_is_8": true,
+    "public_mode_count_is_9": true,
     "public_modes_are_routable": true,
     "release_gates_use_current_workspace": true,
     "robotics_profile_covers_required_gates": true,
@@ -209,7 +210,7 @@
       ]
     },
     "messages": {
-      "count": 36,
+      "count": 37,
       "files": [
         "AgentTurnMetrics.msg",
         "AudioFrontendStatus.msg",
@@ -238,6 +239,7 @@
         "RobotCommandFeedback.msg",
         "RobotCommandResult.msg",
         "SimulationState.msg",
+        "SlamMappingCompletionEvidence.msg",
         "SlamNavigationGoalEvidence.msg",
         "SlamSessionState.msg",
         "SpeakerEnrollRequest.msg",
@@ -255,6 +257,6 @@
         "SynthesizeSpeech.srv"
       ]
     },
-    "total": 39
+    "total": 40
   }
 }

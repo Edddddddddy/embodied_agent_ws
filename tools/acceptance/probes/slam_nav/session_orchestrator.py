@@ -29,12 +29,21 @@ from tools.acceptance.probes.slam_nav.cli import build_parser
 from tools.acceptance.probes.slam_nav.dynamic_scenario import (
     run_showcase_dynamic_navigation,
 )
+from tools.acceptance.probes.slam_nav.live_voice_trigger import (
+    await_automatic_mission_trigger,
+    finalize_trigger_report,
+)
 from tools.acceptance.probes.slam_nav.session_observer import (
     GazeboTruthConfig,
     SessionObserver,
     lifecycle_states,
     run_text_action,
     wait_until,
+)
+from tools.acceptance.probes.slam_nav.session_runtime import (
+    run_cli,
+    spin_executor_until_shutdown,
+    wait_for_mapping_startup,
 )
 from tools.acceptance.probes.slam_nav.unknown_world_report_adapter import (
     build_session_report as build_unknown_world_session_report,
@@ -81,6 +90,11 @@ def _publish_state_progress(
 
 def main() -> None:
     args = build_parser().parse_args()
+    live_voice_trigger = args.automatic_trigger_source == "live_voice"
+    if live_voice_trigger and not args.automatic_mission:
+        raise ValueError("live_voice trigger requires --automatic-mission")
+    if live_voice_trigger and args.cancel_automatic_mission:
+        raise ValueError("live_voice trigger does not support synthetic cancel")
     scene_context = None
     gazebo_truth_config = None
     if args.unknown_world:
@@ -117,6 +131,7 @@ def main() -> None:
     node = SessionObserver(
         state_observer=state_observer,
         gazebo_truth_config=gazebo_truth_config,
+        synthetic_asr_enabled=not live_voice_trigger,
     )
     if progress is not None:
         progress.start(
@@ -130,23 +145,22 @@ def main() -> None:
         )
     executor = rclpy.executors.MultiThreadedExecutor(num_threads=2)
     executor.add_node(node)
-    thread = threading.Thread(target=executor.spin, daemon=True)
+    thread = threading.Thread(
+        target=spin_executor_until_shutdown,
+        args=(executor,),
+        daemon=True,
+    )
     thread.start()
     try:
-        wait_until(
-            lambda: node.has_phase(SlamSessionState.MAPPING),
-            args.transition_timeout,
-            "orchestrator did not enter MAPPING",
-        )
-        wait_until(
-            lambda: node.asr_pub.get_subscription_count() > 0,
-            5.0,
-            "ASR final subscriber unavailable",
-        )
-
+        wait_for_mapping_startup(node, args.transition_timeout)
         if args.automatic_mission or args.cancel_automatic_mission:
             state_start = len(node.states)
-            node.asr_pub.publish(String(data="开始自动巡检建图"))
+            await_automatic_mission_trigger(
+                node,
+                source=args.automatic_trigger_source,
+                timeout_s=args.voice_trigger_timeout,
+                agent_mode=args.agent_mode,
+            )
             if args.cancel_automatic_mission:
                 wait_until(
                     lambda: any(
@@ -156,6 +170,7 @@ def main() -> None:
                     args.transition_timeout,
                     "automatic mission did not enter AUTOMATIC_MAPPING",
                 )
+                assert node.asr_pub is not None
                 node.asr_pub.publish(String(data="急停"))
                 wait_until(
                     lambda: any(
@@ -317,7 +332,7 @@ def main() -> None:
                     raise RuntimeError("unknown-world mission did not save a map")
                 if scene_context is None or args.truth_map is None:
                     raise RuntimeError("unknown-world evaluator context is missing")
-                report = build_unknown_world_session_report(
+                core_report = build_unknown_world_session_report(
                     node=node,
                     final_state=final_state,
                     session_id=args.session_id,
@@ -328,6 +343,12 @@ def main() -> None:
                     map_provenance=map_provenance,
                     nav2_lifecycle_active=lifecycle_active,
                     dynamic_navigation=dynamic_navigation,
+                )
+                report = finalize_trigger_report(
+                    node,
+                    core_report,
+                    live_voice_trigger=live_voice_trigger,
+                    agent_mode=args.agent_mode,
                 )
                 args.output.parent.mkdir(parents=True, exist_ok=True)
                 args.output.write_text(
@@ -388,6 +409,14 @@ def main() -> None:
             progress_outcome = "PASS"
             return
 
+        # 非 automatic 的旧验收仍会发送“保存地图/开始导航”，因此保留原先
+        # 的 subscriber readiness；live_voice 已在入口处限定为 automatic。
+        assert node.asr_pub is not None
+        wait_until(
+            lambda: node.asr_pub.get_subscription_count() > 0,
+            5.0,
+            "ASR final subscriber unavailable",
+        )
         exploration_succeeded = None
         survey_steps: list[dict] = []
         survey_distance_m = 0.0
@@ -524,10 +553,14 @@ def main() -> None:
     except Exception as error:
         # 重型门禁即使在中途失败也必须留下机器可读原因，避免现场只看到超时或卡住。
         last_state = node.states[-1] if node.states else None
-        failure_report = build_failure_report(
+        core_failure_report = build_failure_report(
             session_id=args.session_id,
             session_start_ns=args.session_start_ns,
-            evidence_kind=args.evidence_kind,
+            evidence_kind=(
+                "unknown_world_slam_nav_dynamic_replan"
+                if args.unknown_world
+                else args.evidence_kind
+            ),
             error=str(error),
             state_sequence=[int(state.phase) for state in node.states],
             last_state_detail=node.current_detail,
@@ -542,6 +575,16 @@ def main() -> None:
             mission_message=(
                 str(last_state.mission_message) if last_state is not None else ""
             ),
+            # 异常发生时 Observer 已持有最近一帧强类型 frontier/Action 账本；
+            # 直接固化到 failure artifact，避免现场只能解析 runtime.log。
+            frontier_telemetry=node.frontier_evidence,
+            mapping_completion_evidence=node.mapping_completion_evidence,
+        )
+        failure_report = finalize_trigger_report(
+            node,
+            core_failure_report,
+            live_voice_trigger=live_voice_trigger,
+            agent_mode=args.agent_mode,
         )
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(
@@ -557,9 +600,10 @@ def main() -> None:
         # 继续访问订阅回调，现场表现为退出挂住或偶发 rclpy InvalidHandle。
         executor.shutdown()
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
         thread.join(timeout=2.0)
 
 
 if __name__ == "__main__":
-    main()
+    run_cli(main)

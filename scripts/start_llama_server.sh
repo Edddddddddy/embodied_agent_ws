@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
-WORKSPACE="${WORKSPACE:-/home/ubuntu/embodied_agent_ws}"
-BIN="${LLAMA_SERVER:-$WORKSPACE/third_party/llama.cpp/build/bin/llama-server}"
-MODEL="${LLAMA_MODEL:-$WORKSPACE/models/Qwen3-0.6B-Q8_0.gguf}"
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+WORKSPACE="${WORKSPACE:-$(cd -- "$SCRIPT_DIR/.." && pwd -P)}"
+source "$SCRIPT_DIR/lifecycle_utils.sh"
+embodied_resolve_runtime_root
+
+# WORKSPACE 始终指向当前代码/install；大体积非跟踪资产由独立根目录承载。
+BIN="${LLAMA_SERVER:-$EMBODIED_RUNTIME_ROOT/third_party/llama.cpp/build/bin/llama-server}"
+MODEL="${LLAMA_MODEL:-$EMBODIED_RUNTIME_ROOT/models/Qwen3-0.6B-Q8_0.gguf}"
 HOST="${LLAMA_HOST:-127.0.0.1}"
 PORT="${LLAMA_PORT:-8080}"
 CONTEXT="${LLAMA_CONTEXT:-2048}"

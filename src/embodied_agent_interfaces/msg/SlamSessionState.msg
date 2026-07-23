@@ -38,4 +38,5 @@ uint8 mission_outcome
 string mission_message
 
 embodied_agent_interfaces/FrontierExplorationEvidence frontier
+embodied_agent_interfaces/SlamMappingCompletionEvidence mapping_completion
 embodied_agent_interfaces/SlamNavigationGoalEvidence[] sampled_navigation_goals

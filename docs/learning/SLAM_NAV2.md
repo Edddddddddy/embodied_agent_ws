@@ -8,14 +8,17 @@
 ### 代码在哪里
 
 - `src/embodied_slam_tools/embodied_slam_tools/mission_executor.py`
-  - `UnknownWorldMissionExecutor.run()`：建图、存图、切换 AMCL/Nav2、动态三点导航的事务入口。
+  - `UnknownWorldMissionExecutor.run()`：动态捕获起点、建图、返航、存图、切换 AMCL/Nav2 和三点导航。
   - `AutomaticMissionExecutor.run()`：known-world 演示事务，不拥有 unknown-world 自主闭环。
   - `_explore_with_bounded_recovery()`、`decide_epoch_recovery()`：恢复扫描、地图增益和 epoch 预算。
+  - `_assess_time_budget_saturation()`：硬预算后的 final probe、地图静默与有界饱和判定。
 - `src/embodied_slam_tools/embodied_slam_tools/showcase_session_node.py`
   - `SessionOrchestratorNode._on_asr_final()`：只把开始/取消话术转成 mission intent。
   - `start_navigation()`：停止 mapping、递增 navigation generation、清理旧 map/pose，再启动保存图定位栈。
   - `select_mapped_navigation_goals()`：等待同代 `/map` 和 AMCL pose，组织候选与实时准入。
   - `run_navigation_goal()`：执行前 preflight、NavigateToPose 和运行中路径生产证据。
+  - `capture_mapping_start_pose()`、`quiesce_frontier()`、`run_mapping_return_goal()`：动态起点、Explorer
+    Action 总账排空和 mapping-stage 返航。
   - `AgentActionGateway`：关联扫描/STOP primitive 的 Action goal/result，不拥有语音 callback 或任务阶段。
 - `src/embodied_slam_tools/embodied_slam_tools/stage_process_manager.py:StageProcessManager`：launch、
   map saver 与进程树副作用。
@@ -27,7 +30,11 @@
 ```text
 ManageSlamSession / voice intent
 → UnknownWorldMissionExecutor.run()
+→ 初始运动前捕获 map→base_link 起点
 → start_explorer() → FrontierExplorationMonitor.wait()
+→ strict frontier 终结，或 hard-budget bounded saturation
+→ quiesce Explorer → final probe → typed STOP
+→ ComputePathToPose + NavigateToPose 返回动态起点
 → save_map()
 → start_navigation()：new navigation generation
 → wait_navigation_ready()
@@ -47,9 +54,15 @@ AMCL pose 被误拼成一次合法输入。
 orchestrator 的 known-free/ComputePath 准入后直接走 typed Nav2 Action。前者需要统一限幅和抢占，后者
 需要保留 Nav2 的规划、反馈和取消语义，所以不人为合并成一条速度控制路径。
 
+返航必须发生在 mapping stage 内。若先存图、切到 AMCL 阶段或重启 Gazebo，再看到机器人位于出生点，
+只能证明重启重置了模型，不能证明机器人从建图终点真实导航回来。当前先执行返航 Action，复核 TF 与新鲜
+零速度，等待 SLAM/回环尾帧稳定后才存图。同步 map_saver 可能耗时数秒，因此保存返回后还要再次走
+typed STOP 并读取订阅到的新零速；这条 post-save witness 通过后才允许切换导航 stage。
+
 ### 与替代方案区别
 
 - 固定 waypoint/bootstrap 路线稳定，但它验证 known-world 回归，不证明未知环境自主探索。
+- 在 YAML 写死“返航点 (0,0)”简便，但起点坐标会随 world/spawn 改变；当前在首次运动前动态捕获 TF。
 - 一个 launch 同时启动 SLAM 与 AMCL 简单，但会产生 TF 所有权冲突。
 - 固定 `sleep` 不能证明 Action server/lifecycle 真正 ready；当前用 readiness、Action server 和
   lifecycle ACTIVE 逐层确认。
@@ -64,6 +77,62 @@ ROS 栈阶段，`mission_outcome` 表示任务 SUCCEEDED/FAILED/CANCELED，二�
 pending goal response 也有独立 safety budget。只有整个序列可证明终态时才发布 `MISSION_CANCELED`；
 response/result 超时、cancel 或 STOP 失败会触发 stage fail-safe，并以 `MISSION_FAILED` 结束。这样不会把
 “已经返回给调用者”误当成“机器人已经停止”。
+
+### 1.1 真人语音怎样与 unknown-world 形成同一条证据链
+
+#### 代码在哪里
+
+- `voice_unknown_world_slam_e2e.py:main()`、`UnknownWorldRunProfile.live_voice()`：选择 online/offline 真人
+  profile，复用同一 SLAM/Nav2 runner 和门槛。
+- `showcase_session_node.py:_on_wake_event()`：真人模式只接受带 command 的 `KIND_WAKE/KIND_CONTINUE`；
+  synthetic 模式才使用 raw ASR。
+- `session_observer.py:begin_live_voice_trigger_window()`：MAPPING 后采集 audio、endpoint、WakeEvent 和 ASR，
+  且真人模式不创建伪 `/agent/asr_final` publisher。
+- `live_voice_trigger.py:finalize_trigger_report()`、
+  `voice_trigger_evidence.py:VoiceTriggerEvidenceWindow.build_envelope()`：把语音事实和同 session schema v4
+  核心报告组合成可单测的 schema v1 envelope。
+
+主调用链：
+
+```text
+voice-unknown-world-slam-e2e offline|online
+→ UnknownWorldRunProfile.live_voice()
+→ SessionOrchestratorNode(command_input_source=wake_event)
+→ SessionObserver(synthetic_asr_enabled=false)
+→ MAPPING 后打开 volatile 语音窗口并提示真人口令
+→ AudioFrontendStatus + speech_started/ended + WakeEvent + ASR final
+→ WakeEvent 授权任务 → UnknownWorldMissionExecutor.run()
+→ schema v4 SLAM/Nav2 core_report
+→ VoiceTriggerEvidenceWindow.build_envelope()
+→ schema v1 同 session 联合 PASS/FAIL
+```
+
+#### 为什么不让编排器直接消费裸 ASR
+
+Agent 同时发布裸 ASR 和经过 wake/session gate 的 WakeEvent。若编排器同时消费二者，同一句话可能重复
+触发；若只读 raw ASR，未唤醒语音、filler 或测试 publisher 都能启动长任务。因此
+`command_input_source` 是互斥部署策略：真人只消费已授权 WakeEvent，synthetic 门禁才消费确定性 raw
+ASR。探针订阅 ASR 只为证据观察，不驱动生产任务。
+
+#### 为什么用 schema v1 envelope 内嵌 schema v4
+
+把语音字段直接塞进 schema v4 会破坏无麦克风 SLAM/Nav2 门禁；把两次不同 session 的 PASS 拼在汇报里，
+又没有因果证据。因此 envelope 分两层：
+
+- 外层 schema v1：真实音频、闭合 VAD endpoint、WakeEvent、自动任务 final 与 agent mode。
+- 内嵌 schema v4：地图质量、frontier 终止、AMCL、3 个运行时目标、动态重规划和最终零速。
+
+两层必须复用同一 `session_id`，任一 check 失败则联合报告失败；MAPPING 后才打开 volatile 事件窗口，
+排除启动期旧 final。
+
+#### 与替代方案区别和失败边界
+
+- “语音先测一次、SLAM 再测一次”快，但没有因果和同会话证据；当前只接受一条命令启动同一事务。
+- 用时间戳猜 raw ASR 是否经过唤醒很脆弱；当前生产侧直接消费强类型 `WakeEvent`。
+- 仅检查 RMS 会把持续噪声当语音；还需要闭合 endpoint、可解析 final 和已授权 WakeEvent。
+- 外层 PASS 不得覆盖核心失败；`_verify_profile_report()` 会复核 schema/session/checks/sections。
+
+截至本笔记更新，联合入口已实现但真人现场 PASS 尚未生成；历史 v4 不能外推为真人联合结果。
 
 ## 2. 运行时采样导航目标准入：从地图候选到 NavigateToPose
 
@@ -140,8 +209,18 @@ NavigateToPose 接受以后发生的 failure 必须保留失败，不能临时�
 - `frontier_monitor.py:FrontierExplorationMonitor._unknown_world_reason()`：读取 typed provider 状态，
   加入 idle grace、地图稳定和恢复预算。
 - `mission_executor.py:decide_epoch_recovery()`：确认扫描后比较 known cell 增益。
+- `mission_executor.py:UnknownWorldMissionExecutor._explore_with_bounded_recovery()`：碰撞检查 BackUp、
+  odom 位移验证与一次性 final confirmation epoch。
+- `exploration_saturation.py:SaturationEvidenceTracker`、`assess_bounded_frontier_saturation()`：跨 epoch
+  保留峰值地图、terminal goal、路径和 final probe 的 ROS-free 判定。
+- `mapping_return.py:evaluate_return_to_start()`：返航 Action、位姿、时间线和零速度的纯领域裁决。
+- `showcase_session_node.py:quiesce_frontier()`、`run_mapping_return_goal()`：ROS 控制面静默和真实返航。
 - `mapping_evidence.py:MappingEvidenceTracker`：累计 accepted/terminal goal，而恢复重启不能抹账。
+- `unknown_world_slam_mission.yaml`：`frontier_idle_grace_s=20.0`、`min_growth_cells=40`、
+  `min_growth_ratio=0.002`。
 - `tools/acceptance/unknown_world_evidence.py:evaluate_frontier_completion()`：最终严格 reason pair 与计数。
+- `tools/acceptance/unknown_world_evidence.py:evaluate_approximate_completion()`、
+  `evaluate_return_to_start_evidence()`：验收层近似完成与返航复核。
 - `patches/m-explore-ros2/0012-execution-clearance-contract.patch`：`0.33 m` 可逃逸连通域及临界通道测试。
 - `patches/m-explore-ros2/0013-frontier-progress-recovery-contract.patch`：progress anchor、分层失败记忆、
   terminal 后熔断。
@@ -153,13 +232,62 @@ NavigateToPose 接受以后发生的 failure 必须保留失败，不能临时�
 ### 为何这样设计
 
 Explore Lite 的 `no_frontiers` 是 provider 对当前地图的事实；任务层的 `no_reachable_frontiers` 是在
-idle grace 后对可达性和 Action 生命周期的判断。若一个 epoch 的物理 approach 都耗尽，provider 只能
-发布 `frontier_attempts_exhausted_recoverable`；任务层做一次传感器驱动的 360° 扫描，等待地图稳定，
-只有增益低于阈值才发布 `frontier_attempts_exhausted_no_map_gain`。
+idle grace 后对可达性和 Action 生命周期的判断。goal terminal 后可能短暂出现 available=active=0、
+blacklisted>0；`20 s` idle grace 让 provider 的下一次 makePlan 消费终态，避免任务层过早重启 Explorer。
+generic all-blacklisted 本身不授权移动。若一个 epoch 的物理 approach 都耗尽，provider 必须发布 typed
+`frontier_attempts_exhausted_recoverable`；待 `active=0`、`accepted==terminal` 后，任务层才执行碰撞检查
+BackUp，并用 odom 位移证明观察位置确实改变，再做传感器驱动的 360° 扫描和地图稳定等待。独立的 typed
+no-clearance 原因也可走相同的 relocation 契约，普通平台期/blacklisted 不可绕过它。
+
+扫描后只有绝对增益与相对增益均低于有效增长门槛，才发布
+`frontier_attempts_exhausted_below_material_gain`。
+
+当前门槛由 `unknown_world_slam_mission.yaml` 的 `min_growth_cells=40` 与
+`min_growth_ratio=0.002` 共同定义，等价于
+`required=max(40, ceil(known_before*0.2%))`。这避免完整大图上几十个边缘栅格抖动被误判成新房间。
+`attempts_exhausted` 中的 residual blacklist 是本 epoch 已尝试失败的候选子集；只有执行过有碰撞检查的
+Nav2 BackUp、完成多视角恢复且 Action 账本排空后，才允许由独立地图质量门禁最终确认收敛。
+
+若最后一个恢复预算刚好被消耗，而扫描又同时达到 `40 cells + 0.2%`，直接失败会浪费已经获得的新地图，
+直接完成则 Explorer 从未消费 post-scan frontier。任务层因此只授权一次 recovery-budget-neutral final
+confirmation epoch：使用独立 `240 s` 绝对 deadline，不 BackUp、不再扫描、不创建第二个确认轮。该轮只有 provider
+`no_frontiers` 或 typed attempts exhaustion 可以完成；其他 recovery reason、active/Action 账本异常或二次
+非终结恢复都失败。
 
 “等待地图稳定”不是一个可无限延长的定时器：soft quiet 从最后一次地图增长计算，用来吸收尾部更新；
 hard budget 从调用开始计算且增长不会重置，用来限制噪声或持续增长造成的无限等待。quiet 未满足继续等，
 hard deadline 到达则失败，因此 timeout 不会被伪装成收敛。
+
+### 未知场地大小时怎样判断“扫得差不多”
+
+运行时看不到真值和总面积，因而不能计算“已经完成 85%”。硬预算只触发一个中性的 assessment request，
+不能直接授权成功。任务层先通过 `/explore/resume=false` 暂停 Explore Lite，等待
+`exploration_paused + active=0 + accepted=terminal`，再回收进程；这样 late Action result 不会在进程被杀后
+丢失，也不会留下两个速度 owner。
+
+随后只执行一次 final probe。`SaturationEvidenceTracker` 使用峰值 known cells，避免回环导致当前已知
+栅格变少时伪造负收益；同时用 terminal goal 数归一化 epoch 增益，避免“epoch 跑得久”天然看起来收益更高。
+默认必须满足最近 `2` 个连续低收益 epoch、每轮 `3` 个 terminal goal、累计路径 `20m`、残余 available
+frontier `<=4`、final probe 低增益、地图静默 `15s`、账本排空和 probe 后新鲜 typed STOP。恢复次数余量仅用于
+诊断；provider 未请求恢复时，不会为了把计数降到零而制造额外运动。
+
+生产侧只记录 `time_budget_exhausted + bounded_saturation evidence`。evaluator 再使用 truth map 独立验证
+原有 `90/85/10` 地图质量与障碍质量；因此这是“运行时收益递减 + 离线质量门禁”的双层证据，不是把
+timeout 或视觉上的残余白角改名为成功。
+
+### 为什么 Explorer 停止后还要返回起点
+
+起点在初始扫描前从 `map→base_link` 动态捕获。探索结束后，返航先用 `ComputePathToPose` 确认本次图上
+存在 known-free 路径，再执行 `NavigateToPose`；Action succeeded 仍不够，还要连续 TF 样本进入 XY/yaw
+容差并收到返航后的零速度。返航会再次观测起点附近并可能触发回环，所以还要等待地图静默后再保存；
+保存完成后的第二次 STOP 用于建立最终报告的新鲜零速边界，而不是给旧时间戳“续期”。
+
+`mapping_return.py` 把这些条件压成纯领域契约，并验证时间线
+`capture < return start < return finish < map save`。evaluator 逐项复核 checks，不能只相信 producer 的
+`passed` 位。这样 strict frontier 和 bounded saturation 使用同一返航安全门槛。
+
+直接把 `max_cmd_vel_age_s` 从 1 秒调大看似能绕过慢 map_saver，但它会让真正陈旧的停车证据也通过。
+当前保留严格阈值，并以“返航后预存图停车 + 存图后最终停车”的双确认协议消除耗时耦合。
 
 ### 为什么 traversal clearance 与 observation tolerance 必须分开
 
@@ -205,26 +333,33 @@ result 存在竞态，Nav2 仍可能晚到 `SUCCEEDED`；若请求取消时就�
 `active=0` 与 `accepted==succeeded+aborted+canceled`，再执行 typed STOP 和恢复扫描。扫描有地图增益才允许
 新 epoch；无增益显式失败，不能把“机器人卡住”解释为“地图完成”。
 
-正式 PASS 只接受两组严格配对：
+strict frontier PASS 只接受以下配对：
 
 ```text
 no_frontiers + no_reachable_frontiers
-frontier_attempts_exhausted_recoverable + frontier_attempts_exhausted_no_map_gain
+frontier_attempts_exhausted_recoverable + frontier_attempts_exhausted_below_material_gain
+frontier_attempts_exhausted_recoverable + frontier_attempts_exhausted_after_final_confirmation
 ```
 
-无论哪组，都必须 available=0、active=0、blacklisted=0，且 accepted goal 全部进入
-succeeded/aborted/canceled 终态。
+无论哪组，都必须 available=0、active=0，且 accepted goal 全部进入 succeeded/aborted/canceled 终态。
+`no_frontiers` 必须 blacklisted=0；typed attempts exhaustion 允许 residual
+`blacklisted<=detected`，但最终地图覆盖、分区覆盖、unknown 和障碍质量仍可独立否决。
+
+bounded saturation 不要求 available=0，但 residual 必须在配置上限内，且同时满足跨 epoch、final probe、
+账本、返航和 evaluator 地图质量证据；它不会改变 `evaluate_frontier_completion()` 的 strict 语义。
 
 ### 与替代方案区别
 
-timeout 只说明预算耗尽；coverage plateau 只说明暂时没扩图；all-blacklisted 反而说明还有已知边界未
-解决。三者都不能直接冒充建图完成。确认扫描使用实时 LiDAR，不读取 truth map 或固定路线；它是信息
-增益判据，而不是场景先验。
+timeout 只说明预算耗尽；单次 coverage plateau 只说明暂时没扩图；all-blacklisted 反而说明还有已知边界
+未解决。三者都不能单独冒充建图完成。当前要求多 epoch 收益、物理路径、Action ledger、最终探测和独立
+地图质量共同成立；确认扫描使用实时 LiDAR，不读取 truth map 或固定路线。
 
 ### 失败边界
 
-reason 交叉配对、blacklisted>0、active>0、available>0 或 accepted≠terminal 均失败。扫描产生足够地图
-增益但 recovery budget 已耗尽也必须失败，因为不能在还有新信息时宣称收敛。
+reason 交叉配对、`no_frontiers` 时 blacklisted>0、attempts exhaustion 时 blacklisted>detected、active>0、
+available>0 或 accepted≠terminal 均失败。预算边界扫描显著扩图时必须经过唯一 final confirmation；若确认
+轮不是 `no_frontiers` 或 typed attempts exhaustion，也必须失败。bounded saturation 缺少任一低收益 epoch、
+final probe、静默、STOP、返航或 evaluator 地图质量证据同样失败。
 
 ## 4. Strong typed evidence、时钟域与独立评分
 
@@ -232,16 +367,24 @@ reason 交叉配对、blacklisted>0、active>0、available>0 或 accepted≠term
 
 - `embodied_agent_interfaces/msg/SlamSessionState.msg`
 - `embodied_agent_interfaces/msg/FrontierExplorationEvidence.msg`
+- `embodied_agent_interfaces/msg/SlamMappingCompletionEvidence.msg`
 - `embodied_agent_interfaces/msg/SlamNavigationGoalEvidence.msg`
 - `tools/acceptance/probes/slam_nav/sampled_goal_tracker.py:SampledGoalPlanTracker`
 - `tools/acceptance/unknown_world_evidence.py:build_unknown_world_report()`
+- `tools/acceptance/unknown_world_evidence.py:evaluate_approximate_completion()`、
+  `evaluate_return_to_start_evidence()`
 - `tools/acceptance/scenarios/unknown_world_contract.py:validate_unknown_world_mission()`
+- `tools/acceptance/probes/slam_nav/artifacts.py:build_failure_report()`：失败也保存最后一帧 typed
+  frontier/Action ledger。
 
 ### 为何这样设计
 
 日志字符串会改文案、会丢帧，也不能表达 late join 快照；typed msg 固定字段、Action 状态、Nav2
 error_code、时间和 producer path 统计。evaluator 再使用保存图、Gazebo truth 和场地区域计算覆盖、定位
 误差和路径安全，不相信 producer 自报成功。
+
+失败报告同样保留 `frontier.telemetry`：detected/available/active/blacklisted 与 accepted/succeeded/
+aborted/canceled 都来自 typed 消息。这样恢复失败能直接审计 Action 总账，不必从可变的 `detail` 日志反推。
 
 路径关联有一个容易忽略的时钟问题：orchestrator 在 Gazebo stage 外常驻，typed goal 生命周期使用
 `SYSTEM_TIME`；Nav2 的 Path 在 `use_sim_time=true` 下使用 Gazebo `/clock`。这两种数值不可直接排序。
@@ -299,6 +442,8 @@ PASS 只说明证据链完整，不代表真实场地精度达到发布门槛。
 - `embodied_navigation/src/constant_velocity_predictor.cpp:predict_constant_velocity()`
 - `embodied_navigation/src/predicted_obstacle_layer.cpp:updateBounds()/updateCosts()`
 - `tools/acceptance/probes/slam_nav/dynamic_scenario.py:run_showcase_dynamic_navigation()`
+- `tools/acceptance/probes/slam_nav/dynamic_scenario.py:path_relative_motion_positions()`
+- `tools/acceptance/probes/slam_nav/dynamic_cost_evidence.py:PredictedCostLatch`
 - `tools/acceptance/unknown_world_evidence.py` 的 dynamic navigation 判定。
 
 ### 为何这样设计
@@ -306,6 +451,11 @@ PASS 只说明证据链完整，不代表真实场地精度达到发布门槛。
 先做数据关联保持 track identity，再做 CV/Kalman/IMM 运动估计，最后把未来占用投影到 costmap。plugin
 只消费统一轨迹，不了解检测器；旧 bounds 必须保留用于清除过期占用，避免“鬼墙”。验收同时比较动态
 障碍加入前后的路径净空、unique plan、Action result、里程和最终零速。
+
+动态 actor 不再放到固定地图坐标，而是沿本次 baseline path 搜索双侧具有足够横向净空的 anchor，再按
+切向速度生成观测序列；场景/起点变化时仍在验证“有解路径上的预测阻塞”。预测层 TTL 可能早于多次
+ComputePath 重试结束，因此首次和最大 lethal cost 在等待窗口内锁存，route-commit 即时 cost 只作衰减
+诊断，不能倒写已经观测到的历史事实。
 
 ### 与替代方案区别
 
@@ -317,20 +467,23 @@ greedy nearest 在多目标交叉时容易换 ID；全局门限分配更稳定�
 当前重型证据使用确定性合成 detection，不等于真实人群检测。它在自主三点导航完成后，由 acceptance
 probe 注入固定 challenge goal/actor；这是外部测试刺激，不参与探索或三点目标采样，也不能算自主策略
 选择的第四个目标。动态场景退出仍需完成障碍归位、空 detection、tracker/costmap 清除和 fresh 零速；
-mission 取消则使用第 1 节的 `cancel → fresh typed STOP → Nav2 terminal` 安全事务。场景成功但清理失败时，
+fresh 零速必须晚于本次动态 Action 的 terminal boundary。mission 取消则使用第 1 节的
+`cancel → fresh typed STOP → Nav2 terminal` 安全事务。场景成功但清理失败时，
 整个 gate 仍失败。
 
 ## 7. 证据状态与阅读顺序
 
-fresh session `20260720T031306Z-1114546-814430c3` 已证明当前安全/恢复契约下的 schema v4 六阶段链路：
-reachable coverage `99.67%`、区域最低 `97.76%`、unknown `0.33%`、障碍召回/false-free
-`80.93% / 0.21%`，AMCL P95 `0.154 m`，3/3 运行时目标成功且最小间距 `5.57 m`，动态净空
-`0.0245 m → 1.021 m`，最终 fresh 零速。修复只改变探索器的生产策略与运行证据，没有下调 schema v4
-严格 evaluator；完整阈值、路径 `unknown/occupied/map-outside` 合同与报告位置只在
+当前 session `20260721T072342Z-2344751-5452a492` 已证明新契约的 schema v4 六阶段链路：reachable
+coverage `99.81%`、区域最低 `98.76%`、unknown `0.19%`、障碍召回/false-free `85.21% / 1.69%`，
+AMCL P95 `0.120 m`，返航位置/角度误差 `0.0188 m / 0.1828 rad`，3/3 运行时目标成功，动态净空
+`0.020 m → 0.998 m`，最终 fresh 零速。该次地图自然满足 strict frontier；bounded saturation 是
+残余前沿仍存在时的备用收口路径，不能因本次未触发而删掉。生产与 schema v4 evaluator 阈值均未下调。完整阈值、
+路径 `unknown/occupied/map-outside` 合同与报告位置只在
 [测试手册](../TESTING.md) 维护。
 
-建议阅读顺序：`unknown_world_slam_mission.yaml` → `mission_executor.py` → `mapped_goal_sampler.py` →
-`showcase_session_node.py` → `sampled_goal_tracker.py` → `unknown_world_evidence.py`。先理解运行时不变量，再
+建议阅读顺序：`unknown_world_slam_mission.yaml` → `exploration_saturation.py` / `mapping_return.py` →
+`mission_executor.py` → `showcase_session_node.py` → `mapped_goal_sampler.py` → `sampled_goal_tracker.py` →
+`unknown_world_evidence.py`。先理解运行时不变量，再
 看 evaluator 阈值；不要从成功 JSON 反推并复制一套策略逻辑。
 
 这份 unknown-world 报告与真人语音 known-world 演示是双证据：前者证明自主建图导航，后者证明

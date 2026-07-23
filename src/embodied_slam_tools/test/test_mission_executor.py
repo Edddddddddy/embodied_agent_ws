@@ -6,9 +6,16 @@ import time
 
 import pytest
 
+from embodied_slam_tools.exploration_saturation import SaturationPolicy
 from embodied_slam_tools.mapping_evidence import (
     FrontierTelemetry,
     MappingEvidenceTracker,
+)
+from embodied_slam_tools.mapping_return import (
+    PlanarPose,
+    ReturnActionKind,
+    ReturnActionStatus,
+    ReturnToStartEvidence,
 )
 from embodied_slam_tools.mission_executor import (
     AutomaticMissionCancelled,
@@ -16,6 +23,7 @@ from embodied_slam_tools.mission_executor import (
     AutomaticMissionSpec,
     CommandRequest,
     EpochRecoveryDecision,
+    RecoveryBackUpSpec,
     UnknownWorldMissionExecutor,
     UnknownWorldMissionSpec,
     decide_epoch_recovery,
@@ -224,12 +232,51 @@ class _UnknownWorldRuntime(_Runtime):
         *,
         recovery_map_sizes=(),
         frontier_telemetries=(),
+        recovery_backup_displacements=(),
     ):
         super().__init__(evidence)
         self.frontier_outcomes = list(frontier_outcomes)
         self.recovery_map_sizes = list(recovery_map_sizes)
         self.frontier_telemetries = list(frontier_telemetries)
+        self.recovery_backup_displacements = list(
+            recovery_backup_displacements
+        )
         self.scan_action_count = 0
+
+    def capture_mapping_start_pose(self, _request, *, timeout_s):
+        del timeout_s
+        return PlanarPose(0.0, 0.0, 0.0, "map", 1)
+
+    def quiesce_frontier(self, _request, *, timeout_s):
+        del timeout_s
+        return self.evidence.snapshot().frontier_telemetry
+
+    def run_mapping_return_goal(
+        self,
+        _request,
+        *,
+        start_pose,
+        spec,
+        timeout_s,
+    ):
+        del spec, timeout_s
+        return ReturnToStartEvidence(
+            start_pose=start_pose,
+            final_pose=PlanarPose(0.0, 0.0, 0.0, "map", 4),
+            action_kind=ReturnActionKind.NAVIGATE_TO_POSE,
+            action_status=ReturnActionStatus.SUCCEEDED,
+            action_command_id="test-return-home",
+            action_started_at_ns=2,
+            action_finished_at_ns=3,
+            map_saved_at_ns=5,
+            cmd_vel_linear_x=0.0,
+            cmd_vel_angular_z=0.0,
+            cmd_vel_observed_at_ns=4,
+            evaluated_at_ns=5,
+        )
+
+    def record_mapping_completion(self, **_kwargs):
+        return None
 
     def run_agent_action(
         self,
@@ -268,6 +315,19 @@ class _UnknownWorldRuntime(_Runtime):
     def stop_motion_and_wait(self, _request, *, timeout_s):
         self.calls.append(("stop_motion", timeout_s))
 
+    def run_recovery_backup(
+        self,
+        _request,
+        *,
+        distance_m,
+        speed_mps,
+        timeout_s,
+    ):
+        self.calls.append(
+            ("recovery_backup", distance_m, speed_mps, timeout_s)
+        )
+        return self.recovery_backup_displacements.pop(0)
+
     def select_mapped_navigation_goals(
         self,
         _request,
@@ -303,14 +363,218 @@ def _unknown_spec(max_recovery_attempts=2):
         navigation_timeout_s=120.0,
         initial_scan_text="原地转一圈",
         recovery_scan_text="原地转一圈",
+        recovery_backup=RecoveryBackUpSpec(
+            distance_m=0.30,
+            speed_mps=0.08,
+            timeout_s=10.0,
+            minimum_displacement_m=0.20,
+        ),
         max_recovery_attempts=max_recovery_attempts,
         minimum_epoch_map_gain_cells=40,
+        minimum_epoch_map_gain_ratio=0.002,
         map_settle_s=0.0,
         navigation_goal_count=3,
         navigation_goal_seed=20260719,
         navigation_goal_minimum_separation_m=1.5,
         navigation_goal_clearance_m=0.25,
+        return_map_settle_s=0.0,
     )
+
+
+def test_time_budget_saturation_quiesces_returns_home_then_saves_map():
+    """复现残余角落场景：安全收口后必须在 SLAM stage 返航再存图。"""
+
+    evidence = MappingEvidenceTracker(1)
+    evidence.record_map([0] * 25_000)
+    evidence.mark_scan_ready()
+    events = []
+
+    class _EventManager(_Manager):
+        def start_explorer(self, config_path):
+            super().start_explorer(config_path)
+            events.append("explorer_started")
+
+        def stop_explorer(self):
+            super().stop_explorer()
+            events.append("explorer_stopped")
+
+    class _SaturationRuntime(_UnknownWorldRuntime):
+        def __init__(self):
+            super().__init__(
+                evidence,
+                (
+                    "recovery_required:blacklisted_frontiers",
+                    "recovery_required:frontier_attempts_exhausted",
+                    "assessment_required:time_budget",
+                ),
+                recovery_map_sizes=(25_400, 25_420, 25_450),
+                recovery_backup_displacements=(0.24,),
+            )
+            self._epoch = 0
+            self._odom_x = 0.0
+            self.completion = None
+
+        def capture_mapping_start_pose(self, request, *, timeout_s):
+            events.append("start_pose_captured")
+            return super().capture_mapping_start_pose(
+                request, timeout_s=timeout_s
+            )
+
+        def wait_for_frontier(self, request, **kwargs):
+            self._epoch += 1
+            known_cells = (25_200, 25_420, 25_440)[self._epoch - 1]
+            self.evidence.record_map([0] * known_cells)
+            # 每个 epoch 形成约 7m 合法连续里程；总里程超过通用 20m 下限。
+            for _ in range(21):
+                self.evidence.record_odom(self._odom_x, 0.0)
+                self._odom_x += 0.35
+            self.evidence.record_frontier_telemetry(
+                FrontierTelemetry(
+                    status="exploration_blocked",
+                    detected_frontier_count=8,
+                    available_frontier_count=4,
+                    blacklisted_frontier_count=1,
+                    accepted_goal_count=3,
+                    succeeded_goal_count=3,
+                )
+            )
+            return super().wait_for_frontier(request, **kwargs)
+
+        def quiesce_frontier(self, request, *, timeout_s):
+            events.append("frontier_quiesced")
+            self.evidence.record_frontier_telemetry(
+                FrontierTelemetry(
+                    status="exploration_paused",
+                    detected_frontier_count=8,
+                    available_frontier_count=4,
+                    blacklisted_frontier_count=1,
+                    accepted_goal_count=3,
+                    succeeded_goal_count=3,
+                )
+            )
+            return super().quiesce_frontier(request, timeout_s=timeout_s)
+
+        def run_mapping_return_goal(self, request, **kwargs):
+            events.append("return_home")
+            return super().run_mapping_return_goal(request, **kwargs)
+
+        def record_mapping_completion(self, **kwargs):
+            events.append("completion_recorded")
+            self.completion = kwargs
+
+        def save_map(self, request):
+            events.append("map_saved")
+            super().save_map(request)
+
+    manager = _EventManager(dry_run=False)
+    runtime = _SaturationRuntime()
+    spec = replace(
+        _unknown_spec(max_recovery_attempts=2),
+        saturation_policy=SaturationPolicy(required_map_quiet_s=0.001),
+    )
+
+    UnknownWorldMissionExecutor(runtime, manager, evidence, spec).run(
+        _request()
+    )
+
+    assert evidence.completion_reason == "time_budget_exhausted"
+    assert events.count("explorer_started") == 3
+    assert events.count("explorer_stopped") == 3
+    assert events.index("frontier_quiesced") < events.index(
+        "explorer_stopped", events.index("frontier_quiesced")
+    )
+    assert events.index("return_home") < events.index("map_saved")
+    assert runtime.completion is not None
+    assert runtime.completion["saturation_assessment"].complete
+    assert runtime.completion["return_to_start"].action_status is (
+        ReturnActionStatus.SUCCEEDED
+    )
+    assert len(
+        [call for call in runtime.calls if call[0] == "navigation_goal"]
+    ) == 3
+
+
+def test_frontier_wait_failure_uses_independent_typed_stop_request():
+    """Explorer 超时后，即使用户请求已取消也必须真正发出安全停车。"""
+
+    evidence = MappingEvidenceTracker(1)
+    evidence.record_map([0] * 100)
+    evidence.mark_scan_ready()
+    events = []
+    manager = _Manager(dry_run=False)
+
+    class _FailingFrontierRuntime(_UnknownWorldRuntime):
+        def wait_for_frontier(self, request, **_kwargs):
+            events.append("wait_frontier")
+            request.canceled = True
+            raise TimeoutError("frontier deadline expired")
+
+        def stop_motion_and_wait(self, request, *, timeout_s):
+            events.append("typed_stop")
+            assert request.command == SessionCommand.STOP_SESSION
+            assert request.source == "frontier_failure_cleanup"
+            assert request.canceled is False
+            assert timeout_s == 45.0
+
+    runtime = _FailingFrontierRuntime(evidence, ())
+    request = _request()
+    executor = UnknownWorldMissionExecutor(
+        runtime, manager, evidence, _unknown_spec()
+    )
+
+    with pytest.raises(TimeoutError, match="frontier deadline expired"):
+        executor.run(request)
+
+    assert request.canceled is True
+    assert events == ["wait_frontier", "typed_stop"]
+    assert manager.calls == [
+        ("start_explorer", Path("/tmp/frontier.yaml")),
+        ("stop_explorer",),
+    ]
+
+
+def test_frontier_cleanup_failures_never_mask_primary_wait_error():
+    """清理失败只能附注在主异常上，不能覆盖真正的 Frontier 根因。"""
+
+    evidence = MappingEvidenceTracker(1)
+    evidence.record_map([0] * 100)
+    evidence.mark_scan_ready()
+    events = []
+
+    class _FailingManager(_Manager):
+        def stop_explorer(self):
+            super().stop_explorer()
+            events.append("stop_explorer_failed")
+            raise RuntimeError("explorer cleanup failed")
+
+    class _DoubleFailRuntime(_UnknownWorldRuntime):
+        def wait_for_frontier(self, _request, **_kwargs):
+            events.append("wait_frontier_failed")
+            raise TimeoutError("frontier deadline expired")
+
+        def stop_motion_and_wait(self, request, *, timeout_s):
+            events.append("typed_stop_failed")
+            assert request is not original_request
+            raise RuntimeError("typed stop failed")
+
+    manager = _FailingManager(dry_run=False)
+    runtime = _DoubleFailRuntime(evidence, ())
+    original_request = _request()
+    executor = UnknownWorldMissionExecutor(
+        runtime, manager, evidence, _unknown_spec()
+    )
+
+    with pytest.raises(TimeoutError, match="frontier deadline expired") as error:
+        executor.run(original_request)
+
+    assert events == [
+        "wait_frontier_failed",
+        "stop_explorer_failed",
+        "typed_stop_failed",
+    ]
+    notes = getattr(error.value, "__notes__", ())
+    assert any("explorer cleanup failed" in note for note in notes)
+    assert any("typed stop failed" in note for note in notes)
 
 
 def test_unknown_world_recovers_without_scene_route_then_samples_map_goals():
@@ -352,9 +616,13 @@ def test_unknown_world_recovers_without_scene_route_then_samples_map_goals():
     ]
     assert decision_details == [
         "frontier epoch recovery evaluated "
-        "reason=recovery_required:blacklisted_frontiers "
-        "known_before=100 known_after=150 gain=50 threshold=40 "
-        "decision=advance_epoch"
+            "reason=recovery_required:blacklisted_frontiers "
+            "known_before=100 known_after=150 gain=50 threshold=40 "
+            "gain_ratio=0.500000 ratio_threshold=0.002000 "
+            "detected=0 available=0 active=0 blacklisted=0 "
+            "displacement=none "
+            "completed_recoveries=0 "
+            "decision=advance_epoch"
     ]
     assert not any("前进" in call[1] for call in actions)
     assert len(
@@ -405,7 +673,7 @@ def test_unknown_world_recovery_budget_exhaustion_is_explicit_failure():
 
     with pytest.raises(
         RuntimeError,
-        match="gained map but recovery budget is exhausted",
+        match="material map growth but recovery budget is exhausted",
     ):
         executor.run(_request())
 
@@ -453,7 +721,7 @@ def test_exhausted_frontiers_get_final_confirmation_after_restart_budget_used():
         ("stop_explorer",),
     ]
     assert evidence.completion_reason == (
-        "frontier_attempts_exhausted_no_map_gain"
+        "frontier_attempts_exhausted_below_material_gain"
     )
     assert len([call for call in runtime.calls if call[0] == "action"]) == 3
     assert len(
@@ -461,7 +729,7 @@ def test_exhausted_frontiers_get_final_confirmation_after_restart_budget_used():
     ) == 3
 
 
-def test_final_confirmation_with_map_gain_fails_without_restart_budget():
+def test_material_gain_at_budget_boundary_runs_one_post_scan_confirmation_epoch():
     evidence = MappingEvidenceTracker(1)
     evidence.record_map([0] * 100)
     evidence.mark_scan_ready()
@@ -469,10 +737,74 @@ def test_final_confirmation_with_map_gain_fails_without_restart_budget():
     runtime = _UnknownWorldRuntime(
         evidence,
         (
-            "recovery_required:blacklisted_frontiers",
+            "recovery_required:frontier_attempts_exhausted",
+            "recovery_required:frontier_attempts_exhausted",
             "recovery_required:frontier_attempts_exhausted",
         ),
-        recovery_map_sizes=(150, 200),
+        # 第一轮只靠真实 BackUp 位移开启新 epoch；预算边界上的第二次
+        # 扫描出现显著增长后，必须让 Explorer 消费这张新图再判收敛。
+        recovery_map_sizes=(102, 150),
+        recovery_backup_displacements=(0.24,),
+    )
+    spec = replace(
+        _unknown_spec(max_recovery_attempts=1),
+        # 复现现场：最终确认启动时，共享 exploration deadline 只剩极短时间。
+        exploration_timeout_s=0.1,
+        final_confirmation_timeout_s=240.0,
+    )
+    executor = UnknownWorldMissionExecutor(
+        runtime,
+        manager,
+        evidence,
+        spec,
+    )
+
+    executor.run(_request())
+
+    assert manager.calls == [
+        ("start_explorer", Path("/tmp/frontier.yaml")),
+        ("stop_explorer",),
+        ("start_explorer", Path("/tmp/frontier.yaml")),
+        ("stop_explorer",),
+        ("start_explorer", Path("/tmp/frontier.yaml")),
+        ("stop_explorer",),
+    ]
+    assert evidence.completion_reason == (
+        "frontier_attempts_exhausted_after_final_confirmation"
+    )
+    # 最终确认 epoch 不再 BackUp，也不再做一遍无人消费的恢复扫描。
+    assert len([call for call in runtime.calls if call[0] == "action"]) == 3
+    assert len(
+        [call for call in runtime.calls if call[0] == "recovery_backup"]
+    ) == 1
+    assert len(
+        [call for call in runtime.calls if call[0] == "navigation_goal"]
+    ) == 3
+    details = [
+        call[2]
+        for call in runtime.calls
+        if call[0] == "transition"
+    ]
+    assert any("decision=run_final_confirmation_epoch" in item for item in details)
+    waits = [call for call in runtime.calls if call[0] == "wait_frontier"]
+    assert waits[0][2] == waits[1][2]
+    assert waits[2][2] >= waits[1][2] + 239.0
+
+
+def test_final_confirmation_rejects_a_second_nonterminal_recovery_reason():
+    evidence = MappingEvidenceTracker(1)
+    evidence.record_map([0] * 100)
+    evidence.mark_scan_ready()
+    manager = _Manager(dry_run=False)
+    runtime = _UnknownWorldRuntime(
+        evidence,
+        (
+            "recovery_required:frontier_attempts_exhausted",
+            "recovery_required:frontier_attempts_exhausted",
+            "recovery_required:frontier_progress_stalled",
+        ),
+        recovery_map_sizes=(102, 150),
+        recovery_backup_displacements=(0.24,),
     )
     executor = UnknownWorldMissionExecutor(
         runtime,
@@ -483,20 +815,15 @@ def test_final_confirmation_with_map_gain_fails_without_restart_budget():
 
     with pytest.raises(
         RuntimeError,
-        match="gained map but recovery budget is exhausted",
+        match="final frontier confirmation did not converge",
     ):
         executor.run(_request())
 
-    assert manager.calls == [
-        ("start_explorer", Path("/tmp/frontier.yaml")),
-        ("stop_explorer",),
-        ("start_explorer", Path("/tmp/frontier.yaml")),
-        ("stop_explorer",),
-    ]
-    assert evidence.completion_reason != (
-        "frontier_attempts_exhausted_no_map_gain"
-    )
+    # 确认轮只能观察 provider；失败时也不得偷偷追加 BackUp 或恢复扫描。
     assert len([call for call in runtime.calls if call[0] == "action"]) == 3
+    assert len(
+        [call for call in runtime.calls if call[0] == "recovery_backup"]
+    ) == 1
     assert not any(call[0] == "navigation_goal" for call in runtime.calls)
 
 
@@ -532,11 +859,14 @@ def test_final_confirmation_settles_after_exploration_deadline_expired(
 
     runtime = _DeadlineExpiringRuntime(
         evidence,
-        ("recovery_required:frontier_attempts_exhausted",),
-        recovery_map_sizes=(110,),
+        (
+            "recovery_required:blacklisted_frontiers",
+            "recovery_required:frontier_attempts_exhausted",
+        ),
+        recovery_map_sizes=(150, 160),
     )
     spec = replace(
-        _unknown_spec(max_recovery_attempts=0),
+        _unknown_spec(max_recovery_attempts=1),
         exploration_timeout_s=1.0,
         map_settle_s=0.5,
     )
@@ -545,9 +875,9 @@ def test_final_confirmation_settles_after_exploration_deadline_expired(
     executor.run(_request())
 
     assert evidence.completion_reason == (
-        "frontier_attempts_exhausted_no_map_gain"
+        "frontier_attempts_exhausted_below_material_gain"
     )
-    assert len([call for call in runtime.calls if call[0] == "action"]) == 2
+    assert len([call for call in runtime.calls if call[0] == "action"]) == 3
     assert len(
         [call for call in runtime.calls if call[0] == "navigation_goal"]
     ) == 3
@@ -688,8 +1018,11 @@ def test_confirmation_hard_deadline_uses_action_timeout_budget(monkeypatch):
     evidence.mark_scan_ready()
     runtime = _UnknownWorldRuntime(
         evidence,
-        ("recovery_required:frontier_attempts_exhausted",),
-        recovery_map_sizes=(110,),
+        (
+            "recovery_required:blacklisted_frontiers",
+            "recovery_required:frontier_attempts_exhausted",
+        ),
+        recovery_map_sizes=(150, 160),
     )
 
     class _CapturingExecutor(UnknownWorldMissionExecutor):
@@ -697,12 +1030,19 @@ def test_confirmation_hard_deadline_uses_action_timeout_budget(monkeypatch):
             super().__init__(*args, **kwargs)
             self.hard_deadline = None
 
-        def _wait_for_map_quiet(self, request, *, deadline_monotonic):
+        def _wait_for_map_quiet(
+            self,
+            request,
+            *,
+            deadline_monotonic,
+            required_quiet_s=None,
+        ):
+            del required_quiet_s
             self.hard_deadline = deadline_monotonic
             return self._evidence.snapshot()
 
     spec = replace(
-        _unknown_spec(max_recovery_attempts=0),
+        _unknown_spec(max_recovery_attempts=1),
         action_timeout_s=3.0,
         map_settle_s=0.5,
     )
@@ -713,31 +1053,44 @@ def test_confirmation_hard_deadline_uses_action_timeout_budget(monkeypatch):
     assert executor.hard_deadline == pytest.approx(13.0)
 
 
-def test_exhausted_frontiers_finish_after_recovery_scan_has_no_map_gain():
+def test_attempt_exhaustion_completes_only_after_verified_recovery_budget_used():
     evidence = MappingEvidenceTracker(1)
     evidence.record_map([0] * 100)
     evidence.mark_scan_ready()
     manager = _Manager(dry_run=False)
     runtime = _UnknownWorldRuntime(
         evidence,
-        ("recovery_required:frontier_attempts_exhausted",),
-        recovery_map_sizes=(110,),
+        (
+            "recovery_required:frontier_attempts_exhausted",
+            "recovery_required:frontier_attempts_exhausted",
+        ),
+        recovery_map_sizes=(102, 104),
+        recovery_backup_displacements=(0.24,),
     )
     executor = UnknownWorldMissionExecutor(
-        runtime, manager, evidence, _unknown_spec()
+        runtime,
+        manager,
+        evidence,
+        _unknown_spec(max_recovery_attempts=1),
     )
 
     executor.run(_request())
 
-    # 恢复扫描只新增 10 个栅格，小于统一阈值 40；无需再重复一整轮 Explorer。
+    # 第一轮必须由 BackUp 的真实位移授权新 epoch；只有该恢复
+    # 预算已用尽，第二轮仍尝试耗尽且地图无增益时才能收敛。
     assert manager.calls == [
+        ("start_explorer", Path("/tmp/frontier.yaml")),
+        ("stop_explorer",),
         ("start_explorer", Path("/tmp/frontier.yaml")),
         ("stop_explorer",),
     ]
     assert evidence.completion_reason == (
-        "frontier_attempts_exhausted_no_map_gain"
+        "frontier_attempts_exhausted_below_material_gain"
     )
-    assert len([call for call in runtime.calls if call[0] == "action"]) == 2
+    assert len([call for call in runtime.calls if call[0] == "action"]) == 3
+    assert len(
+        [call for call in runtime.calls if call[0] == "recovery_backup"]
+    ) == 1
     assert len(
         [call for call in runtime.calls if call[0] == "navigation_goal"]
     ) == 3
@@ -755,6 +1108,7 @@ def test_exhausted_frontiers_restart_only_when_recovery_scan_grows_map():
             "no_reachable_frontiers",
         ),
         recovery_map_sizes=(150,),
+        recovery_backup_displacements=(0.0,),
     )
     executor = UnknownWorldMissionExecutor(
         runtime, manager, evidence, _unknown_spec()
@@ -794,7 +1148,7 @@ def test_nonterminal_recovery_with_low_gain_fails_without_new_epoch(outcome):
 
     with pytest.raises(
         RuntimeError,
-        match="recovery produced insufficient map gain",
+        match="below material map gain",
     ):
         executor.run(_request())
 
@@ -812,7 +1166,7 @@ def test_nonterminal_recovery_with_low_gain_fails_without_new_epoch(outcome):
     )
     assert f"reason={outcome}" in detail
     assert "known_before=100 known_after=110 gain=10 threshold=40" in detail
-    assert "decision=fail_no_gain" in detail
+    assert "decision=fail_below_material_gain" in detail
 
 
 @pytest.mark.parametrize(
@@ -820,10 +1174,9 @@ def test_nonterminal_recovery_with_low_gain_fails_without_new_epoch(outcome):
     [
         FrontierTelemetry(available_frontier_count=1),
         FrontierTelemetry(active_goal_count=1),
-        FrontierTelemetry(blacklisted_frontier_count=1),
     ],
 )
-def test_attempt_exhaustion_low_gain_requires_all_frontier_counters_zero(
+def test_attempt_exhaustion_low_gain_requires_no_available_or_active_frontier(
     telemetry,
 ):
     evidence = MappingEvidenceTracker(1)
@@ -835,16 +1188,17 @@ def test_attempt_exhaustion_low_gain_requires_all_frontier_counters_zero(
         ("recovery_required:frontier_attempts_exhausted",),
         recovery_map_sizes=(110,),
         frontier_telemetries=(telemetry,),
+        recovery_backup_displacements=(0.0,),
     )
     executor = UnknownWorldMissionExecutor(
         runtime, manager, evidence, _unknown_spec()
     )
 
-    with pytest.raises(RuntimeError, match="insufficient map gain"):
+    with pytest.raises(RuntimeError, match="below material map gain"):
         executor.run(_request())
 
     assert evidence.completion_reason != (
-        "frontier_attempts_exhausted_no_map_gain"
+        "frontier_attempts_exhausted_below_material_gain"
     )
     assert manager.calls == [
         ("start_explorer", Path("/tmp/frontier.yaml")),
@@ -856,16 +1210,19 @@ def test_epoch_recovery_decision_is_pure_and_budget_is_spent_only_on_advance():
     common = {
         "recovery_reason": "recovery_required:blacklisted_frontiers",
         "minimum_gain_cells": 40,
+        "map_gain_ratio": 1.0,
+        "minimum_gain_ratio": 0.002,
         "available_frontier_count": 0,
         "active_goal_count": 0,
         "blacklisted_frontier_count": 1,
+        "detected_frontier_count": 1,
     }
 
     assert decide_epoch_recovery(
         **common,
         map_gain_cells=39,
         recovery_attempts_remaining=2,
-    ) is EpochRecoveryDecision.FAIL_NO_GAIN
+    ) is EpochRecoveryDecision.FAIL_BELOW_MATERIAL_GAIN
     assert decide_epoch_recovery(
         **common,
         map_gain_cells=40,
@@ -887,12 +1244,295 @@ def test_epoch_recovery_decision_is_pure_and_budget_is_spent_only_on_advance():
         **stalled,
         map_gain_cells=39,
         recovery_attempts_remaining=2,
-    ) is EpochRecoveryDecision.FAIL_NO_GAIN
+    ) is EpochRecoveryDecision.FAIL_BELOW_MATERIAL_GAIN
     assert decide_epoch_recovery(
         **stalled,
         map_gain_cells=40,
         recovery_attempts_remaining=2,
     ) is EpochRecoveryDecision.ADVANCE_EPOCH
+
+
+def test_final_epoch_treats_tiny_relative_map_gain_as_sensor_refinement():
+    """现场回放：完整大图新增 41 cells 不应被绝对阈值误判成新区域。"""
+
+    decision = decide_epoch_recovery(
+        recovery_reason="recovery_required:frontier_attempts_exhausted",
+        map_gain_cells=41,
+        minimum_gain_cells=40,
+        map_gain_ratio=41 / 26099,
+        minimum_gain_ratio=0.002,
+        recovery_attempts_remaining=0,
+        available_frontier_count=0,
+        active_goal_count=0,
+        blacklisted_frontier_count=1,
+        detected_frontier_count=8,
+        completed_recovery_epochs=2,
+    )
+
+    assert decision is EpochRecoveryDecision.COMPLETE_BELOW_MATERIAL_GAIN
+
+
+def test_final_epoch_material_gain_requires_one_post_scan_confirmation():
+    """现场回放：53 cells 刚越线时不能失败，也不能未经 Explorer 直接完成。"""
+
+    common = {
+        "recovery_reason": "recovery_required:frontier_attempts_exhausted",
+        "map_gain_cells": 53,
+        "minimum_gain_cells": 40,
+        "map_gain_ratio": 53 / 25460,
+        "minimum_gain_ratio": 0.002,
+        "recovery_attempts_remaining": 0,
+        "available_frontier_count": 0,
+        "active_goal_count": 0,
+        "blacklisted_frontier_count": 0,
+        "detected_frontier_count": 9,
+        "completed_recovery_epochs": 2,
+    }
+
+    assert decide_epoch_recovery(
+        **common,
+        final_confirmation_used=False,
+    ) is EpochRecoveryDecision.RUN_FINAL_CONFIRMATION_EPOCH
+    assert decide_epoch_recovery(
+        **common,
+        final_confirmation_used=True,
+    ) is EpochRecoveryDecision.FAIL_BUDGET_EXHAUSTED
+    assert decide_epoch_recovery(
+        **{**common, "completed_recovery_epochs": 0},
+        final_confirmation_used=False,
+    ) is EpochRecoveryDecision.FAIL_BUDGET_EXHAUSTED
+
+
+def test_no_clearance_relocation_requires_verified_displacement_and_budget():
+    common = {
+        "recovery_reason": (
+            "recovery_required:no_clearance_safe_frontier_approach"
+        ),
+        "map_gain_cells": 2,
+        "minimum_gain_cells": 40,
+        "map_gain_ratio": 0.02,
+        "minimum_gain_ratio": 0.002,
+        "available_frontier_count": 0,
+        "active_goal_count": 0,
+        "blacklisted_frontier_count": 0,
+        "detected_frontier_count": 1,
+        "minimum_recovery_displacement_m": 0.20,
+    }
+
+    assert decide_epoch_recovery(
+        **common,
+        recovery_attempts_remaining=1,
+        recovery_displacement_m=0.20,
+    ) is EpochRecoveryDecision.ADVANCE_EPOCH
+    assert decide_epoch_recovery(
+        **common,
+        recovery_attempts_remaining=1,
+        recovery_displacement_m=0.199,
+    ) is EpochRecoveryDecision.FAIL_BELOW_MATERIAL_GAIN
+    assert decide_epoch_recovery(
+        **common,
+        recovery_attempts_remaining=0,
+        recovery_displacement_m=0.20,
+    ) is EpochRecoveryDecision.FAIL_BUDGET_EXHAUSTED
+
+
+def test_no_clearance_recovery_backs_up_before_scan_and_restarts_on_displacement():
+    evidence = MappingEvidenceTracker(1)
+    evidence.record_map([0] * 100)
+    evidence.mark_scan_ready()
+    manager = _Manager(dry_run=False)
+    runtime = _UnknownWorldRuntime(
+        evidence,
+        (
+            "recovery_required:no_clearance_safe_frontier_approach",
+            "no_reachable_frontiers",
+        ),
+        # 扫描地图增益不足，必须由独立里程计位移授权下一 epoch。
+        recovery_map_sizes=(102,),
+        recovery_backup_displacements=(0.24,),
+    )
+    executor = UnknownWorldMissionExecutor(
+        runtime, manager, evidence, _unknown_spec()
+    )
+
+    executor.run(_request())
+
+    names = [call[0] for call in runtime.calls]
+    stop_index = names.index("stop_motion")
+    backup_index = names.index("recovery_backup")
+    recovery_scan_index = names.index("action", names.index("action") + 1)
+    assert stop_index < backup_index < recovery_scan_index
+    assert runtime.calls[backup_index] == (
+        "recovery_backup",
+        0.30,
+        0.08,
+        10.0,
+    )
+    assert manager.calls == [
+        ("start_explorer", Path("/tmp/frontier.yaml")),
+        ("stop_explorer",),
+        ("start_explorer", Path("/tmp/frontier.yaml")),
+        ("stop_explorer",),
+    ]
+    decision_detail = next(
+        call[2]
+        for call in runtime.calls
+        if call[0] == "transition"
+        and "frontier epoch recovery evaluated" in call[2]
+    )
+    assert "displacement=0.240" in decision_detail
+    assert "decision=advance_epoch" in decision_detail
+
+
+def test_attempt_exhaustion_with_budget_relocates_before_starting_next_epoch():
+    evidence = MappingEvidenceTracker(1)
+    evidence.record_map([0] * 100)
+    evidence.mark_scan_ready()
+    manager = _Manager(dry_run=False)
+    runtime = _UnknownWorldRuntime(
+        evidence,
+        (
+            "recovery_required:frontier_attempts_exhausted",
+            "no_reachable_frontiers",
+        ),
+        # 原地扫描只增加 2 个栅格；只有 Nav2 BackUp 的真实位移可以授权新 epoch。
+        recovery_map_sizes=(102,),
+        recovery_backup_displacements=(0.24,),
+    )
+    executor = UnknownWorldMissionExecutor(
+        runtime, manager, evidence, _unknown_spec()
+    )
+
+    executor.run(_request())
+
+    names = [call[0] for call in runtime.calls]
+    stop_index = names.index("stop_motion")
+    backup_index = names.index("recovery_backup")
+    recovery_scan_index = names.index("action", names.index("action") + 1)
+    second_frontier_wait = names.index("wait_frontier", backup_index)
+    assert stop_index < backup_index < recovery_scan_index < second_frontier_wait
+    assert manager.calls == [
+        ("start_explorer", Path("/tmp/frontier.yaml")),
+        ("stop_explorer",),
+        ("start_explorer", Path("/tmp/frontier.yaml")),
+        ("stop_explorer",),
+    ]
+    assert evidence.completion_reason == "no_reachable_frontiers"
+
+
+def test_attempt_exhaustion_cannot_complete_on_first_low_gain_recovery():
+    evidence = MappingEvidenceTracker(1)
+    evidence.record_map([0] * 100)
+    evidence.mark_scan_ready()
+    manager = _Manager(dry_run=False)
+    runtime = _UnknownWorldRuntime(
+        evidence,
+        ("recovery_required:frontier_attempts_exhausted",),
+        recovery_map_sizes=(102,),
+        recovery_backup_displacements=(0.19,),
+    )
+    executor = UnknownWorldMissionExecutor(
+        runtime, manager, evidence, _unknown_spec()
+    )
+
+    with pytest.raises(RuntimeError, match="below material map gain"):
+        executor.run(_request())
+
+    assert evidence.completion_reason != (
+        "frontier_attempts_exhausted_below_material_gain"
+    )
+    assert manager.calls == [
+        ("start_explorer", Path("/tmp/frontier.yaml")),
+        ("stop_explorer",),
+    ]
+    assert not any(call[0] == "navigation_goal" for call in runtime.calls)
+
+
+def test_zero_recovery_budget_never_turns_attempt_exhaustion_into_completion():
+    evidence = MappingEvidenceTracker(1)
+    evidence.record_map([0] * 100)
+    evidence.mark_scan_ready()
+    manager = _Manager(dry_run=False)
+    runtime = _UnknownWorldRuntime(
+        evidence,
+        ("recovery_required:frontier_attempts_exhausted",),
+        recovery_map_sizes=(102,),
+    )
+    executor = UnknownWorldMissionExecutor(
+        runtime,
+        manager,
+        evidence,
+        _unknown_spec(max_recovery_attempts=0),
+    )
+
+    with pytest.raises(RuntimeError, match="below material map gain"):
+        executor.run(_request())
+
+    assert not any(call[0] == "recovery_backup" for call in runtime.calls)
+    assert not any(call[0] == "navigation_goal" for call in runtime.calls)
+    assert evidence.completion_reason != (
+        "frontier_attempts_exhausted_below_material_gain"
+    )
+
+
+def test_no_clearance_backup_failure_never_scans_or_restarts_explorer():
+    evidence = MappingEvidenceTracker(1)
+    evidence.record_map([0] * 100)
+    evidence.mark_scan_ready()
+    manager = _Manager(dry_run=False)
+
+    class _FailingBackupRuntime(_UnknownWorldRuntime):
+        def run_recovery_backup(self, _request, **_kwargs):
+            self.calls.append(("recovery_backup_failed",))
+            raise RuntimeError("backup collision ahead")
+
+    runtime = _FailingBackupRuntime(
+        evidence,
+        ("recovery_required:no_clearance_safe_frontier_approach",),
+    )
+    executor = UnknownWorldMissionExecutor(
+        runtime, manager, evidence, _unknown_spec()
+    )
+
+    with pytest.raises(RuntimeError, match="backup collision ahead"):
+        executor.run(_request())
+
+    assert manager.calls == [
+        ("start_explorer", Path("/tmp/frontier.yaml")),
+        ("stop_explorer",),
+    ]
+    # 初始扫描之外，故障后不得转圈，更不得通过重启清空 attempt memory。
+    assert len([call for call in runtime.calls if call[0] == "action"]) == 1
+
+
+def test_cancellation_during_recovery_backup_never_scans_or_restarts():
+    evidence = MappingEvidenceTracker(1)
+    evidence.record_map([0] * 100)
+    evidence.mark_scan_ready()
+    manager = _Manager(dry_run=False)
+
+    class _CanceledBackupRuntime(_UnknownWorldRuntime):
+        def run_recovery_backup(self, request, **_kwargs):
+            self.calls.append(("recovery_backup_canceled",))
+            request.canceled = True
+            return 0.30
+
+    runtime = _CanceledBackupRuntime(
+        evidence,
+        ("recovery_required:no_clearance_safe_frontier_approach",),
+    )
+    executor = UnknownWorldMissionExecutor(
+        runtime, manager, evidence, _unknown_spec()
+    )
+
+    with pytest.raises(AutomaticMissionCancelled, match="recovery backup"):
+        executor.run(_request())
+
+    assert manager.calls == [
+        ("start_explorer", Path("/tmp/frontier.yaml")),
+        ("stop_explorer",),
+    ]
+    assert len([call for call in runtime.calls if call[0] == "action"]) == 1
 
 
 def test_recovery_scan_exception_never_restarts_explorer():
@@ -962,8 +1602,33 @@ def test_recovery_cancellation_never_restarts_explorer():
             -1,
             "minimum epoch map gain cells must be non-negative",
         ),
+        (
+            "minimum_epoch_map_gain_ratio",
+            0.0,
+            "minimum epoch map gain ratio must be in",
+        ),
+        (
+            "minimum_epoch_map_gain_ratio",
+            float("nan"),
+            "minimum epoch map gain ratio must be in",
+        ),
         ("map_settle_s", -0.1, "map settle time must be finite"),
         ("map_settle_s", float("inf"), "map settle time must be finite"),
+        (
+            "final_confirmation_timeout_s",
+            0.0,
+            "unknown-world mission timeouts must be positive",
+        ),
+        (
+            "final_confirmation_timeout_s",
+            float("nan"),
+            "unknown-world mission timeouts must be positive",
+        ),
+        (
+            "exploration_timeout_s",
+            float("nan"),
+            "unknown-world mission timeouts must be positive",
+        ),
     ],
 )
 def test_unknown_world_spec_rejects_invalid_convergence_values(
@@ -973,3 +1638,22 @@ def test_unknown_world_spec_rejects_invalid_convergence_values(
 ):
     with pytest.raises(ValueError, match=message):
         replace(_unknown_spec(), **{field: value})
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("distance_m", 0.0, "backup distance"),
+        ("distance_m", 0.51, "backup distance"),
+        ("speed_mps", 0.0, "backup speed"),
+        ("speed_mps", 0.21, "backup speed"),
+        ("timeout_s", 4.0, "travel time and margin"),
+        ("minimum_displacement_m", 0.31, "minimum recovery displacement"),
+        ("distance_m", float("nan"), "must be finite"),
+    ],
+)
+def test_recovery_backup_spec_rejects_unsafe_values(field, value, message):
+    backup = _unknown_spec().recovery_backup
+
+    with pytest.raises(ValueError, match=message):
+        replace(backup, **{field: value})

@@ -243,6 +243,8 @@ class MappingEvidenceSnapshot:
     last_frontier_activity_at: float
     exploration_completion_reason: str
     mapping_path_m: float
+    latest_odom_xy: tuple[float, float] | None
+    odom_generation: int
     explore_status: str
     frontier_telemetry: FrontierTelemetry
 
@@ -264,6 +266,8 @@ class MappingEvidenceTracker:
         self._exploration_completion_reason = ""
         self._mapping_path_m = 0.0
         self._mapping_last_position: tuple[float, float] | None = None
+        self._latest_odom_xy: tuple[float, float] | None = None
+        self._odom_generation = 0
         self._record_mapping_path = False
         self._explore_status = ""
         self._frontier_telemetry = FrontierTelemetry()
@@ -300,7 +304,12 @@ class MappingEvidenceTracker:
     def record_odom(self, x: float, y: float) -> None:
         current = (float(x), float(y))
         with self.condition:
+            # 即使探索里程暂停，也要保留恢复动作前后的独立位姿证据；否则
+            # BackUp Action 的协议成功无法证明机器人确实离开了局部死角。
+            self._latest_odom_xy = current
+            self._odom_generation += 1
             if not self._record_mapping_path:
+                self.condition.notify_all()
                 return
             previous = self._mapping_last_position
             self._mapping_last_position = current
@@ -387,6 +396,8 @@ class MappingEvidenceTracker:
                 last_frontier_activity_at=self._last_frontier_activity_at,
                 exploration_completion_reason=self._exploration_completion_reason,
                 mapping_path_m=self._mapping_path_m,
+                latest_odom_xy=self._latest_odom_xy,
+                odom_generation=self._odom_generation,
                 explore_status=self._explore_status,
                 frontier_telemetry=telemetry,
             )

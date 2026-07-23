@@ -252,6 +252,11 @@ HEADLESS=false USE_RVIZ=true \
 `bash scripts/acceptance_test.sh --help` 确认当前分支已注册两个模式；若帮助中没有后者，说明终端仍
 停留在旧分支、旧 worktree 或旧脚本，而不是 ROS 运行时故障。
 
+不要在同一终端额外 `source ~/nav2_ws/install/setup.bash`。公开 unknown-world 会在 session 内剔除此外部
+overlay，并把 Nav2 来源写入 manifest；这是为了避免功能分支在不同终端运行到不同版本的 Lifecycle
+manager。linked worktree 的 `models/`、`third_party/` 天然为空，语音入口会用 Git common-dir 自动解析
+主工作区资产；自定义位置时只设置 `EMBODIED_RUNTIME_ROOT`，不要把 `WORKSPACE` 改回主目录。
+
 Unknown-world 证据在：
 
 ```text

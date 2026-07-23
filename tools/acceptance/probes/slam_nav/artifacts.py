@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import hashlib
 import json
 import math
@@ -90,6 +91,8 @@ def build_failure_report(
     schema_version: int = 3,
     mission_outcome: int = 0,
     mission_message: str = "",
+    frontier_telemetry: Mapping[str, object] | None = None,
+    mapping_completion_evidence: Mapping[str, object] | None = None,
 ) -> dict:
     """生成机器可读失败证据；unknown-world 可声明未完成的 v4 报告。"""
 
@@ -117,6 +120,18 @@ def build_failure_report(
                 "report_state": "incomplete",
                 "mission_outcome": int(mission_outcome),
                 "mission_message": str(mission_message),
+                # unknown-world 中途失败也要保存最后一帧强类型 frontier/Action
+                # 账本，否则 accepted/aborted 等事实只能从自然语言日志反推。
+                "frontier": {
+                    "telemetry": dict(frontier_telemetry or {}),
+                },
+                # typed producer 已经给出的返航/饱和度时间线即使无效也有诊断
+                # 价值；原样保留，但绝不能据此把中途失败报告提升为 PASS。
+                "mapping_completion": (
+                    dict(mapping_completion_evidence)
+                    if mapping_completion_evidence is not None
+                    else None
+                ),
                 "checks": {"evidence_complete": False},
             }
         )

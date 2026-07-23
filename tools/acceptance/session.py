@@ -68,6 +68,29 @@ class SessionCleanupResult:
     remaining_pids: tuple[int, ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class RosEnvironmentIsolation:
+    """重型公开验收可复现的 ROS overlay 来源策略。"""
+
+    system_prefix: Path = Path("/opt/ros/jazzy")
+    allowed_external_packages: tuple[str, ...] = (
+        "explore_lite",
+        "explore_lite_msgs",
+    )
+    required_packages: tuple[str, ...] = (
+        "nav2_bringup",
+        "nav2_lifecycle_manager",
+        "nav2_util",
+    )
+    audited_packages: tuple[str, ...] = (
+        "explore_lite",
+        "explore_lite_msgs",
+        "nav2_bringup",
+        "nav2_lifecycle_manager",
+        "nav2_util",
+    )
+
+
 class ProcessAdapter(Protocol):
     """进程实现 seam；单元测试使用 fake，WSL 使用 subprocess Adapter。"""
 
@@ -547,6 +570,7 @@ class AcceptanceSessionConfig:
     environment: Mapping[str, str] = field(default_factory=dict)
     unset_environment_keys: tuple[str, ...] = ()
     manifest_environment_keys: tuple[str, ...] = ()
+    ros_environment_isolation: RosEnvironmentIsolation | None = None
     lock_root: Path = Path("/tmp/embodied-agent-acceptance")
 
 
@@ -573,6 +597,160 @@ def _safe_session_id(value: str) -> str:
     if not rendered:
         raise ValueError("acceptance session_id is empty after normalization")
     return rendered[:96]
+
+
+_ROS_PATH_ENVIRONMENT_KEYS = (
+    "AMENT_PREFIX_PATH",
+    "CMAKE_PREFIX_PATH",
+    "COLCON_PREFIX_PATH",
+    "LD_LIBRARY_PATH",
+    "PATH",
+    "PKG_CONFIG_PATH",
+    "PYTHONPATH",
+)
+
+
+def _path_entries(value: str | None) -> list[str]:
+    return [entry for entry in str(value or "").split(os.pathsep) if entry]
+
+
+def _normalized_path(value: str | Path) -> Path:
+    return Path(value).expanduser().resolve(strict=False)
+
+
+def _path_is_within(path: Path, root: Path) -> bool:
+    return path == root or root in path.parents
+
+
+def _packages_in_prefix(prefix: Path) -> frozenset[str]:
+    package_index = (
+        prefix / "share/ament_index/resource_index/packages"
+    )
+    try:
+        return frozenset(entry.name for entry in package_index.iterdir())
+    except (FileNotFoundError, NotADirectoryError, PermissionError):
+        return frozenset()
+
+
+def _external_install_root(prefix: Path) -> Path:
+    """从 isolated/merged colcon prefix 推导用于剔除残余路径的 install 根。"""
+
+    if prefix.name == "install":
+        return prefix
+    if prefix.parent.name == "install":
+        return prefix.parent
+    return prefix
+
+
+def _isolate_ros_environment(
+    environment: Mapping[str, str],
+    *,
+    workspace: Path,
+    policy: RosEnvironmentIsolation,
+) -> tuple[dict[str, str], dict[str, Any]]:
+    """移除宿主 Nav2 overlay，同时保留系统、当前工作区和 frontier。"""
+
+    isolated = dict(environment)
+    workspace_install = _normalized_path(workspace / "install")
+    system_prefix = _normalized_path(policy.system_prefix)
+    trusted_roots = (workspace_install, system_prefix)
+    allowed_package_names = frozenset(policy.allowed_external_packages)
+    original_ament = _path_entries(isolated.get("AMENT_PREFIX_PATH"))
+    retained_ament: list[str] = []
+    allowed_external_prefixes: list[Path] = []
+    removed_prefixes: list[str] = []
+    excluded_install_roots: set[Path] = set()
+
+    for rendered in original_ament:
+        prefix = _normalized_path(rendered)
+        if any(_path_is_within(prefix, root) for root in trusted_roots):
+            retained_ament.append(rendered)
+            continue
+        packages = _packages_in_prefix(prefix)
+        # frontier 可以位于单独的源码工作区；只有该 prefix 不同时携带其它
+        # ROS 包时才放行，避免 merged install 借白名单重新带入 Nav2。
+        if packages and packages.issubset(allowed_package_names):
+            retained_ament.append(rendered)
+            allowed_external_prefixes.append(prefix)
+            continue
+        if packages & allowed_package_names:
+            unsafe = ", ".join(sorted(packages - allowed_package_names))
+            raise AcceptanceSessionError(
+                "external frontier prefix also provides non-allowlisted "
+                f"packages: {rendered} ({unsafe})"
+            )
+        removed_prefixes.append(rendered)
+        excluded_install_roots.add(_external_install_root(prefix))
+
+    isolated["AMENT_PREFIX_PATH"] = os.pathsep.join(retained_ament)
+
+    def keep_path(rendered: str) -> bool:
+        candidate = _normalized_path(rendered)
+        if any(_path_is_within(candidate, root) for root in trusted_roots):
+            return True
+        if any(
+            _path_is_within(candidate, prefix)
+            for prefix in allowed_external_prefixes
+        ):
+            return True
+        return not any(
+            _path_is_within(candidate, root) or candidate == root
+            for root in excluded_install_roots
+        )
+
+    for key in _ROS_PATH_ENVIRONMENT_KEYS:
+        if key == "AMENT_PREFIX_PATH" or key not in isolated:
+            continue
+        isolated[key] = os.pathsep.join(
+            entry
+            for entry in _path_entries(isolated[key])
+            if keep_path(entry)
+        )
+    for key in ("AMENT_CURRENT_PREFIX", "COLCON_CURRENT_PREFIX"):
+        value = isolated.get(key)
+        if value and not keep_path(value):
+            isolated.pop(key, None)
+
+    retained_prefixes = [
+        (rendered, _normalized_path(rendered))
+        for rendered in _path_entries(isolated.get("AMENT_PREFIX_PATH"))
+    ]
+    package_prefixes: dict[str, str | None] = {}
+    for package in policy.audited_packages:
+        marker = Path("share/ament_index/resource_index/packages") / package
+        package_prefixes[package] = next(
+            (
+                rendered
+                for rendered, prefix in retained_prefixes
+                if (prefix / marker).is_file()
+            ),
+            None,
+        )
+    missing = [
+        package
+        for package in policy.required_packages
+        if package_prefixes.get(package) is None
+    ]
+    if missing:
+        raise AcceptanceSessionError(
+            "isolated ROS environment is missing required packages: "
+            + ", ".join(missing)
+        )
+
+    # 只落路径与包来源，不把可能含凭据的完整宿主环境写入 manifest。
+    provenance = {
+        "isolated": True,
+        "system_prefix": str(system_prefix),
+        "workspace_install_prefix": str(workspace_install),
+        "allowed_external_packages": sorted(allowed_package_names),
+        "removed_prefixes": removed_prefixes,
+        "paths": {
+            key: _path_entries(isolated.get(key))
+            for key in _ROS_PATH_ENVIRONMENT_KEYS
+        },
+        "package_prefixes": package_prefixes,
+    }
+    return isolated, provenance
 
 
 class AcceptanceSession:
@@ -604,6 +782,7 @@ class AcceptanceSession:
         )
         self.manifest_path = self.artifact_dir / "acceptance_session.json"
         self.environment: dict[str, str] = {}
+        self._ros_environment_provenance: dict[str, Any] | None = None
         self._lease: RosDomainLease | None = None
         self._artifact_lease: ArtifactDirectoryLease | None = None
         self._children: list[_ChildRecord] = []
@@ -661,6 +840,14 @@ class AcceptanceSession:
             for key in self.config.unset_environment_keys:
                 self.environment.pop(key, None)
             self.environment.update(self.config.environment)
+            if self.config.ros_environment_isolation is not None:
+                self.environment, self._ros_environment_provenance = (
+                    _isolate_ros_environment(
+                        self.environment,
+                        workspace=self.config.workspace,
+                        policy=self.config.ros_environment_isolation,
+                    )
+                )
             self.environment.update(
                 {
                     "WORKSPACE": str(self.config.workspace.resolve()),
@@ -843,6 +1030,7 @@ class AcceptanceSession:
                     | set(self.config.unset_environment_keys)
                 )
             },
+            "ros_environment": self._ros_environment_provenance,
             "cleanup_complete": self._closed
             and self._session_cleanup is not None
             and not self._session_cleanup.remaining_pids

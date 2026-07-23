@@ -3,10 +3,11 @@
 本模块只负责 ROS/Gazebo subscription wiring 和深模块组合；路径关联、定位采样、
 场景编排与 PASS/FAIL 判定分别由各自模块拥有。
 """
-
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+import threading
+import time
 
 from action_msgs.msg import GoalStatus, GoalStatusArray
 from embodied_agent_core.ros_action_transport import (
@@ -16,11 +17,13 @@ from embodied_agent_core.ros_action_transport import (
 from embodied_agent_core.ros_qos import command_qos, event_qos, sensor_qos, state_qos
 from embodied_agent_interfaces.action import ExecuteRobotCommand, ManageSlamSession
 from embodied_agent_interfaces.msg import (
+    AudioFrontendStatus,
     DynamicObstacleArray,
     RobotCommand,
     RobotCommandResult,
     SlamNavigationGoalEvidence,
     SlamSessionState,
+    WakeEvent,
 )
 from geometry_msgs.msg import Pose, PoseArray, PoseWithCovarianceStamped, Twist
 from lifecycle_msgs.srv import GetState
@@ -30,7 +33,7 @@ from nav_msgs.msg import OccupancyGrid, Odometry, Path as NavPath
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
-from std_msgs.msg import String
+from std_msgs.msg import Empty, String
 from tf2_msgs.msg import TFMessage
 
 from tools.acceptance.probes.slam_nav.localization_sampler import (
@@ -38,6 +41,9 @@ from tools.acceptance.probes.slam_nav.localization_sampler import (
     LocalizationSampler,
     _gazebo_timestamp_s,
     _ros_timestamp_s,
+)
+from tools.acceptance.probes.slam_nav.mapping_completion_adapter import (
+    mapping_completion_message_to_dict as _mapping_completion_message_to_dict,
 )
 from tools.acceptance.probes.slam_nav.motion_evidence import MotionEvidenceTracker
 from tools.acceptance.probes.slam_nav.sampled_goal_tracker import (
@@ -55,6 +61,8 @@ from tools.acceptance.unknown_world_evidence import (
     LocalizationSample,
     MapWorldTransform,
 )
+from embodied_slam_tools.showcase_session import SessionCommand, parse_session_command
+from embodied_slam_tools.voice_trigger_evidence import VoiceTriggerEvidenceWindow
 
 try:
     from gz.msgs10.pose_v_pb2 import Pose_V as GazeboPoseVector
@@ -114,6 +122,7 @@ class SessionObserver(Node):
         state_observer: StateObserver | None = None,
         *,
         gazebo_truth_config: GazeboTruthConfig | None = None,
+        synthetic_asr_enabled: bool = True,
     ) -> None:
         super().__init__("voice_slam_session_probe")
         self.state_observer = state_observer
@@ -129,6 +138,7 @@ class SessionObserver(Node):
         self.current_detail = ""
         self.mission_profile = SlamSessionState.PROFILE_UNSPECIFIED
         self.frontier_evidence: dict[str, object] = {}
+        self.mapping_completion_evidence: dict[str, object] | None = None
         self.frontier_goal_ids: set[bytes] = set()
         self.localization_tf_count = 0
         self.latest_tracks: DynamicObstacleArray | None = None
@@ -136,9 +146,21 @@ class SessionObserver(Node):
         self._motion_evidence_tracker = MotionEvidenceTracker()
         self._sampled_goal_tracker = SampledGoalPlanTracker()
         self._localization_sampler = LocalizationSampler(gazebo_truth_config)
+        self._synthetic_asr_enabled = bool(synthetic_asr_enabled)
+        self._voice_trigger_lock = threading.Lock()
+        self._voice_trigger_event = threading.Event()
+        self._voice_trigger_window: VoiceTriggerEvidenceWindow | None = None
+        self._voice_subscriptions: list[object] = []
+        self._latest_vad_provider = "audio_frontend"
 
-        self.asr_pub = self.create_publisher(
-            String, "/agent/asr_final", command_qos(depth=10)
+        # 真人验收必须从 ROS graph 上物理移除伪 ASR publisher；仅仅“不调用
+        # publish”无法证明任务确实由麦克风触发，也容易在后续重构中误发测试文本。
+        self.asr_pub = (
+            self.create_publisher(
+                String, "/agent/asr_final", command_qos(depth=10)
+            )
+            if synthetic_asr_enabled
+            else None
         )
         self.text_pub = self.create_publisher(
             String, "/agent/text_input", command_qos(depth=10)
@@ -149,6 +171,148 @@ class SessionObserver(Node):
         self._wire_subscriptions()
         self._wire_clients()
         self._gazebo_transport_node = self._wire_gazebo_truth(gazebo_truth_config)
+
+    def begin_live_voice_trigger_window(self) -> int:
+        """进入 MAPPING 后才订阅语音事件，并返回本次窗口起始时间。"""
+
+        if self._synthetic_asr_enabled:
+            raise RuntimeError("synthetic observer cannot open a live voice window")
+        with self._voice_trigger_lock:
+            if self._voice_trigger_window is not None:
+                raise RuntimeError("live voice trigger window is already active")
+            started_at_ns = time.time_ns()
+            self._voice_trigger_window = VoiceTriggerEvidenceWindow(
+                window_started_at_ns=started_at_ns
+            )
+            self._voice_trigger_event.clear()
+            # 订阅在窗口建立后才创建。ASR final 是 volatile topic，这个顺序从
+            # ROS graph 层隔离启动阶段的旧 final，而不是依赖字符串去重猜测新旧。
+            self._voice_subscriptions = [
+                self.create_subscription(
+                    AudioFrontendStatus,
+                    "/audio/frontend_metrics",
+                    self._on_audio_metric,
+                    # metrics publisher 是 transient-local，但真人证据不能重放
+                    # 窗口建立前的缓存状态；volatile event QoS 只接收新样本。
+                    event_qos(depth=10),
+                ),
+                self.create_subscription(
+                    Empty,
+                    "/audio/speech_started",
+                    lambda _message: self._on_voice_endpoint("speech_started"),
+                    event_qos(depth=10),
+                ),
+                self.create_subscription(
+                    Empty,
+                    "/audio/speech_ended",
+                    lambda _message: self._on_voice_endpoint("speech_ended"),
+                    event_qos(depth=10),
+                ),
+                self.create_subscription(
+                    WakeEvent,
+                    "/agent/wake_event",
+                    self._on_wake_event,
+                    event_qos(),
+                ),
+                self.create_subscription(
+                    String,
+                    "/agent/asr_final",
+                    self._on_live_asr_final,
+                    command_qos(depth=10),
+                ),
+            ]
+            return started_at_ns
+
+    def wait_for_live_voice_trigger(self, timeout_s: float) -> bool:
+        """等待窗口内出现可解析为自动建图任务的 ASR final。"""
+
+        return self._voice_trigger_event.wait(max(0.0, float(timeout_s)))
+
+    def live_voice_sources_ready(self) -> bool:
+        """确认提示用户前，音频、端点、唤醒和 ASR 发布源均已上线。"""
+
+        publishers_ready = all(
+            self.count_publishers(topic) > 0
+            for topic in (
+                "/audio/frontend_metrics",
+                "/audio/speech_started",
+                "/audio/speech_ended",
+                "/agent/wake_event",
+                "/agent/asr_final",
+            )
+        )
+        # 本 observer 本身占一个订阅；第二个匹配者证明真正消费门控 command 的
+        # SessionOrchestratorNode 已完成 DDS discovery，提示后不会丢 volatile wake。
+        return publishers_ready and self.count_subscribers("/agent/wake_event") >= 2
+
+    def build_live_voice_evidence(
+        self,
+        core_report: Mapping[str, object],
+        *,
+        agent_mode: str,
+    ) -> dict[str, object]:
+        """向上层暴露一致快照；PASS/FAIL 仍由 ROS-free evaluator 决定。"""
+
+        with self._voice_trigger_lock:
+            if self._voice_trigger_window is None:
+                raise RuntimeError("live voice trigger window has not started")
+            return self._voice_trigger_window.build_envelope(
+                core_report, agent_mode=agent_mode
+            )
+
+    def _on_audio_metric(self, message: AudioFrontendStatus) -> None:
+        with self._voice_trigger_lock:
+            if self._voice_trigger_window is None:
+                return
+            self._latest_vad_provider = str(message.vad_provider).strip() or "audio_frontend"
+            self._voice_trigger_window.record_audio(
+                observed_at_ns=time.time_ns(),
+                speech=bool(message.speech),
+                rms=float(message.rms),
+                peak=int(message.peak),
+            )
+
+    def _on_voice_endpoint(self, event: str) -> None:
+        with self._voice_trigger_lock:
+            if self._voice_trigger_window is not None:
+                self._voice_trigger_window.record_endpoint(
+                    observed_at_ns=time.time_ns(),
+                    event=event,
+                    provider=self._latest_vad_provider,
+                )
+
+    def _on_wake_event(self, message: WakeEvent) -> None:
+        with self._voice_trigger_lock:
+            if self._voice_trigger_window is not None:
+                self._voice_trigger_window.record_wake(
+                    observed_at_ns=time.time_ns(),
+                    kind=int(message.kind),
+                    provider=str(message.provider),
+                    transcript=str(message.transcript),
+                    command_known=bool(message.command_known),
+                    command=str(message.command),
+                )
+                # 与业务节点使用完全相同的授权条件。裸 ASR 只作为识别证据，
+                # 不能解除等待或证明任务通过了 Agent 的 wake/session gate。
+                if (
+                    message.kind
+                    in {WakeEvent.KIND_WAKE, WakeEvent.KIND_CONTINUE}
+                    and message.command_known
+                    and parse_session_command(message.command)
+                    == SessionCommand.RUN_AUTOMATIC_MISSION
+                ):
+                    self._voice_trigger_event.set()
+
+    def _on_live_asr_final(self, message: String) -> None:
+        text = str(message.data).strip()
+        with self._voice_trigger_lock:
+            if self._voice_trigger_window is None:
+                return
+            self._voice_trigger_window.record_asr_final(
+                observed_at_ns=time.time_ns(), text=text
+            )
+            # “嗯”等 filler 和语义正确的裸 final 都只留作诊断；真正解除等待
+            # 的是 _on_wake_event 中已授权的 typed command。
 
     def _wire_subscriptions(self) -> None:
         self.create_subscription(
@@ -301,6 +465,11 @@ class SessionObserver(Node):
         frontier = getattr(message, "frontier", None)
         if frontier is not None:
             self.frontier_evidence = _frontier_message_to_dict(frontier)
+        mapping_completion = getattr(message, "mapping_completion", None)
+        if mapping_completion is not None:
+            converted = _mapping_completion_message_to_dict(mapping_completion)
+            if converted is not None:
+                self.mapping_completion_evidence = converted
         self._localization_sampler.transition_phase(self.current_phase)
         if int(message.mission_outcome) in {
             SlamSessionState.MISSION_SUCCEEDED,

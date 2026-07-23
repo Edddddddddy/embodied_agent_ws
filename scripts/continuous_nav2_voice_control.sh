@@ -1,11 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-WORKSPACE="${WORKSPACE:-/home/ubuntu/embodied_agent_ws}"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+WORKSPACE="${WORKSPACE:-$(cd -- "$SCRIPT_DIR/.." && pwd -P)}"
+source "$SCRIPT_DIR/lifecycle_utils.sh"
+embodied_resolve_runtime_root
+
 MODE="${1:-offline}"
 PROVIDER_MODE="${NAV2_PROVIDER_MODE:-$MODE}"
 APPLY_VOICE_CALIBRATION="${APPLY_VOICE_CALIBRATION:-auto}"
-VOICE_CALIBRATION_ENV="${VOICE_CALIBRATION_ENV:-$WORKSPACE/logs/voice_calibration.env}"
+PRINT_CONFIG="${CONTINUOUS_PRINT_CONFIG:-false}"
+VOICE_CALIBRATION_ENV_EXPLICIT=false
+[[ ! -v VOICE_CALIBRATION_ENV ]] || VOICE_CALIBRATION_ENV_EXPLICIT=true
+LLAMA_SERVER="${LLAMA_SERVER:-$EMBODIED_RUNTIME_ROOT/third_party/llama.cpp/build/bin/llama-server}"
+LLAMA_MODEL="${LLAMA_MODEL:-$EMBODIED_RUNTIME_ROOT/models/Qwen3-0.6B-Q8_0.gguf}"
+VOICE_CALIBRATION_ENV="${VOICE_CALIBRATION_ENV:-$EMBODIED_RUNTIME_ROOT/logs/voice_calibration.env}"
 VOICE_CALIBRATION_ENV_APPLIED=false
 
 # Nav2/SLAM 演示必须复用普通 continuous-offline 的麦克风校准；否则同一台
@@ -61,7 +70,12 @@ if [[ "$APPLY_VOICE_CALIBRATION" == "true" ]]; then
     echo "WARN: APPLY_VOICE_CALIBRATION=true but VOICE_CALIBRATION_ENV not found: $VOICE_CALIBRATION_ENV" >&2
   fi
 elif [[ "$APPLY_VOICE_CALIBRATION" == "auto" ]]; then
-  [[ ! -f "$VOICE_CALIBRATION_ENV" ]] || apply_voice_calibration_env
+  if [[ "$PRINT_CONFIG" == "true" && "$VOICE_CALIBRATION_ENV_EXPLICIT" != "true" ]]; then
+    # 纯配置审计不能被主 worktree 上的现场校准静默污染；真实启动仍默认复用校准。
+    :
+  else
+    [[ ! -f "$VOICE_CALIBRATION_ENV" ]] || apply_voice_calibration_env
+  fi
 elif [[ "$APPLY_VOICE_CALIBRATION" != "false" ]]; then
   echo "unknown APPLY_VOICE_CALIBRATION=$APPLY_VOICE_CALIBRATION; expected auto, true, or false" >&2
   exit 2
@@ -98,7 +112,7 @@ VAD_SPEECH_START_MS="${VAD_SPEECH_START_MS:-$PROFILE_VAD_SPEECH_START_MS}"
 SPEECH_END_SILENCE_S="${SPEECH_END_SILENCE_S:-$PROFILE_SPEECH_END_SILENCE_S}"
 MIN_UTTERANCE_MS="${MIN_UTTERANCE_MS:-$PROFILE_MIN_UTTERANCE_MS}"
 MAX_UTTERANCE_S="${MAX_UTTERANCE_S:-$PROFILE_MAX_UTTERANCE_S}"
-SILERO_VAD_MODEL_PATH="${SILERO_VAD_MODEL_PATH:-$WORKSPACE/models/silero_vad/silero_vad.onnx}"
+SILERO_VAD_MODEL_PATH="${SILERO_VAD_MODEL_PATH:-$EMBODIED_RUNTIME_ROOT/models/silero_vad/silero_vad.onnx}"
 SILERO_VAD_USE_ONNX="${SILERO_VAD_USE_ONNX:-true}"
 SILERO_VAD_THRESHOLD="${SILERO_VAD_THRESHOLD:-0.5}"
 SILERO_VAD_END_THRESHOLD="${SILERO_VAD_END_THRESHOLD:-0.35}"
@@ -128,7 +142,6 @@ NAV2_EXECUTOR_PLUGIN="${NAV2_EXECUTOR_PLUGIN:-embodied_simulation/Nav2RobotExecu
 NAV2_ENABLE_DYNAMIC_OBSTACLE_LAYER="${NAV2_ENABLE_DYNAMIC_OBSTACLE_LAYER:-false}"
 MONITOR_ENABLED="${CONTINUOUS_MONITOR_ENABLED:-true}"
 MONITOR_AUDIO_SAMPLE_LIMIT="${CONTINUOUS_MONITOR_AUDIO_SAMPLE_LIMIT:-600}"
-PRINT_CONFIG="${CONTINUOUS_PRINT_CONFIG:-false}"
 PREFLIGHT_ENABLED="${CONTINUOUS_PREFLIGHT_ENABLED:-true}"
 READINESS_ENABLED="${CONTINUOUS_READINESS_ENABLED:-true}"
 READINESS_DURATION="${CONTINUOUS_READINESS_DURATION:-4.0}"
@@ -141,6 +154,9 @@ fi
 READINESS_REQUIRED="${CONTINUOUS_READINESS_REQUIRED:-$READINESS_REQUIRED_DEFAULT}"
 SYSTEM_READINESS_TIMEOUT="${SYSTEM_READINESS_TIMEOUT:-60.0}"
 SYSTEM_READINESS_STALE_TIMEOUT_S="${SYSTEM_READINESS_STALE_TIMEOUT_S:-30.0}"
+
+# 子脚本必须复用本入口已经审计过的同一组运行时资产，不能重新退回代码 worktree。
+export LLAMA_SERVER LLAMA_MODEL SILERO_VAD_MODEL_PATH VOICE_CALIBRATION_ENV
 
 source "$WORKSPACE/scripts/activate.sh"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((140 + $$ % 80))}"
@@ -282,6 +298,9 @@ GZ_PARTITION=$GZ_PARTITION（隔离 Gazebo Transport，避免残留世界抢占 
 PROVIDER_MODE=$PROVIDER_MODE
 MICROPHONE_ENABLED=$MICROPHONE_ENABLED
 CAPTURE_ENABLED=$CAPTURE_ENABLED
+EMBODIED_RUNTIME_ROOT=$EMBODIED_RUNTIME_ROOT
+LLAMA_SERVER=$LLAMA_SERVER
+LLAMA_MODEL=$LLAMA_MODEL
 
 推荐话术：
   小智
@@ -421,7 +440,17 @@ then
   bash "$WORKSPACE/scripts/start_llama_server.sh" &
   SERVER_PID=$!
   for _ in $(seq 1 30); do
-    if curl -fsS http://127.0.0.1:8080/health >/dev/null 2>&1; then break; fi
+    if curl -fsS http://127.0.0.1:8080/health >/dev/null 2>&1; then
+      break
+    fi
+    if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+      server_exit=0
+      wait "$SERVER_PID" || server_exit=$?
+      SERVER_PID=""
+      # 缺二进制、缺模型或动态库错误都应立即返回原始退出码，不能伪装成 30 秒健康超时。
+      echo "FAIL: llama.cpp server 进程提前退出 (exit=$server_exit)。" >&2
+      exit 1
+    fi
     sleep 1
   done
   curl -fsS http://127.0.0.1:8080/health >/dev/null || {

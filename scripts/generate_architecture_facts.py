@@ -168,7 +168,7 @@ def build_facts(root: Path) -> dict[str, Any]:
     contracts = {
         "ci_matrix_matches_ros_packages": ci_packages == ros_packages,
         "ci_push_and_pr_only_dev_main": trigger_lines == 2,
-        "public_mode_count_is_8": len(public_modes) == 8,
+        "public_mode_count_is_9": len(public_modes) == 9,
         "shell_entry_is_thin": _line_count(root / "scripts" / "acceptance_test.sh") <= 15,
         "public_modes_are_routable": set(public_modes) <= set(router_modes),
         "advanced_modes_are_routable": set(advanced_modes) <= set(router_modes),

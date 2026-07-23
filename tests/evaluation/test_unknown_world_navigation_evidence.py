@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import sys
 from pathlib import Path
 
@@ -20,10 +21,68 @@ from tools.acceptance.unknown_world_evidence import (  # noqa: E402
     UnknownWorldObservation,
     UnknownWorldThresholds,
     build_unknown_world_report,
+    evaluate_approximate_completion,
     evaluate_frontier_completion,
+    evaluate_return_to_start_evidence,
     evaluate_sampled_navigation,
     load_scene_evaluation_context,
 )
+from tools.acceptance.scenarios.unknown_world_run_profile import (  # noqa: E402
+    verify_report,
+)
+
+
+def _return_to_start_report() -> dict[str, object]:
+    check_names = (
+        "typed_action_command",
+        "typed_action_succeeded",
+        "return_before_map_save",
+        "same_pose_frame",
+        "final_pose_in_return_window",
+        "xy_within_tolerance",
+        "yaw_within_tolerance",
+        "cmd_vel_after_return",
+        "final_cmd_vel_fresh",
+        "final_cmd_vel_zero",
+    )
+    return {
+        "schema_version": 1,
+        "passed": True,
+        "checks": {name: True for name in check_names},
+        "failed_checks": [],
+        "thresholds": {
+            "max_xy_error_m": 0.35,
+            "max_yaw_error_rad": 0.35,
+            "zero_velocity_tolerance": 1.0e-3,
+            "max_cmd_vel_age_s": 1.0,
+        },
+        "errors": {"xy_error_m": 0.08, "yaw_error_rad": 0.03},
+    }
+
+
+def _bounded_saturation_evidence() -> dict[str, object]:
+    return {
+        "mode": "bounded_saturation",
+        "valid": True,
+        "low_yield_epoch_count": 2,
+        "required_low_yield_epoch_count": 2,
+        "residual_available_frontiers": 4,
+        "ledger_drained": True,
+        "final_probe_gain_cells": 3,
+        "final_probe_gain_ratio": 0.0001,
+        "typed_stop_succeeded": True,
+        "return_home": _return_to_start_report(),
+    }
+
+
+def _strict_completion_evidence() -> dict[str, object]:
+    """strict frontier 只改变完成来源，不得省略真实返航证据。"""
+
+    return {
+        "mode": "strict_frontier",
+        "valid": True,
+        "return_home": _return_to_start_report(),
+    }
 
 
 def _write_map(directory: Path, rows: list[list[int]]) -> Path:
@@ -123,6 +182,7 @@ def test_three_successful_goals_with_known_free_paths_pass(tmp_path: Path):
     )
 
     assert report["passed"] is True
+
     assert report["metrics"]["succeeded_goal_count"] == 3
 
 
@@ -248,7 +308,7 @@ def test_frontier_completion_requires_no_reachable_active_or_blacklisted_goal():
         assert evaluate_frontier_completion(invalid)["passed"] is False
 
 
-def test_frontier_completion_accepts_exhaustion_only_with_no_map_gain_pair():
+def test_frontier_completion_accepts_bounded_exhaustion_with_residual_blacklist():
     report = evaluate_frontier_completion(
         {
             "valid": True,
@@ -256,11 +316,12 @@ def test_frontier_completion_accepts_exhaustion_only_with_no_map_gain_pair():
                 "frontier_attempts_exhausted_recoverable"
             ),
             "mission_completion_reason": (
-                "frontier_attempts_exhausted_no_map_gain"
+                "frontier_attempts_exhausted_below_material_gain"
             ),
+            "detected_frontier_count": 3,
             "available_frontier_count": 0,
             "active_goal_count": 0,
-            "blacklisted_frontier_count": 0,
+            "blacklisted_frontier_count": 1,
             "accepted_goal_count": 2,
             "succeeded_goal_count": 1,
             "aborted_goal_count": 1,
@@ -269,11 +330,47 @@ def test_frontier_completion_accepts_exhaustion_only_with_no_map_gain_pair():
 
     assert report["passed"] is True
 
+    inconsistent = {
+        **report["telemetry"],
+        "blacklisted_frontier_count": 4,
+    }
+    assert evaluate_frontier_completion(inconsistent)["passed"] is False
+
+
+def test_frontier_completion_accepts_post_scan_final_confirmation():
+    """任务层新收敛原因必须与 provider typed 原因组成完整契约。"""
+
+    report = evaluate_frontier_completion(
+        {
+            "valid": True,
+            "provider_completion_reason": (
+                "frontier_attempts_exhausted_recoverable"
+            ),
+            "mission_completion_reason": (
+                "frontier_attempts_exhausted_after_final_confirmation"
+            ),
+            "detected_frontier_count": 8,
+            "available_frontier_count": 0,
+            "active_goal_count": 0,
+            "blacklisted_frontier_count": 2,
+            "accepted_goal_count": 38,
+            "succeeded_goal_count": 3,
+            "aborted_goal_count": 1,
+            "canceled_goal_count": 34,
+        }
+    )
+
+    assert report["passed"] is True
+    assert all(report["checks"].values())
+
 
 @pytest.mark.parametrize(
     ("provider_reason", "mission_reason"),
     [
-        ("no_frontiers", "frontier_attempts_exhausted_no_map_gain"),
+        (
+            "no_frontiers",
+            "frontier_attempts_exhausted_below_material_gain",
+        ),
         (
             "frontier_attempts_exhausted_recoverable",
             "no_reachable_frontiers",
@@ -310,6 +407,222 @@ def test_frontier_completion_rejects_non_terminal_accepted_goal():
 
     assert report["passed"] is False
     assert report["checks"]["all_accepted_goals_terminal"] is False
+
+
+def test_time_budget_reason_alone_cannot_claim_approximate_completion():
+    telemetry = {
+        "valid": True,
+        "provider_completion_reason": "",
+        "mission_completion_reason": "time_budget_exhausted",
+        "available_frontier_count": 4,
+        "active_goal_count": 0,
+        "accepted_goal_count": 3,
+        "succeeded_goal_count": 3,
+    }
+
+    strict = evaluate_frontier_completion(telemetry)
+    approximate = evaluate_approximate_completion(
+        telemetry=telemetry,
+        evidence=None,
+        map_quality_passed=True,
+        final_cmd_vel_fresh=True,
+        final_cmd_vel_zero=True,
+    )
+
+    assert strict["passed"] is False
+    assert approximate["passed"] is False
+    assert approximate["checks"]["typed_saturation_evidence_valid"] is False
+
+
+def test_bounded_saturation_is_derived_from_independent_evidence_layers():
+    report = evaluate_approximate_completion(
+        telemetry={
+            "valid": True,
+            "provider_completion_reason": "",
+            "mission_completion_reason": "time_budget_exhausted",
+            "available_frontier_count": 4,
+            "active_goal_count": 0,
+            "accepted_goal_count": 5,
+            "succeeded_goal_count": 2,
+            "aborted_goal_count": 1,
+            "canceled_goal_count": 2,
+        },
+        evidence=_bounded_saturation_evidence(),
+        map_quality_passed=True,
+        final_cmd_vel_fresh=True,
+        final_cmd_vel_zero=True,
+    )
+
+    assert report["passed"] is True
+    assert all(report["checks"].values())
+
+
+@pytest.mark.parametrize(
+    ("mutation", "failed_check"),
+    [
+        ({"active_goal_count": 1}, "no_active_goal"),
+        ({"accepted_goal_count": 6}, "all_accepted_goals_terminal"),
+        ({"provider_completion_reason": "no_frontiers"}, "neutral_runtime_reason"),
+    ],
+)
+def test_approximate_completion_rejects_non_terminal_or_forged_provider_state(
+    mutation,
+    failed_check,
+):
+    telemetry = {
+        "provider_completion_reason": "",
+        "mission_completion_reason": "time_budget_exhausted",
+        "available_frontier_count": 4,
+        "active_goal_count": 0,
+        "accepted_goal_count": 5,
+        "succeeded_goal_count": 2,
+        "aborted_goal_count": 1,
+        "canceled_goal_count": 2,
+        **mutation,
+    }
+
+    report = evaluate_approximate_completion(
+        telemetry=telemetry,
+        evidence=_bounded_saturation_evidence(),
+        map_quality_passed=True,
+        final_cmd_vel_fresh=True,
+        final_cmd_vel_zero=True,
+    )
+
+    assert report["passed"] is False
+    assert report["checks"][failed_check] is False
+
+
+@pytest.mark.parametrize(
+    ("map_quality", "fresh", "zero", "failed_check"),
+    [
+        (False, True, True, "map_quality"),
+        (True, False, True, "final_cmd_vel_fresh"),
+        (True, True, False, "final_cmd_vel_zero"),
+    ],
+)
+def test_approximate_completion_requires_map_quality_and_fresh_zero_velocity(
+    map_quality,
+    fresh,
+    zero,
+    failed_check,
+):
+    report = evaluate_approximate_completion(
+        telemetry={
+            "provider_completion_reason": "",
+            "mission_completion_reason": "time_budget_exhausted",
+            "available_frontier_count": 4,
+            "active_goal_count": 0,
+            "accepted_goal_count": 1,
+            "succeeded_goal_count": 1,
+        },
+        evidence=_bounded_saturation_evidence(),
+        map_quality_passed=map_quality,
+        final_cmd_vel_fresh=fresh,
+        final_cmd_vel_zero=zero,
+    )
+
+    assert report["passed"] is False
+    assert report["checks"][failed_check] is False
+
+
+def test_approximate_completion_rechecks_return_home_checks():
+    evidence = _bounded_saturation_evidence()
+    return_home = dict(evidence["return_home"])
+    return_checks = dict(return_home["checks"])
+    return_checks["xy_within_tolerance"] = False
+    return_home.update(
+        {
+            # 即使 producer 错误保留 passed=true，evaluator 也必须 fail closed。
+            "passed": True,
+            "checks": return_checks,
+            "failed_checks": [],
+        }
+    )
+    evidence["return_home"] = return_home
+
+    report = evaluate_approximate_completion(
+        telemetry={
+            "provider_completion_reason": "",
+            "mission_completion_reason": "time_budget_exhausted",
+            "available_frontier_count": 4,
+            "active_goal_count": 0,
+            "accepted_goal_count": 1,
+            "succeeded_goal_count": 1,
+        },
+        evidence=evidence,
+        map_quality_passed=True,
+        final_cmd_vel_fresh=True,
+        final_cmd_vel_zero=True,
+    )
+
+    assert report["passed"] is False
+    assert report["checks"]["return_to_start"] is False
+
+
+@pytest.mark.parametrize(
+    ("failed_return_check", "evidence_mutation"),
+    [
+        ("typed_action_command", {}),
+        ("typed_action_succeeded", {}),
+        ("return_before_map_save", {}),
+        ("xy_within_tolerance", {"xy_error_m": 0.36}),
+        ("yaw_within_tolerance", {"yaw_error_rad": 0.36}),
+        ("final_cmd_vel_fresh", {}),
+        ("final_cmd_vel_zero", {}),
+    ],
+)
+def test_return_to_start_evaluator_fails_closed_for_both_completion_modes(
+    failed_return_check,
+    evidence_mutation,
+):
+    """strict/近似两条完成路径必须复用同一份返航安全契约。"""
+
+    for completion in (
+        _strict_completion_evidence(),
+        _bounded_saturation_evidence(),
+    ):
+        return_home = dict(completion["return_home"])
+        return_checks = dict(return_home["checks"])
+        return_checks[failed_return_check] = False
+        errors = dict(return_home["errors"])
+        errors.update(evidence_mutation)
+        return_home.update(
+            {
+                # 模拟 producer 的汇总位仍为 true，evaluator 不能被它绕过。
+                "passed": True,
+                "checks": return_checks,
+                "errors": errors,
+                "failed_checks": [],
+            }
+        )
+        completion["return_home"] = return_home
+
+        report = evaluate_return_to_start_evidence(completion)
+
+        assert report["passed"] is False
+        assert report["checks"][failed_return_check] is False
+
+
+@pytest.mark.parametrize("mode", ["strict_frontier", "bounded_saturation"])
+def test_return_to_start_evaluator_rechecks_numeric_pose_tolerances(mode):
+    completion = (
+        _strict_completion_evidence()
+        if mode == "strict_frontier"
+        else _bounded_saturation_evidence()
+    )
+    return_home = dict(completion["return_home"])
+    return_home["errors"] = {
+        "xy_error_m": 0.351,
+        "yaw_error_rad": 0.03,
+    }
+    # 即使 producer 的布尔位错误地为 true，独立 evaluator 也按数值重新比较。
+    completion["return_home"] = return_home
+
+    report = evaluate_return_to_start_evidence(completion)
+
+    assert report["passed"] is False
+    assert report["checks"]["xy_within_tolerance"] is False
 
 
 def test_scene_evaluator_derives_regions_relative_to_spawn():
@@ -362,11 +675,21 @@ def test_schema_v4_requires_every_unknown_world_evidence_layer(tmp_path: Path):
         map_provenance={"yaml_mtime_ns": 101, "image_mtime_ns": 101},
         frontier_telemetry={
             "valid": True,
-            "completion_reason": "no_frontiers",
-            "mission_completion_reason": "no_reachable_frontiers",
-            "accepted_goal_count": 1,
+            "provider_completion_reason": (
+                "frontier_attempts_exhausted_recoverable"
+            ),
+            "mission_completion_reason": (
+                "frontier_attempts_exhausted_after_final_confirmation"
+            ),
+            "detected_frontier_count": 2,
+            "available_frontier_count": 0,
+            "active_goal_count": 0,
+            "blacklisted_frontier_count": 1,
+            "accepted_goal_count": 2,
             "succeeded_goal_count": 1,
+            "canceled_goal_count": 1,
         },
+        mapping_completion_evidence=_strict_completion_evidence(),
         navigation_goals=goals,
         amcl_samples=truth,
         gazebo_samples=truth,
@@ -392,6 +715,50 @@ def test_schema_v4_requires_every_unknown_world_evidence_layer(tmp_path: Path):
     assert report["schema_version"] == 4
     assert report["passed"] is True
     assert all(report["checks"].values())
+    assert report["return_to_start"]["passed"] is True
+    assert verify_report(report, expected_session_id="unit")[
+        "navigation_goal_count"
+    ] == 3
+
+    # 相同地图/定位/导航证据下，残余 frontier 只能经独立 approximate
+    # 契约收口；strict evaluator 仍应明确拒绝 time_budget_exhausted。
+    approximate_observation = replace(
+        observation,
+        frontier_telemetry={
+            "valid": True,
+            "provider_completion_reason": "",
+            "mission_completion_reason": "time_budget_exhausted",
+            "available_frontier_count": 4,
+            "active_goal_count": 0,
+            "accepted_goal_count": 2,
+            "succeeded_goal_count": 1,
+            "canceled_goal_count": 1,
+        },
+        mapping_completion_evidence=_bounded_saturation_evidence(),
+    )
+
+    approximate_report = build_unknown_world_report(
+        approximate_observation,
+        thresholds,
+    )
+
+    assert approximate_report["frontier"]["passed"] is False
+    assert approximate_report["approximate_completion"]["passed"] is True
+    assert approximate_report["checks"]["frontier_complete"] is True
+    assert approximate_report["passed"] is True
+    # 二次 profile verifier 也必须接受经独立饱和证据收口的报告，而不是仍硬编码
+    # 要求 strict frontier section 自身通过。
+    assert verify_report(approximate_report, expected_session_id="unit")[
+        "navigation_goal_count"
+    ] == 3
+
+    missing_return_report = build_unknown_world_report(
+        replace(observation, mapping_completion_evidence=None),
+        thresholds,
+    )
+    assert missing_return_report["frontier"]["passed"] is True
+    assert missing_return_report["checks"]["return_to_start"] is False
+    assert missing_return_report["passed"] is False
 
 
 def test_passed_bit_without_dynamic_evidence_is_rejected(tmp_path: Path):
