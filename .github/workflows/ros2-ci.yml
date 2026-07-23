@@ -1,8 +1,11 @@
 name: ROS 2 CI
 
 on:
+  # feature 分支只通过 PR 触发一次完整 CI；合并后的 dev/main 再保留分支门禁。
   push:
+    branches: [main, dev]
   pull_request:
+    branches: [main, dev]
 
 permissions:
   contents: read
@@ -15,6 +18,43 @@ jobs:
       - run: python -m pip install --disable-pip-version-check pytest
       - name: Repository contract tests
         run: python -m pytest -q tests/repository
+
+  frontier-patch-replay:
+    runs-on: ubuntu-latest
+    container:
+      image: rostooling/setup-ros-docker:ubuntu-noble-latest
+    defaults:
+      run:
+        # 容器默认 shell 是 /bin/sh；固定 Bash 才能安全 source ROS 环境脚本。
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - name: Recreate pinned Explore Lite source
+        run: bash scripts/setup_frontier_exploration.sh --prepare-only
+      - name: Initialize rosdep metadata
+        # setup-ros-docker 的精简镜像带 rosdep 可执行文件，但未必带 /etc/ros
+        # source list；先做幂等初始化，避免补丁已成功重放后误报依赖安装失败。
+        run: |
+          if [ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]; then
+            rosdep init
+          fi
+          rosdep update
+      - name: Install Explore Lite dependencies
+        run: >-
+          rosdep install --from-paths third_party/m-explore-ros2 --ignore-src
+          --rosdistro jazzy -r -y
+      - name: Build patched Explore Lite
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          colcon build --symlink-install \
+            --base-paths third_party/m-explore-ros2 \
+            --packages-select explore_lite_msgs explore_lite
+      - name: Run patched frontier functional tests
+        # 直接限定 CTest 名称，避免把上游仓库既有 lint 风格债务混进补丁功能门禁。
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          ctest --test-dir build/explore_lite \
+            -R '^test_explore$' --output-on-failure
 
   build-and-test:
     runs-on: ubuntu-latest
@@ -32,7 +72,14 @@ jobs:
           target-ros2-distro: jazzy
           package-name: >-
             embodied_agent_interfaces
+            embodied_agent_middleware
+            embodied_agent_core
+            embodied_agent_bringup
+            embodied_voice_frontend
             embodied_agent_cpp
             embodied_online_agent
             embodied_offline_agent
             embodied_simulation
+            embodied_slam
+            embodied_slam_tools
+            embodied_navigation

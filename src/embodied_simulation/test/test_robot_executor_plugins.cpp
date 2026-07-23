@@ -33,6 +33,17 @@ TEST(RobotExecutorPluginsTest, GazeboAndMockAdaptersAreDiscoverable)
     classes.end());
 }
 
+TEST(RobotExecutorPluginsTest, IdleManualExecutorRelinquishesCmdVelOwnership)
+{
+  EXPECT_FALSE(should_publish_executor_cmd_vel(true, false, false, "manual"));
+  EXPECT_TRUE(should_publish_executor_cmd_vel(true, true, false, "manual"));
+  EXPECT_TRUE(should_publish_executor_cmd_vel(true, false, true, "manual"));
+  EXPECT_TRUE(
+    should_publish_executor_cmd_vel(true, false, false, "wall_following"));
+  EXPECT_FALSE(
+    should_publish_executor_cmd_vel(false, true, true, "wall_following"));
+}
+
 TEST(RobotExecutorPluginsTest, SameCommandRunsThroughBothAdapters)
 {
   pluginlib::ClassLoader<RobotExecutor> loader(

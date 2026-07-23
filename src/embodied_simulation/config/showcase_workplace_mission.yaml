@@ -1,0 +1,63 @@
+schema_version: 1
+name: office_inspection_mapping_and_delivery
+description: 语音巡检建图后，为入口、厨房和办公室执行物资配送导航。
+
+automatic_exploration:
+  provider: explore_lite
+  config: frontier_exploration.yaml
+  timeout_s: 300.0
+  navigation_timeout_s: 330.0
+  bootstrap_action_timeout_s: 45.0
+  completion_status: exploration_complete
+  min_runtime_s: 45.0
+  stable_map_s: 20.0
+  min_growth_cells: 40
+  # 机器人从左下角充电位出生。先沿已知安全通道自动进入中央门洞，再让 frontier
+  # 决定后续未知区域目标，避免初始外墙边缘长期主导 frontier 排序。
+  bootstrap_route:
+    - {label: 离开充电角, text: 前进三秒, action: move}
+    - {label: 转向入口通道, text: 左转九十度, action: turn}
+    - {label: 沿西侧通道巡检一, text: 前进十秒, action: move}
+    - {label: 沿西侧通道巡检二, text: 前进四秒, action: move}
+    - {label: 转向中央门洞, text: 右转九十度, action: turn}
+    - {label: 穿过客厅一, text: 前进十秒, action: move}
+    - {label: 穿过客厅二, text: 前进七秒, action: move}
+    # 在中央通道做一次可逆往返，使自动建图自身稳定达到 10 m 里程门槛；
+    # 随后仍由 Explore Lite 根据实时未知边界选点，不把固定路线伪装成 SLAM。
+    - {label: 探索会议区通道, text: 前进十秒, action: move}
+    - {label: 返回中央门洞, text: 后退十秒, action: move}
+
+# 路线从 Gazebo 出生点 (-4.15, -3.15) 出发，沿门洞访问客厅、厨房、中央走廊和办公室。
+# 每一步都是用户可以直接说出的普通动作命令；自动门禁只把 ASR 换成文本注入，后续
+# NLU、ActionGuard、ROS 2 Action、Gazebo executor 与真实语音演示完全相同。
+mapping_route:
+  - {label: 离开充电区, text: 前进三秒, action: move}
+  - {label: 转向入口通道, text: 左转九十度, action: turn}
+  - {label: 沿客厅西侧巡检一, text: 前进十秒, action: move}
+  - {label: 沿客厅西侧巡检二, text: 前进四秒, action: move}
+  - {label: 转向厨房门洞, text: 右转九十度, action: turn}
+  - {label: 穿过厨房门洞, text: 前进五秒, action: move}
+  - {label: 进入厨房, text: 左转九十度, action: turn}
+  - {label: 采集厨房雷达, text: 前进八秒, action: move}
+  - {label: 返回中央走廊, text: 后退八秒, action: move}
+  - {label: 转向办公室走廊, text: 右转九十度, action: turn}
+  - {label: 横穿中央走廊一, text: 前进十秒, action: move}
+  - {label: 横穿中央走廊二, text: 前进十秒, action: move}
+  # 留出右侧办公桌的膨胀半径；三秒会让机器人偏到门洞右缘并触发 front_emergency。
+  - {label: 对准办公室门洞, text: 前进两秒, action: move}
+  - {label: 进入办公室, text: 左转九十度, action: turn}
+  # 前进约 1.1 m 即可让 3.5 m 激光覆盖办公室；继续前进会接近办公桌安全区。
+  - {label: 采集办公室雷达, text: 前进五秒, action: move}
+
+navigation_mission:
+  navigate_text: 去入口
+  patrol_text: 依次去厨房、办公室
+  expected_targets: [entrance, kitchen, office]
+
+acceptance:
+  min_mapping_path_m: 10.0
+  min_known_map_cells: 6000
+  min_occupied_map_cells: 150
+  min_navigation_targets: 3
+  require_map_to_odom: true
+  require_final_zero_velocity: true

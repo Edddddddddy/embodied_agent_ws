@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "dataset": "OpenLORIS-Scene",
+  "sequence": "office1-7",
+  "review_source": {
+    "topic": "/d400/color/image_raw",
+    "sampling_interval_s": 3.0,
+    "method": "manual review of timestamped RGB contact sheet"
+  },
+  "intervals": [
+    {
+      "label": "glass_partition",
+      "start_s": 1560244976.0,
+      "end_s": 1560244982.5,
+      "evidence": "frames near 18-24 s show motion beside a large glass partition"
+    },
+    {
+      "label": "dynamic_occlusion",
+      "start_s": 1560244983.5,
+      "end_s": 1560244988.5,
+      "evidence": "frames near 27-30 s show a moving person crossing and then filling the camera foreground"
+    }
+  ],
+  "negative_evidence": {
+    "corridor": "the sparse RGB review does not show a defensible long-corridor interval"
+  },
+  "claim_boundary": "visual labels describe scene intervals; they do not prove LiDAR beams were occluded without sensor-level review"
+}

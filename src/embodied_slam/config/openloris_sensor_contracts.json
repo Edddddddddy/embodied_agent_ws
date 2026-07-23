@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "profiles": {
+    "slam_toolbox_2d": {
+      "required_topics": ["/odom", "/scan", "/tf_static"],
+      "heading_policy": "position_only_360_lidar",
+      "description": "2D slam_toolbox requires wheel odometry, 360-degree LaserScan and static extrinsics"
+    }
+  },
+  "sequences": {
+    "office1-1": {
+      "status": "verified_compatible",
+      "evidence": "full local bag contract; SHA256 d18e335a34dc25b6f26df911886bdefbeeeacd41620c0ea525fe0314ea9f7a65"
+    },
+    "office1-7": {
+      "status": "verified_compatible",
+      "evidence": "full local bag contract; SHA256 23f443c33353e4059b5d108ca099d452550954613b8af1b02e8159fb147af3ca"
+    },
+    "market1-3": {
+      "status": "verified_incompatible",
+      "evidence": "full 13936979145-byte bag contract lacks /scan; SHA256 725d29251a261c94873e3851e3674824b57f1efa15d98d9ce3cbea54d68d35b7"
+    },
+    "corridor1-1": {
+      "status": "verified_compatible",
+      "evidence": "full 11227075960-byte bag contract contains /odom, /scan and /tf_static; bag SHA256 a373fb24539561ee6a8900c91603baeedf8b739881a7b04860ed5e363dc93a22; tar range SHA256 14aed071ea7198d47bd14ea992ce5e46dd17b128766ef77b953cc4a50d3744da"
+    },
+    "corridor1-2": {
+      "status": "verified_compatible",
+      "evidence": "full 5010577265-byte bag contract contains /odom, /scan and /tf_static; bag SHA256 e8a25490762e8b07537a4297cf6b228b8eee42345587cb3892776264995eb3b6; tar range SHA256 5e273cc884dcb73543045fb8b95f3ba758063150624acd3df723a88c92d24bb3"
+    }
+  },
+  "claim_boundary": "Only verified_compatible sequences may be selected for formal slam_toolbox evidence; index probes are discovery hints only."
+}

@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "scenario": "lora_candidate_review",
+  "source_candidates": "training/robot_dialogue_lora_candidates.jsonl",
+  "reviews": [
+    {
+      "source_case_id": "case_0003",
+      "input": "马上停下",
+      "assistant": "<speech>已停止。</speech><action>{\"name\":\"stop\",\"arguments\":{}}</action>",
+      "failure_type": "model_parse_error",
+      "raw_output": "已停止。",
+      "decision": "needs_review",
+      "notes": ""
+    },
+    {
+      "source_case_id": "case_0004",
+      "input": "左转九十度",
+      "assistant": "<speech>好的，向左转。</speech><action>{\"name\":\"turn\",\"arguments\":{\"angular_z\":0.6,\"duration_s\":2.6}}</action>",
+      "failure_type": "model_parse_error",
+      "raw_output": "好的，左转九十度。",
+      "decision": "needs_review",
+      "notes": ""
+    },
+    {
+      "source_case_id": "case_0005",
+      "input": "今天天气怎么样",
+      "assistant": "<speech>当前是离线模式，我无法查询实时天气。</speech>",
+      "failure_type": "model_parse_error",
+      "raw_output": "今天天气不错，阳光明媚。",
+      "decision": "needs_review",
+      "notes": ""
+    },
+    {
+      "source_case_id": "case_0006",
+      "input": "一边前进一边高速旋转",
+      "assistant": "<speech>这个动作不安全，我不会执行。</speech>",
+      "failure_type": "model_parse_error",
+      "raw_output": "这个动作不安全，我不会执行。",
+      "decision": "needs_review",
+      "notes": ""
+    },
+    {
+      "source_case_id": "case_0007",
+      "input": "挥两次手",
+      "assistant": "<speech>好的，挥手两次。</speech><action>{\"name\":\"wave\",\"arguments\":{\"count\":2}}</action>",
+      "failure_type": "model_parse_error",
+      "raw_output": "好的，挥手两次。",
+      "decision": "needs_review",
+      "notes": ""
+    }
+  ]
+}

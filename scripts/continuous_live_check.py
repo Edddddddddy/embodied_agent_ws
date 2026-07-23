@@ -9,12 +9,39 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import threading
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import rclpy
+from embodied_agent_interfaces.msg import (
+    AgentTurnMetrics,
+    CommandExecutionEvent,
+    CommandQueueEvent,
+    NluParseEvent,
+    RecognitionFeedback,
+    RobotCommand,
+    RobotCommandResult,
+)
+from embodied_agent_core.metrics_transport import agent_turn_metrics_message_to_dict
+from embodied_agent_core.ros_action_transport import (
+    command_message_to_dict,
+    result_message_to_dict,
+)
+from embodied_agent_core.ros_event_transport import (
+    execution_event_message_to_dict,
+    nlu_parse_message_to_dict,
+    queue_event_message_to_dict,
+    recognition_feedback_message_to_dict,
+)
+from embodied_agent_core.ros_qos import (
+    command_qos,
+    diagnostics_qos,
+    event_qos,
+    state_qos,
+)
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from std_msgs.msg import String
@@ -43,13 +70,30 @@ class LiveCheckReport:
     final_cmd_vel_zero: bool
     ok: bool
     missing: list[str]
+    recognition_feedback_count: int = 0
+    asr_final_recovery_count: int = 0
+    recognition_feedback_samples: list[dict] = field(default_factory=list)
     asr_samples: list[str] = field(default_factory=list)
     action_candidate_samples: list[dict] = field(default_factory=list)
+    action_result_samples: list[dict] = field(default_factory=list)
     successful_action_samples: list[dict] = field(default_factory=list)
+    navigation_failure_reasons: list[dict] = field(default_factory=list)
+    duration_s: float = 0.0
+    metrics_samples: list[dict] = field(default_factory=list)
+    action_e2e_latency_ms: list[float] = field(default_factory=list)
+    capture_source: str = "unspecified"
+    agent_mode: str = "unspecified"
+    queue_rejected_count: int = 0
+    ignored_transcript_count: int = 0
+    recognition_retry_count: int = 0
 
 
 class LiveCheckNode(Node):
-    def __init__(self):
+    def __init__(
+        self,
+        capture_source: str = "unspecified",
+        agent_mode: str = "unspecified",
+    ):
         super().__init__("continuous_live_check")
         self.asr: list[str] = []
         self.session_states: list[str] = []
@@ -58,34 +102,119 @@ class LiveCheckNode(Node):
         self.candidates: list[dict] = []
         self.results: list[dict] = []
         self.velocities: list[tuple[float, float]] = []
-        self.create_subscription(String, "/agent/asr_final", self._on_asr, 10)
-        self.create_subscription(String, "/agent/session_state", self._on_session, 10)
-        self.create_subscription(String, "/agent/command_queue", self._on_queue, 10)
-        self.create_subscription(String, "/agent/command_execution", self._on_execution, 10)
-        self.create_subscription(String, "/agent/action_candidate", self._on_candidate, 10)
-        self.create_subscription(String, "/robot/action_result", self._on_result, 10)
-        self.create_subscription(Twist, "/cmd_vel", self._on_velocity, 10)
+        self.metrics: list[dict] = []
+        self.recognition_feedback: list[dict] = []
+        self.started_at = time.monotonic()
+        self._last_asr_at = 0.0
+        self._candidate_asr_at: dict[str, float] = {}
+        self._candidate_name_by_id: dict[str, str] = {}
+        self.action_e2e_latency_ms: list[float] = []
+        self.capture_source = capture_source
+        self.agent_mode = agent_mode
+        self.create_subscription(
+            String, "/agent/asr_final", self._on_asr, event_qos(depth=10)
+        )
+        self.create_subscription(
+            String, "/agent/session_state", self._on_session, state_qos()
+        )
+        self.create_subscription(
+            CommandQueueEvent,
+            "/agent/command_queue",
+            self._on_queue,
+            event_qos(),
+        )
+        self.create_subscription(
+            CommandExecutionEvent,
+            "/agent/command_execution",
+            self._on_execution,
+            event_qos(),
+        )
+        self.create_subscription(
+            RobotCommand,
+            "/agent/action_candidate",
+            self._on_candidate,
+            command_qos(depth=10),
+        )
+        self.create_subscription(
+            RobotCommandResult,
+            "/robot/action_result",
+            self._on_result,
+            event_qos(depth=10),
+        )
+        self.create_subscription(
+            RecognitionFeedback,
+            "/agent/recognition_feedback",
+            self._on_recognition_feedback,
+            event_qos(),
+        )
+        self.create_subscription(
+            NluParseEvent,
+            "/agent/nlu_parse",
+            self._on_nlu_parse,
+            event_qos(),
+        )
+        self.create_subscription(
+            AgentTurnMetrics,
+            "/agent/metrics",
+            self._on_metrics,
+            diagnostics_qos(depth=10),
+        )
+        self.create_subscription(
+            Twist, "/cmd_vel", self._on_velocity, command_qos(depth=10)
+        )
 
     def _on_asr(self, message: String) -> None:
         self.asr.append(message.data)
+        self._last_asr_at = time.monotonic()
 
     def _on_session(self, message: String) -> None:
         self.session_states.append(message.data)
 
-    def _on_queue(self, message: String) -> None:
-        self.queue_events.append(_json_dict(message.data))
+    def _on_queue(self, message: CommandQueueEvent) -> None:
+        self.queue_events.append(queue_event_message_to_dict(message))
 
-    def _on_execution(self, message: String) -> None:
-        self.execution_events.append(_json_dict(message.data))
+    def _on_execution(self, message: CommandExecutionEvent) -> None:
+        self.execution_events.append(execution_event_message_to_dict(message))
 
-    def _on_candidate(self, message: String) -> None:
-        self.candidates.append(_json_dict(message.data))
+    def _on_candidate(self, message: RobotCommand) -> None:
+        candidate = command_message_to_dict(message)
+        self.candidates.append(candidate)
+        request_id = str(candidate.get("request_id") or "")
+        if request_id and self._last_asr_at > 0.0:
+            self._candidate_asr_at[request_id] = self._last_asr_at
+        if request_id:
+            self._candidate_name_by_id[request_id] = str(candidate.get("name") or "")
 
-    def _on_result(self, message: String) -> None:
-        self.results.append(_json_dict(message.data))
+    def _on_result(self, message: RobotCommandResult) -> None:
+        result = result_message_to_dict(message)
+        command_id = str(result.get("command_id") or "")
+        action_name = self._candidate_name_by_id.pop(command_id, "")
+        if action_name:
+            # C++ bridge 的 result 只携带 command_id/status；在采集端用同一个
+            # command_id 补回动作名，才能证明“成功的是哪条命令”，而不只是成功总数。
+            result["action_name"] = action_name
+        self.results.append(result)
+        started = self._candidate_asr_at.pop(command_id, None)
+        if started is not None:
+            # 该延迟包含排队和实际动作时长，表达“ASR final 到机器人终态”，
+            # 与只看 LLM/TTS 首包的交互延迟是不同指标。
+            self.action_e2e_latency_ms.append(
+                round((time.monotonic() - started) * 1000.0, 3)
+            )
 
     def _on_velocity(self, message: Twist) -> None:
         self.velocities.append((message.linear.x, message.angular.z))
+
+    def _on_metrics(self, message: AgentTurnMetrics) -> None:
+        self.metrics.append(agent_turn_metrics_message_to_dict(message))
+
+    def _on_recognition_feedback(self, message: RecognitionFeedback) -> None:
+        payload = recognition_feedback_message_to_dict(message)
+        if payload:
+            self.recognition_feedback.append(payload)
+
+    def _on_nlu_parse(self, message: NluParseEvent) -> None:
+        self.recognition_feedback.append(nlu_parse_message_to_dict(message))
 
     def build_report(self, thresholds: LiveCheckThresholds) -> LiveCheckReport:
         success_count = sum(1 for result in self.results if result.get("success") is True)
@@ -98,14 +227,20 @@ class LiveCheckNode(Node):
             name = str(candidate.get("name") or "")
             if name:
                 candidate_names[name] = candidate_names.get(name, 0) + 1
+        saw_awake = "awake" in self.session_states
+        # transient-local 会在探针刚加入时回放当前 sleeping；验收真正关心的是
+        # 一次会话醒来后是否又正常休眠，不能把启动快照当成“退出控制”证据。
+        saw_sleeping_after_awake = _contains_ordered_states(
+            self.session_states, "awake", "sleeping"
+        )
         checks = {
             f"ASR final >= {thresholds.min_asr}": len(self.asr) >= thresholds.min_asr,
             f"action candidate >= {thresholds.min_candidates}": len(self.candidates)
             >= thresholds.min_candidates,
             f"successful action result >= {thresholds.min_success}": success_count
             >= thresholds.min_success,
-            "session awake observed": "awake" in self.session_states,
-            "session sleeping observed": "sleeping" in self.session_states,
+            "session awake observed": saw_awake,
+            "session sleeping observed": saw_sleeping_after_awake,
             "final cmd_vel is zero": final_zero,
         }
         for required in thresholds.required_candidates or []:
@@ -114,6 +249,26 @@ class LiveCheckNode(Node):
             checks["navigate_to target observed"] = _has_navigate_target(self.candidates)
             checks["follow_waypoints waypoints observed"] = _has_waypoint_patrol(self.candidates)
         missing = [name for name, passed in checks.items() if not passed]
+        recovery_count = sum(
+            1
+            for item in self.recognition_feedback
+            if item.get("status") == "asr_final_recovered"
+        )
+        queue_rejected_count = sum(
+            1
+            for item in self.recognition_feedback
+            if item.get("status") == "queue_rejected"
+        )
+        ignored_count = sum(
+            1
+            for item in self.recognition_feedback
+            if item.get("status") == "ignored"
+        )
+        retry_count = sum(
+            1
+            for item in self.recognition_feedback
+            if item.get("status") in {"retry", "session_timeout"}
+        )
         return LiveCheckReport(
             asr_count=len(self.asr),
             action_candidate_count=len(self.candidates),
@@ -122,16 +277,29 @@ class LiveCheckNode(Node):
             execution_started_count=started_count,
             execution_finished_count=finished_count,
             action_candidate_names=candidate_names,
-            saw_awake=checks["session awake observed"],
-            saw_sleeping=checks["session sleeping observed"],
+            saw_awake=saw_awake,
+            saw_sleeping=saw_sleeping_after_awake,
             final_cmd_vel_zero=final_zero,
             ok=not missing,
             missing=missing,
+            recognition_feedback_count=len(self.recognition_feedback),
+            asr_final_recovery_count=recovery_count,
+            recognition_feedback_samples=_tail(self.recognition_feedback),
             asr_samples=_tail(self.asr),
             action_candidate_samples=_tail(self.candidates),
+            action_result_samples=_tail(self.results),
             successful_action_samples=_tail(
                 [result for result in self.results if result.get("success") is True]
             ),
+            navigation_failure_reasons=_navigation_failure_reasons(self.results),
+            duration_s=round(time.monotonic() - self.started_at, 3),
+            metrics_samples=_tail(self.metrics),
+            action_e2e_latency_ms=_tail(self.action_e2e_latency_ms),
+            capture_source=self.capture_source,
+            agent_mode=self.agent_mode,
+            queue_rejected_count=queue_rejected_count,
+            ignored_transcript_count=ignored_count,
+            recognition_retry_count=retry_count,
         )
 
 
@@ -176,9 +344,22 @@ def evaluate_report(report: LiveCheckReport, thresholds: LiveCheckThresholds) ->
         final_cmd_vel_zero=report.final_cmd_vel_zero,
         ok=not missing,
         missing=missing,
+        recognition_feedback_count=report.recognition_feedback_count,
+        asr_final_recovery_count=report.asr_final_recovery_count,
+        recognition_feedback_samples=report.recognition_feedback_samples,
         asr_samples=report.asr_samples,
         action_candidate_samples=report.action_candidate_samples,
+        action_result_samples=report.action_result_samples,
         successful_action_samples=report.successful_action_samples,
+        navigation_failure_reasons=report.navigation_failure_reasons,
+        duration_s=report.duration_s,
+        metrics_samples=report.metrics_samples,
+        action_e2e_latency_ms=report.action_e2e_latency_ms,
+        capture_source=report.capture_source,
+        agent_mode=report.agent_mode,
+        queue_rejected_count=report.queue_rejected_count,
+        ignored_transcript_count=report.ignored_transcript_count,
+        recognition_retry_count=report.recognition_retry_count,
     )
 
 
@@ -190,8 +371,19 @@ def _json_dict(serialized: str) -> dict:
     return payload if isinstance(payload, dict) else {}
 
 
-def _tail(items: list, limit: int = 12) -> list:
+def _tail(items: list, limit: int = 50) -> list:
     return items[-limit:]
+
+
+def _contains_ordered_states(states: list[str], first: str, second: str) -> bool:
+    """只有 first 之后出现的 second 才能证明完成了一次状态往返。"""
+    seen_first = False
+    for state in states:
+        if state == first:
+            seen_first = True
+        elif state == second and seen_first:
+            return True
+    return False
 
 
 def _has_navigate_target(candidates: list[dict]) -> bool:
@@ -215,6 +407,120 @@ def _has_waypoint_patrol(candidates: list[dict]) -> bool:
     return False
 
 
+def _parse_nav2_result_message(message: str) -> dict | None:
+    """Parse Nav2 executor detail strings into stable report fields.
+
+    C++ executor messages follow this shape:
+    `nav2:<action>:<status> key=value key=value`.  Keeping the parser in the
+    evidence script avoids changing ROS messages while still making saved reports
+    queryable for planner/controller/localization-style failures.
+    """
+
+    if not message.startswith("nav2:"):
+        return None
+    parts = message.split()
+    head = parts[0].split(":")
+    if len(head) < 3 or head[0] != "nav2":
+        return None
+    parsed = {
+        "backend": "nav2",
+        "action": head[1],
+        "status": head[2],
+    }
+    tail = message[len(parts[0]):].strip()
+    for match in re.finditer(r"(\w+)=([^=]*?)(?=\s+\w+=|$)", tail):
+        key = match.group(1)
+        value = match.group(2).strip()
+        if key and value:
+            parsed[key] = value
+    parsed.update(_classify_nav2_failure(parsed))
+    return parsed
+
+
+def _classify_nav2_failure(parsed: dict) -> dict[str, str]:
+    """Classify raw Nav2 result details into stable demo/debug categories.
+
+    Nav2 action result strings vary between planner/controller/localization plugins.
+    The live-check report should keep raw fields for evidence, but also provide a
+    stable `failure_class` so interview/demo debugging can say exactly which layer
+    failed without reverse-engineering free-form messages on the spot.
+    """
+
+    status = str(parsed.get("status", "")).lower()
+    action = str(parsed.get("action", "")).lower()
+    error_msg = str(parsed.get("error_msg", "")).lower()
+    error_code = str(parsed.get("error_code", "")).lower()
+    missed_waypoints = str(parsed.get("missed_waypoints", "")).strip()
+    combined = " ".join([status, action, error_msg, error_code])
+
+    # 显式取消表示上层主动终止任务，missed_waypoints 只是取消后的附带结果，
+    # 应保留 canceled 语义，便于区分“用户叫停”和“路线业务失败”。
+    if "cancel" in combined:
+        return {
+            "failure_class": "canceled",
+            "retry_hint": "确认是否由语音 stop/cancel_navigation 或人工取消触发。",
+        }
+    # Nav2 WaypointFollower 在 stop_on_failure=false 时允许 Action 以 SUCCEEDED
+    # 结束，同时用 missed_waypoints 报告未抵达目标；漏点判断必须位于成功判断
+    # 之前，避免把“协议执行结束”误写成“业务巡检完成”。
+    if missed_waypoints and missed_waypoints not in {"0", "[]", "none"}:
+        return {
+            "failure_class": "waypoint_missed",
+            "retry_hint": "检查 waypoint 顺序、地图目标点和局部避障是否导致某些点被跳过。",
+        }
+    if status == "succeeded":
+        return {"failure_class": "none", "retry_hint": "no retry needed"}
+    if "timeout" in combined or "timed" in combined:
+        return {
+            "failure_class": "timeout",
+            "retry_hint": "检查目标点距离、Nav2 超时参数和机器人是否被障碍物卡住。",
+        }
+    if "planner" in combined or "planning" in combined or "compute_path" in combined:
+        return {
+            "failure_class": "planner_failed",
+            "retry_hint": "检查 map/goal 是否可达、全局代价地图和 planner server 日志。",
+        }
+    if "controller" in combined or "control" in combined or "follow_path" in combined:
+        return {
+            "failure_class": "controller_failed",
+            "retry_hint": "检查局部代价地图、cmd_vel 输出、障碍物和 controller server 日志。",
+        }
+    if (
+        "localization" in combined
+        or "amcl" in combined
+        or "tf" in combined
+        or "transform" in combined
+    ):
+        return {
+            "failure_class": "localization_lost",
+            "retry_hint": "检查 /tf、/map->/odom、initial pose 和 AMCL/RViz 定位状态。",
+        }
+    if status == "aborted":
+        return {
+            "failure_class": "aborted_unknown",
+            "retry_hint": "查看 Nav2 planner/controller/bt_navigator 日志以定位具体 server。",
+        }
+    return {
+        "failure_class": "nav2_failure",
+        "retry_hint": "查看 Nav2 action result message 和相关 server 日志。",
+    }
+
+
+def _navigation_failure_reasons(results: list[dict]) -> list[dict]:
+    reasons: list[dict] = []
+    for result in results:
+        message = result.get("message", "")
+        if not isinstance(message, str):
+            continue
+        parsed = _parse_nav2_result_message(message)
+        if parsed is None:
+            continue
+        if parsed.get("status") == "succeeded" and result.get("success") is True:
+            continue
+        reasons.append(parsed)
+    return reasons
+
+
 def load_report(path: str) -> LiveCheckReport:
     payload = json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
@@ -233,13 +539,32 @@ def load_report(path: str) -> LiveCheckReport:
         final_cmd_vel_zero=bool(_required(payload, "final_cmd_vel_zero")),
         ok=bool(_required(payload, "ok")),
         missing=_required_str_list(payload, "missing"),
+        recognition_feedback_count=int(payload.get("recognition_feedback_count", 0)),
+        asr_final_recovery_count=int(payload.get("asr_final_recovery_count", 0)),
+        recognition_feedback_samples=_optional_dict_list(
+            payload, "recognition_feedback_samples"
+        ),
         asr_samples=_required_str_list(payload, "asr_samples"),
         action_candidate_samples=_required_dict_list(
             payload, "action_candidate_samples"
         ),
+        action_result_samples=_optional_dict_list(payload, "action_result_samples"),
         successful_action_samples=_required_dict_list(
             payload, "successful_action_samples"
         ),
+        navigation_failure_reasons=_optional_dict_list(
+            payload, "navigation_failure_reasons"
+        ),
+        duration_s=float(payload.get("duration_s", 0.0)),
+        metrics_samples=_optional_dict_list(payload, "metrics_samples"),
+        action_e2e_latency_ms=[
+            float(value) for value in payload.get("action_e2e_latency_ms", [])
+        ],
+        capture_source=str(payload.get("capture_source", "unspecified")),
+        agent_mode=str(payload.get("agent_mode", "unspecified")),
+        queue_rejected_count=int(payload.get("queue_rejected_count", 0)),
+        ignored_transcript_count=int(payload.get("ignored_transcript_count", 0)),
+        recognition_retry_count=int(payload.get("recognition_retry_count", 0)),
     )
 
 
@@ -277,6 +602,12 @@ def _required_dict_list(payload: dict, key: str) -> list[dict]:
     return values
 
 
+def _optional_dict_list(payload: dict, key: str) -> list[dict]:
+    if key not in payload:
+        return []
+    return _required_dict_list(payload, key)
+
+
 def write_report(path: str | None, report: LiveCheckReport) -> None:
     if not path:
         return
@@ -288,9 +619,35 @@ def write_report(path: str | None, report: LiveCheckReport) -> None:
     )
 
 
+def wait_with_progress(duration_s: float, interval_s: float) -> None:
+    """等待统计窗口并持续显示剩余时间，避免真人验收看起来像卡死。"""
+
+    duration_s = max(1.0, duration_s)
+    interval_s = max(1.0, interval_s)
+    started_at = time.monotonic()
+    deadline = started_at + duration_s
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0.0:
+            break
+        elapsed = time.monotonic() - started_at
+        print(
+            f"[benchmark] 已统计 {elapsed:.0f}s，剩余 {remaining:.0f}s...",
+            flush=True,
+        )
+        time.sleep(min(interval_s, remaining))
+    print(f"[benchmark] 统计窗口 {duration_s:.0f}s 已结束，正在生成报告...", flush=True)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--duration", type=float, default=180.0, help="统计窗口秒数")
+    parser.add_argument(
+        "--progress-interval",
+        type=float,
+        default=15.0,
+        help="倒计时输出间隔秒数",
+    )
     parser.add_argument("--min-asr", type=int, default=6)
     parser.add_argument("--min-candidates", type=int, default=4)
     parser.add_argument("--min-success", type=int, default=4)
@@ -302,9 +659,26 @@ def main() -> None:
     )
     parser.add_argument(
         "--scenario",
-        choices=("motion", "nav2"),
+        choices=("motion", "nav2", "benchmark"),
         default="motion",
         help="打印哪套人工验收话术",
+    )
+    parser.add_argument(
+        "--capture-source",
+        choices=("unspecified", "real_microphone", "synthetic"),
+        default="unspecified",
+        help="显式声明输入证据来源；时长本身不能证明是真人麦克风",
+    )
+    parser.add_argument(
+        "--agent-mode",
+        choices=("unspecified", "offline", "online"),
+        default="unspecified",
+        help="记录本次证据来自在线还是离线 Agent",
+    )
+    parser.add_argument(
+        "--control-managed",
+        action="store_true",
+        help="控制链路已由一键留证脚本后台管理，不再提示另开终端",
     )
     parser.add_argument("--output", default="", help="可选：把验收统计写入证据文件")
     parser.add_argument("--input-report", default="", help="读取已有证据文件并重新判定")
@@ -337,19 +711,32 @@ def main() -> None:
     if args.scenario == "nav2":
         print("请在另一个终端启动 continuous-nav2-offline/online，然后按顺序说：", flush=True)
         print("小智 / 去门口 / 前往书桌 / 依次去门口、书桌、起点 / 停止巡航 / 退出控制", flush=True)
+    elif args.scenario == "benchmark":
+        if args.control_managed:
+            print("后台控制链路已就绪，请按顺序说：", flush=True)
+        else:
+            print("请在另一个终端启动 continuous-offline/online，然后按顺序说：", flush=True)
+        print(
+            "小智 / 向前走一秒 / 左转九十度 / 后退一秒 / 右转九十度 / "
+            "绕圈 / 挥手两次 / 把灯设成蓝色 / 去门口 / 取消导航 / 停下 / 退出控制",
+            flush=True,
+        )
     else:
         print("请在另一个终端启动 continuous-offline/online，然后按顺序说：", flush=True)
         print("小智 / 向前走一秒 / 左转九十度 / 后退一秒 / 绕圈 / 走正方形 / 停下 / 退出控制", flush=True)
     print(f"开始统计 {args.duration:.0f}s 内的连续语音链路事件...", flush=True)
 
     rclpy.init()
-    node = LiveCheckNode()
+    node = LiveCheckNode(
+        capture_source=args.capture_source,
+        agent_mode=args.agent_mode,
+    )
     executor = rclpy.executors.SingleThreadedExecutor()
     executor.add_node(node)
     thread = threading.Thread(target=executor.spin, daemon=True)
     thread.start()
     try:
-        time.sleep(max(1.0, args.duration))
+        wait_with_progress(args.duration, args.progress_interval)
         report = node.build_report(thresholds)
         write_report(args.output, report)
         print(json.dumps(asdict(report), ensure_ascii=False, indent=2), flush=True)

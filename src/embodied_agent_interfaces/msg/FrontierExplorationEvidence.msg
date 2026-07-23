@@ -1,0 +1,16 @@
+# Explore Lite 原始状态与任务层最终判定必须分开保存，避免从日志字符串反推结果。
+bool valid
+string status
+uint32 detected_frontier_count
+uint32 available_frontier_count
+uint32 blacklisted_frontier_count
+uint32 active_goal_count
+string active_goal_id
+uint32 accepted_goal_count
+uint32 succeeded_goal_count
+uint32 aborted_goal_count
+uint32 canceled_goal_count
+uint32 rejected_goal_count
+string last_goal_terminal
+string provider_completion_reason
+string mission_completion_reason

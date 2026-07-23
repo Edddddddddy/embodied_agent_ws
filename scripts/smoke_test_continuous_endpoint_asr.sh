@@ -11,7 +11,8 @@ if [[ "$AGENT_KIND" != "online" && "$AGENT_KIND" != "offline" ]]; then
   exit 2
 fi
 
-MOCK_ASR_FINALS="小智|向前走一秒|左转|前进|后退一秒|退出控制"
+MOCK_ASR_FINALS="小智|向前走一秒|左转|前进|后退一秒|把灯|把灯|我九十|退出"
+MOCK_ASR_PARTIALS="-|-|-|-|-|把灯设成蓝色|-|-|-"
 LOG_FILE="$(mktemp)"
 PIDS=()
 cleanup() {
@@ -43,6 +44,7 @@ if [[ "$AGENT_KIND" == "online" ]]; then
     -p continuous_control_enabled:=true \
     -p asr_commit_delay_ms:=100 \
     -p mock_asr_finals:="$MOCK_ASR_FINALS" \
+    -p mock_asr_partials:="$MOCK_ASR_PARTIALS" \
     -p voice_session_timeout_s:=60.0 \
     -p action_sequence_wait_timeout_s:=12.0 \
     >>"$LOG_FILE" 2>&1 &
@@ -54,6 +56,7 @@ else
     -p continuous_control_enabled:=true \
     -p asr_commit_delay_ms:=100 \
     -p mock_asr_finals:="$MOCK_ASR_FINALS" \
+    -p mock_asr_partials:="$MOCK_ASR_PARTIALS" \
     -p voice_session_timeout_s:=60.0 \
     -p action_sequence_wait_timeout_s:=12.0 \
     >>"$LOG_FILE" 2>&1 &
@@ -62,7 +65,7 @@ PIDS+=("$!")
 
 activate_lifecycle_node action_guard
 wait_for_topic_subscribers /robot/action_command_typed
-if ! timeout 55 python3 "$WORKSPACE/tests/integration/test_continuous_endpoint_asr.py"; then
+if ! timeout 55 bash "$WORKSPACE/tools/acceptance/run_probe.sh" "$WORKSPACE/tools/acceptance/probes/voice/continuous_endpoint_asr.py"; then
   cat "$LOG_FILE" >&2
   exit 1
 fi

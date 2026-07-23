@@ -9,6 +9,8 @@ LOG_FILE="$(mktemp)"
 setsid ros2 launch embodied_simulation simulation_control.launch.py \
   use_typed_actions:=true \
   executor_plugin:=embodied_simulation/MockRobotExecutor \
+  readiness_profile:=demo \
+  readiness_required_components:=agent,action_guard,typed_action_bridge,simulation_control \
   >"$LOG_FILE" 2>&1 &
 CONTROL_PID=$!
 setsid ros2 run embodied_agent_cpp action_guard >>"$LOG_FILE" 2>&1 &
@@ -31,7 +33,9 @@ cleanup() {
 trap cleanup EXIT
 
 activate_lifecycle_node action_guard
-if ! timeout 35 python3 "$WORKSPACE/tests/integration/test_demo_sequence.py"; then
+python3 "$WORKSPACE/scripts/system_readiness_check.py" \
+  --timeout 15 --profile demo
+if ! timeout 35 bash "$WORKSPACE/tools/acceptance/run_probe.sh" "$WORKSPACE/tools/acceptance/probes/control/demo_sequence.py"; then
   cat "$LOG_FILE" >&2
   exit 1
 fi

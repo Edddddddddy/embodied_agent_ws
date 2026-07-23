@@ -1,0 +1,73 @@
+slam_toolbox:
+  ros__parameters:
+    # 保留 slam_toolbox 官方同步建图链路，只覆盖 TurtleBot3 仿真与前沿探索真正需要的参数。
+    solver_plugin: solver_plugins::CeresSolver
+    ceres_linear_solver: SPARSE_NORMAL_CHOLESKY
+    ceres_preconditioner: SCHUR_JACOBI
+    ceres_trust_strategy: LEVENBERG_MARQUARDT
+    ceres_dogleg_type: TRADITIONAL_DOGLEG
+    # 公寓中多个房间和直墙具有重复几何。Cauchy 对大残差约束降权，避免一次
+    # 假回环把已经可通行的门洞压成封闭拓扑；这不是关闭回环，而是让后端对
+    # 前端误匹配保持鲁棒。
+    ceres_loss_function: CauchyLoss
+
+    odom_frame: odom
+    map_frame: map
+    base_frame: base_footprint
+    scan_topic: /scan
+    use_map_saver: true
+    mode: mapping
+    use_sim_time: true
+
+    debug_logging: false
+    throttle_scans: 1
+    transform_publish_period: 0.02
+    map_update_interval: 2.0
+    resolution: 0.05
+    restamp_tf: false
+    min_laser_range: 0.0
+    max_laser_range: 3.5
+    minimum_time_interval: 0.20
+    transform_timeout: 0.2
+    tf_buffer_duration: 30.0
+    stack_size_to_use: 40000000
+    enable_interactive_mode: false
+
+    use_scan_matching: true
+    use_scan_barycenter: true
+    # 安全前沿目标会停在 unknown 外侧；叠加 Nav2 的 0.20 m 到达容差后，
+    # 单次有效位移可能不足官方默认的 0.50 m。这里接纳 0.15 m 的真实运动，
+    # 避免“导航成功但 SLAM 丢弃扫描”造成两个目标之间反复横跳。
+    minimum_travel_distance: 0.15
+    minimum_travel_heading: 0.15
+    check_min_dist_and_heading_precisely: true
+    scan_buffer_size: 20
+    scan_buffer_maximum_scan_distance: 8.0
+    link_match_minimum_response_fine: 0.10
+    link_scan_maximum_distance: 1.5
+    loop_search_maximum_distance: 2.5
+    do_loop_closing: true
+    # 比官方通用模板更保守：要求更长的连续扫描链和更高的粗/细匹配响应。
+    # 真实重访仍能闭环，单面长墙或相似家具产生的偶然高分则不进入位姿图。
+    loop_match_minimum_chain_size: 12
+    loop_match_maximum_variance_coarse: 2.0
+    loop_match_minimum_response_coarse: 0.45
+    loop_match_minimum_response_fine: 0.55
+
+    correlation_search_space_dimension: 0.5
+    correlation_search_space_resolution: 0.01
+    correlation_search_space_smear_deviation: 0.1
+    loop_search_space_dimension: 4.0
+    loop_search_space_resolution: 0.05
+    loop_search_space_smear_deviation: 0.03
+
+    distance_variance_penalty: 0.5
+    angle_variance_penalty: 1.0
+    fine_search_angle_offset: 0.00349
+    coarse_search_angle_offset: 0.349
+    coarse_angle_resolution: 0.0349
+    minimum_angle_penalty: 0.9
+    minimum_distance_penalty: 0.5
+    use_response_expansion: true
+    min_pass_through: 2
+    occupancy_threshold: 0.1

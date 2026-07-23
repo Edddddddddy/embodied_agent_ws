@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "passed": true,
+  "checks": {
+    "minimum_two_sequences": true,
+    "all_ab_contracts_passed": true
+  },
+  "sequence_count": 2,
+  "sequences": [
+    {
+      "sequence": "corridor1-1",
+      "contract_passed": true,
+      "contract": {
+        "same_source": true,
+        "same_pairs": true,
+        "same_thresholds": true,
+        "same_effective_sampling": true
+      },
+      "scored_pairs": 3763,
+      "true_candidate_pairs": 105,
+      "scan_to_scan": {
+        "precision": 0.084084,
+        "conditional_pair_recall": 0.266667,
+        "median_translation_error_m": 0.687527
+      },
+      "scan_to_submap": {
+        "precision": 0.103448,
+        "conditional_pair_recall": 0.2,
+        "median_translation_error_m": 0.423791
+      },
+      "delta": {
+        "precision": 0.019363999999999992,
+        "conditional_pair_recall": -0.06666699999999998,
+        "median_translation_error_m": -0.263736
+      }
+    },
+    {
+      "sequence": "corridor1-2",
+      "contract_passed": true,
+      "contract": {
+        "same_source": true,
+        "same_pairs": true,
+        "same_thresholds": true,
+        "same_effective_sampling": true
+      },
+      "scored_pairs": 1075,
+      "true_candidate_pairs": 62,
+      "scan_to_scan": {
+        "precision": 0.337838,
+        "conditional_pair_recall": 0.403226,
+        "median_translation_error_m": 1.435698
+      },
+      "scan_to_submap": {
+        "precision": 0.364865,
+        "conditional_pair_recall": 0.435484,
+        "median_translation_error_m": 0.823995
+      },
+      "delta": {
+        "precision": 0.027026999999999968,
+        "conditional_pair_recall": 0.03225800000000001,
+        "median_translation_error_m": -0.6117029999999999
+      }
+    }
+  ],
+  "aggregate": {
+    "mean_precision_delta": 0.02319549999999998,
+    "mean_conditional_pair_recall_delta": -0.017204499999999984
+  },
+  "release_decision": {
+    "guarded_graph_edge_ablation_ready": false,
+    "direct_graph_edge_insertion_enabled": false,
+    "status": "shadow_only_submap_quality_insufficient",
+    "reason": "Relative A/B improvement is not an enablement criterion; every real sequence must meet fixed absolute precision, recall, and transform-error thresholds."
+  },
+  "claim_boundary": "The same candidates, timestamps, labels, and matcher thresholds are used for both modes. Ground truth is offline-only and direct pose-graph insertion remains disabled."
+}

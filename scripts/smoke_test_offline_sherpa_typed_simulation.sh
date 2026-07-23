@@ -4,7 +4,7 @@ set -euo pipefail
 WORKSPACE="${WORKSPACE:-/home/ubuntu/embodied_agent_ws}"
 source "$WORKSPACE/scripts/activate.sh"
 source "$WORKSPACE/scripts/lifecycle_utils.sh"
-export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((210 + $$ % 30))}"
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((200 + $$ % 30))}"
 
 SERVER_LOG="$(mktemp)"
 CONTROL_LOG="$(mktemp)"
@@ -73,7 +73,7 @@ if ! wait_for_topic_subscribers /robot/action_command_typed 1 180; then
   exit 1
 fi
 
-if ! timeout 120 python3 "$WORKSPACE/tests/integration/test_offline_sherpa_typed_simulation.py"; then
+if ! timeout 120 bash "$WORKSPACE/tools/acceptance/run_probe.sh" "$WORKSPACE/tools/acceptance/probes/voice/offline_sherpa_typed_simulation.py"; then
   cat "$AGENT_LOG" >&2
   cat "$CONTROL_LOG" >&2
   cat "$SERVER_LOG" >&2

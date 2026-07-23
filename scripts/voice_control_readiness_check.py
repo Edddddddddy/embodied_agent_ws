@@ -41,6 +41,7 @@ class VoiceReadinessReport:
     audio: AudioHealthReport
     kws: KwsScoreReport
     require_kws: bool
+    require_speech: bool
     blockers: tuple[str, ...]
     warnings: tuple[str, ...]
 
@@ -54,6 +55,7 @@ def build_readiness_report(
     kws: KwsScoreReport,
     *,
     require_kws: bool,
+    require_speech: bool = False,
 ) -> VoiceReadinessReport:
     """Merge audio and KWS calibration reports into one go/no-go decision."""
 
@@ -69,6 +71,11 @@ def build_readiness_report(
         target = blockers if warning in audio_blockers else warnings
         target.append(f"audio:{warning}")
 
+    # 真人演示的 readiness 窗口明确要求用户开口；只有声能而 VAD 从未
+    # speech=true，说明阈值、采集路由或 VAD provider 仍未真正可用。
+    if require_speech and audio.sample_count > 0 and audio.speech_ratio <= 0.0:
+        blockers.append("audio:no_speech_detected_during_required_window")
+
     if kws.sample_count == 0 and not require_kws:
         warnings.append("kws:not_required_or_not_running")
     else:
@@ -80,6 +87,7 @@ def build_readiness_report(
         audio=audio,
         kws=kws,
         require_kws=require_kws,
+        require_speech=require_speech,
         blockers=tuple(blockers),
         warnings=tuple(warnings),
     )
@@ -94,11 +102,14 @@ def format_readiness_report(report: VoiceReadinessReport) -> str:
         f"  suggested_vad_threshold: {report.audio.suggested_vad_threshold:.4f}",
         f"  recommended_voice_profile: {report.audio.recommended_voice_profile}",
         f"  profile_reason: {report.audio.profile_reason}",
+        "  recommended_environment:",
+        *[f"    - {item}" for item in report.audio.recommended_environment],
         f"  quick_apply: export VOICE_CONTROL_PROFILE={report.audio.recommended_voice_profile}",
         (
             "  quick_apply_threshold: "
             f"export SPEECH_START_THRESHOLD={report.audio.suggested_vad_threshold:.4f}"
         ),
+        f"  next_command: {report.audio.next_command}",
         f"  vad_provider: {report.audio.vad_provider or 'unknown'}",
         (
             "  audio_enhancer: "
@@ -109,6 +120,7 @@ def format_readiness_report(report: VoiceReadinessReport) -> str:
             f"agc={report.audio.auto_gain_active}"
         ),
         f"  kws_required: {report.require_kws}",
+        f"  speech_required: {report.require_speech}",
         f"  kws_samples: {report.kws.sample_count}",
         f"  kws_provider: {report.kws.provider}",
         f"  kws_top_score: {report.kws.max_top_score:.3f}",
@@ -141,15 +153,32 @@ def readiness_exit_code(report: VoiceReadinessReport) -> int:
 
 class VoiceReadinessNode:
     def __init__(self, audio_topic: str, kws_topic: str):
+        from embodied_agent_interfaces.msg import AudioFrontendStatus, KwsScore
+        from embodied_agent_core.runtime_status_transport import (
+            audio_frontend_status_to_dict,
+            kws_score_to_dict,
+        )
+        from embodied_agent_core.ros_qos import sensor_qos, state_qos
         import rclpy
         from rclpy.node import Node
-        from std_msgs.msg import String
 
         class _Node(Node):
             def __init__(self, owner: VoiceReadinessNode):
                 super().__init__("voice_control_readiness_check")
-                self.create_subscription(String, audio_topic, owner._on_audio, 10)
-                self.create_subscription(String, kws_topic, owner._on_kws, 10)
+                self.create_subscription(
+                    AudioFrontendStatus,
+                    audio_topic,
+                    lambda message: owner._on_audio(
+                        audio_frontend_status_to_dict(message)
+                    ),
+                    state_qos(),
+                )
+                self.create_subscription(
+                    KwsScore,
+                    kws_topic,
+                    lambda message: owner._on_kws(kws_score_to_dict(message)),
+                    sensor_qos(depth=5),
+                )
 
         self.audio_samples = []
         self.kws_samples = []
@@ -157,12 +186,12 @@ class VoiceReadinessNode:
         self.node = _Node(self)
 
     def _on_audio(self, message) -> None:
-        sample = parse_audio_metrics(message.data)
+        sample = parse_audio_metrics(message)
         if sample is not None:
             self.audio_samples.append(sample)
 
     def _on_kws(self, message) -> None:
-        sample = parse_kws_score(message.data)
+        sample = parse_kws_score(message)
         if sample is not None:
             self.kws_samples.append(sample)
 
@@ -188,6 +217,11 @@ def main() -> None:
         action="store_true",
         help="要求声学 KWS 分数存在；使用 openwakeword/livekit 时建议开启",
     )
+    parser.add_argument(
+        "--require-speech",
+        action="store_true",
+        help="要求采样窗口中至少一次 VAD speech=true；真人麦克风入口应开启",
+    )
     parser.add_argument("--json", action="store_true", help="输出机器可读 JSON")
     args = parser.parse_args()
 
@@ -206,6 +240,7 @@ def main() -> None:
         analyze_audio_health(audio_samples),
         analyze_kws_scores(kws_samples),
         require_kws=args.require_kws,
+        require_speech=args.require_speech,
     )
     if args.json:
         payload = asdict(report)

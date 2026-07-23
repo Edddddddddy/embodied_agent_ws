@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "passed": true,
+  "checks": {
+    "at_least_two_sequences": true,
+    "fixed_configuration": true,
+    "precision_non_decreasing_each_sequence": true,
+    "micro_precision_improved": true,
+    "false_acceptances_reduced": true,
+    "retains_true_constraints": true
+  },
+  "config": {
+    "mode": "single_track",
+    "minimum_confirmations": 4,
+    "maximum_query_gap_s": 2.0,
+    "maximum_pair_age_delta_s": 1.25,
+    "maximum_translation_delta_m": 0.55,
+    "maximum_yaw_delta_rad": 0.35,
+    "maximum_hypotheses": 64
+  },
+  "aggregate": {
+    "ranked_single": {
+      "accepted_pairs": 159,
+      "true_accepted_pairs": 21,
+      "false_accepted_pairs": 138,
+      "micro_precision": 0.1320754716981132,
+      "conditional_pair_recall": 0.12574850299401197
+    },
+    "temporal": {
+      "accepted_pairs": 16,
+      "true_accepted_pairs": 5,
+      "false_accepted_pairs": 11,
+      "micro_precision": 0.3125,
+      "conditional_pair_recall": 0.029940119760479042
+    },
+    "precision_delta": 0.1804245283018868,
+    "pair_recall_delta": -0.09580838323353294
+  },
+  "sequences": [
+    {
+      "sequence": "corridor1-1",
+      "ranked_single": {
+        "accepted_pairs": 119,
+        "true_accepted_pairs": 11,
+        "false_accepted_pairs": 108,
+        "precision": 0.092437,
+        "conditional_pair_recall": 0.104762,
+        "eligible_query_recall": 0.171875,
+        "relative_translation_error_m": {
+          "count": 11,
+          "mean": 0.565183,
+          "median": 0.475314,
+          "p95": 1.057805,
+          "max": 1.253591
+        },
+        "relative_yaw_error_deg": {
+          "count": 11,
+          "mean": 1.153414,
+          "median": 0.989504,
+          "p95": 2.377435,
+          "max": 2.721571
+        }
+      },
+      "temporal": {
+        "accepted_pairs": 8,
+        "true_accepted_pairs": 1,
+        "false_accepted_pairs": 7,
+        "precision": 0.125,
+        "conditional_pair_recall": 0.009524,
+        "eligible_query_recall": 0.015625,
+        "relative_translation_error_m": {
+          "count": 1,
+          "mean": 1.253591,
+          "median": 1.253591,
+          "p95": 1.253591,
+          "max": 1.253591
+        },
+        "relative_yaw_error_deg": {
+          "count": 1,
+          "mean": 0.623996,
+          "median": 0.623996,
+          "p95": 0.623996,
+          "max": 0.623996
+        }
+      },
+      "precision_delta": 0.03256302521008403,
+      "pair_recall_delta": -0.09523799999999999,
+      "precision_non_decreasing": true
+    },
+    {
+      "sequence": "corridor1-2",
+      "ranked_single": {
+        "accepted_pairs": 40,
+        "true_accepted_pairs": 10,
+        "false_accepted_pairs": 30,
+        "precision": 0.25,
+        "conditional_pair_recall": 0.16129,
+        "eligible_query_recall": 0.3125,
+        "relative_translation_error_m": {
+          "count": 10,
+          "mean": 0.819099,
+          "median": 0.459172,
+          "p95": 2.330138,
+          "max": 2.540973
+        },
+        "relative_yaw_error_deg": {
+          "count": 10,
+          "mean": 3.507671,
+          "median": 0.711314,
+          "p95": 16.137872,
+          "max": 27.482378
+        }
+      },
+      "temporal": {
+        "accepted_pairs": 8,
+        "true_accepted_pairs": 4,
+        "false_accepted_pairs": 4,
+        "precision": 0.5,
+        "conditional_pair_recall": 0.064516,
+        "eligible_query_recall": 0.125,
+        "relative_translation_error_m": {
+          "count": 4,
+          "mean": 0.505334,
+          "median": 0.436552,
+          "p95": 0.884759,
+          "max": 0.957721
+        },
+        "relative_yaw_error_deg": {
+          "count": 4,
+          "mean": 0.795315,
+          "median": 0.857404,
+          "p95": 1.187674,
+          "max": 1.191552
+        }
+      },
+      "precision_delta": 0.25,
+      "pair_recall_delta": -0.09677399999999999,
+      "precision_non_decreasing": true
+    }
+  ],
+  "sources": [
+    {
+      "sequence": "corridor1-1",
+      "report": "lidar_submap_matches_corridor1_1.json",
+      "sha256": "7e59518a10f359efaf67e6772733c666a48d3e1a4e0007fe3b77af3732e78795"
+    },
+    {
+      "sequence": "corridor1-2",
+      "report": "lidar_submap_matches_corridor1_2.json",
+      "sha256": "ad53e472e36a85a90b953fd7e482850bbcd451ef2f40e6cc589fba5cf092032c"
+    }
+  ],
+  "boundary": "The temporal policy improves precision by rejecting constraints and therefore reduces recall. Results remain shadow-only; no constraint is inserted into Karto."
+}

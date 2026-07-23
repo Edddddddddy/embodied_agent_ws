@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "passed": true,
+  "checks": {
+    "at_least_two_sequences": true,
+    "independent_graph_snapshots": true,
+    "identical_switch_configuration": true,
+    "all_source_reports_passed": true,
+    "no_per_sequence_ate_regression_vs_cauchy": true,
+    "observed_suppressed_loop": true,
+    "observed_retained_loop": true
+  },
+  "switch_configuration": {
+    "prior_sigma": 1.0,
+    "suppression_threshold": 0.5
+  },
+  "sequences": [
+    {
+      "sequence": "corridor1-1",
+      "graph_sha256": "792ecb7d1871b506274423631fdf16da60b52e46aa18eaa1287cddbd4cadbc65",
+      "nodes": 1834,
+      "constraints": 2751,
+      "matched_poses": 1828,
+      "gaussian_ate_rmse_m": 1.823458,
+      "cauchy_loop_ate_rmse_m": 1.223586,
+      "switchable_cauchy_ate_rmse_m": 1.032284,
+      "switchable_vs_gaussian_pct": -43.38866,
+      "switchable_vs_cauchy_pct": -15.634537,
+      "switchable_constraints": 858,
+      "switch_suppressed_constraints": 80,
+      "minimum_switch_value": 0.0003774587330868335,
+      "mean_switch_value": 0.86916706079885,
+      "report_passed": true
+    },
+    {
+      "sequence": "corridor1-2",
+      "graph_sha256": "fa49951b7424b1bad120690b1e518f977f259169a7d61f8371f05bf24723765f",
+      "nodes": 488,
+      "constraints": 491,
+      "matched_poses": 488,
+      "gaussian_ate_rmse_m": 0.148374,
+      "cauchy_loop_ate_rmse_m": 0.148374,
+      "switchable_cauchy_ate_rmse_m": 0.148372,
+      "switchable_vs_gaussian_pct": -0.001348,
+      "switchable_vs_cauchy_pct": -0.001348,
+      "switchable_constraints": 1,
+      "switch_suppressed_constraints": 0,
+      "minimum_switch_value": 0.9976452445906145,
+      "mean_switch_value": 0.9976452445906145,
+      "report_passed": true
+    }
+  ],
+  "aggregate": {
+    "matched_poses": 2316,
+    "gaussian_ate_rmse_m": 1.621429,
+    "cauchy_loop_ate_rmse_m": 1.089191,
+    "switchable_cauchy_ate_rmse_m": 0.919628,
+    "switchable_constraints": 859,
+    "switch_suppressed_constraints": 80,
+    "switchable_vs_gaussian_pct": -43.28287,
+    "switchable_vs_cauchy_pct": -15.567793
+  },
+  "interpretation_boundary": "Switch values are latent backend weights on already accepted loop constraints. They do not label front-end loop closures and do not prove map-quality improvement outside the evaluated fixed graph snapshots."
+}

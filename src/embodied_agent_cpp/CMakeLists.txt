@@ -8,7 +8,9 @@ if(NOT CMAKE_CXX_STANDARD)
 endif()
 
 find_package(ament_cmake REQUIRED)
+find_package(diagnostic_msgs REQUIRED)
 find_package(embodied_agent_interfaces REQUIRED)
+find_package(embodied_agent_middleware REQUIRED)
 find_package(lifecycle_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
@@ -20,47 +22,80 @@ find_package(PkgConfig REQUIRED)
 find_package(Threads REQUIRED)
 pkg_check_modules(PORTAUDIO REQUIRED portaudio-2.0)
 
-add_library(embodied_agent_core
+add_library(embodied_agent_control_core
+  src/action_scheduler.cpp
   src/action_validator.cpp
-  src/audio_processing.cpp
-  src/hardware_protocol.cpp
-  src/hardware_transport.cpp
-  src/robot_command_adapter.cpp
+  src/guarded_command_outbox.cpp
+  src/typed_action_client_contract.cpp
 )
-target_include_directories(embodied_agent_core PUBLIC
+target_include_directories(embodied_agent_control_core PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
-target_link_libraries(embodied_agent_core PUBLIC nlohmann_json::nlohmann_json)
-ament_target_dependencies(embodied_agent_core PUBLIC embodied_agent_interfaces)
+target_link_libraries(embodied_agent_control_core PUBLIC nlohmann_json::nlohmann_json)
+ament_target_dependencies(
+  embodied_agent_control_core PUBLIC embodied_agent_interfaces embodied_agent_middleware)
+
+add_library(embodied_audio_core src/audio_processing.cpp)
+target_include_directories(embodied_audio_core PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+add_library(embodied_hardware_core
+  src/hardware_protocol.cpp
+  src/hardware_transport.cpp
+)
+target_include_directories(embodied_hardware_core PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+target_link_libraries(embodied_hardware_core PUBLIC nlohmann_json::nlohmann_json)
+ament_target_dependencies(embodied_hardware_core PUBLIC embodied_agent_interfaces)
 
 add_executable(audio_frontend src/audio_frontend_node.cpp)
 target_include_directories(audio_frontend PRIVATE ${PORTAUDIO_INCLUDE_DIRS})
 target_link_directories(audio_frontend PRIVATE ${PORTAUDIO_LIBRARY_DIRS})
 target_link_libraries(audio_frontend
-  embodied_agent_core
+  embodied_audio_core
   ${PORTAUDIO_LIBRARIES}
   Threads::Threads
 )
-ament_target_dependencies(audio_frontend rclcpp std_msgs)
+ament_target_dependencies(
+  audio_frontend embodied_agent_interfaces embodied_agent_middleware rclcpp std_msgs)
 
 add_executable(action_guard src/action_guard_node.cpp)
-target_link_libraries(action_guard embodied_agent_core)
+target_link_libraries(action_guard embodied_agent_control_core)
 ament_target_dependencies(
   action_guard embodied_agent_interfaces lifecycle_msgs rclcpp rclcpp_lifecycle std_msgs)
 
-add_executable(typed_action_bridge src/typed_action_bridge_node.cpp)
-target_link_libraries(typed_action_bridge nlohmann_json::nlohmann_json)
+add_library(typed_action_bridge_component SHARED src/typed_action_bridge_node.cpp)
+target_link_libraries(typed_action_bridge_component embodied_agent_control_core)
 ament_target_dependencies(
-  typed_action_bridge embodied_agent_interfaces rclcpp rclcpp_action std_msgs)
+  typed_action_bridge_component
+  diagnostic_msgs embodied_agent_interfaces embodied_agent_middleware
+  rclcpp rclcpp_action rclcpp_components rclcpp_lifecycle)
+rclcpp_components_register_nodes(
+  typed_action_bridge_component "embodied_agent_cpp::TypedActionBridgeNode")
+
+add_executable(typed_action_bridge src/typed_action_bridge_main.cpp)
+target_link_libraries(typed_action_bridge typed_action_bridge_component)
+ament_target_dependencies(typed_action_bridge rclcpp rclcpp_lifecycle)
+
+add_executable(typed_action_demo_client src/typed_action_demo_client.cpp)
+target_link_libraries(
+  typed_action_demo_client embodied_agent_control_core nlohmann_json::nlohmann_json)
+ament_target_dependencies(
+  typed_action_demo_client embodied_agent_interfaces rclcpp rclcpp_action)
 
 add_executable(robot_action_stub src/robot_action_stub_node.cpp)
-target_link_libraries(robot_action_stub nlohmann_json::nlohmann_json)
-ament_target_dependencies(robot_action_stub rclcpp std_msgs embodied_agent_interfaces)
+ament_target_dependencies(
+  robot_action_stub rclcpp embodied_agent_interfaces embodied_agent_middleware)
 
 add_executable(hardware_controller src/hardware_controller_node.cpp)
-target_link_libraries(hardware_controller embodied_agent_core nlohmann_json::nlohmann_json)
-ament_target_dependencies(hardware_controller embodied_agent_interfaces rclcpp std_msgs)
+target_link_libraries(hardware_controller embodied_hardware_core nlohmann_json::nlohmann_json)
+ament_target_dependencies(
+  hardware_controller embodied_agent_interfaces embodied_agent_middleware rclcpp std_msgs)
 
 set(SUMMER_TTS_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/SummerTTS" CACHE PATH "SummerTTS source root")
 if(EXISTS "${SUMMER_TTS_ROOT}/include/SynthesizerTrn.h")
@@ -169,10 +204,14 @@ else()
 endif()
 
 install(TARGETS
-  embodied_agent_core
+  embodied_agent_control_core
+  embodied_audio_core
+  embodied_hardware_core
+  typed_action_bridge_component
   audio_frontend
   action_guard
   typed_action_bridge
+  typed_action_demo_client
   robot_action_stub
   hardware_controller
   ARCHIVE DESTINATION lib
@@ -202,18 +241,25 @@ if(BUILD_TESTING)
   ament_lint_cmake()
   ament_xmllint()
   ament_add_gtest(test_audio_processing test/test_audio_processing.cpp)
-  target_link_libraries(test_audio_processing embodied_agent_core)
+  target_link_libraries(test_audio_processing embodied_audio_core)
   ament_add_gtest(test_action_validator test/test_action_validator.cpp)
-  target_link_libraries(test_action_validator embodied_agent_core)
-  ament_add_gtest(test_robot_command_adapter test/test_robot_command_adapter.cpp)
-  target_link_libraries(test_robot_command_adapter embodied_agent_core)
+  target_link_libraries(test_action_validator embodied_agent_control_core)
+  ament_add_gtest(test_action_scheduler test/test_action_scheduler.cpp)
+  target_link_libraries(test_action_scheduler embodied_agent_control_core)
+  ament_add_gtest(test_guarded_command_outbox test/test_guarded_command_outbox.cpp)
+  target_link_libraries(test_guarded_command_outbox embodied_agent_control_core)
   ament_add_gtest(test_hardware_protocol test/test_hardware_protocol.cpp)
-  target_link_libraries(test_hardware_protocol embodied_agent_core)
+  target_link_libraries(test_hardware_protocol embodied_hardware_core)
   ament_add_gtest(test_hardware_transport test/test_hardware_transport.cpp)
-  target_link_libraries(test_hardware_transport embodied_agent_core)
+  target_link_libraries(test_hardware_transport embodied_hardware_core)
+  ament_add_gtest(
+    test_typed_action_client_contract test/test_typed_action_client_contract.cpp)
+  target_link_libraries(test_typed_action_client_contract embodied_agent_control_core)
 endif()
 
 ament_export_include_directories(include)
-ament_export_libraries(embodied_agent_core)
-ament_export_dependencies(embodied_agent_interfaces)
+ament_export_libraries(
+  embodied_agent_control_core embodied_audio_core embodied_hardware_core)
+ament_export_dependencies(
+  embodied_agent_interfaces embodied_agent_middleware rclcpp rclcpp_lifecycle)
 ament_package()

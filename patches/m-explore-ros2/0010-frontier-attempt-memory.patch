@@ -1,0 +1,916 @@
+diff --git a/explore/config/params.yaml b/explore/config/params.yaml
+index 09f7ee4c1f77b546446c457f66699c997d107bfd..b5332b59a8a492bc0f95d485537424f3ced23a0f 100644
+--- a/explore/config/params.yaml
++++ b/explore/config/params.yaml
+@@ -9,7 +9,6 @@
+     progress_timeout: 30.0
+     goal_rejection_backoff: 2.0
+     goal_terminal_cooldown: 0.75
+-    successful_frontier_cooldown: 15.0
+     max_goal_rejections: 3
+     potential_scale: 3.0
+     orientation_scale: 0.0
+diff --git a/explore/include/explore/explore.h b/explore/include/explore/explore.h
+index 2a98041628e0d4b11166f99fd372d5817d1cee78..eb1f6a2e308f01dffb9169b2f781a691416145cb 100644
+--- a/explore/include/explore/explore.h
++++ b/explore/include/explore/explore.h
+@@ -39,7 +39,7 @@
+ #define NAV_EXPLORE_H_
+ 
+ #include <explore/costmap_client.h>
+-#include <explore/frontier_goal_cooldown.h>
++#include <explore/frontier_attempt_memory.h>
+ #include <explore/frontier_search.h>
+ #include <geometry_msgs/msg/pose_stamped.hpp>
+ #include <tf2_ros/transform_listener.hpp>
+@@ -101,17 +101,14 @@ private:
+   void visualizeFrontiers(
+       const std::vector<frontier_exploration::Frontier>& frontiers);
+ 
+-  bool goalOnBlacklist(const geometry_msgs::msg::Point& goal);
+-
+   NavigationGoalHandle::SharedPtr navigation_goal_handle_;
+   // void
+   // goal_response_callback(std::shared_future<NavigationGoalHandle::SharedPtr>
+   // future);
+   void reachedGoal(const NavigationGoalHandle::WrappedResult& result,
+-                   const geometry_msgs::msg::Point& frontier_goal);
++                   const FrontierGoalKey& frontier_goal);
+   void releaseActiveGoal(
+-      ActiveFrontierGoalReleaseReason reason, bool blacklist_identity);
+-  void removeGoalFromBlacklist(const geometry_msgs::msg::Point& goal);
++      ActiveFrontierGoalReleaseReason reason, bool record_failure);
+   void publishStatus(const std::string& status,
+                      const std::string& completion_reason = "");
+ 
+@@ -137,9 +134,8 @@ private:
+   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr resume_subscription_;
+   void resumeCallback(const std_msgs::msg::Bool::SharedPtr msg);
+ 
+-  std::vector<geometry_msgs::msg::Point> frontier_blacklist_;
+-  geometry_msgs::msg::Point active_frontier_identity_;
+-  geometry_msgs::msg::Point active_target_position_;
++  FrontierAttemptMemory frontier_attempt_memory_{0.25, 0.25};
++  FrontierGoalKey active_frontier_goal_;
+   double prev_distance_;
+   std::chrono::steady_clock::time_point last_progress_at_{};
+   size_t last_markers_count_;
+@@ -161,6 +157,7 @@ private:
+   FrontierGoalLifecycle goal_lifecycle_;
+   size_t detected_frontier_count_{0};
+   size_t available_frontier_count_{0};
++  size_t blacklisted_frontier_count_{0};
+   size_t succeeded_goal_count_{0};
+   size_t aborted_goal_count_{0};
+   size_t canceled_goal_count_{0};
+@@ -170,11 +167,8 @@ private:
+   std::string last_goal_terminal_;
+   std::string completion_reason_;
+   std::chrono::steady_clock::time_point next_goal_retry_at_{};
+-  FrontierGoalCooldown successful_frontier_cooldowns_;
+-
+   double goal_rejection_backoff_;
+   double goal_terminal_cooldown_;
+-  double successful_frontier_cooldown_;
+   int max_goal_rejections_;
+ };
+ }  // namespace explore
+diff --git a/explore/include/explore/frontier_attempt_memory.h b/explore/include/explore/frontier_attempt_memory.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..258e331953bd27ccda18878aca1b48f8e4fb0cab
+--- /dev/null
++++ b/explore/include/explore/frontier_attempt_memory.h
+@@ -0,0 +1,203 @@
++#ifndef EXPLORE_FRONTIER_ATTEMPT_MEMORY_H_
++#define EXPLORE_FRONTIER_ATTEMPT_MEMORY_H_
++
++#include <geometry_msgs/msg/point.hpp>
++
++#include <algorithm>
++#include <cmath>
++#include <cstddef>
++#include <stdexcept>
++#include <vector>
++
++namespace explore
++{
++
++struct FrontierGoalKey
++{
++  geometry_msgs::msg::Point identity;
++  geometry_msgs::msg::Point approach;
++};
++
++struct FrontierAttemptClassification
++{
++  bool visited_approach{false};
++  bool failed_identity{false};
++  bool failed_approach{false};
++
++  bool selectable() const
++  {
++    return !visited_approach && !failed_identity && !failed_approach;
++  }
++};
++
++struct FrontierAttemptSummary
++{
++  std::size_t raw_candidate_count{0};
++  std::size_t selectable_count{0};
++  std::size_t suppressed_count{0};
++  std::size_t visited_approach_count{0};
++  std::size_t active_failed_identity_count{0};
++  std::size_t active_failed_approach_count{0};
++  std::size_t active_failed_candidate_count{0};
++
++  bool allCandidatesSuppressed() const
++  {
++    return raw_candidate_count > 0 && selectable_count == 0;
++  }
++};
++
++/**
++ * @brief 单次建图 epoch 内的 frontier 尝试记忆。
++ *
++ * 该模块刻意不持有时钟：成功和失败记录在当前 epoch 内都不会因等待而失效。
++ * 新建图会话必须显式调用 resetEpoch()，避免“等一会再重试”造成死循环。
++ */
++class FrontierAttemptMemory
++{
++public:
++  FrontierAttemptMemory(double identity_tolerance_m,
++                        double approach_tolerance_m)
++    : identity_tolerance_m_(identity_tolerance_m)
++    , approach_tolerance_m_(approach_tolerance_m)
++  {
++    if (!validTolerance(identity_tolerance_m_) ||
++        !validTolerance(approach_tolerance_m_)) {
++      throw std::invalid_argument(
++          "frontier attempt tolerances must be finite and positive");
++    }
++  }
++
++  void recordSucceeded(const FrontierGoalKey& goal)
++  {
++    // frontier centroid 会随地图边界更新而漂移；成功只记住真正执行过的
++    // approach，既避免换 identity 后重复到达同一点，也允许同一 identity
++    // 在出现明显不同的新 approach 时继续扩图。
++    appendUnique(
++        visited_approaches_, goal.approach, approach_tolerance_m_);
++    // timeout/cancel 与 Nav2 terminal 可能交错；若迟到结果证明目标实际成功，
++    // 成功事实必须撤销同一目标的失败记忆，否则下个 epoch 会被伪黑名单污染。
++    eraseNear(failed_identities_, goal.identity, identity_tolerance_m_);
++    eraseNear(failed_approaches_, goal.approach, approach_tolerance_m_);
++  }
++
++  void recordFailed(const FrontierGoalKey& goal)
++  {
++    // 失败同时从“未知边界身份”和“实际导航落点”两个维度记忆：任一维度
++    // 重现都可能复现同一个不可达/卡死问题，因此当前 epoch 内都要抑制。
++    appendUnique(
++        failed_identities_, goal.identity, identity_tolerance_m_);
++    appendUnique(
++        failed_approaches_, goal.approach, approach_tolerance_m_);
++  }
++
++  FrontierAttemptClassification classify(const FrontierGoalKey& goal) const
++  {
++    FrontierAttemptClassification result;
++    result.visited_approach = containsNear(
++        visited_approaches_, goal.approach, approach_tolerance_m_);
++    result.failed_identity = containsNear(
++        failed_identities_, goal.identity, identity_tolerance_m_);
++    result.failed_approach = containsNear(
++        failed_approaches_, goal.approach, approach_tolerance_m_);
++    return result;
++  }
++
++  bool isSelectable(const FrontierGoalKey& goal) const
++  {
++    return classify(goal).selectable();
++  }
++
++  FrontierAttemptSummary summarizeCurrent(
++      const std::vector<FrontierGoalKey>& raw_frontiers) const
++  {
++    FrontierAttemptSummary summary;
++    summary.raw_candidate_count = raw_frontiers.size();
++    for (const auto& frontier : raw_frontiers) {
++      const auto classification = classify(frontier);
++      if (classification.selectable()) {
++        ++summary.selectable_count;
++      } else {
++        ++summary.suppressed_count;
++      }
++      if (classification.visited_approach) {
++        ++summary.visited_approach_count;
++      }
++      if (classification.failed_identity) {
++        ++summary.active_failed_identity_count;
++      }
++      if (classification.failed_approach) {
++        ++summary.active_failed_approach_count;
++      }
++      if (classification.failed_identity || classification.failed_approach) {
++        ++summary.active_failed_candidate_count;
++      }
++    }
++    // 统计只与“当前仍存在的 raw frontier”求交。历史记录即使仍保留，
++    // frontier 已从地图消失后也不能伪造 active failure 或 blocked 结论。
++    return summary;
++  }
++
++  void resetEpoch()
++  {
++    visited_approaches_.clear();
++    failed_identities_.clear();
++    failed_approaches_.clear();
++  }
++
++private:
++  static bool validTolerance(double tolerance_m)
++  {
++    return std::isfinite(tolerance_m) && tolerance_m > 0.0;
++  }
++
++  static bool near(const geometry_msgs::msg::Point& left,
++                   const geometry_msgs::msg::Point& right,
++                   double tolerance_m)
++  {
++    return std::hypot(left.x - right.x, left.y - right.y) <= tolerance_m;
++  }
++
++  static bool containsNear(
++      const std::vector<geometry_msgs::msg::Point>& entries,
++      const geometry_msgs::msg::Point& point, double tolerance_m)
++  {
++    for (const auto& entry : entries) {
++      if (near(entry, point, tolerance_m)) {
++        return true;
++      }
++    }
++    return false;
++  }
++
++  static void appendUnique(
++      std::vector<geometry_msgs::msg::Point>& entries,
++      const geometry_msgs::msg::Point& point, double tolerance_m)
++  {
++    if (!containsNear(entries, point, tolerance_m)) {
++      entries.push_back(point);
++    }
++  }
++
++  static void eraseNear(
++      std::vector<geometry_msgs::msg::Point>& entries,
++      const geometry_msgs::msg::Point& point, double tolerance_m)
++  {
++    entries.erase(
++        std::remove_if(
++            entries.begin(), entries.end(),
++            [&point, tolerance_m](const geometry_msgs::msg::Point& entry) {
++              return near(entry, point, tolerance_m);
++            }),
++        entries.end());
++  }
++
++  double identity_tolerance_m_;
++  double approach_tolerance_m_;
++  std::vector<geometry_msgs::msg::Point> visited_approaches_;
++  std::vector<geometry_msgs::msg::Point> failed_identities_;
++  std::vector<geometry_msgs::msg::Point> failed_approaches_;
++};
++
++}  // namespace explore
++
++#endif  // EXPLORE_FRONTIER_ATTEMPT_MEMORY_H_
+diff --git a/explore/include/explore/frontier_goal_cooldown.h b/explore/include/explore/frontier_goal_cooldown.h
+deleted file mode 100644
+index 2fc039b7e2621e9e27f6b9a1b471566daab67c76..0000000000000000000000000000000000000000
+--- a/explore/include/explore/frontier_goal_cooldown.h
++++ /dev/null
+@@ -1,93 +0,0 @@
+-#ifndef EXPLORE_FRONTIER_GOAL_COOLDOWN_H_
+-#define EXPLORE_FRONTIER_GOAL_COOLDOWN_H_
+-
+-#include <geometry_msgs/msg/point.hpp>
+-
+-#include <chrono>
+-#include <cstddef>
+-#include <cmath>
+-#include <vector>
+-
+-namespace explore
+-{
+-
+-/**
+- * @brief 成功 frontier 的短期去重账本。
+- *
+- * Nav2 到达 approach 后，SLAM/map_updates 需要时间消化新激光。账本只在短期
+- * 跳过同一 frontier，既避免“立即成功”目标风暴，也不会像永久黑名单那样
+- * 掩盖尚未完成的 unknown 区域。
+- */
+-class FrontierGoalCooldown
+-{
+-public:
+-  using Clock = std::chrono::steady_clock;
+-  using TimePoint = Clock::time_point;
+-
+-  void record(const geometry_msgs::msg::Point& goal, TimePoint now,
+-              double cooldown_seconds, double tolerance_m)
+-  {
+-    prune(now);
+-    const auto expires_at = now +
+-        std::chrono::duration_cast<Clock::duration>(
+-            std::chrono::duration<double>(cooldown_seconds));
+-    for (auto& entry : entries_) {
+-      if (near(entry.goal, goal, tolerance_m)) {
+-        entry.goal = goal;
+-        entry.expires_at = expires_at;
+-        return;
+-      }
+-    }
+-    entries_.push_back({goal, expires_at});
+-  }
+-
+-  bool contains(const geometry_msgs::msg::Point& goal, TimePoint now,
+-                double tolerance_m)
+-  {
+-    prune(now);
+-    for (const auto& entry : entries_) {
+-      if (near(entry.goal, goal, tolerance_m)) {
+-        return true;
+-      }
+-    }
+-    return false;
+-  }
+-
+-  void clear() { entries_.clear(); }
+-  std::size_t size() const { return entries_.size(); }
+-
+-private:
+-  struct Entry
+-  {
+-    geometry_msgs::msg::Point goal;
+-    TimePoint expires_at;
+-  };
+-
+-  static bool near(const geometry_msgs::msg::Point& left,
+-                   const geometry_msgs::msg::Point& right,
+-                   double tolerance_m)
+-  {
+-    return std::abs(left.x - right.x) < tolerance_m &&
+-           std::abs(left.y - right.y) < tolerance_m;
+-  }
+-
+-  void prune(TimePoint now)
+-  {
+-    auto output = entries_.begin();
+-    for (auto input = entries_.begin(); input != entries_.end(); ++input) {
+-      if (input->expires_at > now) {
+-        if (output != input) {
+-          *output = *input;
+-        }
+-        ++output;
+-      }
+-    }
+-    entries_.erase(output, entries_.end());
+-  }
+-
+-  std::vector<Entry> entries_;
+-};
+-
+-}  // namespace explore
+-
+-#endif  // EXPLORE_FRONTIER_GOAL_COOLDOWN_H_
+diff --git a/explore/src/explore.cpp b/explore/src/explore.cpp
+index 24aa1609c740a5ebede54710230f2dcebba4ff69..ba6574503f93c43a285949e1b6a8c8815d1de826 100644
+--- a/explore/src/explore.cpp
++++ b/explore/src/explore.cpp
+@@ -72,7 +72,6 @@ Explore::Explore()
+   this->declare_parameter<bool>("return_to_init", false);
+   this->declare_parameter<float>("goal_rejection_backoff", 2.0);
+   this->declare_parameter<float>("goal_terminal_cooldown", 0.75);
+-  this->declare_parameter<float>("successful_frontier_cooldown", 15.0);
+   this->declare_parameter<int>("max_goal_rejections", 3);
+ 
+   this->get_parameter("planner_frequency", planner_frequency_);
+@@ -92,8 +91,6 @@ Explore::Explore()
+   this->get_parameter("return_to_init", return_to_init_);
+   this->get_parameter("goal_rejection_backoff", goal_rejection_backoff_);
+   this->get_parameter("goal_terminal_cooldown", goal_terminal_cooldown_);
+-  this->get_parameter(
+-      "successful_frontier_cooldown", successful_frontier_cooldown_);
+   this->get_parameter("max_goal_rejections", max_goal_rejections_);
+   this->get_parameter("robot_base_frame", robot_base_frame_);
+ 
+@@ -116,12 +113,6 @@ Explore::Explore()
+     throw std::invalid_argument(
+         "goal_terminal_cooldown must be finite and within [0, 300]");
+   }
+-  if (!std::isfinite(successful_frontier_cooldown_) ||
+-      successful_frontier_cooldown_ < 0.0 ||
+-      successful_frontier_cooldown_ > 300.0) {
+-    throw std::invalid_argument(
+-        "successful_frontier_cooldown must be finite and within [0, 300]");
+-  }
+   if (max_goal_rejections_ < 1) {
+     throw std::invalid_argument("max_goal_rejections must be at least one");
+   }
+@@ -137,6 +128,10 @@ Explore::Explore()
+                                                  frontier_approach_clearance,
+                                                  frontier_approach_max_distance,
+                                                  frontier_robot_anchor_max_distance);
++  const double frontier_match_tolerance =
++      5.0 * costmap_client_.getCostmap()->getResolution();
++  frontier_attempt_memory_ = FrontierAttemptMemory(
++      frontier_match_tolerance, frontier_match_tolerance);
+ 
+   if (visualize_) {
+     marker_array_publisher_ =
+@@ -239,7 +234,9 @@ void Explore::visualizeFrontiers(
+     m.scale.y = 0.1;
+     m.scale.z = 0.1;
+     m.points = frontier.points;
+-    if (goalOnBlacklist(frontier.centroid)) {
++    const FrontierGoalKey key{frontier.centroid, frontier.approach};
++    const auto attempt = frontier_attempt_memory_.classify(key);
++    if (attempt.failed_identity || attempt.failed_approach) {
+       m.color = red;
+     } else {
+       m.color = blue;
+@@ -321,32 +318,41 @@ void Explore::makePlan()
+     return;
+   }
+   detected_frontier_count_ = frontiers.size();
+-  const size_t approachable_frontier_count = static_cast<size_t>(std::count_if(
+-      frontiers.begin(), frontiers.end(),
+-      [](const frontier_exploration::Frontier& frontier) {
+-        return frontier.has_approach;
+-      }));
+-  available_frontier_count_ = static_cast<size_t>(std::count_if(
+-      frontiers.begin(), frontiers.end(),
+-      [this](const frontier_exploration::Frontier& frontier) {
+-        return frontier.has_approach && !goalOnBlacklist(frontier.centroid);
+-      }));
++  std::vector<FrontierGoalKey> approachable_frontiers;
++  approachable_frontiers.reserve(frontiers.size());
++  for (const auto& frontier : frontiers) {
++    if (frontier.has_approach) {
++      approachable_frontiers.push_back(
++          FrontierGoalKey{frontier.centroid, frontier.approach});
++    }
++  }
++  const size_t approachable_frontier_count = approachable_frontiers.size();
++  const auto attempt_summary =
++      frontier_attempt_memory_.summarizeCurrent(approachable_frontiers);
++  // available 只表示当前 epoch 仍可派发的物理 approach；历史失败只有与本次
++  // raw frontier 相交时才计入 blacklisted，防止消失的边界永久污染完成证据。
++  available_frontier_count_ = attempt_summary.selectable_count;
++  blacklisted_frontier_count_ =
++      attempt_summary.active_failed_candidate_count;
+   RCLCPP_DEBUG(logger_, "found %lu frontiers", frontiers.size());
+   for (size_t i = 0; i < frontiers.size(); ++i) {
+     RCLCPP_DEBUG(logger_, "frontier %zd cost: %f", i, frontiers[i].cost);
+   }
+ 
+   if (goal_lifecycle_.isActiveOwner()) {
+-    const bool target_safe = search_.isApproachSafe(active_target_position_);
+-    const bool identity_blacklisted =
+-        goalOnBlacklist(active_frontier_identity_);
++    const bool target_safe =
++        search_.isApproachSafe(active_frontier_goal_.approach);
++    const auto active_attempt =
++        frontier_attempt_memory_.classify(active_frontier_goal_);
++    const bool attempt_suppressed =
++        active_attempt.failed_identity || active_attempt.failed_approach;
+     const double progress_epsilon = std::max(
+         0.02, 0.5 * costmap_client_.getCostmap()->getResolution());
+     const auto decision = evaluateActiveFrontierGoal(
+-        pose.position, active_target_position_, prev_distance_,
++        pose.position, active_frontier_goal_.approach, prev_distance_,
+         std::chrono::duration<double>(planning_now - last_progress_at_).count(),
+         progress_timeout_,
+-        target_safe, identity_blacklisted, progress_epsilon);
++        target_safe, attempt_suppressed, progress_epsilon);
+     if (decision.made_progress) {
+       last_progress_at_ = planning_now;
+       prev_distance_ = decision.distance_m;
+@@ -392,19 +398,13 @@ void Explore::makePlan()
+     visualizeFrontiers(frontiers);
+   }
+ 
+-  // 成功 approach 后 SLAM/map_updates 需要一个短窗口吸收新激光；冷却项仍计入
+-  // available telemetry，只影响本轮选择，避免把“暂缓重试”伪装成完成。
+-  const double frontier_match_tolerance =
+-      5.0 * costmap_client_.getCostmap()->getResolution();
+   auto frontier = std::find_if(
+       frontiers.begin(), frontiers.end(),
+-      [this, planning_now, frontier_match_tolerance](
++      [this](
+           const frontier_exploration::Frontier& candidate) {
+         return candidate.has_approach &&
+-               !goalOnBlacklist(candidate.centroid) &&
+-               !successful_frontier_cooldowns_.contains(
+-                   candidate.centroid, planning_now,
+-                   frontier_match_tolerance);
++               frontier_attempt_memory_.isSelectable(
++                   FrontierGoalKey{candidate.centroid, candidate.approach});
+       });
+   if (frontier == frontiers.end() && approachable_frontier_count == 0) {
+     RCLCPP_WARN(
+@@ -420,28 +420,26 @@ void Explore::makePlan()
+         "no_clearance_safe_frontier_approach");
+     return;
+   }
+-  if (frontier == frontiers.end() && available_frontier_count_ == 0) {
+-    RCLCPP_WARN(logger_, "All frontiers are blacklisted; recovery is required.");
++  if (frontier == frontiers.end() &&
++      attempt_summary.allCandidatesSuppressed()) {
++    RCLCPP_WARN(
++        logger_,
++        "All frontier approaches were attempted in this epoch; recovery is "
++        "required.");
+     exploration_blocked_ = true;
+-    // 全部黑名单只代表当前导航策略受阻，不代表 unknown 已经消失。
+-    // 先暂停运动再发布 blocked，确保瞬态本地 topic 的最终状态可审计。
++    // visited 与 failed 都只说明本轮传感器视角已耗尽，不代表 raw unknown
++    // 消失。交给上层执行扫描并开启新 epoch，禁止伪装成 no_frontiers。
+     stop(false);
+     publishStatus(
+         explore_lite_msgs::msg::ExploreStatus::EXPLORATION_BLOCKED,
+-        "all_frontiers_blacklisted_recoverable");
+-    return;
+-  }
+-  if (frontier == frontiers.end()) {
+-    RCLCPP_DEBUG_THROTTLE(
+-        logger_, *this->get_clock(), 2000,
+-        "All reachable frontiers are cooling down after successful goals");
++        "frontier_attempts_exhausted_recoverable");
+     return;
+   }
+   // centroid 表示 frontier 身份，地图增长后仍可用于黑名单关联；approach
+   // 是可达 FREE_SPACE 执行点。二者混用会把 unknown centroid 交给 Nav2，
+   // global planner 会正确拒绝，却被上层误判为“探索器不工作”。
+-  const geometry_msgs::msg::Point target_identity = frontier->centroid;
+-  const geometry_msgs::msg::Point target_position = frontier->approach;
++  const FrontierGoalKey target{
++      frontier->centroid, frontier->approach};
+ 
+   // ensure only first call of makePlan was set resuming to true
+   if (resuming_) {
+@@ -452,18 +450,17 @@ void Explore::makePlan()
+ 
+   // send goal to move_base if we have something new to pursue
+   auto goal = nav2_msgs::action::NavigateToPose::Goal();
+-  goal.pose.pose.position = target_position;
++  goal.pose.pose.position = target.approach;
+   goal.pose.pose.orientation.w = 1.;
+   goal.pose.header.frame_id = costmap_client_.getGlobalFrameID();
+   // 目标已经在 map 坐标系中。零时间戳要求 Nav2 使用最新 TF，避免仿真时钟
+   // 与 costmap 更新竞态造成 "future extrapolation"，而不是伪造一个未来姿态。
+   goal.pose.header.stamp = builtin_interfaces::msg::Time();
+ 
+-  active_frontier_identity_ = target_identity;
+-  active_target_position_ = target_position;
++  active_frontier_goal_ = target;
+   prev_distance_ = std::hypot(
+-      pose.position.x - target_position.x,
+-      pose.position.y - target_position.y);
++      pose.position.x - target.approach.x,
++      pose.position.y - target.approach.y);
+   last_progress_at_ = planning_now;
+   navigation_goal_handle_.reset();
+   const uint64_t goal_token = goal_lifecycle_.beginDispatch();
+@@ -528,8 +525,8 @@ void Explore::makePlan()
+ 
+   send_goal_options.result_callback =
+       [this,
+-       target_identity](const NavigationGoalHandle::WrappedResult& result) {
+-        reachedGoal(result, target_identity);
++       target](const NavigationGoalHandle::WrappedResult& result) {
++        reachedGoal(result, target);
+       };
+   move_base_client_->async_send_goal(goal, send_goal_options);
+ }
+@@ -557,42 +554,12 @@ void Explore::returnToInitialPose()
+       };
+   move_base_client_->async_send_goal(goal, send_goal_options);
+ }
+-bool Explore::goalOnBlacklist(const geometry_msgs::msg::Point& goal)
+-{
+-  constexpr static size_t tolerace = 5;
+-  nav2_costmap_2d::Costmap2D* costmap2d = costmap_client_.getCostmap();
+-
+-  // check if a goal is on the blacklist for goals that we're pursuing
+-  for (auto& frontier_goal : frontier_blacklist_) {
+-    double x_diff = fabs(goal.x - frontier_goal.x);
+-    double y_diff = fabs(goal.y - frontier_goal.y);
+-
+-    if (x_diff < tolerace * costmap2d->getResolution() &&
+-        y_diff < tolerace * costmap2d->getResolution())
+-      return true;
+-  }
+-  return false;
+-}
+-
+-void Explore::removeGoalFromBlacklist(const geometry_msgs::msg::Point& goal)
+-{
+-  const double tolerance =
+-      5.0 * costmap_client_.getCostmap()->getResolution();
+-  frontier_blacklist_.erase(
+-      std::remove_if(
+-          frontier_blacklist_.begin(), frontier_blacklist_.end(),
+-          [&goal, tolerance](const geometry_msgs::msg::Point& item) {
+-            return std::abs(goal.x - item.x) < tolerance &&
+-                   std::abs(goal.y - item.y) < tolerance;
+-          }),
+-      frontier_blacklist_.end());
+-}
+ 
+ void Explore::releaseActiveGoal(
+-    ActiveFrontierGoalReleaseReason reason, bool blacklist_identity)
++    ActiveFrontierGoalReleaseReason reason, bool record_failure)
+ {
+-  if (blacklist_identity && !goalOnBlacklist(active_frontier_identity_)) {
+-    frontier_blacklist_.push_back(active_frontier_identity_);
++  if (record_failure) {
++    frontier_attempt_memory_.recordFailed(active_frontier_goal_);
+   }
+   const auto effects = goal_lifecycle_.requestCancel();
+   if (effects.cancel_active && navigation_goal_handle_) {
+@@ -605,7 +572,7 @@ void Explore::releaseActiveGoal(
+ }
+ 
+ void Explore::reachedGoal(const NavigationGoalHandle::WrappedResult& result,
+-                          const geometry_msgs::msg::Point& frontier_goal) {
++                          const FrontierGoalKey& frontier_goal) {
+   const std::string goal_id = rclcpp_action::to_string(result.goal_id);
+   const auto effects = goal_lifecycle_.onResult(goal_id);
+   if (!effects.terminal_new) {
+@@ -623,13 +590,9 @@ void Explore::reachedGoal(const NavigationGoalHandle::WrappedResult& result,
+       if (is_current_goal) {
+         last_progress_at_ = std::chrono::steady_clock::now();
+         prev_distance_ = 0;
+-        // cancel 与成功可能交错；真实到达应撤销 timeout 黑名单并进入成功
+-        // 冷却，不能让迟到 SUCCEEDED 永久污染后续 frontier 选择。
+-        removeGoalFromBlacklist(frontier_goal);
+-        successful_frontier_cooldowns_.record(
+-            frontier_goal, std::chrono::steady_clock::now(),
+-            successful_frontier_cooldown_,
+-            5.0 * costmap_client_.getCostmap()->getResolution());
++        // cancel 与成功可能交错；真实到达应撤销同 key 的失败记录，并在本
++        // epoch 永久记住物理 approach，防止漂移后的 centroid 再派发同一点。
++        frontier_attempt_memory_.recordSucceeded(frontier_goal);
+       }
+       break;
+     case rclcpp_action::ResultCode::ABORTED:
+@@ -638,10 +601,10 @@ void Explore::reachedGoal(const NavigationGoalHandle::WrappedResult& result,
+ #ifdef NAV2_RESULT_HAS_ERROR_CODE
+       if (is_current_goal && !effects.was_canceling && result.result &&
+           result.result->error_code != 0) {
+-        RCLCPP_DEBUG(logger_, "Goal aborted with error_code=%d (%s) — blacklisting frontier",
++        RCLCPP_DEBUG(logger_, "Goal aborted with error_code=%d (%s) — recording failed attempt",
+                      result.result->error_code,
+                      result.result->error_msg.c_str());
+-        frontier_blacklist_.push_back(frontier_goal);
++        frontier_attempt_memory_.recordFailed(frontier_goal);
+       } else if (is_current_goal) {
+         RCLCPP_DEBUG(logger_, "Goal aborted with error_code=0 — likely a preemption, not blacklisting");
+       }
+@@ -649,7 +612,7 @@ void Explore::reachedGoal(const NavigationGoalHandle::WrappedResult& result,
+       // Humble: no error_code field, blacklist unconditionally on abort
+       RCLCPP_DEBUG(logger_, "Goal aborted — blacklisting frontier");
+       if (is_current_goal && !effects.was_canceling) {
+-        frontier_blacklist_.push_back(frontier_goal);
++        frontier_attempt_memory_.recordFailed(frontier_goal);
+       }
+ #endif
+       break;
+@@ -691,8 +654,8 @@ void Explore::reachedGoal(const NavigationGoalHandle::WrappedResult& result,
+ 
+   // Because of the 1-thread-executor nature of ros2 I think timer is not
+   // needed.
+-  // 由周期 timer 在短 cooldown 后重规划，让 SLAM/map_updates 有时间消化
+-  // 已到达的 frontier，避免相同坐标在几十毫秒内形成 goal storm。
++  // 由周期 timer 在 terminal cooldown 后重规划；同一物理 approach 已由
++  // epoch 记忆去重，不再依赖会自动过期的时间窗口。
+   if (exploration_enabled_) {
+     makePlan();
+   }
+@@ -739,11 +702,11 @@ void Explore::resume()
+ {
+   exploration_enabled_ = true;
+   resuming_ = true;
+-  successful_frontier_cooldowns_.clear();
++  frontier_attempt_memory_.resetEpoch();
++  blacklisted_frontier_count_ = 0;
+   if (exploration_blocked_) {
+-    // blocked 是可恢复状态：上层完成旋转/脱困后 resume 必须允许重新评估
+-    // frontier；否则旧黑名单会让节点立即再次 blocked。
+-    frontier_blacklist_.clear();
++    // blocked 是可恢复状态：只有显式扫描/脱困后才开启新 epoch；普通时间
++    // 推进绝不能让失败 approach 自动复活并重新形成目标风暴。
+     exploration_blocked_ = false;
+     consecutive_goal_rejections_ = 0;
+   }
+@@ -781,7 +744,7 @@ void Explore::publishStatus(const std::string& status,
+   message.status = current_status_;
+   message.detected_frontier_count = detected_frontier_count_;
+   message.available_frontier_count = available_frontier_count_;
+-  message.blacklisted_frontier_count = frontier_blacklist_.size();
++  message.blacklisted_frontier_count = blacklisted_frontier_count_;
+   message.active_goal_count = active_goal_count;
+   message.active_goal_id = goal_lifecycle_.ownerUuid();
+   message.accepted_goal_count = goal_lifecycle_.acceptedCount();
+diff --git a/explore/test/test_explore.cpp b/explore/test/test_explore.cpp
+index 068fc3c58d0de170f435d8d73a1db2d85103f8a4..44df63c2d5c31bd7bcca05e32b2f8963578a35d3 100644
+--- a/explore/test/test_explore.cpp
++++ b/explore/test/test_explore.cpp
+@@ -42,8 +42,9 @@
+ #include <algorithm>
+ #include <cmath>
+ #include <limits>
++#include <vector>
+ 
+-#include "explore/frontier_goal_cooldown.h"
++#include "explore/frontier_attempt_memory.h"
+ #include "explore/frontier_goal_lifecycle.h"
+ #include "explore/active_frontier_goal_policy.h"
+ #include "explore/frontier_search.h"
+@@ -127,46 +128,143 @@ TEST(FrontierSearchCost, doesNotLetCellCountEraseRealTravelCost)
+   EXPECT_LT(search.cost(near_frontier), search.cost(far_frontier));
+ }
+ 
+-TEST(FrontierGoalCooldown, skipsReachedGoalUntilCooldownExpires)
++explore::FrontierGoalKey makeFrontierGoal(
++    double identity_x, double identity_y,
++    double approach_x, double approach_y)
+ {
+-  explore::FrontierGoalCooldown cooldown;
+-  geometry_msgs::msg::Point reached;
+-  reached.x = 1.0;
+-  reached.y = 2.0;
+-  geometry_msgs::msg::Point nearby = reached;
+-  nearby.x += 0.1;
+-  geometry_msgs::msg::Point other = reached;
+-  other.x += 1.0;
+-  const auto now = explore::FrontierGoalCooldown::Clock::now();
++  explore::FrontierGoalKey goal;
++  goal.identity.x = identity_x;
++  goal.identity.y = identity_y;
++  goal.approach.x = approach_x;
++  goal.approach.y = approach_y;
++  return goal;
++}
+ 
+-  cooldown.record(reached, now, 15.0, 0.25);
++TEST(FrontierAttemptMemory, successSuppressesSameApproachAcrossIdentity)
++{
++  explore::FrontierAttemptMemory memory(0.25, 0.20);
++  memory.recordSucceeded(makeFrontierGoal(0.0, 0.0, 1.0, 1.0));
++  const auto shifted_identity = makeFrontierGoal(5.0, 5.0, 1.1, 1.0);
+ 
+-  EXPECT_TRUE(cooldown.contains(reached, now, 0.25));
+-  EXPECT_TRUE(cooldown.contains(nearby, now, 0.25));
+-  EXPECT_FALSE(cooldown.contains(other, now, 0.25));
+-  EXPECT_EQ(cooldown.size(), 1u);
+-  EXPECT_FALSE(cooldown.contains(
+-      reached, now + std::chrono::seconds(16), 0.25));
+-  EXPECT_EQ(cooldown.size(), 0u);
++  EXPECT_FALSE(memory.isSelectable(shifted_identity));
++  EXPECT_TRUE(memory.classify(shifted_identity).visited_approach);
+ }
+ 
+-TEST(FrontierGoalCooldown, refreshesNearbyIdentityWithoutGrowingLedger)
++TEST(FrontierAttemptMemory, successDoesNotExpireInsideEpoch)
+ {
+-  explore::FrontierGoalCooldown cooldown;
+-  geometry_msgs::msg::Point first;
+-  first.x = 1.0;
+-  geometry_msgs::msg::Point shifted = first;
+-  shifted.x = 1.1;
+-  const auto now = explore::FrontierGoalCooldown::Clock::now();
++  explore::FrontierAttemptMemory memory(0.25, 0.20);
++  const auto reached = makeFrontierGoal(0.0, 0.0, 1.0, 1.0);
++  memory.recordSucceeded(reached);
++
++  // 模块没有 now/TTL 输入；重复查询或记录其他目标都不能让旧成功点“过期”。
++  for (int index = 0; index < 16; ++index) {
++    memory.recordSucceeded(makeFrontierGoal(
++        10.0 + index, 0.0, 10.0 + index, 1.0));
++    EXPECT_FALSE(memory.isSelectable(reached));
++  }
++}
+ 
+-  cooldown.record(first, now, 5.0, 0.25);
+-  cooldown.record(shifted, now + std::chrono::seconds(2), 5.0, 0.25);
++TEST(FrontierAttemptMemory, successAllowsSameIdentityAtNewApproach)
++{
++  explore::FrontierAttemptMemory memory(0.25, 0.20);
++  memory.recordSucceeded(makeFrontierGoal(0.0, 0.0, 1.0, 1.0));
++
++  EXPECT_TRUE(memory.isSelectable(
++      makeFrontierGoal(0.0, 0.0, 1.5, 1.0)));
++}
++
++TEST(FrontierAttemptMemory, failedApproachSuppressesAcrossIdentity)
++{
++  explore::FrontierAttemptMemory memory(0.25, 0.20);
++  memory.recordFailed(makeFrontierGoal(0.0, 0.0, 1.0, 1.0));
++  const auto candidate = makeFrontierGoal(5.0, 5.0, 1.1, 1.0);
++  const auto classification = memory.classify(candidate);
++
++  EXPECT_FALSE(classification.failed_identity);
++  EXPECT_TRUE(classification.failed_approach);
++  EXPECT_FALSE(classification.selectable());
++}
++
++TEST(FrontierAttemptMemory, failedIdentitySuppressesNewApproach)
++{
++  explore::FrontierAttemptMemory memory(0.25, 0.20);
++  memory.recordFailed(makeFrontierGoal(0.0, 0.0, 1.0, 1.0));
++  const auto candidate = makeFrontierGoal(0.1, 0.0, 3.0, 3.0);
++  const auto classification = memory.classify(candidate);
++
++  EXPECT_TRUE(classification.failed_identity);
++  EXPECT_FALSE(classification.failed_approach);
++  EXPECT_FALSE(classification.selectable());
++}
+ 
+-  EXPECT_EQ(cooldown.size(), 1u);
+-  EXPECT_TRUE(cooldown.contains(
+-      shifted, now + std::chrono::seconds(6), 0.25));
+-  EXPECT_FALSE(cooldown.contains(
+-      shifted, now + std::chrono::seconds(8), 0.25));
++TEST(FrontierAttemptMemory, resetEpochRestoresSuppressedCandidates)
++{
++  explore::FrontierAttemptMemory memory(0.25, 0.20);
++  const auto succeeded = makeFrontierGoal(0.0, 0.0, 1.0, 1.0);
++  const auto failed = makeFrontierGoal(2.0, 2.0, 3.0, 3.0);
++  memory.recordSucceeded(succeeded);
++  memory.recordFailed(failed);
++  ASSERT_FALSE(memory.isSelectable(succeeded));
++  ASSERT_FALSE(memory.isSelectable(failed));
++
++  memory.resetEpoch();
++
++  EXPECT_TRUE(memory.isSelectable(succeeded));
++  EXPECT_TRUE(memory.isSelectable(failed));
++}
++
++TEST(FrontierAttemptMemory, lateSuccessSupersedesFailureMemory)
++{
++  explore::FrontierAttemptMemory memory(0.25, 0.20);
++  const auto goal = makeFrontierGoal(0.0, 0.0, 1.0, 1.0);
++  memory.recordFailed(goal);
++  ASSERT_FALSE(memory.isSelectable(goal));
++
++  memory.recordSucceeded(goal);
++  const auto classification = memory.classify(goal);
++
++  EXPECT_TRUE(classification.visited_approach);
++  EXPECT_FALSE(classification.failed_identity);
++  EXPECT_FALSE(classification.failed_approach);
++}
++
++TEST(FrontierAttemptMemory, disappearedFailureIsNotCountedAsActive)
++{
++  explore::FrontierAttemptMemory memory(0.25, 0.20);
++  memory.recordFailed(makeFrontierGoal(0.0, 0.0, 1.0, 1.0));
++  const std::vector<explore::FrontierGoalKey> current{
++      makeFrontierGoal(5.0, 5.0, 6.0, 6.0)};
++
++  const auto summary = memory.summarizeCurrent(current);
++
++  EXPECT_EQ(summary.raw_candidate_count, 1u);
++  EXPECT_EQ(summary.selectable_count, 1u);
++  EXPECT_EQ(summary.active_failed_identity_count, 0u);
++  EXPECT_EQ(summary.active_failed_approach_count, 0u);
++  EXPECT_EQ(summary.active_failed_candidate_count, 0u);
++  EXPECT_FALSE(summary.allCandidatesSuppressed());
++}
++
++TEST(FrontierAttemptMemory, summaryClassifiesAllSuppressedCandidates)
++{
++  explore::FrontierAttemptMemory memory(0.25, 0.20);
++  memory.recordSucceeded(makeFrontierGoal(0.0, 0.0, 1.0, 1.0));
++  memory.recordFailed(makeFrontierGoal(2.0, 2.0, 3.0, 3.0));
++  const std::vector<explore::FrontierGoalKey> current{
++      makeFrontierGoal(10.0, 10.0, 1.1, 1.0),
++      makeFrontierGoal(2.1, 2.0, 20.0, 20.0),
++      makeFrontierGoal(20.0, 20.0, 3.1, 3.0)};
++
++  const auto summary = memory.summarizeCurrent(current);
++
++  EXPECT_EQ(summary.raw_candidate_count, 3u);
++  EXPECT_EQ(summary.selectable_count, 0u);
++  EXPECT_EQ(summary.suppressed_count, 3u);
++  EXPECT_EQ(summary.visited_approach_count, 1u);
++  EXPECT_EQ(summary.active_failed_identity_count, 1u);
++  EXPECT_EQ(summary.active_failed_approach_count, 1u);
++  EXPECT_EQ(summary.active_failed_candidate_count, 2u);
++  EXPECT_TRUE(summary.allCandidatesSuppressed());
+ }
+ 
+ TEST(ActiveFrontierGoalPolicy, holdsGoalDuringValidDetour)

@@ -1,0 +1,12 @@
+builtin_interfaces/Time stamp
+string speaker_id
+float32 confidence
+bool enrolled
+string model
+string display_name
+string reason
+float32 rms
+float32 second_best_score
+float32 score_margin
+float32 threshold
+float32 min_margin

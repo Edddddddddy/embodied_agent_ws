@@ -1,0 +1,3 @@
+# Optional: read ROS 1/2 bags for TUM export and OpenLORIS-to-ROS 2 SLAM replay.
+rosbags==0.11.3
+Pillow==10.2.0

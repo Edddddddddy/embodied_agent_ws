@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "scenario_id": "typed_crossing_v1",
+  "frame_id": "map",
+  "goal": {
+    "x": 2.1,
+    "y": 0.0
+  },
+  "obstacle_x": 1.0,
+  "prediction_horizon_s": 1.0,
+  "warmup": {
+    "y_positions": [-0.75, -0.6, -0.45, -0.3],
+    "interval_s": 0.32
+  },
+  "navigation": {
+    "y_positions": [-0.15, 0.0, 0.15, 0.3],
+    "interval_s": 0.28
+  },
+  "thresholds": {
+    "minimum_track_confidence": 0.6,
+    "minimum_predicted_cost": 253,
+    "minimum_clearance_gain_m": 0.15,
+    "minimum_travel_distance_m": 1.0,
+    "minimum_moving_velocity_mps": 0.12,
+    "maximum_current_only_velocity_mps": 0.05
+  },
+  "evidence_scope": "Gazebo/Nav2 closed loop driven by deterministic typed PoseArray detections; the obstacle is not a Gazebo physical actor."
+}

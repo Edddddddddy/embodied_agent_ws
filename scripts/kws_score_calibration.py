@@ -43,13 +43,16 @@ class KwsScoreReport:
         return not self.warnings
 
 
-def parse_kws_score(serialized: str) -> KwsScoreSample | None:
-    """Parse one `/agent/kws_score` JSON message."""
+def parse_kws_score(serialized: str | dict) -> KwsScoreSample | None:
+    """Parse a typed KWS dictionary or a saved legacy report sample."""
 
-    try:
-        payload = json.loads(serialized)
-    except json.JSONDecodeError:
-        return None
+    if isinstance(serialized, dict):
+        payload = serialized
+    else:
+        try:
+            payload = json.loads(serialized)
+        except json.JSONDecodeError:
+            return None
     if not isinstance(payload, dict):
         return None
 
@@ -157,21 +160,28 @@ def format_report(report: KwsScoreReport) -> str:
 
 class KwsScoreCalibrationNode:
     def __init__(self, topic: str):
+        from embodied_agent_interfaces.msg import KwsScore
+        from embodied_agent_core.runtime_status_transport import kws_score_to_dict
+        from embodied_agent_core.ros_qos import sensor_qos
         import rclpy
         from rclpy.node import Node
-        from std_msgs.msg import String
 
         class _Node(Node):
             def __init__(self, owner: KwsScoreCalibrationNode):
                 super().__init__("kws_score_calibration")
-                self.create_subscription(String, topic, owner._on_score, 10)
+                self.create_subscription(
+                    KwsScore,
+                    topic,
+                    lambda message: owner._on_score(kws_score_to_dict(message)),
+                    sensor_qos(depth=5),
+                )
 
         self.samples: list[KwsScoreSample] = []
         self._rclpy = rclpy
         self.node = _Node(self)
 
     def _on_score(self, message) -> None:
-        sample = parse_kws_score(message.data)
+        sample = parse_kws_score(message)
         if sample is not None:
             self.samples.append(sample)
 

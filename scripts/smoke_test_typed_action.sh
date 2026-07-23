@@ -27,8 +27,9 @@ timeout 8 ros2 topic echo --once /robot/action_command_typed \
   embodied_agent_interfaces/msg/RobotCommand >"$TYPED_FILE" &
 TYPED_PID=$!
 wait_for_topic_subscribers /robot/action_command_typed
-ros2 topic pub --once /agent/action_candidate std_msgs/msg/String \
-  "{data: '{\"name\":\"move\",\"arguments\":{\"linear_x\":9.0,\"duration_s\":20.0}}'}" \
+ros2 topic pub --once /agent/action_candidate \
+  embodied_agent_interfaces/msg/RobotCommand \
+  "{action_type: 2, linear_x: 9.0, duration_s: 20.0}" \
   >/dev/null
 
 wait "$TYPED_PID" || { cat "$LOG_FILE" >&2; exit 1; }

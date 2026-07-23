@@ -1,0 +1,208 @@
+{
+  "schema_version": 1,
+  "passed": true,
+  "checks": {
+    "at_least_two_sequences": true,
+    "fixed_configuration": true,
+    "precision_improved_vs_ranked_each_sequence": true,
+    "precision_improved_vs_single_track_each_sequence": true,
+    "micro_precision_improved_vs_single_track": true,
+    "false_acceptances_reduced_vs_single_track": true,
+    "true_constraints_not_reduced_vs_single_track": true
+  },
+  "config": {
+    "mode": "multi_hypothesis",
+    "minimum_confirmations": 3,
+    "maximum_query_gap_s": 2.0,
+    "maximum_pair_age_delta_s": 0.25,
+    "maximum_translation_delta_m": 0.35,
+    "maximum_yaw_delta_rad": 0.2,
+    "maximum_hypotheses": 64
+  },
+  "aggregate": {
+    "ranked_single": {
+      "accepted_pairs": 159,
+      "true_accepted_pairs": 21,
+      "false_accepted_pairs": 138,
+      "micro_precision": 0.1320754716981132,
+      "conditional_pair_recall": 0.12574850299401197
+    },
+    "single_track": {
+      "accepted_pairs": 16,
+      "true_accepted_pairs": 5,
+      "false_accepted_pairs": 11,
+      "micro_precision": 0.3125,
+      "conditional_pair_recall": 0.029940119760479042
+    },
+    "multi_hypothesis": {
+      "accepted_pairs": 11,
+      "true_accepted_pairs": 5,
+      "false_accepted_pairs": 6,
+      "micro_precision": 0.45454545454545453,
+      "conditional_pair_recall": 0.029940119760479042
+    },
+    "precision_delta_vs_single_track": 0.14204545454545453
+  },
+  "sequences": [
+    {
+      "sequence": "corridor1-1",
+      "ranked_single": {
+        "accepted_pairs": 119,
+        "true_accepted_pairs": 11,
+        "false_accepted_pairs": 108,
+        "precision": 0.092437,
+        "conditional_pair_recall": 0.104762,
+        "eligible_query_recall": 0.171875,
+        "relative_translation_error_m": {
+          "count": 11,
+          "mean": 0.565183,
+          "median": 0.475314,
+          "p95": 1.057805,
+          "max": 1.253591
+        },
+        "relative_yaw_error_deg": {
+          "count": 11,
+          "mean": 1.153414,
+          "median": 0.989504,
+          "p95": 2.377435,
+          "max": 2.721571
+        }
+      },
+      "single_track": {
+        "accepted_pairs": 8,
+        "true_accepted_pairs": 1,
+        "false_accepted_pairs": 7,
+        "precision": 0.125,
+        "conditional_pair_recall": 0.009524,
+        "eligible_query_recall": 0.015625,
+        "relative_translation_error_m": {
+          "count": 1,
+          "mean": 1.253591,
+          "median": 1.253591,
+          "p95": 1.253591,
+          "max": 1.253591
+        },
+        "relative_yaw_error_deg": {
+          "count": 1,
+          "mean": 0.623996,
+          "median": 0.623996,
+          "p95": 0.623996,
+          "max": 0.623996
+        }
+      },
+      "multi_hypothesis": {
+        "accepted_pairs": 6,
+        "true_accepted_pairs": 2,
+        "false_accepted_pairs": 4,
+        "precision": 0.333333,
+        "conditional_pair_recall": 0.019048,
+        "eligible_query_recall": 0.03125,
+        "relative_translation_error_m": {
+          "count": 2,
+          "mean": 0.953817,
+          "median": 0.953817,
+          "p95": 1.223613,
+          "max": 1.253591
+        },
+        "relative_yaw_error_deg": {
+          "count": 2,
+          "mean": 0.441872,
+          "median": 0.441872,
+          "p95": 0.605783,
+          "max": 0.623996
+        }
+      },
+      "multi_precision_delta_vs_ranked": 0.24089635854341734,
+      "multi_precision_delta_vs_single_track": 0.20833333333333331
+    },
+    {
+      "sequence": "corridor1-2",
+      "ranked_single": {
+        "accepted_pairs": 40,
+        "true_accepted_pairs": 10,
+        "false_accepted_pairs": 30,
+        "precision": 0.25,
+        "conditional_pair_recall": 0.16129,
+        "eligible_query_recall": 0.3125,
+        "relative_translation_error_m": {
+          "count": 10,
+          "mean": 0.819099,
+          "median": 0.459172,
+          "p95": 2.330138,
+          "max": 2.540973
+        },
+        "relative_yaw_error_deg": {
+          "count": 10,
+          "mean": 3.507671,
+          "median": 0.711314,
+          "p95": 16.137872,
+          "max": 27.482378
+        }
+      },
+      "single_track": {
+        "accepted_pairs": 8,
+        "true_accepted_pairs": 4,
+        "false_accepted_pairs": 4,
+        "precision": 0.5,
+        "conditional_pair_recall": 0.064516,
+        "eligible_query_recall": 0.125,
+        "relative_translation_error_m": {
+          "count": 4,
+          "mean": 0.505334,
+          "median": 0.436552,
+          "p95": 0.884759,
+          "max": 0.957721
+        },
+        "relative_yaw_error_deg": {
+          "count": 4,
+          "mean": 0.795315,
+          "median": 0.857404,
+          "p95": 1.187674,
+          "max": 1.191552
+        }
+      },
+      "multi_hypothesis": {
+        "accepted_pairs": 5,
+        "true_accepted_pairs": 3,
+        "false_accepted_pairs": 2,
+        "precision": 0.6,
+        "conditional_pair_recall": 0.048387,
+        "eligible_query_recall": 0.09375,
+        "relative_translation_error_m": {
+          "count": 3,
+          "mean": 1.645395,
+          "median": 1.609857,
+          "p95": 1.73754,
+          "max": 1.751727
+        },
+        "relative_yaw_error_deg": {
+          "count": 3,
+          "mean": 2.209425,
+          "median": 2.704767,
+          "p95": 3.747812,
+          "max": 3.863706
+        }
+      },
+      "multi_precision_delta_vs_ranked": 0.35,
+      "multi_precision_delta_vs_single_track": 0.09999999999999998
+    }
+  ],
+  "sources": [
+    {
+      "sequence": "corridor1-1",
+      "report": "lidar_submap_matches_corridor1_1.json",
+      "sha256": "7e59518a10f359efaf67e6772733c666a48d3e1a4e0007fe3b77af3732e78795"
+    },
+    {
+      "sequence": "corridor1-2",
+      "report": "lidar_submap_matches_corridor1_2.json",
+      "sha256": "ad53e472e36a85a90b953fd7e482850bbcd451ef2f40e6cc589fba5cf092032c"
+    }
+  ],
+  "release_decision": {
+    "direct_graph_edge_insertion_enabled": false,
+    "status": "shadow_only_precision_improved",
+    "reason": "Cross-sequence precision improved, but absolute recall remains too low for unattended pose-graph insertion."
+  },
+  "boundary": "The C++ multi-hypothesis gate consumes matcher outputs and timestamps only. OpenLORIS ground truth labels reports offline and never enters runtime decisions."
+}

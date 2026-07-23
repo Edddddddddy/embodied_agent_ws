@@ -1,0 +1,15 @@
+builtin_interfaces/Time stamp
+float32 rms
+uint32 peak
+bool speech
+string vad_provider
+bool endpoint_events_enabled
+string audio_enhancer_requested
+string audio_enhancer_active
+bool aec_active
+bool noise_suppression_requested
+bool noise_suppression_active
+bool auto_gain_requested
+bool auto_gain_active
+uint64 dropped_input_frames
+uint64 dropped_playback_chunks

@@ -32,7 +32,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--output",
-        default="src/embodied_online_agent/config/command_nlu_zh.json",
+        default="src/embodied_agent_core/config/command_nlu_zh.json",
         help="Path to write the command NLU JSON model.",
     )
     args = parser.parse_args()

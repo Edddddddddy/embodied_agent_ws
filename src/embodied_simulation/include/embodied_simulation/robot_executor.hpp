@@ -41,9 +41,26 @@ public:
   {
     return std::nullopt;
   }
+  // 外部 action server（如 Nav2）可以把 server unavailable、goal rejected、
+  // planner/controller aborted 等原因放在这里，SimulationControl 再透传到 feedback/result。
+  virtual std::string external_action_detail() const {return "";}
   // 名称会进入 ACK 与 diagnostics，必须稳定，不能包含一次运行的随机信息。
   virtual std::string mode_name() const = 0;
   virtual std::string backend_name() const = 0;
 };
+
+inline bool should_publish_executor_cmd_vel(
+  bool plugin_publishes_cmd_vel,
+  bool action_was_active,
+  bool action_stopped_this_tick,
+  const std::string & executor_mode)
+{
+  // /cmd_vel 没有天然的多发布者仲裁。手动 executor 空闲时持续发零会与
+  // Nav2 controller 争用底盘；只有持有 Action、刚完成需归零，或处于持续
+  // 自主模式时，它才拥有速度写权限。
+  return plugin_publishes_cmd_vel &&
+         (action_was_active || action_stopped_this_tick ||
+         executor_mode != "manual");
+}
 
 }  // namespace embodied_simulation

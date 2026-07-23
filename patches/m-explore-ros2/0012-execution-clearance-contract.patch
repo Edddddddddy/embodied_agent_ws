@@ -1,0 +1,184 @@
+diff --git a/explore/config/params.yaml b/explore/config/params.yaml
+--- a/explore/config/params.yaml
++++ b/explore/config/params.yaml
+@@ -15,7 +15,7 @@
+     gain_scale: 1.0
+     transform_tolerance: 0.3
+     min_frontier_size: 0.75
+-    frontier_approach_clearance: 0.25
++    frontier_approach_clearance: 0.33
+     frontier_approach_max_distance: 1.5
+     frontier_robot_anchor_max_distance: 0.5
+     frontier_approach_reached_tolerance: 0.30
+diff --git a/explore/src/explore.cpp b/explore/src/explore.cpp
+--- a/explore/src/explore.cpp
++++ b/explore/src/explore.cpp
+@@ -66,7 +66,7 @@ Explore::Explore()
+   this->declare_parameter<float>("orientation_scale", 0.0);
+   this->declare_parameter<float>("gain_scale", 1.0);
+   this->declare_parameter<float>("min_frontier_size", 0.5);
+-  this->declare_parameter<double>("frontier_approach_clearance", 0.0);
++  this->declare_parameter<double>("frontier_approach_clearance", 0.33);
+   this->declare_parameter<double>("frontier_approach_max_distance", 1.5);
+   this->declare_parameter<double>("frontier_robot_anchor_max_distance", 0.5);
+   this->declare_parameter<double>(
+diff --git a/explore/test/test_explore.cpp b/explore/test/test_explore.cpp
+--- a/explore/test/test_explore.cpp
++++ b/explore/test/test_explore.cpp
+@@ -60,6 +60,47 @@ inline static bool same_point(const geometry_msgs::msg::Point& one,
+   return dist < 0.01;
+ }
+ 
++void setFreeRectangle(
++    nav2_costmap_2d::Costmap2D& costmap,
++    unsigned int min_x, unsigned int max_x,
++    unsigned int min_y, unsigned int max_y)
++{
++  for (unsigned int y = min_y; y <= max_y; ++y) {
++    for (unsigned int x = min_x; x <= max_x; ++x) {
++      costmap.setCost(x, y, nav2_costmap_2d::FREE_SPACE);
++    }
++  }
++}
++
++bool hasApproachAtOrBeyondX(
++    const std::vector<frontier_exploration::Frontier>& frontiers,
++    nav2_costmap_2d::Costmap2D& costmap, unsigned int minimum_x)
++{
++  return std::any_of(
++      frontiers.begin(), frontiers.end(),
++      [&costmap, minimum_x](const auto& frontier) {
++        if (!frontier.has_approach) {
++          return false;
++        }
++        unsigned int x, y;
++        return costmap.worldToMap(
++            frontier.approach.x, frontier.approach.y, x, y) &&
++            x >= minimum_x;
++      });
++}
++
++void configureTwoRoomPassage(
++    nav2_costmap_2d::Costmap2D& costmap,
++    unsigned int passage_min_y, unsigned int passage_max_y)
++{
++  setFreeRectangle(costmap, 2, 25, 2, 57);
++  setFreeRectangle(costmap, 46, 70, 2, 57);
++  setFreeRectangle(costmap, 26, 45, passage_min_y, passage_max_y);
++  for (unsigned int y = 2; y <= 57; ++y) {
++    costmap.setCost(71, y, nav2_costmap_2d::NO_INFORMATION);
++  }
++}
++
+ TEST(Explore, testSameGoal)
+ {
+     geometry_msgs::msg::Point goal1;
+@@ -771,6 +812,108 @@ TEST(FrontierSearch, widePassageRestoresClearanceReachableApproach)
+       }));
+ }
+ 
++TEST(FrontierSearch, quarterMetreClearanceAdmitsCriticalBlindPocket)
++{
++  using nav2_costmap_2d::LETHAL_OBSTACLE;
++  using nav2_costmap_2d::NO_INFORMATION;
++
++  nav2_costmap_2d::Costmap2D costmap(
++      64, 50, 0.05, 0.0, 0.0, LETHAL_OBSTACLE);
++  setFreeRectangle(costmap, 2, 20, 2, 47);
++  // 现场约 0.605 m 的临界盲袋在 0.05 m 栅格上表示为 12 个 cell；
++  // 0.25 m 侵蚀仍留下中心线，因此这个旧阈值会把执行点送入袋内。
++  setFreeRectangle(costmap, 21, 55, 19, 30);
++  for (unsigned int y = 19; y <= 30; ++y) {
++    costmap.setCost(56, y, NO_INFORMATION);
++  }
++  frontier_exploration::FrontierSearch search(
++      &costmap, 1.0, 0.0, 0.0,
++      rclcpp::get_logger("frontier_critical_pocket_025"), 0.25, 1.5);
++  geometry_msgs::msg::Point robot;
++  costmap.mapToWorld(10, 25, robot.x, robot.y);
++
++  const auto frontiers = search.searchFrom(robot);
++
++  ASSERT_FALSE(frontiers.empty());
++  EXPECT_TRUE(hasApproachAtOrBeyondX(frontiers, costmap, 21));
++}
++
++TEST(FrontierSearch, executionClearanceRejectsCriticalBlindPocket)
++{
++  using nav2_costmap_2d::LETHAL_OBSTACLE;
++  using nav2_costmap_2d::NO_INFORMATION;
++
++  nav2_costmap_2d::Costmap2D costmap(
++      64, 50, 0.05, 0.0, 0.0, LETHAL_OBSTACLE);
++  setFreeRectangle(costmap, 2, 20, 2, 47);
++  setFreeRectangle(costmap, 21, 55, 19, 30);
++  for (unsigned int y = 19; y <= 30; ++y) {
++    costmap.setCost(56, y, NO_INFORMATION);
++  }
++  frontier_exploration::FrontierSearch search(
++      &costmap, 1.0, 0.0, 0.0,
++      rclcpp::get_logger("frontier_critical_pocket_033"), 0.33, 1.5);
++  geometry_msgs::msg::Point robot;
++  costmap.mapToWorld(10, 25, robot.x, robot.y);
++
++  const auto frontiers = search.searchFrom(robot);
++
++  ASSERT_FALSE(frontiers.empty());
++  EXPECT_TRUE(search.lastClearanceDomainValid());
++  // 0.33 m = 0.22 m 底盘半径 + 0.11 m 控制、栅格与定位余量。
++  // 允许退回开阔区或不给 approach，但绝不能再把目标放进临界盲袋。
++  EXPECT_FALSE(hasApproachAtOrBeyondX(frontiers, costmap, 21));
++}
++
++TEST(FrontierSearch, executionClearanceKeepsOneMetreDoorReachable)
++{
++  using nav2_costmap_2d::LETHAL_OBSTACLE;
++
++  nav2_costmap_2d::Costmap2D costmap(
++      80, 60, 0.05, 0.0, 0.0, LETHAL_OBSTACLE);
++  // 20 个 0.05 m cell 表达 1.0 m 门洞；0.33 m 连通域侵蚀后仍应保留
++  // 可执行中心带，避免安全余量反过来阻断常规门洞。
++  configureTwoRoomPassage(costmap, 20, 39);
++  frontier_exploration::FrontierSearch search(
++      &costmap, 1.0, 0.0, 0.0,
++      rclcpp::get_logger("frontier_one_metre_door"), 0.33, 1.5);
++  geometry_msgs::msg::Point robot;
++  costmap.mapToWorld(10, 30, robot.x, robot.y);
++
++  const auto frontiers = search.searchFrom(robot);
++
++  ASSERT_FALSE(frontiers.empty());
++  ASSERT_TRUE(search.lastClearanceDomainValid());
++  EXPECT_TRUE(hasApproachAtOrBeyondX(frontiers, costmap, 46));
++}
++
++TEST(FrontierSearch, fortyCentimetreClearanceOverDisconnectsUsablePassage)
++{
++  using nav2_costmap_2d::LETHAL_OBSTACLE;
++
++  nav2_costmap_2d::Costmap2D costmap(
++      80, 60, 0.05, 0.0, 0.0, LETHAL_OBSTACLE);
++  // 0.75 m 通道为 0.33 m 执行半径保留安全中心线；若错误复用只约束
++  // 终点的 0.40 m goal clearance，整条连通域会被过度侵蚀并断开。
++  configureTwoRoomPassage(costmap, 23, 37);
++  geometry_msgs::msg::Point robot;
++  costmap.mapToWorld(10, 30, robot.x, robot.y);
++  frontier_exploration::FrontierSearch execution_clearance(
++      &costmap, 1.0, 0.0, 0.0,
++      rclcpp::get_logger("frontier_passage_033"), 0.33, 1.5);
++  frontier_exploration::FrontierSearch goal_clearance_misuse(
++      &costmap, 1.0, 0.0, 0.0,
++      rclcpp::get_logger("frontier_passage_040"), 0.40, 1.5);
++
++  const auto executable = execution_clearance.searchFrom(robot);
++  const auto over_disconnected = goal_clearance_misuse.searchFrom(robot);
++
++  ASSERT_FALSE(executable.empty());
++  ASSERT_FALSE(over_disconnected.empty());
++  EXPECT_TRUE(hasApproachAtOrBeyondX(executable, costmap, 46));
++  EXPECT_FALSE(hasApproachAtOrBeyondX(over_disconnected, costmap, 46));
++}
++
+ TEST(FrontierSearch, rejectsInvalidApproachBounds)
+ {
+   using nav2_costmap_2d::FREE_SPACE;

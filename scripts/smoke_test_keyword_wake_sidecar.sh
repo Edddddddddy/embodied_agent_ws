@@ -5,7 +5,7 @@ source "$WORKSPACE/scripts/activate.sh"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((180 + $$ % 40))}"
 
 LOG_FILE="$(mktemp)"
-setsid ros2 run embodied_online_agent keyword_wake --ros-args \
+setsid ros2 run embodied_voice_frontend keyword_wake --ros-args \
   -p mode:=mock_text \
   -p provider_name:=mock_kws \
   >"$LOG_FILE" 2>&1 &
@@ -20,7 +20,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if ! timeout 15 python3 "$WORKSPACE/tests/integration/test_keyword_wake_sidecar.py"; then
+if ! timeout 15 bash "$WORKSPACE/tools/acceptance/run_probe.sh" "$WORKSPACE/tools/acceptance/probes/voice/keyword_wake_sidecar.py"; then
   cat "$LOG_FILE" >&2
   exit 1
 fi

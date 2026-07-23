@@ -1,0 +1,31 @@
+name: embodied-agent
+
+x-image-build: &image-build
+  context: .
+  args:
+    BUILD_DATE: ${BUILD_DATE:-1970-01-01T00:00:00Z}
+    VCS_REF: ${VCS_REF:-local}
+    VERSION: ${VERSION:-dev}
+    SOURCE_URL: ${SOURCE_URL:-https://github.com/Edddddddddy/embodied_agent_ws}
+    BUILD_PARALLEL_LEVEL: ${BUILD_PARALLEL_LEVEL:-2}
+
+services:
+  test:
+    image: embodied-agent:test
+    build:
+      <<: *image-build
+      target: test
+    init: true
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-42}
+    command: ["/opt/embodied/bin/run-container-tests"]
+
+  runtime-smoke:
+    image: embodied-agent:runtime
+    build:
+      <<: *image-build
+      target: runtime
+    init: true
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-42}
+    command: ["/opt/embodied/bin/runtime-smoke"]

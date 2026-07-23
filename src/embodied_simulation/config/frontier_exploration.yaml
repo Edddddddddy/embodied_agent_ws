@@ -1,0 +1,37 @@
+/**:
+  ros__parameters:
+    use_sim_time: true
+    robot_base_frame: base_link
+    costmap_topic: map
+    costmap_updates_topic: map_updates
+    return_to_init: false
+    visualize: true
+    planner_frequency: 0.5
+    # 狭窄区域的局部绕行可能超过 25 秒，过早拉黑会耗尽仍可达的 frontier。
+    progress_timeout: 45.0
+    goal_rejection_backoff: 2.0
+    goal_terminal_cooldown: 0.75
+    max_goal_rejections: 3
+    # 连续两次真正的运动停滞才触发任务层恢复；单次局部失败仍可换 approach。
+    max_consecutive_progress_timeouts: 2
+    potential_scale: 2.0
+    orientation_scale: 0.0
+    gain_scale: 1.5
+    transform_tolerance: 0.5
+    min_frontier_size: 0.45
+    # 0.33m = 0.22m 底盘半径 + 控制、5cm 栅格与定位误差余量；它会侵蚀整条
+    # frontier 可达连通域，避免进入约 0.60m 的临界盲袋。navigation 的 0.40m
+    # goal clearance 只检查采样终点，语义不同；复用到整条通路会过度切断门洞。
+    frontier_approach_clearance: 0.33
+    # 限制退让搜索，防止把“靠近 frontier”退化为房间另一端的无效目标。
+    frontier_approach_max_distance: 1.5
+    # 机器人贴近新生 unknown 时只在局部寻找唯一安全锚点，禁止跨窄门合并连通域。
+    frontier_robot_anchor_max_distance: 0.5
+    # 这是 Burger unknown-world profile 的“传感器可观测”容差，不是 Nav2
+    # 导航成功容差：1.5m 退让上限 + 0.40m < 3.0m raytrace 范围。MPPI 可能
+    # 在膨胀区边缘停到 approach 外约 0.38m；目标仍安全时取消并记 visited，
+    # Action 只会记 canceled，绝不伪造 succeeded。上游通用默认仍保持 0.30m。
+    frontier_approach_reached_tolerance: 0.40
+    # Nav2 绕障可能先远离目标；相对进展锚点移动 0.15m 即刷新 watchdog，
+    # 小于该值的 TF/控制抖动不会无限延长卡死目标。
+    frontier_progress_motion_threshold: 0.15

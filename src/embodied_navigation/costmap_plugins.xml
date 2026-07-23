@@ -1,0 +1,8 @@
+<library path="predicted_obstacle_layer">
+  <class
+    name="embodied_navigation::PredictedObstacleLayer"
+    type="embodied_navigation::PredictedObstacleLayer"
+    base_class_type="nav2_costmap_2d::Layer">
+    <description>Marks current and constant-velocity predicted obstacle footprints.</description>
+  </class>
+</library>

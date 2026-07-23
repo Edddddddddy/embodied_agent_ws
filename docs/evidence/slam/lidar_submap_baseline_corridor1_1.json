@@ -1,0 +1,220 @@
+{
+  "schema_version": 1,
+  "passed": true,
+  "checks": {
+    "minimum_pair_time_coverage": true,
+    "has_scored_pairs": true,
+    "has_true_candidate_pairs": true,
+    "has_groundtruth_revisit_events": true
+  },
+  "sequence": "corridor1-1",
+  "association": {
+    "input_pairs": 4225,
+    "scored_pairs": 3763,
+    "pair_time_coverage_ratio": 0.890651,
+    "unassociated_pairs": 462,
+    "required_pair_time_coverage_ratio": 0.85
+  },
+  "ground_truth": {
+    "true_candidate_pairs": 105,
+    "true_candidate_queries": 64,
+    "candidate_queries": 401,
+    "revisit_radius_m": 1.0,
+    "minimum_temporal_separation_s": 60.0
+  },
+  "profiles": {
+    "cpp_default": {
+      "accepted_pairs": 333,
+      "true_accepted_pairs": 28,
+      "false_accepted_pairs": 305,
+      "precision": 0.084084,
+      "conditional_pair_recall": 0.266667,
+      "eligible_query_recall": 0.296875,
+      "relative_translation_error_m": {
+        "count": 28,
+        "mean": 0.811056,
+        "median": 0.687527,
+        "p95": 1.583265,
+        "max": 1.700245
+      },
+      "relative_yaw_error_deg": {
+        "count": 28,
+        "mean": 5.075852,
+        "median": 2.075128,
+        "p95": 15.262504,
+        "max": 56.754738
+      }
+    },
+    "balanced_shadow": {
+      "accepted_pairs": 86,
+      "true_accepted_pairs": 9,
+      "false_accepted_pairs": 77,
+      "precision": 0.104651,
+      "conditional_pair_recall": 0.085714,
+      "eligible_query_recall": 0.0625,
+      "relative_translation_error_m": {
+        "count": 9,
+        "mean": 0.651306,
+        "median": 0.658354,
+        "p95": 1.239439,
+        "max": 1.62226
+      },
+      "relative_yaw_error_deg": {
+        "count": 9,
+        "mean": 1.163902,
+        "median": 0.80172,
+        "p95": 3.586176,
+        "max": 4.2883
+      }
+    },
+    "conservative_shadow": {
+      "accepted_pairs": 1,
+      "true_accepted_pairs": 0,
+      "false_accepted_pairs": 1,
+      "precision": 0.0,
+      "conditional_pair_recall": 0.0,
+      "eligible_query_recall": 0.0,
+      "relative_translation_error_m": {
+        "count": 0,
+        "mean": null,
+        "median": null,
+        "p95": null,
+        "max": null
+      },
+      "relative_yaw_error_deg": {
+        "count": 0,
+        "mean": null,
+        "median": null,
+        "p95": null,
+        "max": null
+      }
+    }
+  },
+  "event_recovery": {
+    "events": [
+      {
+        "event_id": 1,
+        "candidate_query_count": 54,
+        "recovered_by_balanced_shadow": false
+      },
+      {
+        "event_id": 2,
+        "candidate_query_count": 141,
+        "recovered_by_balanced_shadow": true
+      }
+    ],
+    "recovered_events": 1,
+    "event_count": 2
+  },
+  "diagnostics": {
+    "matching_mode": "scan_to_scan",
+    "query_submap_scans": {
+      "count": 3763,
+      "mean": 1.0,
+      "median": 1.0,
+      "p95": 1.0,
+      "max": 1.0
+    },
+    "candidate_submap_scans": {
+      "count": 3763,
+      "mean": 1.0,
+      "median": 1.0,
+      "p95": 1.0,
+      "max": 1.0
+    },
+    "query_geometry_points": {
+      "count": 3763,
+      "mean": 336.690407,
+      "median": 346.0,
+      "p95": 360.0,
+      "max": 360.0
+    },
+    "candidate_geometry_points": {
+      "count": 3763,
+      "mean": 339.796439,
+      "median": 344.0,
+      "p95": 360.0,
+      "max": 360.0
+    },
+    "available_pairs": 3717,
+    "converged_pairs": 3672,
+    "yaw_ambiguous_pairs": 0,
+    "odometry_prior_pairs": 3763,
+    "odometry_prior_inconsistent_pairs": 2487,
+    "positive_prior_consistent_pairs": 90,
+    "negative_prior_consistent_pairs": 1186,
+    "positive_prior_yaw_error_deg": {
+      "count": 105,
+      "mean": 33.227065,
+      "median": 19.260033,
+      "p95": 154.635679,
+      "max": 178.004268
+    },
+    "negative_prior_yaw_error_deg": {
+      "count": 3658,
+      "mean": 68.758071,
+      "median": 80.73837,
+      "p95": 115.524315,
+      "max": 178.203718
+    },
+    "cpp_rejection_reasons": {
+      "accepted": 333,
+      "degenerate_geometry": 61,
+      "insufficient_coarse_correspondences": 4,
+      "insufficient_fine_correspondences": 4,
+      "low_inlier_ratio": 230,
+      "not_converged": 13,
+      "odometry_prior_inconsistent": 2487,
+      "translation_limit": 631
+    },
+    "temporal_consistency": null,
+    "sequence_consistency": null,
+    "positive_inlier_ratio": {
+      "count": 105,
+      "mean": 0.473062,
+      "median": 0.49375,
+      "p95": 0.804269,
+      "max": 0.930636
+    },
+    "negative_inlier_ratio": {
+      "count": 3658,
+      "mean": 0.649164,
+      "median": 0.701863,
+      "p95": 0.941176,
+      "max": 0.976471
+    },
+    "positive_overlap_ratio": {
+      "count": 105,
+      "mean": 0.460395,
+      "median": 0.469274,
+      "p95": 0.811793,
+      "max": 0.931798
+    },
+    "negative_overlap_ratio": {
+      "count": 3658,
+      "mean": 0.63532,
+      "median": 0.692019,
+      "p95": 0.936267,
+      "max": 0.976539
+    }
+  },
+  "methodology": {
+    "matching_mode": "scan_to_scan",
+    "geometry_sampling": {
+      "effective_point_stride_per_scan": 2,
+      "matcher_minimum_points": 30
+    },
+    "runtime_input": "candidate scan/submap pair + descriptor yaw seed + optional odometry yaw prior",
+    "matcher": "C++17 trimmed coarse-to-fine point-to-point ICP with multi-yaw seeds",
+    "offline_label": "official OpenLORIS trajectory; never passed to C++ matcher",
+    "boundary": "Shadow results are scored but never inserted into the pose graph. Profile sweeps are evidence, not runtime GT-assisted selection.",
+    "temporal_policy": "not evaluated"
+  },
+  "source": {
+    "matches_sha256": "d5c0fdaf1b76e6a301d90fa8c93c0b22ef434ef970ef863d9a1b35cf19011f67",
+    "groundtruth_sha256": "8bac84df6e0ec2ab1d08f0e3d5c47b1da067911ee9a814471b96ef13637a8e2d",
+    "candidates_sha256": "5cbcb3136a3bed1b8bb69baa3f738170f0aeea317b54559bc8360bd92094a42f",
+    "corpus_metadata_sha256": "e6a44ff5b1fc4cb150925073fef75ed44631feb5a204913409990761ccb30d68",
+    "temporal_replay_binary_sha256": null
+  }
+}

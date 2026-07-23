@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "dataset": "OpenLORIS-Scene",
+  "sequence": "corridor1-1",
+  "review_source": {
+    "topic": "/d400/color/image_raw",
+    "sampling_interval_s": 10.0,
+    "method": "manual review of 29 timestamped RGB frames and contact sheet"
+  },
+  "intervals": [
+    {
+      "label": "long_corridor",
+      "start_s": 1560000033.5,
+      "end_s": 1560000073.5,
+      "evidence": "frames 3-7 show sustained traversal through a narrow low-texture corridor"
+    },
+    {
+      "label": "long_corridor",
+      "start_s": 1560000113.5,
+      "end_s": 1560000148.5,
+      "evidence": "frames 11-14 show the return corridor with repeated doors and strong viewpoint aliasing"
+    },
+    {
+      "label": "long_corridor",
+      "start_s": 1560000163.5,
+      "end_s": 1560000183.5,
+      "evidence": "frames 16-18 show another sustained corridor segment"
+    },
+    {
+      "label": "dynamic_occlusion",
+      "start_s": 1560000228.5,
+      "end_s": 1560000238.5,
+      "evidence": "frame 23 shows a walking person occupying the robot path in the corridor"
+    },
+    {
+      "label": "long_corridor",
+      "start_s": 1560000238.5,
+      "end_s": 1560000273.5,
+      "evidence": "frames 24-27 show continued traversal along the same corridor family"
+    }
+  ],
+  "negative_evidence": {
+    "people_at_lounge": "frames near 80 s and 280 s contain people, but sparse RGB review cannot prove motion or LiDAR occlusion",
+    "dynamic_effect": "the label identifies a visually dynamic interval; it does not by itself prove that dynamic returns caused SLAM drift"
+  },
+  "claim_boundary": "visual labels localize review intervals only; trajectory degradation and LiDAR effects are reported separately"
+}

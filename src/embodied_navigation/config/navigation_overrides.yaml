@@ -1,0 +1,44 @@
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      update_frequency: 5.0
+      publish_frequency: 2.0
+      predicted_obstacle_layer:
+        plugin: embodied_navigation::PredictedObstacleLayer
+        enabled: true
+        topic: /perception/dynamic_obstacles
+        prediction_horizon_s: 2.0
+        prediction_step_s: 0.25
+        observation_timeout_s: 0.8
+        minimum_confidence: 0.45
+        radius_padding_m: 0.18
+        future_radius_growth_mps: 0.08
+
+planner_server:
+  ros__parameters:
+    GridBased:
+      # 定位导航只允许使用本次已经观测为 free 的地图；unknown 捷径既不可审计，
+      # 也会让动态重规划在边界处突然失去路径。
+      allow_unknown: false
+      # 采样器会提供有净空的精确目标，不需要 Navfn 在 0.5m 范围内另找贴墙终点。
+      tolerance: 0.10
+
+dynamic_obstacle_tracker:
+  ros__parameters:
+    # 运行时只切换这一项即可复现 current_only/CV/Kalman/IMM 同场景消融。
+    motion_model: constant_velocity
+    # 全局门限分配避免交叉目标因轨迹遍历顺序交换 ID；greedy_nearest 仅保留作消融基线。
+    association_strategy: global_nearest
+    # 未标定真实检测噪声前保留 euclidean；实验时可切 mahalanobis，9.210 为二维 99% NIS 门限。
+    association_metric: euclidean
+    association_nis_gate: 9.210
+    association_distance_m: 0.8
+    velocity_smoothing: 0.65
+    measurement_noise_variance: 0.01
+    process_noise_variance: 0.2
+    imm_stationary_process_noise: 0.01
+    imm_maneuver_process_noise: 1.0
+    imm_stay_probability: 0.94
+    imm_stationary_velocity_decay: 0.2
+    track_timeout_s: 1.0
+    default_radius_m: 0.25

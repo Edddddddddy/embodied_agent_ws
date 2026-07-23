@@ -1,32 +1,8 @@
 online_agent:
   ros__parameters:
-    # mock: no key or audio device required; online: Qwen cloud pipeline.
-    mode: mock
-    microphone_enabled: false
-
-    audio_sample_rate: 16000
+    # 这里只保存在线 provider 专属配置。会话、队列、记忆等公共控制面默认值统一定义在
+    # agent_parameters.py；部署时可再由 launch 参数显式覆盖，避免 YAML/节点/launch 三处漂移。
     tts_sample_rate: 24000
-
-    wake_word_enabled: true
-    wake_words: ["小智", "你好小智"]
-    wake_word_aliases: ["小志", "小治", "晓智", "晓志"]
-    wake_active_timeout_s: 10.0
-    continuous_control_enabled: false
-    voice_session_timeout_s: 60.0
-    continuous_command_queue_size: 8
-    continuous_command_max_age_s: 30.0
-    speech_endpoint_events_enabled: true
-    external_wake_event_enabled: true
-    command_normalization_enabled: true
-    command_normalization_feedback_enabled: true
-    command_normalization_fuzzy_threshold: 0.82
-    # 留空时加载 embodied_online_agent/config/command_normalization_zh.yaml。
-    # 真实麦克风遇到新的 ASR 错词时，优先复制该文件并通过此参数覆盖。
-    command_normalization_path: ""
-
-    memory_path: "~/.ros/embodied_agent/memory.json"
-    memory_max_turns: 10
-    system_prompt_path: ""
 
     asr_model: "qwen3-asr-flash-realtime"
     asr_url: "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"

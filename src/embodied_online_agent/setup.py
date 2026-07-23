@@ -11,15 +11,9 @@ setup(
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml"]),
         ("share/" + package_name + "/launch", glob("launch/*.launch.py")),
-        ("share/" + package_name + "/config", glob("config/*.yaml") + glob("config/*.json")),
-        ("share/" + package_name + "/prompts", glob("prompts/*.txt")),
+        ("share/" + package_name + "/config", glob("config/*.yaml")),
     ],
     install_requires=["setuptools"],
-    extras_require={
-        "fuzzy": ["rapidfuzz>=3.0.0"],
-        "kws": ["openwakeword>=0.6.0"],
-        "livekit-kws": ["livekit-wakeword>=0.1.0"],
-    },
     tests_require=["pytest"],
     zip_safe=True,
     maintainer="Edddddddddy",
@@ -29,9 +23,6 @@ setup(
     entry_points={
         "console_scripts": [
             "online_agent = embodied_online_agent.online_agent_node:main",
-            "silero_vad = embodied_online_agent.silero_vad_node:main",
-            "keyword_wake = embodied_online_agent.keyword_wake_node:main",
-            "speaker_identity = embodied_online_agent.speaker_identity_node:main",
         ],
     },
 )

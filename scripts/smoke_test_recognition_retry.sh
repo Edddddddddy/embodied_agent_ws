@@ -18,8 +18,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if ! timeout 20 python3 \
-  "$WORKSPACE/tests/integration/test_recognition_retry.py"; then
+if ! timeout 20 bash "$WORKSPACE/tools/acceptance/run_probe.sh" \
+  "$WORKSPACE/tools/acceptance/probes/voice/recognition_retry.py"; then
   cat "$LOG_FILE" >&2
   exit 1
 fi

@@ -50,4 +50,8 @@ if ! ros2 service list | grep -Fx "$SERVICE" >/dev/null 2>&1; then
   exit 1
 fi
 
-python3 "$WORKSPACE/scripts/summer_tts_service_probe.py" --service "$SERVICE"
+python3 "$WORKSPACE/scripts/summer_tts_service_probe.py" \
+  --service "$SERVICE" \
+  --text "${SUMMER_TTS_CACHE_TEXT:-好的。}" \
+  --repeat "${SUMMER_TTS_CACHE_REPEAT:-2}" \
+  --require-cache-hit

@@ -16,11 +16,12 @@ fi
 source "$WORKSPACE/scripts/activate.sh"
 cd "$WORKSPACE"
 
-export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((240 + $$ % 40))}"
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((140 + $$ % 80))}"
 mkdir -p "$(dirname "$REPORT_PATH")"
 
 LIVE_CHECK_ARGS=(
   --scenario nav2
+  --agent-mode "$MODE"
   --duration "$CHECK_DURATION"
   --output "$REPORT_PATH"
   --min-asr "${CONTINUOUS_NAV2_LIVE_MIN_ASR:-4}"

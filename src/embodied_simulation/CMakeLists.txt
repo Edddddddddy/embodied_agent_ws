@@ -10,9 +10,9 @@ find_package(ament_index_cpp REQUIRED)
 find_package(behaviortree_cpp REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(embodied_agent_interfaces REQUIRED)
+find_package(embodied_agent_middleware REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(lifecycle_msgs REQUIRED)
-find_package(nlohmann_json REQUIRED)
 find_package(nav2_msgs REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
@@ -23,11 +23,13 @@ find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 
 add_library(simulation_control_core
+  src/active_action_runtime.cpp
   src/action_execution.cpp
   src/command_behavior_tree.cpp
   src/executor_diagnostics.cpp
   src/nav2_places.cpp
   src/node_configuration.cpp
+  src/robot_command_policy.cpp
   src/simulation_controller.cpp
 )
 set_target_properties(simulation_control_core PROPERTIES
@@ -37,12 +39,24 @@ target_include_directories(simulation_control_core PUBLIC
   $<INSTALL_INTERFACE:include>
 )
 ament_target_dependencies(simulation_control_core PUBLIC
-  behaviortree_cpp diagnostic_msgs embodied_agent_interfaces geometry_msgs)
+  behaviortree_cpp diagnostic_msgs embodied_agent_interfaces embodied_agent_middleware geometry_msgs)
+
+add_library(nav2_result_policy
+  src/nav2_result_policy.cpp
+)
+set_target_properties(nav2_result_policy PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(nav2_result_policy PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+ament_target_dependencies(nav2_result_policy PUBLIC nav2_msgs rclcpp_action)
 
 add_library(embodied_simulation_executors SHARED
-  src/robot_executor_plugins.cpp
+  src/gazebo_robot_executor.cpp
+  src/mock_robot_executor.cpp
+  src/nav2_robot_executor.cpp
 )
-target_link_libraries(embodied_simulation_executors simulation_control_core)
+target_link_libraries(embodied_simulation_executors simulation_control_core nav2_result_policy)
 ament_target_dependencies(embodied_simulation_executors
   ament_index_cpp embodied_agent_interfaces geometry_msgs nav2_msgs pluginlib rclcpp rclcpp_action)
 pluginlib_export_plugin_description_file(
@@ -50,10 +64,10 @@ pluginlib_export_plugin_description_file(
 
 add_library(simulation_control_component SHARED
   src/simulation_control_node.cpp
+  src/simulation_ros_io.cpp
 )
 target_link_libraries(simulation_control_component
   simulation_control_core
-  nlohmann_json::nlohmann_json
 )
 ament_target_dependencies(simulation_control_component
   ament_index_cpp diagnostic_msgs embodied_agent_interfaces geometry_msgs lifecycle_msgs rclcpp rclcpp_action
@@ -68,6 +82,7 @@ ament_target_dependencies(simulation_control_node rclcpp rclcpp_lifecycle)
 
 install(TARGETS
   simulation_control_core
+  nav2_result_policy
   embodied_simulation_executors
   simulation_control_component
   simulation_control_node
@@ -76,7 +91,7 @@ install(TARGETS
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 install(DIRECTORY include/ DESTINATION include)
-install(DIRECTORY config launch DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY config launch maps rviz worlds DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
@@ -92,8 +107,12 @@ if(BUILD_TESTING)
   target_link_libraries(test_simulation_controller simulation_control_core)
   ament_add_gtest(test_action_execution test/test_action_execution.cpp)
   target_link_libraries(test_action_execution simulation_control_core)
+  ament_add_gtest(test_active_action_runtime test/test_active_action_runtime.cpp)
+  target_link_libraries(test_active_action_runtime simulation_control_core)
   ament_add_gtest(test_command_behavior_tree test/test_command_behavior_tree.cpp)
   target_link_libraries(test_command_behavior_tree simulation_control_core)
+  ament_add_gtest(test_robot_command_policy test/test_robot_command_policy.cpp)
+  target_link_libraries(test_robot_command_policy simulation_control_core)
   ament_add_gtest(test_robot_executor_plugins test/test_robot_executor_plugins.cpp)
   target_link_libraries(test_robot_executor_plugins simulation_control_core)
   ament_target_dependencies(test_robot_executor_plugins pluginlib)
@@ -103,10 +122,14 @@ if(BUILD_TESTING)
   target_link_libraries(test_node_configuration simulation_control_core)
   ament_add_gtest(test_executor_diagnostics test/test_executor_diagnostics.cpp)
   target_link_libraries(test_executor_diagnostics simulation_control_core)
+  ament_add_gtest(test_nav2_result_policy test/test_nav2_result_policy.cpp)
+  target_link_libraries(test_nav2_result_policy nav2_result_policy)
+  ament_target_dependencies(test_nav2_result_policy nav2_msgs rclcpp_action)
 endif()
 
 ament_export_include_directories(include)
-ament_export_libraries(simulation_control_core)
+ament_export_libraries(simulation_control_core nav2_result_policy)
 ament_export_dependencies(
-  behaviortree_cpp diagnostic_msgs embodied_agent_interfaces geometry_msgs pluginlib)
+  behaviortree_cpp diagnostic_msgs embodied_agent_interfaces embodied_agent_middleware geometry_msgs
+  nav2_msgs pluginlib rclcpp_action)
 ament_package()

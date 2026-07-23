@@ -1,0 +1,7 @@
+int64 candidate_id
+builtin_interfaces/Time candidate_stamp
+uint32 rank
+float64 similarity
+uint32 sector_shift
+float64 yaw_offset_rad
+float64 ring_key_distance

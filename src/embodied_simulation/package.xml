@@ -13,6 +13,7 @@
   <depend>rclcpp_action</depend>
   <depend>rclcpp_components</depend>
   <depend>embodied_agent_interfaces</depend>
+  <depend>embodied_agent_middleware</depend>
   <depend>diagnostic_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>lifecycle_msgs</depend>
@@ -20,11 +21,16 @@
   <depend>rclcpp_lifecycle</depend>
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
-  <depend>nlohmann-json-dev</depend>
   <depend>pluginlib</depend>
   <exec_depend>embodied_agent_cpp</exec_depend>
+  <exec_depend>embodied_agent_bringup</exec_depend>
   <exec_depend>embodied_online_agent</exec_depend>
   <exec_depend>embodied_offline_agent</exec_depend>
+  <exec_depend>embodied_navigation</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>nav2_bringup</exec_depend>
+  <exec_depend>nav2_common</exec_depend>
   <exec_depend>nav2_lifecycle_manager</exec_depend>
   <exec_depend>ros_gz</exec_depend>
   <exec_depend>rviz2</exec_depend>

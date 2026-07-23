@@ -30,7 +30,7 @@ class Model:
 PY
 
 PYTHONPATH="$FAKE_PACKAGE_DIR:${PYTHONPATH:-}" \
-setsid ros2 run embodied_online_agent keyword_wake --ros-args \
+setsid ros2 run embodied_voice_frontend keyword_wake --ros-args \
   -p mode:=openwakeword \
   -p provider_name:=openwakeword_test \
   -p openwakeword_threshold:=0.5 \
@@ -39,26 +39,26 @@ setsid ros2 run embodied_online_agent keyword_wake --ros-args \
 KWS_PID=$!
 
 python3 - <<'PY' >"$PUBLISHER_LOG" 2>&1 &
-import json
 import time
 import rclpy
+from embodied_agent_core.ros_qos import audio_qos, state_qos
+from embodied_agent_interfaces.msg import AudioFrontendStatus
 from rclpy.node import Node
-from std_msgs.msg import String, UInt8MultiArray
+from std_msgs.msg import UInt8MultiArray
 
 rclpy.init()
 node = Node("voice_readiness_probe_publisher")
-audio_pub = node.create_publisher(String, "/audio/frontend_metrics", 10)
-pcm_pub = node.create_publisher(UInt8MultiArray, "/audio/clean_pcm", 10)
+audio_pub = node.create_publisher(
+    AudioFrontendStatus, "/audio/frontend_metrics", state_qos()
+)
+pcm_pub = node.create_publisher(UInt8MultiArray, "/audio/clean_pcm", audio_qos())
 deadline = time.monotonic() + 3.0
-metrics = json.dumps({
-    "rms": 0.025,
-    "peak": 1200,
-    "speech": True,
-    "dropped_input_frames": 0,
-    "dropped_playback_chunks": 0,
-})
+metrics = AudioFrontendStatus()
+metrics.rms = 0.025
+metrics.peak = 1200
+metrics.speech = True
 while time.monotonic() < deadline:
-    audio_pub.publish(String(data=metrics))
+    audio_pub.publish(metrics)
     pcm_pub.publish(UInt8MultiArray(data=[1, 0, 2, 0]))
     rclpy.spin_once(node, timeout_sec=0.02)
     time.sleep(0.03)

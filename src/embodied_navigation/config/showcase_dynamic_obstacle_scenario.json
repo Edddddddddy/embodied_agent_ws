@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "scenario_id": "showcase_crossing_cart_v1",
+  "world_name": "voice_slam_nav_showcase",
+  "entity_name": "crossing_cart",
+  "frame_id": "map",
+  "map_to_world_translation": {"x": -4.15, "y": -3.15},
+  "goal": {"name": "meeting_room", "x": 7.15, "y": 0.05},
+  "fallback_goals": [
+    {"name": "entrance", "x": 0.0, "y": 2.95},
+    {"name": "living_room", "x": 1.35, "y": 0.4}
+  ],
+  "prediction_horizon_s": 1.0,
+  "path_relative_motion": {
+    "path_fraction": 0.45,
+    "speed_mps": 0.5,
+    "minimum_anchor_lateral_clearance_m": 0.9,
+    "anchor_search_max_clearance_m": 1.5
+  },
+  "route_selection": {
+    "dynamic_path_retry_attempts": 3,
+    "retry_interval_s": 0.5,
+    "reset_wait_s": 1.2
+  },
+  "warmup": {
+    "sample_count": 4,
+    "interval_s": 0.32
+  },
+  "navigation": {
+    "sample_count": 4,
+    "interval_s": 0.28,
+    "hold_s": 1.2
+  },
+  "parking_world_pose": {"x": -15.0, "y": -15.0, "z": 0.4},
+  "thresholds": {
+    "minimum_track_confidence": 0.6,
+    "minimum_predicted_cost": 253,
+    "minimum_clearance_gain_m": 0.1,
+    "minimum_travel_distance_m": 1.0,
+    "minimum_moving_velocity_mps": 0.12,
+    "minimum_unique_navigation_plans": 2
+  },
+  "evidence_scope": "Same-session generated map + AMCL/Nav2; a visible Gazebo collision entity and matching typed detections drive tracker, prediction, costmap and replanning."
+}

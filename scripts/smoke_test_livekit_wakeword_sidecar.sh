@@ -30,7 +30,7 @@ class WakeWordModel:
 PY
 
 PYTHONPATH="$FAKE_PACKAGE_DIR:${PYTHONPATH:-}" \
-setsid ros2 run embodied_online_agent keyword_wake --ros-args \
+setsid ros2 run embodied_voice_frontend keyword_wake --ros-args \
   -p mode:=livekit \
   -p provider_name:=livekit_test \
   -p livekit_wakeword_models:="[fake_xiaozhi.onnx]" \
@@ -48,7 +48,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if ! timeout 15 python3 "$WORKSPACE/tests/integration/test_livekit_wakeword_sidecar.py"; then
+if ! timeout 15 bash "$WORKSPACE/tools/acceptance/run_probe.sh" "$WORKSPACE/tools/acceptance/probes/voice/livekit_wakeword_sidecar.py"; then
   cat "$LOG_FILE" >&2
   exit 1
 fi

@@ -34,6 +34,8 @@ class SummerTtsRosClient:
         self.sample_rate = 16000
 
     def synthesize(self, text: str) -> bytes:
+        if self._client is None:
+            raise SummerTtsRosError("SummerTTS ROS client is closed")
         if not self._client.wait_for_service(timeout_sec=self._timeout_s):
             raise SummerTtsRosError(
                 f"SummerTTS service not available: {self._service_name}"
@@ -57,3 +59,11 @@ class SummerTtsRosClient:
         if not response.ok:
             raise SummerTtsRosError(response.error or "SummerTTS service failed")
         return bytes(response.pcm)
+
+    def close(self) -> None:
+        """Lifecycle cleanup 时注销 ROS client，避免反复 configure 泄漏 entity。"""
+
+        if self._client is None:
+            return
+        self._node.destroy_client(self._client)
+        self._client = None

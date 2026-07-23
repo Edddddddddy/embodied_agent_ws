@@ -1,0 +1,351 @@
+# 版本历史归档
+
+> 本文件只保存历史里程碑，不是当前架构、完成度或路线图的权威事实源。当前包、接口和入口数量以
+> [自动生成的架构事实](../evidence/architecture_facts.md) 为准；当前验收口径见
+> [TESTING.md](../TESTING.md)；尚未完成的工作以 GitHub Issues 为准。
+
+详细架构见 [ARCHITECTURE.md](../ARCHITECTURE.md)，关键技术见 [三册学习笔记](../learning/)。
+
+> 当前待合并开发快照：`feature/voice-unknown-world-e2e` 已把公开入口增至 9 个，并新增
+> `voice-unknown-world-slam-e2e {offline|online}`。该入口用 schema v1 记录真实音频、VAD endpoint、
+> WakeEvent 授权和自动任务 ASR final，并内嵌同 session strict schema v4。核心 synthetic unknown-world
+> 现场验收已通过；真人语音联合入口仍作为独立可选验收，不冒充本次核心证据。
+
+本快照同时完成 unknown-world 收敛修复：all-blacklisted 先经过 `20 s` goal handoff grace，只有 provider
+typed attempts exhaustion/no-clearance 且 Action 账本排空才执行碰撞检查 BackUp 和 odom 位移验证。最后一
+次恢复扫描若仍显著扩图，会运行一次不 BackUp、不扫描、独立限时 `240 s` 的 final confirmation epoch，
+让 Explorer 消费 post-scan 地图。地图增益仍使用 `40 cells + known*0.2%` 双门槛，strict evaluator 阈值
+未下调；失败报告新增最后一帧 typed frontier/Action ledger。fresh strict session
+`20260720T165331Z-1770278-a421b687` 已通过：全局/最低区域覆盖 99.75%/98.30%，AMCL P95 0.133 m，
+3/3 动态采样目标、动态障碍重规划和最终新鲜零速全部 PASS；真人语音联合 PASS 仍留待现场验收。
+
+动态 challenge 改为沿本次 baseline path 搜索可绕行 anchor，锁存 TTL 窗口内的 lethal cost，并在清理时
+核对本次 Action terminal boundary 后的新鲜零速；失败路径也会归位实体并清空 tracker/costmap。相关
+确定性回归和上述同 session 长时 strict 报告均已通过。
+
+现场启动回归又修复了两类环境漂移：重型验收现在隔离宿主 `~/nav2_ws`，并在 manifest 留存 Nav2 包
+provenance；linked worktree 通过独立 `EMBODIED_RUNTIME_ROOT` 复用主工作区的 llama/GGUF/VAD/校准资产。
+readiness 会周期输出缺失 Lifecycle 组件，stage `FAILED` 会即时结束探针。短时真实回归已确认 synthetic
+入口进入自动探索并发布非零 `/cmd_vel`，真人 offline 入口能够启动 llama-server、Gazebo 与 RViz；完整
+strict/真人报告仍以之后不中断的现场验收为准。
+
+## 1. 阶段性版本记录
+
+| 阶段 | 主要目标 | 结果 |
+| --- | --- | --- |
+| 未知总面积自动收口与真实返航 | strict frontier 或多轮低收益 bounded saturation 安全静默；动态捕获起点并在 mapping stage 返航；慢 map_saver 前后双 typed STOP；再切 AMCL/Nav2 | schema v4 session `20260721T072342Z-2344751-5452a492` PASS：coverage 99.81%、区域最低 98.76%、AMCL P95 0.120 m、3/3 目标、动态重规划、返航及 fresh zero 全通过；运行时 truth 隔离且 evaluator 阈值未下调 |
+| Unknown-world 探索安全与恢复收口 | 分离 `0.33 m` traversal clearance 与 `0.40 m` 可观测容差；靠近目标前复核最新安全；累计有效逃逸 `≥2×0.15 m` 打断连续静止 timeout，但保留失败 approach 记忆；将 Nav2 `0.10 m/30 s` 实际 progress 参数写入 session YAML | fresh schema v4 session `20260720T031306Z-1114546-814430c3` PASS：coverage 99.67%、区域最低 97.76%、unknown 0.33%、障碍召回/false-free 80.93%/0.21%、AMCL P95 0.154 m、3/3 目标且最小间距 5.57 m、动态净空 0.0245→1.021 m、最终 fresh 零速；严格 evaluator 门槛未下调；PR #84 已合入 `dev` |
+| Unknown-world 自主闭环 | 去除静态真值、bootstrap 路线与固定目标先验，用 frontier 在线探索、本次保存图、AMCL 和运行时目标完成建图导航 | schema v4 真实 Gazebo session `20260719T235926Z-978092-3c6b24eb` PASS；覆盖、定位、3/3 目标、动态重规划与终态零速均达门槛 |
+| 初始骨架 | 创建 ROS 2 workspace，搭建在线 Agent、动作 topic、stub 节点 | 完成无密钥 mock 链路 |
+| 在线 Agent | 接入在线 ASR/LLM/TTS，设计 prompt、记忆、动作格式 | 完成在线接口 smoke 与动作解析 |
+| C++ 化与安全网关 | 将适合 C++ 的 ROS 节点迁移/新增为 C++，加入 ActionGuard | 完成动作校验、限幅、强类型转换 |
+| 离线 Agent | 接入 Sherpa/llama.cpp/Sherpa-TTS 适配与 mock 链路 | 完成离线结构、双缓冲、延迟统计、smoke 入口 |
+| 仿真控制 | 接入 Gazebo/TurtleBot3，打通 `/cmd_vel` 与 odom 验收 | 完成语音到 Gazebo 运动闭环 |
+| Nav2 风格规范化 | 引入自定义 msg/action、Lifecycle、BehaviorTree、pluginlib | 完成 typed Action、BT 编排、mock/Gazebo executor |
+| 丰富演示动作 | 增加前进、后退、转向、绕圈、正方形、演示序列 | 完成动作秀和安全演示 |
+| 连续语音控制 | 一次唤醒后连续说多条命令，支持队列和急停 | 完成 continuous offline/online 验收入口 |
+| 真实语音稳定性 | 修复尾部漏识别、重复识别、filler、queue_full 可观测性 | 完成 VAD profile、commit delay、短命令补全、monitor |
+| 阶段性文档收尾 | 整理 README、验收文档、学习笔记、关键中文注释 | 已完成主入口与分层文档收敛 |
+| 轻量 NLU 多命令 | 识别一句 ASR final 内的多个动作，并保证队列顺序 | 新增 CommandNLU、batch 可观测性、request_id/result 关联 |
+| 语音导航与巡航 | 支持语音目标点导航、多目标点巡航，并接入 typed Action 与 Nav2 bridge | 新增 navigate_to/follow_waypoints/cancel_navigation 协议、NLU、ActionGuard 校验、navigation-demo 和 nav2-bridge |
+| Nav2 bringup 入口 | 复用官方 Nav2 TurtleBot3 仿真 launch，接入本项目语音控制链路 | 新增 voice_nav2_turtlebot3.launch.py、nav2-preflight 和 nav2-turtlebot3 重型验收 |
+| Nav2 result 闭环 | 用 Nav2 action result 驱动本项目 ExecuteRobotCommand result | 新增 RobotExecutor external_action_update seam，避免导航 goal 按本地 duration 假完成 |
+| 真实 Nav2 验收修复 | 跑通 TurtleBot3/Nav2 目标点导航与多目标点巡航 | 修复官方 launch 布尔参数、AMCL initialpose 和导航长动作超时；`nav2-turtlebot3` PASS |
+| 真实麦克风 Nav2 连续导航 | 支持一次唤醒后连续说多个目标点/巡航命令并进入 Nav2 队列执行 | 新增 `continuous-nav2-offline/online`、AMCL initialpose 辅助脚本和 live-check 入口 |
+| 连续导航队列回归 | 自动验证连续会话中目标点导航与多目标点巡航不会丢队列 | 新增 `continuous-navigation`，覆盖多目标点 NLU、队列元数据和 request_id/result 关联 |
+| Nav2 韧性重型验收 | 用真实 Gazebo/雷达/costmap 证明动态重规划和不可达失败反馈 | 新增 `nav2-resilience`，动态插入前方障碍、比较全局路径净空，并验证地图外目标 aborted 与停车 |
+| Nav2 现场验收增强 | 让真实麦克风辅助计分更贴近导航目标 | `continuous-nav2-live-check` 额外要求出现 `navigate_to` 与 `follow_waypoints` |
+| 真实麦克风验收留证 | 让现场验收结果可保存、可复查 | `CONTINUOUS_LIVE_CHECK_REPORT=...` 可导出 live-check 证据报告 |
+| 真实麦克风报告复核 | 让现场报告可以脱离仿真环境二次判定 | 新增 `continuous-live-report` / `continuous-nav2-live-report` |
+| 一键式 Nav2 现场留证 | 降低真实麦克风 Nav2 验收操作复杂度 | 新增 `continuous-nav2-evidence`，单终端启动控制、计分、保存报告并清理进程 |
+| 一键留证 dry-run | 让现场验收脚本可自动测试、可提前检查参数 | `CONTINUOUS_NAV2_EVIDENCE_DRY_RUN=true` 打印控制/计分命令但不启动仿真 |
+| 成熟 VAD 自动选择 | 连续语音默认优先使用可用的 Silero VAD，缺依赖时降级 energy | `VAD_PROVIDER=auto`、`voice_provider_preflight.py` 自动解析、普通/Nav2 连续脚本统一 |
+| 自然多目标导航话术 | 提升真实语音目标点/巡航表达容错 | 支持“先去门口再去书桌最后回起点”“巡逻门口书桌起点”，同时保留两目标语句拆成多个 `navigate_to` 入队 |
+| 自然导航验收入口 | 将自然多目标话术纳入 ROS pipeline 回归 | 新增 `continuous-navigation-natural`，覆盖自然话术到 `follow_waypoints` 队列执行 |
+| Sherpa-ONNX ASR-only 部署 | 开始真实部署离线 ASR 推理框架，先隔离验证 ASR 层 | 新增 `setup_sherpa_asr_runtime.sh`、`sherpa_asr_smoke.py`、`sherpa-asr-preflight/smoke` 验收入口 |
+| Sherpa-ONNX 离线完整链路验证 | 验证真实 Sherpa 语音模型进入 ROS2 typed Action 控制闭环 | 新增 `offline-sherpa-typed`，覆盖 Sherpa-TTS 音频、ZipFormer ASR、Offline Agent、ActionGuard、ExecuteRobotCommand、`/cmd_vel` |
+| 离线 TTS 版本收口 | 固定 llama.cpp / SummerTTS / sherpa-onnx 版本并补充低延迟 gate | 新增固定版本探针、`offline-runtime-versions`、`offline-latency` |
+| SummerTTS 服务化 | 将 SummerTTS 从命令行 provider 升级为常驻 C++ ROS service | 新增 `SynthesizeSpeech.srv`、`summer_tts_service`、`tts_provider:=summer_ros`、`summer-tts-service` |
+| SummerTTS 短文本缓存 | 优化“收到/好的/正在执行”等重复反馈的服务延迟 | `SynthesizeSpeech.srv` 增加 `cache_hit`，`summer_tts_service_probe.py` 输出首轮/缓存命中耗时 |
+| 指令解析评测增强 | 把 deterministic parser 证据从 seed 样例扩展为代表集 | `robot_instruction_eval.jsonl` 扩展到 43 条，覆盖速度/距离/角度/时长/地点槽位及长动作分段，`instruction-parser-eval` 输出分 tag 指标与失败用例 |
+| 求职展示版收口 | 固定演示路径、汇报稿、代码走读地图和发布门禁 | 新增 `PRESENTATION_15MIN.md`，README 指向阶段发布 gate |
+| Nav2 演示资产本地化 | 减少对官方 `tb3_sandbox` map/world 入口的展示依赖 | 新增 `voice_demo.yaml`、`voice_demo.sdf.xacro`，`nav2-assets` 审计本地 map/world/RViz |
+| 真实感语音 SLAM/Nav2 主演示 | 把语音探索、在线建图、地图保存、重启定位和语义导航串成可观看闭环 | 新增四区域公寓/办公室场景、单清单资产生成、SLAM/world 双坐标地点、spawn/AMCL 位姿解耦及两条 Gazebo 重型门禁 |
+| 单终端 SLAM 会话编排 | 删除主演示对第二终端和人工重启的依赖 | 新增 `SlamSessionState`、`ManageSlamSession`、显式状态机和进程 Adapter；办公巡检任务以 15 个语音语义动作完成 10 m 以上建图路径，真实存图并重启 AMCL/Nav2，随后验证入口单点导航和厨房/办公室多航点巡检 |
+| 自动建图与导航任务 | 用一句语音替代人工逐步驾驶和阶段命令 | 固定 Explore Lite 提交完成 frontier 探索；覆盖平台期处理不可达边界，自动存图、等待 Nav2 Lifecycle ACTIVE、执行入口与厨房/办公室巡检；重型报告保留地图、Action 和最终零速证据 |
+| 当时的 SLAM/Nav2 统一门禁 | 防止预生成地图或旧报告被误计为当次验收 | 新增 `slam-nav-e2e` 的独立会话、新地图与哈希、frontier/里程、AMCL/Lifecycle、语义导航和零速报告；该入口现已明确归类为 known-world 历史回归 |
+| 可视动态障碍重规划 | 证明感知预测真正影响本次 Nav2 规划，而不只运行算法 fixture | Gazebo 红色碰撞实体、typed track、预测 costmap layer 和路径相对运动场景串联；要求预测代价、净空增益、唯一规划数、导航成功和停车全部达标 |
+| SLAM→导航进程所有权 | 消除建图 Gazebo 残留导致导航阶段无 world/odom 的竞态 | `StageProcessManager` 在父脚本退出前快照 `/proc` 子树，以 PID starttime 防复用误杀，并回收脱离父进程组的 Gazebo server；增加 `setsid` 回归测试 |
+| 自动导航严格终态 | 消除 FollowWaypoints 协议成功但漏点的验收假阳性 | `evaluate_follow_waypoints_result()` 要求 error_code=0 且 missed_waypoints=0；输出漏点 index/error code，monitor 同步分类；项目级 Nav2 progress checker 使用 0.10 m/30 s 适配 WSL/Gazebo 低实时率；重型回归得到 12,348/799 已知/占用栅格、厨房与办公室零漏点、最终零速 |
+| 自动探索角落脱困 | 避免充电角外墙 frontier 长期占用探索预算 | 增加 move/turn-only bootstrap route，经 Agent→ActionGuard→Action 自动驶入中央门洞，再由 Explore Lite 决定未知区域目标；预算终态只有覆盖达标才允许存图 |
+| 成熟 VAD 预检闭环 | 降低真实麦克风现场排障成本 | `provider-preflight` 输出 `recommendations`，连续语音启动时提示 WebRTC/Silero setup 命令 |
+| WebRTC VAD 运行时验收 | 让成熟 VAD 不只停留在 preflight | 新增 `webrtc-vad-sidecar`，验证 WebRTC VAD sidecar 可启动并接管 endpoint |
+| Sherpa KWS 部署闭环 | 让声学唤醒路径可复制验收 | `setup_voice_kws_runtime.sh sherpa` 生成 `logs/sherpa_kws.env`，`sherpa-kws-sidecar` 验证真实 KeywordSpotter 启动 |
+| KWS 阈值校准闭环 | 让现场 KWS 分数能直接变成下一轮参数 | `voice-calibration-report` 写出 `OPENWAKEWORD_THRESHOLD` / `LIVEKIT_WAKEWORD_THRESHOLD` 推荐值 |
+| Silero ONNX 轻量运行时 | 让成熟 VAD 不依赖 PyTorch 并具备真实推理证据 | 固定 v6.2.1 模型/哈希，纯 ONNX state/context 推理，ROS endpoint 与延迟报告通过 |
+| 离线性能证据收口 | 统一 ASR、LLM、TTS、tokens/s 和真实 E2E 指标 | 增加运行时预热、单槽 prompt cache、`offline-voice-e2e-report` 和严格证据审计；本轮端到首 PCM 多次运行约 1.32–2.11s |
+| 动作控制面全强类型化 | 删除 Agent→ActionGuard 的 JSON 适配层，让候选、受信命令、反馈和结果都使用自定义 ROS 2 接口 | 新增 `RobotCommandFeedback` / `RobotCommandResult`，Agent 直接发布 `RobotCommand`，C++ ActionGuard 直接校验字段；JSON 只保留在日志、指标和硬件协议边界 |
+| C++ Action 调度收敛 | 将受信动作的执行顺序、Action Client、优先取消和状态观测从 Python 收敛到 C++ | 新增可独立测试的 `ActionScheduler`，组合动作批量进入 C++ FIFO；显式 `priority` 区分急停与计划 STOP，并增加取消 watchdog、稳定错误码、`/diagnostics` 和 `cpp-action-scheduler` 验收 |
+| 命令生命周期中间件强类型化 | 删除队列/执行事件的 `String + JSON` ROS 契约并统一 QoS | 新增 `CommandContext`、`CommandQueueEvent`、`CommandExecutionEvent`；online/offline、monitor、live-check 和集成探针统一使用 typed msg；命令事件 reliable，当前状态 transient-local |
+| 语音控制面事件强类型化 | 将唤醒、识别反馈和 NLU 解析从通用字符串中拆出 | 新增 `WakeEvent`、`RecognitionFeedback`、`NluParseEvent` 及槽位/改写子消息；识别状态与 NLU 动作序列分 topic，online/offline 和验收探针使用同一转换边界 |
+| Agent 公共控制面收敛 | 删除 online/offline 中重复的会话入口、队列组件初始化和 typed publisher 实现 | 新增无 ROS 依赖的 `AgentControlPlane` 与独立 `RosAgentEventPublisher` Adapter；统一参数映射、归一化、补全、重试、急停/导航取消决策和 batch id |
+| 运行状态中间件强类型化 | 清理音频、VAD/KWS、仿真状态、ACK 和 BT 状态的 `String + JSON` 契约 | 新增 7 个运行状态 msg 与统一转换 Adapter；VAD/KWS provider、C++ 仿真/硬件节点、monitor 和验收探针共享同一 schema，JSON 仅保留为报告文件格式 |
+| 声纹记忆模块收敛 | 删除 online/offline 重复的记忆命令状态分支和声纹 JSON topic | 新增 `MemoryCommandService` 深模块及 3 个声纹 typed msg；身份门槛、偏好生命周期、录入请求和 interaction 记录使用同一实现 |
+| 仿真动作运行时收敛 | 缩小 Lifecycle 节点职责，消除定时动作、Nav2 result 与 BT 的平行状态机 | 新增 `ActiveActionRuntime`，统一进度、取消、超时、外部 result 和 BT 终态映射，并增加纯 C++ 单测 |
+| 仿真 ROS I/O 收敛 | 避免控制节点同时维护业务状态、publisher 生命周期和 DDS 细节 | 新增 `SimulationRosIo`，统一 7 个 managed publisher、命名 QoS、ACK/BT 映射与去重，节点缩减到 800 行以内 |
+| executor 后端隔离 | 避免简单 Gazebo/Mock 后端和 Nav2 Action client、线程、地图加载耦合在同一编译单元 | 按 Gazebo、Mock、Nav2 拆为三个 pluginlib 实现文件，保持稳定插件名称和公共 `RobotExecutor` 契约 |
+| 真实语音 profile 收敛 | 消除普通控制与 Nav2 入口各自维护 normal/quiet/low_gain/noisy_room 参数表造成的漂移 | 新增 `voice_control_profile.sh` 作为唯一解析器，场景只覆盖会话基线，显式环境变量仍拥有最高优先级 |
+| voice frontend launch 收敛 | 消除 online/offline 对音频、VAD、KWS、声纹参数和节点的整段复制 | 新增 `voice_frontend_launch_contract.py`，统一 31 个参数和 5 个节点；在线 launch 缩至约 100 行、离线约 156 行 |
+| Agent 安全部署拓扑收敛 | 避免 ActionGuard/Lifecycle manager/硬件 Adapter 顺序与参数在 online/offline 漂移 | 新增 `agent_deployment_launch_contract.py`；统一正序激活、逆序停机及 UART/SPI 类型，在线 launch 进一步缩至约 57 行、离线约 123 行 |
+| 仓库契约测试分区 | 避免结构、部署、语音和仿真守卫继续堆积在 1700 行单文件 | 按 architecture/delivery/voice_runtime 拆为三组，共享只读路径工具；54 项契约保持通过并增加文件规模守卫 |
+| 可度量 SLAM 闭环 | 不把启动现成建图包当作完成，量化漂移与回环修正 | 新增固定 seed 漂移注入、闭环路线、ATE/闭环误差/地图覆盖报告和 Ceres/GTSAM 同前端 A/B |
+| GTSAM 后端插件 | 自己实现可替换的位姿图后端并接入真实建图流程 | 新增纯 Pose2 optimizer、协方差正定防护及 `karto::ScanSolver` pluginlib Adapter |
+| 地图复用定位导航 | 证明建图产物能在新进程中用于任务执行 | 保存 5 cm 地图，完成 AMCL `map->odom`、Nav2 plan、NavigateToPose 和零速收尾 |
+| 预测动态避障 | 从“检测当前障碍”升级为“估计速度并占用未来轨迹” | 新增 typed track、常速度预测深模块、Nav2 costmap layer；实测路径净空由约 0.011 m 提升到约 0.976 m |
+| 动态目标全局数据关联 | 消除逐轨迹贪心匹配对遍历顺序的依赖，降低交叉/冲突观测导致的 ID 碎片 | 新增带私有 dummy 的门限矩形匈牙利分配；固定冲突中由 1/2 既有轨迹更新、1 个碎片改进为 2/2 更新、0 碎片，默认 `global_nearest`，保留贪心作消融 |
+| bringup 包分层 | 修正共享 launch contract 放在领域 core 中造成的部署依赖反向污染 | 新增 `embodied_agent_bringup`，依赖方向统一为 bringup → core/voice/C++；core 移除 launch/launch_ros 依赖 |
+| 控制命令启动可靠性 | 修复 DDS discovery 完成前 Guard 发布的 volatile 动作静默丢失 | 新增有界 TTL `GuardedCommandOutbox`；scheduler 匹配后 FIFO 转发，超时/满载明确拒绝，不回放陈旧动作 |
+| C++ 中间件契约收敛 | 清理跨节点散落的 QoS depth 与不一致策略 | 新增独立 `embodied_agent_middleware` 包，统一 command/event/state/sensor/audio/diagnostics QoS，并迁移控制主链路 |
+| 公开数据 SLAM 评估层 | 把仿真闭环指标升级为可复用的真实轨迹评价工具 | 新增 ROS 1/2 bag Adapter、OpenLORIS 真值校验、固定尺度 SE(2) 对齐、ATE/RPE/回访/退化段报告和无下载 CI 门禁 |
+| OpenLORIS 双后端回放 | 让公开 bag 直接驱动项目 SLAM，而不只导出 odom | 新增单调时钟、隔离 TF、重复帧过滤、map-frame recorder、Ceres/GTSAM 真实 A/B 入口和小 bag 双后端门禁 |
+| OpenLORIS 实验可复现性 | 让大型公开数据和精度数字具备来源链 | 新增断点续传/哈希/安全解包、运动退化分段、人工标注边界和 commit/config/artifact manifest |
+| OpenLORIS 真实回访证据 | 区分“轨迹回到附近”与“前端实际接受回环” | 选择 `office1-7`，按 tar 成员 range 下载并双哈希；新增真值事件聚合、GTSAM accepted-edge 日志和 false-loop/event-recall 报告 |
+| Karto 回环前端可观测性 | 把“无 accepted loop”定位到候选、粗匹配、细匹配或约束插入阶段 | 新增 C++ 生命周期诊断节点、候选链规则复算、原生 matcher callback、JSONL 汇总和 manifest 绑定；office1-7 当前定位为 near-linked 排除 |
+| OpenLORIS 长环路序列筛选 | 避免只看真值排名或先下载十几 GB bag 才发现传感器不兼容 | 真值包支持断点续传/缓存；批量比较 22 条轨迹；`market1-3` 因完整 bag 缺少 `/scan` 被拒绝，传感器 profile 正式选择约 272.5 s / 220.1 m、含 2 次位置长回访的 `corridor1-1`；range 与 bag 固定 commit/大小/SHA256 |
+| GTSAM 鲁棒核固定图消融 | 排除异步回放前端差异，量化错误非局部边对后端的影响 | 导出 1834 节点/2751 约束去重图；同 SHA256 比较 none/Huber/Cauchy；Cauchy non-local ATE 1.2236 m，较 Gaussian 下降 32.90%，同时保留“不改善前端 precision”的边界 |
+| 非局部边几何一致性门控 | 在鲁棒核前拒绝与当前图预测明显冲突的候选边，并保持运行时不依赖真值 | 固定图上拒绝 23 条约束；Cauchy + gate ATE 1.1713 m，较 Gaussian 下降 35.77%；因累计漂移可能误拒真回环，默认关闭 |
+| LaserScan 双证据约束复核 | 用传感器几何补充位姿创新，避免只凭当前图硬门控 | 原始 `/scan` + 静态 TF 为 858 条非局部边全部生成重叠率；双证据额外拒绝 11 条，ATE 1.1521 m；同时记录 naive 阈值敏感反例，默认关闭等待多序列验证 |
+| DDS domain 上界护栏 | 避免 PID 取模生成 Fast DDS 无法映射端口的 domain | 修正连续语音/Nav2/OpenLORIS 等 6 个入口，并用仓库测试保证所有公式最大值不超过 232 |
+| 系统就绪状态收敛 | 替代 launch/test 中分散的固定 sleep、topic graph 猜测和日志字符串判断 | 新增 `ComponentHealth`、`SystemReadiness`、心跳超时聚合器和 profile 化启动门禁；保留音频/仿真数据质量探针 |
+| Agent 参数与 launch 契约收敛 | 消除 online/offline 节点、YAML、Gazebo/Nav2 launch 中重复默认值和转发映射 | 新增共享参数 schema、ROS range/enum 描述、启动前校验、只读快照与组合 launch 转发契约；provider YAML 仅保留模型配置 |
+| Agent 并发运行时收敛 | 消除端点 timer、busy/worker 和多命令 NLU 入队的双份状态机 | 新增 `AsrEndpointRuntime`、`AgentExecutionRuntime` 和 `CommandEnqueueDecision`；统一异常隔离、busy 复位、batch metadata 与关闭时 timer/cancel 语义 |
+| LLM 流式协议收敛 | 消除 online/offline 的 token parser、TTS 分句与动作选择双份实现 | 新增 `StreamingTurnRuntime/Result`；统一格式错误回退、确定性动作优先级、语义安全阻断和记忆动作口径，provider 仅保留 TTS/latency adapter |
+| LoRA/Q8 证据收口 | 真实完成训练、量化和同口径基线对照，不再只提供 dry-run | 96 条确定性训练集与 43 条独立 holdout 无文本重叠；动作语义 30.23%→53.49%，严格总分仍为 25.58%；训练、提示词、GGUF 和报告由 SHA256 审计绑定 |
+| 用户上下文一致性收敛 | 消除身份、画像 prompt、偏好和低置信度写保护的双份节点逻辑，并修复异步声纹切换竞态 | 新增 `UserContextRuntime/Snapshot`；命令入队时冻结身份/偏好，prompt、动作与 interaction 共用同一快照；预解析动作恢复归入 `AgentControlPlane` |
+| Agent Lifecycle 资源治理 | 让 online/offline 的生命周期状态对应真实 provider、线程和 publisher，而非只保留进程级启停 | 两个 Agent 升级为 `LifecycleNode`；configure/activate/deactivate/cleanup/on_error 统一资源边界，managed publisher、协作取消、安全 STOP、STOPPED health、manager 依赖顺序和 cleanup 后重建均有自动验收 |
+| Agent ROS I/O 契约收敛 | 消除 online/offline 节点重复接线、topic 字符串和 QoS 漂移 | 新增 `AgentRosIo`、不可变 `AgentTopicContract` 与 `audio_qos`；节点只注入 callback，PCM best-effort、控制 reliable、状态 latched，并在 inactive 关闭健康心跳 |
+| Agent turn 指标强类型化 | 删除在线/离线双 topic 与 `String + JSON` 指标协议 | 新增 `AgentTurnMetrics` 和唯一 `metrics_transport.py`；统一 `/agent/metrics`，source 区分模式，NaN/三态 target 表达缺失值，监控与验收共享转换 Adapter |
+| Agent Lifecycle 编排收敛 | 消除 online/offline 对 active/stopping、endpoint、execution 和安全停机顺序的双重所有权 | 新增组合式 `AgentLifecycleRuntime`；统一 bind/activate/deactivate/release/shutdown、priority STOP 与 quiescence 报告，provider 仅注入输入启停 hook |
+| Agent 包依赖收敛 | 消除 offline 复用 online 内部业务模块和语音 sidecar 形成的反向依赖 | 新增 `embodied_agent_core` 与 `embodied_voice_frontend`；公共领域/编排/记忆/transport 和 VAD/KWS/声纹 Adapter 分别归位，online/offline 只保留各自 provider |
+| Python/C++ QoS 语义对齐 | 删除 VAD/KWS/声纹节点手写 QoS 和跨语言命名漂移 | Python/C++ 统一 command/event/state/sensor/audio/diagnostics 六类 profile；KWS score 与 PCM 使用 best-effort，身份/健康使用 transient-local，控制和事件保持 reliable + volatile |
+| C++ 运行时模块与 bridge 生命周期收敛 | 避免 control/audio/hardware 因单一库产生无关链接，并让调度器具备可管理启停语义 | 同一 ROS 包内拆为 3 个 CMake target；typed bridge 注册 component 并升级 Lifecycle，显式 callback group、inactive 拒绝、deactivate 取消清队列及 cleanup 后重建均有验收 |
+| Agent 应用层与 turn 数据面收敛 | 删除 online/offline 重复的 transcript、记忆、队列、用户快照、动作批次和模型 turn 编排 | 新增组合式 `AgentApplicationRuntime` 与在线/离线 `*StreamingTurnRuntime`；主节点缩至 543/676 行，provider 差异通过 callback 注入且公开 ROS 契约不变 |
+| 运行时证据口径收口 | 避免短时、fixture、fallback 后结果被误写成真实长稳或模型原始能力 | 在线/离线分别生成 5 分钟报告，增加 Agent 模式、queue reject、P50/P95 和统一事实汇总；缺失或失败证据明确标记，不阻塞无麦克风 CI |
+| 离线 E2E Lifecycle 就绪探针 | 修复 Agent 已激活但 smoke 仍等待旧 `ready` 日志直至超时 | 复用 Lifecycle `GetState` 服务，以只读 wait policy 等待 active；Lifecycle manager 保持唯一转换者，当前真实模型 fixture 整轮 1428.6 ms |
+| LiDAR 回环候选检索 | 补齐“后端门控只能复核已接受边、无法度量前端漏检”的证据缺口 | 新增 C++ 极坐标环键 Top-K 与循环偏航对齐；两条 OpenLORIS 序列 Recall@10 为 33.51%/62.75%、事件召回 4/4，但低 precision 使发布决策限定为 shadow scan matcher，不直接插图 |
+| LiDAR 影子扫描匹配 | 验证 Top-K 候选能否形成安全相对位姿，而不是把检索命中误写成回环边 | 新增 C++17 多初值粗到细 trimmed ICP、走廊半周歧义检测、里程计偏航先验与多序列 release gate；平均 accepted precision 21.10%、事件恢复 1/4，因此保持 shadow-only，禁止直接插图 |
+| LiDAR 在线候选组件 | 将离线候选算法接入实际建图数据流，同时隔离低精度算法风险 | 新增 typed candidate msg、C++ 深模块、Lifecycle/component、`/scan` Adapter 与 DDS 烟测；默认随建图旁路运行，固定 `shadow_only=true`，不写位姿图 |
+| LiDAR 在线几何验证组件 | 将在线 Top-K 候选继续送入真实几何门限，而不把相似度当作闭环 | 新增 typed verification msg、有界时间戳扫描缓存、粗到细 ICP Lifecycle/component 和跨 topic pending 关联；输出 RMSE/overlap/observability/拒绝原因，仍固定 shadow-only、不持有写图接口 |
+| LiDAR 在线局部子图验证 | 让运行时几何路径与已验证的离线子图消融一致，并处理多 topic 乱序 | 扫描/里程计双缓存、50 ms 时间关联、短窗口 scan-to-submap、贡献帧 typed 证据及扫描/里程计晚到恢复；继续 shadow-only |
+| LiDAR 回环约束两阶段门控 | 把“几何通过”与“允许写图”拆成可审计边界，避免上游抖动或弱匹配直接污染位姿图 | 新增纯 C++ 质量门、单 query 择优、pair 去重、限频、固定协方差及 typed decision/result；Karto Adapter 默认关闭，运行时验证 shadow 和无扫描 commit 均被拒绝 |
+| LiDAR 多帧时序一致性门 | 抑制重复走廊中单帧 ICP 偶然高分直接进入后端 | 新增纯 C++ 连续确认状态机与离线 replay；两序列同参数下聚合 precision 13.21%→31.25%、recall 12.57%→2.99%，因此保留 shadow-only 并明确精度/召回权衡 |
+| GTSAM 可切换回环约束 | 避免硬阈值在累计漂移时直接误拒真回环，让每条已接受非局部边由后端联合估计可信度 | 新增三变量 SwitchableBetweenFactor、ROS/CLI 参数和两序列固定图门禁；加权 ATE 0.9196 m，较 Gaussian/Cauchy 下降 43.28%/15.57%，在线仍默认关闭 |
+| 架构事实与发布门禁防漂移 | 避免包数量、脚本/模式规模、节点行数和 CI/release-gate 覆盖随迭代再次失真 | 新增确定性 JSON/Markdown 架构报告和 repository contract；数量以每次构建生成的事实报告为准，不在历史文档中固化 |
+| 自动建图主演示部署收口 | 修复 worktree 静默加载主工作区旧 install、缺 Explore Lite 到运行期才失败的问题 | 公共入口从自身路径解析并 export `WORKSPACE`；激活器恢复 shell 选项；bootstrap 默认安装 pinned Explore Lite；stage/主演示前检查 package prefix 与自动任务 Action contract |
+| 顶层文档权威性收口 | 让部署、架构、调用链、验收和 15 分钟汇报与一句话自动任务一致 | README、架构、测试、学习和汇报文档统一写明文件、函数、上下游、设计原因和证据边界 |
+| 验收路由契约收敛 | 消除按 mode 名猜领域和隐藏位置参数造成的重命名、online/offline 参数漂移风险 | 全部 mode 显式声明 `HandlerDomain`；runner 只传用户参数；删除与 `slam-nav-e2e` 重复的旧重型别名 |
+| Unknown-world SLAM/Nav2 自主闭环 | 去除固定路线/语义坐标对自主探索的先验泄漏，建立覆盖、定位和动态目标的正式验收 | session `20260719T235926Z-978092-3c6b24eb` schema v4 PASS：总体/四区域覆盖 100%、reachable unknown 0%、AMCL P95 0.189m、3/3 动态目标、动态重规划及新鲜零速度通过；`slam-nav-e2e` 保留为 known-world 回归 |
+
+## 2. 历史阶段结论（非当前验收口径）
+
+当前项目已经达到“语音输入 → 大模型/规则动作解析 → ROS 2 安全校验 → Gazebo 仿真控制”的主链路目标。
+
+已具备的展示点：
+
+- ROS 2 C++ 节点：音频前端、ActionGuard、typed action bridge、仿真执行层；动作控制面不再依赖 JSON 字符串解析。
+- Python Agent：在线/离线 provider、连续语音会话、命令队列、LLM/TTS 编排。
+- 工程化接口：自定义 msg/action、Lifecycle、BehaviorTree.CPP、pluginlib。
+- 演示能力：真实麦克风连续语音、多动作序列、急停抢占、Gazebo 运动验证。
+- 多命令能力：一条 ASR final 可被轻量 NLU 解析为多个队列项，并按 ROS 2 Action result 顺序执行。
+- 导航演示能力：支持“去门口”“前往书桌”“依次去门口、书桌、起点”等语音目标点/多点巡航命令，并通过 typed Action 驱动仿真 executor、Nav2 action bridge 或完整 TurtleBot3/Nav2 bringup。
+- SLAM/避障能力：受控漂移建图、回环优化、Ceres/GTSAM A/B、地图复用定位规划，以及基于速度预测的动态障碍 costmap 插件。
+- 测试体系：单元测试、集成 smoke、Gazebo 验收、真实麦克风辅助统计。
+- 汇报材料：已补充 15 分钟项目汇报与代码走读稿，便于按链路讲解关键文件和技术取舍。
+
+需要谨慎表述的边界：
+
+- 当前硬件控制是预留/mock，不是实体机器人完整验收。
+- 当前已提供 TurtleBot3/Nav2、地图构建/复用和预测动态避障重型验收；真实 rosbag 回放报告和实体机器人仍是后续证据。
+- 离线 LoRA 训练、合并、Q8 与 43 条合成 holdout 对照已复现；只能引用动作语义
+  30.23%→53.49% 和严格总分 25.58% 等实测值，不外推为真实语音准确率。
+- openWakeWord、LiveKit WakeWord 仍是可选 seam/preflight；Silero VAD 已有轻量 ONNX 真实运行时，
+  但模型仍保持可选下载，CI 不强制携带大模型资产。
+
+## 3. 历史验收入口快照
+
+> 下面的命令只用于追溯当时的演示范围。当前公开入口、参数与通过标准必须以
+> [TESTING.md](../TESTING.md) 和 `bash scripts/acceptance_test.sh --help` 为准。
+
+基础自动验收：
+
+```bash
+bash scripts/acceptance_test.sh mock
+```
+
+连续语音自动验收：
+
+```bash
+bash scripts/acceptance_test.sh continuous-endpoint
+bash scripts/acceptance_test.sh continuous-mock
+bash scripts/acceptance_test.sh continuous-multi-command
+bash scripts/acceptance_test.sh continuous-queue-full
+bash scripts/acceptance_test.sh voice-readiness
+```
+
+语音导航/巡航验收：
+
+```bash
+bash scripts/acceptance_test.sh nav2-stage
+bash scripts/acceptance_test.sh navigation-demo
+bash scripts/acceptance_test.sh continuous-navigation
+bash scripts/acceptance_test.sh nav2-bridge
+bash scripts/acceptance_test.sh nav2-preflight
+bash scripts/acceptance_test.sh nav2-turtlebot3
+```
+
+Sherpa-ONNX ASR-only 验收：
+
+```bash
+bash scripts/acceptance_test.sh sherpa-asr-preflight
+bash scripts/acceptance_test.sh sherpa-asr-smoke
+bash scripts/acceptance_test.sh offline-sherpa-typed
+```
+
+真实麦克风 Nav2 连续导航验收：
+
+```bash
+bash scripts/acceptance_test.sh continuous-nav2-offline
+CONTINUOUS_LIVE_CHECK_DURATION=240 bash scripts/acceptance_test.sh continuous-nav2-live-check offline
+```
+
+Gazebo 验收：
+
+```bash
+bash scripts/acceptance_test.sh gazebo
+bash scripts/acceptance_test.sh gazebo-voice
+bash scripts/acceptance_test.sh gazebo-voice-online
+```
+
+真实麦克风验收：
+
+```bash
+bash scripts/acceptance_test.sh continuous-offline
+bash scripts/acceptance_test.sh continuous-live-check offline
+```
+
+## 4. 历史路线图快照
+
+> 这些条目保留当时的技术判断，不表示仍是待办；当前计划只在 GitHub Issues 中维护。
+
+### P0：保持演示稳定
+
+- 优先保证 `voice-slam-workplace-demo offline` 能从一句语音完成 frontier 探索、存图、AMCL/Nav2
+  切换与语义巡检，并留下地图、Action result 和最终零速证据。
+- 保持 `embodied_resolve_workspace` 与 `embodied_workspace_doctor` 门禁，禁止 worktree 加载主工作区
+  install，禁止缺 Explore Lite 时进入重型演示。
+- 保留 `continuous-offline/online` 作为语音上游验收，继续用独立的 5 分钟报告量化识别率、动作
+  成功率、误触发、queue reject 与 P50/P95，不用自动测试冒充真人长时间证据。
+- 阶段发布前运行 core、自动任务 stage、真实 Gazebo 自动任务和人工麦克风主演示，并保存报告。
+
+### P1：增强 ROS 2/C++ 求职展示价值
+
+- 对 frontier 覆盖率、探索耗时、地图已知栅格增长、重定位时间和导航成功率形成可重复指标。
+- 将自动任务的进程管理逐步收敛为更明确的 Lifecycle/launch service 边界，但先保持现有稳定入口。
+- 对关键 C++ 安全、调度、BT/pluginlib、SLAM 后端和动态障碍模块补充 launch test 与故障注入。
+
+### P2：补齐端侧部署故事
+
+- 固化离线模型下载、量化、启动 llama.cpp server 的流程。
+- 增加离线 benchmark 报告模板。
+- 继续评估 SummerTTS 量化、缓存或更快声码器；当前 `summer_ros` 证明服务化封装，不作为低延迟默认路径。
+
+### P3：真实数据与导航消融
+
+- 已补齐 OpenLORIS ROS 1 bag 的 ROS 2 `/clock`/TF/LaserScan 流式 Adapter、轨迹 recorder、
+  Ceres/GTSAM 公平 A/B、fixture 门禁和 `office1-1` 实验报告；当前 322 个对齐位姿、
+  99.65% 覆盖率，Ceres/GTSAM ATE RMSE 为 2.879/2.890 cm。
+- `office1-7` 在旧 10 秒宽松定义下有 2 次短时回访和 449 个对齐位姿，但 46 条图边全部相邻；
+  六组参数与 C++ Karto trace 已把失败定位到 near-linked 候选排除。按正式 60 秒长回环门槛，
+  它没有真值事件，因此不能再作为长回环召回率证据。
+- 已用视觉联络表人工标注玻璃隔断与动态人员遮挡；画面不支持长走廊标签，已显式保留 negative
+  evidence。
+- 已完成真实前端 accepted-edge 阈值消融：把 1.43 GB 原包裁为带来源链的约 5 MB SLAM-only
+  bag，固定数据/GTSAM/评估器比较 baseline、chain、response、search、combined 和 extreme 六组。
+  每组 449 个匹配位姿、49～52 秒；46 条图边始终全部相邻，说明仅放宽公开参数仍未触发非局部
+  约束。Karto 候选/拒绝 instrumentation 已完成；真值排名第一的 `market1-3` 因原始 bag 缺少
+  `/scan` 被传感器契约拒绝，当前转向 `corridor1-1`（约 272.5 秒、220.1 米、2 次至少相隔
+  60 秒的位置回访）验证真实候选与 accepted loop。
+- `corridor1-1` 已完成 GTSAM 长序列证据：参考覆盖 99.9743%、正式运行 ATE RMSE 1.676 m；最终
+  轨迹几何恢复 2/2 个位置回访，但 8 次 Karto 原生 closure 中只有 7 次落在真值覆盖内，其中
+  1 条相对位姿残差达标，accepted-edge 长回访 recall 为 0。先行运行曾产生 4 次 closure，暴露
+  异步前端运行间波动。node-id 间隔不再作为正式 loop 分类，
+  改用原生 closure scan id 与 SE(2) 相对位姿残差。
+- 已完成同一 `corridor1-1` 固定图的后端鲁棒核消融：图哈希、1834 节点、2751 约束和 1828 个
+  真值匹配姿态在四组间完全一致；Cauchy non-local 指标最好。下一步转向前端感知混淆抑制，
+  不再通过调整后端掩盖错误 closure 或回环漏检。
+- 在同一固定图上新增无真值在线依赖的一致性门控消融：以优化前图预测计算创新量，2 m / π/4
+  阈值拒绝 23 条明显异常非局部边，Cauchy + gate ATE 为 1.1713 m。该启发式可能在大漂移时
+  误拒真回环，默认关闭，且不改变前端 precision 的正式评价口径。
+- 新增 `corridor1-2` 第二序列契约与多序列扫描重叠发布门禁：固定 tar range/bag 分别做 SHA256，
+  488 节点/491 约束图仅有 1 条高重叠非局部边，四组 ATE 均为 0.1484 m。聚合后平均 ATE 改善
+  2.92%，但第二序列没有逐条收益，因此决策为 `keep_disabled_collect_more_sequences`；不以均值
+  掩盖无效序列，也不把“跨序列能运行”写成“阈值已泛化”。
+- 新增候选级 C++ LiDAR 检索：完整原始扫描流按 0.5 秒采样，不受异步图节点覆盖率影响；
+  `corridor1-1/1-2` 环键 Recall@10 为 33.51%/62.75%，均恢复 2/2 事件。Top-K 已进入 C++ shadow
+  scan matcher；固定参数 accepted precision 为 8.41%/33.78%，4 个事件只恢复 1 个，当前仍不
+  允许影响生产图。
+- 已完成 scan-to-submap 固定 A/B：短时里程计聚合三帧局部几何，两序列 precision 平均提升
+  2.32 个百分点且平移中位误差均下降，但 recall 平均下降 1.72 个百分点。由于逐序列绝对质量线
+  未通过，状态保持 `shadow_only_submap_quality_insufficient`。
+- 已完成 4 帧时序一致性固定 A/B：同一纯 C++ 状态机同时服务 ROS 门控和离线 replay，聚合
+  precision 从 13.21% 提高到 31.25%，但 recall 从 12.57% 降到 2.99%。下一步应增强地点判别
+  特征而不是继续增加确认帧数换取表面精度；Karto commit 继续默认关闭。
+- 已完成 Top-K 多假设序列门：不再让单帧最高分候选抢占唯一状态，最多并行维护 64 条轨迹并在
+  三次连续后择优。两序列 precision 从单轨 12.50%/50.00% 提升到 33.33%/60.00%，聚合假接受
+  11→6、真接受保持 5；conditional recall 仍为 2.99%，因此只发布 shadow 证据，不开放图边写入。
+- 已完成 GTSAM 可切换回环约束：`corridor1-1/1-2` 共 859 条非局部边，80 条被压到 0.5 以下；
+  Switchable+Cauchy 加权 ATE 0.9196 m，第二序列正常边保持 0.9976。该结果只覆盖固定的前端已接受
+  图，不代表新回环前端或 occupancy map 已上线，在线参数继续默认关闭。
+- 已完成动态障碍 current-only、常速度、Kalman、IMM 同场景消融：C++ 固定输入报告预测
+  RMSE/遮挡/停车过冲，四轮 Gazebo/Nav2 报告验证 lethal cost、重规划、到达和最终零速；场景、
+  地图栅格和 Nav2 参数已纳入 SHA256 一致性门禁。输入仍是合成 `PoseArray`，物理动态 actor 与
+  传感器遮挡属于后续增强。
+- 已将 Kalman/IMM 预测位置协方差接入可切换的全局数据关联：实验模式用 Mahalanobis/NIS 与二维卡方门限，
+  同时保留米制硬门。固定异方差交叉 A/B 中 Euclidean 的 0/2 正确身份提升为 2/2，身份 RMSE
+  0.3 m→0；由于合成 `PoseArray` 尚无真实检测协方差标定，默认仍为 Euclidean，该证据不表述为
+  真实人群感知准确率。
+- 继续细分 Nav2 planner/controller/behavior tree 失败原因和恢复行为指标。
+
+### P3：可选增强
+
+- 接入真实声学 KWS，例如 sherpa-onnx keyword spotting 或 openWakeWord。
+- 接入 WebRTC AEC/NS，改善扬声器回声环境。
+- 引入更接近 Nav2 的行为树 XML 和复杂安全策略。
+- 接真实硬件底盘或串口设备，完成 UART/SPI 实体验收。
+
+## 5. 不建议近期优先做的事情
+
+- 在公开 rosbag 和现有 Nav2 证据未收口前继续堆复杂导航行为：会增加演示面，但不能回答真实漂移和退化问题。
+- 大规模重写仓库结构：当前更需要稳定验收和文档清晰。
+- 依赖复杂声学模型作为默认链路：会提高部署门槛，影响演示可复现性。
+
+## 6. 项目介绍版本
+
+具身智能机器人智能语音交互与仿真控制系统
+
+项目描述：设计并实现机器人智能语音交互系统的在线与离线 Agent 链路，打通从真实语音、ASR、
+大模型/轻量 NLU 动作解析、C++ 安全调度到 ROS 2/Gazebo 的端到端流程；进一步用一句高层语音任务
+编排 Explore Lite frontier 自动探索、SLAM 地图保存、AMCL 定位、Nav2 规划避障和语义巡检。系统
+使用自定义 ROS 2 msg/action、Lifecycle、BehaviorTree.CPP 与 pluginlib，并以分层测试区分 mock、
+真实麦克风、Gazebo 和公开数据证据。
+
+主要工作：
+
+- 在线流式 Agent：接入在线 ASR/LLM/TTS provider，设计系统 prompt、记忆管理、动作输出格式、fallback parser 与动作回调，实现 ASR final 到动作候选和 TTS 反馈的流式交互。
+- 离线 Agent：预留 Sherpa-onnx ZipFormer ASR、llama.cpp、Sherpa-TTS 的端侧部署结构，设计双缓冲和延迟统计，支持 mock 与真实模型 smoke 验收。
+- 连续语音控制：实现 wake/session gate、重复 ASR final 过滤、filler 过滤、命令队列、TTL、急停抢占、短命令补全和现场 monitor，提高真实麦克风长时间控制稳定性。
+- ROS 2/C++ 控制链路：基于 C++ 编写 ActionGuard、typed action bridge、仿真执行节点，将 LLM 动作候选转换为强类型 RobotCommand 和 ROS 2 Action，并在 Gazebo/TurtleBot3 中验证 `/cmd_vel` 和 odom 变化。
+- 自动建图导航：开发显式会话状态机和进程 Adapter，一条“开始自动巡检建图”触发 frontier 选点、
+  Nav2 探索、YAML/PGM 存图、SLAM→AMCL 生命周期切换及入口/厨房/办公室语义任务；支持取消、超时、
+  readiness 和最终零速验收。
+- 工程化与验收：引入 BehaviorTree.CPP 编排动作校验、安全检查、执行和结果确认，用 pluginlib 支持 mock/Gazebo executor，配套单元测试、集成 smoke、Gazebo 验收和真实麦克风人工验收脚本。

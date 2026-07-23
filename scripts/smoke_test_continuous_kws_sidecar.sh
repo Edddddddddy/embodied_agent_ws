@@ -33,7 +33,7 @@ setsid ros2 launch embodied_simulation simulation_control.launch.py \
 PIDS+=("$!")
 setsid ros2 run embodied_agent_cpp action_guard >>"$LOG_FILE" 2>&1 &
 PIDS+=("$!")
-setsid ros2 run embodied_online_agent keyword_wake --ros-args \
+setsid ros2 run embodied_voice_frontend keyword_wake --ros-args \
   -p mode:=mock_text \
   -p provider_name:=mock_kws \
   >>"$LOG_FILE" 2>&1 &
@@ -61,7 +61,7 @@ fi
 PIDS+=("$!")
 
 activate_lifecycle_node action_guard
-if ! timeout 35 python3 "$WORKSPACE/tests/integration/test_continuous_kws_sidecar.py"; then
+if ! timeout 35 bash "$WORKSPACE/tools/acceptance/run_probe.sh" "$WORKSPACE/tools/acceptance/probes/voice/continuous_kws_sidecar.py"; then
   cat "$LOG_FILE" >&2
   exit 1
 fi

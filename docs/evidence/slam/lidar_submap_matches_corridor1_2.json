@@ -1,0 +1,320 @@
+{
+  "schema_version": 1,
+  "passed": true,
+  "checks": {
+    "minimum_pair_time_coverage": true,
+    "has_scored_pairs": true,
+    "has_true_candidate_pairs": true,
+    "has_groundtruth_revisit_events": true
+  },
+  "sequence": "corridor1-2",
+  "association": {
+    "input_pairs": 1075,
+    "scored_pairs": 1075,
+    "pair_time_coverage_ratio": 1.0,
+    "unassociated_pairs": 0,
+    "required_pair_time_coverage_ratio": 0.85
+  },
+  "ground_truth": {
+    "true_candidate_pairs": 62,
+    "true_candidate_queries": 32,
+    "candidate_queries": 112,
+    "revisit_radius_m": 1.0,
+    "minimum_temporal_separation_s": 60.0
+  },
+  "profiles": {
+    "cpp_default": {
+      "accepted_pairs": 74,
+      "true_accepted_pairs": 27,
+      "false_accepted_pairs": 47,
+      "precision": 0.364865,
+      "conditional_pair_recall": 0.435484,
+      "eligible_query_recall": 0.46875,
+      "relative_translation_error_m": {
+        "count": 27,
+        "mean": 0.976181,
+        "median": 0.823995,
+        "p95": 2.157186,
+        "max": 2.540973
+      },
+      "relative_yaw_error_deg": {
+        "count": 27,
+        "mean": 2.822018,
+        "median": 1.409355,
+        "p95": 6.635756,
+        "max": 27.482378
+      }
+    },
+    "balanced_shadow": {
+      "accepted_pairs": 3,
+      "true_accepted_pairs": 2,
+      "false_accepted_pairs": 1,
+      "precision": 0.666667,
+      "conditional_pair_recall": 0.032258,
+      "eligible_query_recall": 0.0625,
+      "relative_translation_error_m": {
+        "count": 2,
+        "mean": 0.328606,
+        "median": 0.328606,
+        "p95": 0.452888,
+        "max": 0.466697
+      },
+      "relative_yaw_error_deg": {
+        "count": 2,
+        "mean": 0.489143,
+        "median": 0.489143,
+        "p95": 0.54311,
+        "max": 0.549107
+      }
+    },
+    "conservative_shadow": {
+      "accepted_pairs": 0,
+      "true_accepted_pairs": 0,
+      "false_accepted_pairs": 0,
+      "precision": 0.0,
+      "conditional_pair_recall": 0.0,
+      "eligible_query_recall": 0.0,
+      "relative_translation_error_m": {
+        "count": 0,
+        "mean": null,
+        "median": null,
+        "p95": null,
+        "max": null
+      },
+      "relative_yaw_error_deg": {
+        "count": 0,
+        "mean": null,
+        "median": null,
+        "p95": null,
+        "max": null
+      }
+    },
+    "cpp_ranked_single": {
+      "accepted_pairs": 40,
+      "true_accepted_pairs": 10,
+      "false_accepted_pairs": 30,
+      "precision": 0.25,
+      "conditional_pair_recall": 0.16129,
+      "eligible_query_recall": 0.3125,
+      "relative_translation_error_m": {
+        "count": 10,
+        "mean": 0.819099,
+        "median": 0.459172,
+        "p95": 2.330138,
+        "max": 2.540973
+      },
+      "relative_yaw_error_deg": {
+        "count": 10,
+        "mean": 3.507671,
+        "median": 0.711314,
+        "p95": 16.137872,
+        "max": 27.482378
+      }
+    },
+    "cpp_temporal": {
+      "accepted_pairs": 8,
+      "true_accepted_pairs": 4,
+      "false_accepted_pairs": 4,
+      "precision": 0.5,
+      "conditional_pair_recall": 0.064516,
+      "eligible_query_recall": 0.125,
+      "relative_translation_error_m": {
+        "count": 4,
+        "mean": 0.505334,
+        "median": 0.436552,
+        "p95": 0.884759,
+        "max": 0.957721
+      },
+      "relative_yaw_error_deg": {
+        "count": 4,
+        "mean": 0.795315,
+        "median": 0.857404,
+        "p95": 1.187674,
+        "max": 1.191552
+      }
+    },
+    "cpp_sequence_multi_hypothesis": {
+      "accepted_pairs": 5,
+      "true_accepted_pairs": 3,
+      "false_accepted_pairs": 2,
+      "precision": 0.6,
+      "conditional_pair_recall": 0.048387,
+      "eligible_query_recall": 0.09375,
+      "relative_translation_error_m": {
+        "count": 3,
+        "mean": 1.645395,
+        "median": 1.609857,
+        "p95": 1.73754,
+        "max": 1.751727
+      },
+      "relative_yaw_error_deg": {
+        "count": 3,
+        "mean": 2.209425,
+        "median": 2.704767,
+        "p95": 3.747812,
+        "max": 3.863706
+      }
+    }
+  },
+  "event_recovery": {
+    "events": [
+      {
+        "event_id": 1,
+        "candidate_query_count": 7,
+        "recovered_by_balanced_shadow": true
+      },
+      {
+        "event_id": 2,
+        "candidate_query_count": 46,
+        "recovered_by_balanced_shadow": false
+      }
+    ],
+    "recovered_events": 1,
+    "event_count": 2
+  },
+  "diagnostics": {
+    "matching_mode": "scan_to_submap",
+    "query_submap_scans": {
+      "count": 1075,
+      "mean": 2.990698,
+      "median": 3.0,
+      "p95": 3.0,
+      "max": 3.0
+    },
+    "candidate_submap_scans": {
+      "count": 1075,
+      "mean": 2.963721,
+      "median": 3.0,
+      "p95": 3.0,
+      "max": 3.0
+    },
+    "query_geometry_points": {
+      "count": 1075,
+      "mean": 494.524651,
+      "median": 518.0,
+      "p95": 540.0,
+      "max": 540.0
+    },
+    "candidate_geometry_points": {
+      "count": 1075,
+      "mean": 437.39814,
+      "median": 408.0,
+      "p95": 540.0,
+      "max": 540.0
+    },
+    "available_pairs": 1075,
+    "converged_pairs": 1053,
+    "yaw_ambiguous_pairs": 0,
+    "odometry_prior_pairs": 1075,
+    "odometry_prior_inconsistent_pairs": 300,
+    "positive_prior_consistent_pairs": 54,
+    "negative_prior_consistent_pairs": 721,
+    "positive_prior_yaw_error_deg": {
+      "count": 62,
+      "mean": 35.209494,
+      "median": 13.921272,
+      "p95": 169.104134,
+      "max": 172.219638
+    },
+    "negative_prior_yaw_error_deg": {
+      "count": 1013,
+      "mean": 45.828251,
+      "median": 31.345362,
+      "p95": 144.12684,
+      "max": 179.945986
+    },
+    "cpp_rejection_reasons": {
+      "accepted": 74,
+      "degenerate_geometry": 2,
+      "low_inlier_ratio": 254,
+      "not_converged": 3,
+      "odometry_prior_inconsistent": 300,
+      "translation_limit": 442
+    },
+    "temporal_consistency": {
+      "observations": 40,
+      "approved": 8,
+      "reason_counts": {
+        "temporal_confirmation_pending": 17,
+        "temporal_consistency_confirmed": 8,
+        "temporal_pair_age_reset": 10,
+        "temporal_query_gap_reset": 3,
+        "temporal_transform_reset": 2
+      },
+      "config": {
+        "mode": "single_track",
+        "minimum_confirmations": 4,
+        "maximum_query_gap_s": 2.0,
+        "maximum_pair_age_delta_s": 1.25,
+        "maximum_translation_delta_m": 0.55,
+        "maximum_yaw_delta_rad": 0.35,
+        "maximum_hypotheses": 64
+      }
+    },
+    "sequence_consistency": {
+      "observations": 74,
+      "approved": 5,
+      "reason_counts": {
+        "sequence_confirmation_pending": 12,
+        "sequence_consistency_confirmed": 5,
+        "sequence_hypothesis_started": 57
+      },
+      "config": {
+        "mode": "multi_hypothesis",
+        "minimum_confirmations": 3,
+        "maximum_query_gap_s": 2.0,
+        "maximum_pair_age_delta_s": 0.25,
+        "maximum_translation_delta_m": 0.35,
+        "maximum_yaw_delta_rad": 0.2,
+        "maximum_hypotheses": 64
+      }
+    },
+    "positive_inlier_ratio": {
+      "count": 62,
+      "mean": 0.381519,
+      "median": 0.381554,
+      "p95": 0.618003,
+      "max": 0.644828
+    },
+    "negative_inlier_ratio": {
+      "count": 1013,
+      "mean": 0.378108,
+      "median": 0.338583,
+      "p95": 0.729624,
+      "max": 0.943359
+    },
+    "positive_overlap_ratio": {
+      "count": 62,
+      "mean": 0.362406,
+      "median": 0.387797,
+      "p95": 0.568499,
+      "max": 0.631802
+    },
+    "negative_overlap_ratio": {
+      "count": 1013,
+      "mean": 0.362902,
+      "median": 0.3112,
+      "p95": 0.733499,
+      "max": 0.944222
+    }
+  },
+  "methodology": {
+    "matching_mode": "scan_to_submap",
+    "geometry_sampling": {
+      "effective_point_stride_per_scan": 2,
+      "matcher_minimum_points": 30
+    },
+    "runtime_input": "candidate scan/submap pair + descriptor yaw seed + optional odometry yaw prior",
+    "matcher": "C++17 trimmed coarse-to-fine point-to-point ICP with multi-yaw seeds",
+    "offline_label": "official OpenLORIS trajectory; never passed to C++ matcher",
+    "boundary": "Shadow results are scored but never inserted into the pose graph. Profile sweeps are evidence, not runtime GT-assisted selection.",
+    "temporal_policy": "C++ matcher-accepted candidates are replayed through both the greedy single-track baseline and the same Top-K multi-hypothesis sequence module used by the ROS gate; neither policy receives ground truth."
+  },
+  "source": {
+    "matches_sha256": "8002ae71179972be6d8702bae53e809997bd3b796bc62dadd52799be36f01c01",
+    "groundtruth_sha256": "5775b3448bdd00923aa6b5ad6d40ae0969190d0b69ac7c93f746fc74afe659f2",
+    "candidates_sha256": "abacccdee463ebff2ddcc3fe27ba0ffdca384e1d44a3245a34484ccaaeb9ca7e",
+    "corpus_metadata_sha256": "33ed0b99a80dd4d5c3b8b0870840663d92f0eb1539fbe96fea1a414ba429bd2b",
+    "temporal_replay_binary_sha256": "ea3df834e5ea37763aba65e69bb49b49e6ea3c2fb313ea93766b29326cd4f452"
+  }
+}

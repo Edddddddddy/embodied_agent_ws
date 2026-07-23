@@ -1,0 +1,10 @@
+image: showcase_apartment.pgm
+mode: trinary
+resolution: 0.05
+origin:
+- -0.8499999999999996
+- -0.8500000000000001
+- 0.0
+negate: 0
+occupied_thresh: 0.65
+free_thresh: 0.196

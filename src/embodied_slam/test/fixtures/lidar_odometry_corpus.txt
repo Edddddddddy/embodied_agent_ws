@@ -1,0 +1,4 @@
+# embodied_lidar_odometry_corpus_v1
+O 1 0.0 0.0 0.0 0.0
+O 2 80.0 0.0 0.0 0.0
+O 3 160.0 0.0 0.0 0.0

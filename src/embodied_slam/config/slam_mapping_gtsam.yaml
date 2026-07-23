@@ -1,0 +1,115 @@
+slam_toolbox:
+  ros__parameters:
+    # 前端与 Ceres 基线完全一致，只替换 ScanSolver，确保 A/B 比较变量单一。
+    solver_plugin: embodied_slam::GtsamScanSolver
+    gtsam_max_iterations: 50
+    gtsam_relative_error_tolerance: 0.00001
+    gtsam_robust_kernel: huber
+    gtsam_robust_kernel_k: 1.345
+    gtsam_robustify_loop_constraints_only: false
+    # 旧参数保留为兼容默认值；新实验应使用 gtsam_robust_kernel_k。
+    gtsam_huber_k: 1.345
+    gtsam_minimum_covariance_eigenvalue: 0.00000001
+    gtsam_graph_log_path: ""
+    gtsam_enable_nonlocal_consistency_gate: false
+    gtsam_max_nonlocal_translation_residual_m: 2.0
+    gtsam_max_nonlocal_yaw_residual_rad: 0.7853981633974483
+    gtsam_enable_scan_overlap_gate: false
+    gtsam_compute_scan_overlap_evidence: false
+    gtsam_minimum_scan_overlap_ratio: 0.65
+    gtsam_scan_overlap_gate_min_translation_residual_m: 1.0
+    gtsam_scan_overlap_match_distance_m: 0.20
+    gtsam_scan_overlap_point_stride: 2
+    gtsam_scan_overlap_minimum_points: 30
+    # switch 是后端的软拒绝变量，只作用于非局部边；默认关闭以保持现有演示口径。
+    gtsam_enable_switchable_loop_constraints: false
+    gtsam_switch_prior_sigma: 1.0
+    gtsam_switch_suppression_threshold: 0.5
+
+    odom_frame: slam_odom
+    map_frame: map
+    base_frame: slam_base_link
+    scan_topic: /slam/scan
+    use_map_saver: true
+    mode: mapping
+    use_sim_time: true
+
+    debug_logging: false
+    throttle_scans: 1
+    transform_publish_period: 0.02
+    map_update_interval: 2.0
+    resolution: 0.05
+    restamp_tf: false
+    min_laser_range: 0.12
+    max_laser_range: 3.5
+    minimum_time_interval: 0.20
+    transform_timeout: 0.3
+    tf_buffer_duration: 30.0
+    scan_queue_size: 1
+    stack_size_to_use: 40000000
+    enable_interactive_mode: false
+
+    use_scan_matching: true
+    use_scan_barycenter: true
+    minimum_travel_distance: 0.15
+    minimum_travel_heading: 0.15
+    check_min_dist_and_heading_precisely: true
+    scan_buffer_size: 20
+    scan_buffer_maximum_scan_distance: 8.0
+    link_match_minimum_response_fine: 0.10
+    link_scan_maximum_distance: 1.5
+    loop_search_maximum_distance: 3.0
+    do_loop_closing: true
+    loop_match_minimum_chain_size: 8
+    loop_match_maximum_variance_coarse: 3.0
+    loop_match_minimum_response_coarse: 0.30
+    loop_match_minimum_response_fine: 0.40
+
+    correlation_search_space_dimension: 0.5
+    correlation_search_space_resolution: 0.01
+    correlation_search_space_smear_deviation: 0.1
+    loop_search_space_dimension: 6.0
+    loop_search_space_resolution: 0.05
+    loop_search_space_smear_deviation: 0.03
+
+    distance_variance_penalty: 0.5
+    angle_variance_penalty: 1.0
+    fine_search_angle_offset: 0.00349
+    coarse_search_angle_offset: 0.349
+    coarse_angle_resolution: 0.0349
+    minimum_angle_penalty: 0.9
+    minimum_distance_penalty: 0.5
+    use_response_expansion: true
+    min_pass_through: 2
+    occupancy_threshold: 0.1
+
+odom_drift_injector:
+  ros__parameters:
+    use_sim_time: true
+    linear_scale: 1.04
+    lateral_scale: 1.0
+    yaw_bias_per_meter: 0.035
+    translation_noise_stddev: 0.002
+    yaw_noise_stddev: 0.001
+    random_seed: 42
+    reference_odom_topic: /odom
+    input_scan_topic: /scan
+    output_odom_topic: /slam/odom
+    output_scan_topic: /slam/scan
+    odom_frame: slam_odom
+    base_frame: slam_base_link
+    laser_frame: slam_laser
+    laser_z: 0.18
+
+slam_closed_loop_driver:
+  ros__parameters:
+    use_sim_time: true
+    # 路线绕开中央岛台，四条边都保留足够的 TurtleBot3 车体安全余量。
+    segment_length_m: 2.4
+    linear_speed_mps: 0.22
+    angular_speed_rps: 0.45
+    position_tolerance_m: 0.04
+    angle_tolerance_rad: 0.035
+    loop_count: 1
+    start_delay_s: 5.0
+    stop_distance_m: 0.28

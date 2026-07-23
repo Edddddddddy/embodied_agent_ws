@@ -59,7 +59,7 @@ PIDS+=("$!")
 
 activate_lifecycle_node action_guard
 wait_for_topic_subscribers /robot/action_command_typed
-if ! timeout 70 python3 "$WORKSPACE/tests/integration/test_continuous_voice_soak.py"; then
+if ! timeout 70 bash "$WORKSPACE/tools/acceptance/run_probe.sh" "$WORKSPACE/tools/acceptance/probes/voice/continuous_voice_soak.py"; then
   cat "$LOG_FILE" >&2
   exit 1
 fi

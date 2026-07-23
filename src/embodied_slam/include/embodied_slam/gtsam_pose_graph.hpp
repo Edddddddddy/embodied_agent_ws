@@ -1,0 +1,94 @@
+#pragma once
+
+#include <cstddef>
+#include <optional>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+#include <Eigen/Core>
+
+#include "embodied_slam/pose2d.hpp"
+
+namespace embodied_slam
+{
+
+enum class RobustKernel
+{
+  kNone,
+  kHuber,
+  kCauchy,
+};
+
+RobustKernel robust_kernel_from_string(const std::string & value);
+const char * robust_kernel_name(RobustKernel value);
+
+struct PoseGraphConstraint
+{
+  int source_id{0};
+  int target_id{0};
+  Pose2d relative_pose;
+  Eigen::Matrix3d covariance{Eigen::Matrix3d::Identity()};
+  std::optional<double> scan_overlap_ratio;
+};
+
+struct PoseGraphOptimizerConfig
+{
+  std::size_t max_iterations{50U};
+  double relative_error_tolerance{1e-5};
+  RobustKernel robust_kernel{RobustKernel::kHuber};
+  double robust_kernel_k{1.345};
+  bool robustify_loop_constraints_only{false};
+  std::size_t loop_constraint_min_id_separation{20U};
+  bool enable_nonlocal_consistency_gate{false};
+  double max_nonlocal_translation_residual_m{2.0};
+  double max_nonlocal_yaw_residual_rad{0.7853981633974483};
+  bool enable_scan_overlap_gate{false};
+  double minimum_scan_overlap_ratio{0.65};
+  double scan_overlap_gate_min_translation_residual_m{1.0};
+  bool enable_switchable_loop_constraints{false};
+  double switch_prior_sigma{1.0};
+  double switch_suppression_threshold{0.5};
+  double minimum_covariance_eigenvalue{1e-8};
+};
+
+struct SwitchableConstraintEstimate
+{
+  int source_id{0};
+  int target_id{0};
+  double value{1.0};
+};
+
+struct PoseGraphResult
+{
+  std::unordered_map<int, Pose2d> poses;
+  double initial_error{0.0};
+  double final_error{0.0};
+  std::size_t iterations{0U};
+  std::size_t constraints_used{0U};
+  std::size_t robustified_constraints{0U};
+  std::size_t consistency_rejected_constraints{0U};
+  std::size_t scan_overlap_evaluated_constraints{0U};
+  std::size_t scan_overlap_rejected_constraints{0U};
+  std::size_t scan_overlap_unavailable_constraints{0U};
+  std::size_t switchable_constraints{0U};
+  std::size_t switch_suppressed_constraints{0U};
+  double minimum_switch_value{1.0};
+  double mean_switch_value{1.0};
+  std::vector<SwitchableConstraintEstimate> switch_estimates;
+};
+
+class GtsamPoseGraphOptimizer
+{
+public:
+  explicit GtsamPoseGraphOptimizer(PoseGraphOptimizerConfig config = {});
+
+  PoseGraphResult optimize(
+    const std::unordered_map<int, Pose2d> & initial_poses,
+    const std::vector<PoseGraphConstraint> & constraints) const;
+
+private:
+  PoseGraphOptimizerConfig config_;
+};
+
+}  // namespace embodied_slam

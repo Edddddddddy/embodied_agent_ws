@@ -1,0 +1,14 @@
+# 由 showcase_apartment.yaml 生成，请勿手工修改。
+# 坐标语义：SLAM 建图起点坐标系。
+frame_id: map
+places:
+  home: {x: 0.000, y: 0.000, yaw: 0.000}
+  entrance: {x: 0.000, y: 2.950, yaw: 1.570}
+  door: {x: 0.000, y: 2.950, yaw: 1.570}
+  living_room: {x: 1.350, y: 0.400, yaw: 1.570}
+  kitchen: {x: 1.450, y: 4.700, yaw: 1.570}
+  hallway: {x: 4.150, y: 3.150, yaw: 0.000}
+  office: {x: 6.650, y: 4.700, yaw: 1.570}
+  desk: {x: 6.650, y: 4.700, yaw: 1.570}
+  meeting_room: {x: 7.150, y: 0.050, yaw: 0.000}
+  charging_station: {x: 0.000, y: -0.300, yaw: 3.140}

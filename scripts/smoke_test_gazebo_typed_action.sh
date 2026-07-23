@@ -21,8 +21,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# 先证明 /clock 持续推进；仅看到 odom/scan topic 不足以证明 use_sim_time
+# 可用，冻结的 Gazebo clock 会让所有按时长执行的 Action 永远停在 0%。
+python "$WORKSPACE/scripts/simulation_readiness_check.py" \
+  --timeout 35.0 --json
+
 if ! REQUIRE_TYPED_ACTION_RESULT=true \
-  python "$WORKSPACE/tests/integration/test_gazebo_motion.py"
+  bash "$WORKSPACE/tools/acceptance/run_probe.sh" "$WORKSPACE/tools/acceptance/probes/control/gazebo_motion.py"
 then
   cat "$LOG_FILE" >&2
   exit 1

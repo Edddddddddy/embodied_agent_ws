@@ -28,8 +28,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if ! REQUIRE_TYPED_ACTION_RESULT=true \
-  python "$WORKSPACE/tests/integration/test_gazebo_voice.py"; then
+if ! bash "$WORKSPACE/tools/acceptance/run_probe.sh" "$WORKSPACE/tools/acceptance/probes/voice/gazebo_voice.py"; then
   cat "$LAUNCH_LOG" >&2
   exit 1
 fi

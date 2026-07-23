@@ -7,7 +7,7 @@ import json
 import time
 
 from embodied_offline_agent.pseudo_streaming_tts import PseudoStreamingTtsPipeline
-from embodied_online_agent.protocol import SentenceChunker, TaggedStreamParser
+from embodied_agent_core.protocol import SentenceChunker, TaggedStreamParser
 
 
 def fake_llm_stream():

@@ -1,0 +1,90 @@
+slam_toolbox:
+  ros__parameters:
+    # 与 Ceres 文件保持相同前端参数，只替换位姿图 ScanSolver，保证 A/B 变量单一。
+    solver_plugin: embodied_slam::GtsamScanSolver
+    gtsam_max_iterations: 50
+    gtsam_relative_error_tolerance: 0.00001
+    gtsam_robust_kernel: huber
+    gtsam_robust_kernel_k: 1.345
+    gtsam_robustify_loop_constraints_only: false
+    # 旧参数保留为兼容默认值；新实验应使用 gtsam_robust_kernel_k。
+    gtsam_huber_k: 1.345
+    gtsam_minimum_covariance_eigenvalue: 0.00000001
+    # 低于该 ID 间隔的图边属于局部链约束，不计入回环 accepted-edge 评估。
+    gtsam_loop_constraint_min_id_separation: 20
+    gtsam_constraint_log_path: ""
+    # 最终前端位姿图快照，供 none/Huber/Cauchy 在完全相同输入上离线消融。
+    gtsam_graph_log_path: ""
+    # 默认关闭，先通过固定图消融验证阈值；启用后只拒绝明显不一致的非局部边。
+    gtsam_enable_nonlocal_consistency_gate: false
+    gtsam_max_nonlocal_translation_residual_m: 2.0
+    gtsam_max_nonlocal_yaw_residual_rad: 0.7853981633974483
+    # 双证据门控默认关闭；固定图实验证明跨序列前，只记录 overlap 供离线审计。
+    gtsam_enable_scan_overlap_gate: false
+    gtsam_compute_scan_overlap_evidence: true
+    gtsam_minimum_scan_overlap_ratio: 0.65
+    gtsam_scan_overlap_gate_min_translation_residual_m: 1.0
+    gtsam_scan_overlap_match_distance_m: 0.20
+    gtsam_scan_overlap_point_stride: 2
+    gtsam_scan_overlap_minimum_points: 30
+    # 可切换约束默认关闭；固定图消融通过后再用于在线 GTSAM，避免未经验证改变基线。
+    gtsam_enable_switchable_loop_constraints: false
+    gtsam_switch_prior_sigma: 1.0
+    gtsam_switch_suppression_threshold: 0.5
+
+    odom_frame: dataset_odom
+    map_frame: map
+    base_frame: dataset_base_link
+    scan_topic: /openloris/scan
+    use_map_saver: true
+    mode: mapping
+    use_sim_time: true
+
+    debug_logging: false
+    throttle_scans: 1
+    transform_publish_period: 0.02
+    map_update_interval: 2.0
+    resolution: 0.05
+    restamp_tf: false
+    min_laser_range: 0.12
+    max_laser_range: 30.0
+    minimum_time_interval: 0.10
+    transform_timeout: 0.3
+    tf_buffer_duration: 60.0
+    scan_queue_size: 5
+    stack_size_to_use: 40000000
+    enable_interactive_mode: false
+
+    use_scan_matching: true
+    use_scan_barycenter: true
+    minimum_travel_distance: 0.10
+    minimum_travel_heading: 0.10
+    check_min_dist_and_heading_precisely: true
+    scan_buffer_size: 30
+    scan_buffer_maximum_scan_distance: 12.0
+    link_match_minimum_response_fine: 0.10
+    link_scan_maximum_distance: 1.5
+    loop_search_maximum_distance: 4.0
+    do_loop_closing: true
+    loop_match_minimum_chain_size: 8
+    loop_match_maximum_variance_coarse: 3.0
+    loop_match_minimum_response_coarse: 0.30
+    loop_match_minimum_response_fine: 0.40
+
+    correlation_search_space_dimension: 0.5
+    correlation_search_space_resolution: 0.01
+    correlation_search_space_smear_deviation: 0.1
+    loop_search_space_dimension: 8.0
+    loop_search_space_resolution: 0.05
+    loop_search_space_smear_deviation: 0.03
+
+    distance_variance_penalty: 0.5
+    angle_variance_penalty: 1.0
+    fine_search_angle_offset: 0.00349
+    coarse_search_angle_offset: 0.349
+    coarse_angle_resolution: 0.0349
+    minimum_angle_penalty: 0.9
+    minimum_distance_penalty: 0.5
+    use_response_expansion: true
+    min_pass_through: 2
+    occupancy_threshold: 0.1

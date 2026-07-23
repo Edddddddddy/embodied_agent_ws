@@ -7,7 +7,15 @@ places:
   desk: {x: 1.2, y: 1.0, yaw: 1.57}
   living_room: {x: 0.0, y: 1.4, yaw: 3.14}
   kitchen: {x: -1.0, y: 1.0, yaw: 3.14}
+  # 新场景使用更贴近业务的地点名；默认小地图保留同名兼容点，保证
+  # Agent、ActionGuard 与任意 Nav2 executor 的标准地点集合始终一致。
+  entrance: {x: 1.2, y: 0.0, yaw: 0.0}
+  office: {x: 1.2, y: 1.0, yaw: 1.57}
+  meeting_room: {x: 0.0, y: 1.4, yaw: 3.14}
+  hallway: {x: 0.6, y: 0.0, yaw: 0.0}
   charging_station: {x: -0.6, y: -0.4, yaw: -1.57}
+  # 故意位于 voice_demo 地图边界外，用于验证 Nav2 aborted/失败反馈，而非业务目标点。
+  unreachable_zone: {x: 4.0, y: 4.0, yaw: 0.0}
   waypoint_a: {x: 0.6, y: 0.0, yaw: 0.0}
   waypoint_b: {x: 0.6, y: 0.8, yaw: 1.57}
   waypoint_c: {x: 0.0, y: 0.8, yaw: 3.14}
