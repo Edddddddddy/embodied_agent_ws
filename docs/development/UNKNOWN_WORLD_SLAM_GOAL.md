@@ -1,7 +1,8 @@
 # 未知场地 SLAM 收敛、返航与导航 Goal
 
 > 状态：**已完成现场验收；session `20260721T072342Z-2344751-5452a492` 全部 checks 通过**
-> 当前分支：`feature/voice-unknown-world-e2e`
+> 稳定基线：`dev@68a4513`
+> 稳定性修复：`fix/frontier-saturation-completion`
 > 正式入口：`unknown-world-slam-e2e`
 > 真人入口：`voice-unknown-world-slam-e2e {offline|online}`
 
@@ -42,20 +43,27 @@
 
 ### 2.2 未知总面积下的有界饱和终结
 
-只有探索硬预算到达，且 Explorer 被安全静默后，才允许评估 `bounded_saturation`。运行时只使用本次
-SLAM 图、机器人里程和 Action 账本，不读取 truth map、场景 YAML 区域或已知地图大小。默认条件为：
+只有以下任一有界触发成立，且 Explorer 被安全静默后，才允许评估 `bounded_saturation`：
+
+- 探索的绝对时间预算到达；或
+- `reachable_frontiers_stalled` 连续发生，并且原有恢复预算已经消费完。
+
+运行时只使用本次 SLAM 图、机器人里程和 Action 账本，不读取 truth map、场景 YAML 区域或已知地图
+大小。第二种触发用于修复“地图实际已经足够完整，但单次恢复只增长少量栅格便直接失败”的现场假阴性；
+它不会降低原有 `40 cells / 0.2%` 收益门槛，也不会重置绝对 deadline。默认条件为：
 
 - 最近至少 `2` 个连续低收益 epoch，每个 epoch 至少 `3` 个 terminal frontier goal；
 - 建图阶段累计路径至少 `20 m`；恢复次数余量只记录诊断信息，不要求为耗尽预算制造动作；
 - 残余 available frontier 不多于 `4`；
 - epoch 的单位终态目标增益没有同时达到 `40 cells` 与 `0.2%`；
-- 硬预算后只做一次 360° final probe；其增益低于上述门槛；
+- 有界触发后只做一次 360° final probe；其增益低于上述门槛；
 - 地图连续静默至少 `15 s`；
 - active/pending goal 为零、Action 总账排空；
 - final probe 后执行新的 typed STOP，并观察到足够新的零速度。
 
-任一证据不足都必须失败，不能退化为“时间到了就保存”。该路径在生产侧只记录中性的
-`time_budget_exhausted`；是否达到项目地图质量门槛，由验收层独立裁决。
+任一证据不足都必须失败，不能退化为“时间到了就保存”或“第一次停住就保存”。该路径在生产侧只记录
+中性的 `time_budget_exhausted` 或 `reachable_frontiers_stalled_bounded_saturation`；producer 写入的
+`trigger_reason` 必须与任务终态逐字一致。是否达到项目地图质量门槛，仍由验收层独立裁决。
 
 ## 3. 真值隔离与验收层近似完成
 
@@ -102,7 +110,8 @@ STOP 获取真实的新零速，才允许重启为 AMCL/Nav2。双确认避免�
 | `mapping_return.py` | 返航位姿、时间线、Action 终态和零速度纯领域契约 |
 | `frontier_monitor.py` | 硬预算只发出 `assessment_required`，不伪造探索完成 |
 | `mission_executor.py:_explore_with_bounded_recovery()` | frontier epoch、恢复、静默和饱和评估事务 |
-| `mission_executor.py:_assess_time_budget_saturation()` | final probe、地图静默、STOP 与 fail-closed 判定 |
+| `mission_executor.py:_assess_time_budget_saturation()` | 时间预算触发后的 final probe |
+| `mission_executor.py:_finalize_saturation_assessment()` | 两类有界触发共享的地图静默、STOP 与 fail-closed 判定 |
 | `showcase_session_node.py:quiesce_frontier()` | 暂停 Explore Lite 并等待 Action 总账排空 |
 | `showcase_session_node.py:run_mapping_return_goal()` | mapping stage 内返航、TF 复核与安全停车 |
 | `SlamMappingCompletionEvidence.msg` | 饱和与返航的强类型生产证据 |
@@ -130,6 +139,8 @@ HEADLESS=false USE_RVIZ=true \
 4. 界面切换到 AMCL/Nav2，完成 3 个本次地图采样目标和动态障碍重规划。
 5. 任务正常结束、`/cmd_vel` 归零，控制台打印 PASS；不是由外层 timeout 或清理脚本杀进程。
 6. 本次 session 的报告、地图、runtime log 和 manifest 都存在且时间一致。
+7. 正式发布证据中的 `source_revision` 等于待发布提交，且 `source_dirty=false`；
+   dirty run 可以用于开发诊断，但不能作为 `main` 的发布证据。
 
 证据目录：
 

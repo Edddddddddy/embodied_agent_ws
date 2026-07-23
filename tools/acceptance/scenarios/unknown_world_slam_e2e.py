@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 from typing import Sequence
@@ -41,6 +42,41 @@ SCAN_STARTUP_TIMEOUT_S = 20.0
 STAGE_STOP_TIMEOUT_S = 15.0
 MAP_SAVE_TIMEOUT_S = 35.0
 DYNAMIC_NAVIGATION_TIMEOUT_S = 180.0
+
+
+def _source_revision_environment(workspace: Path) -> dict[str, str]:
+    """在启动前绑定源码版本；证据必须能回答“究竟验收了哪份代码”。
+
+    dirty 只作为发布审计字段，不参与算法 PASS。这样开发者仍可验证尚未提交的
+    修复，但发布流程可以明确拒绝把 dirty run 当成 main 的正式证据。
+    """
+
+    try:
+        revision = subprocess.run(
+            ["git", "-C", str(workspace), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=5.0,
+        ).stdout.strip()
+        status = subprocess.run(
+            ["git", "-C", str(workspace), "status", "--porcelain"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=5.0,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        # 运行时容器只复制源码而不复制 .git。此时保留“未知”而不是假装
+        # clean；开发烟测仍可执行，但正式发布审计会明确拒绝这类弱证据。
+        return {
+            "ACCEPTANCE_SOURCE_REVISION": "unavailable",
+            "ACCEPTANCE_SOURCE_DIRTY": "unknown",
+        }
+    return {
+        "ACCEPTANCE_SOURCE_REVISION": revision,
+        "ACCEPTANCE_SOURCE_DIRTY": "true" if status.strip() else "false",
+    }
 
 
 def _positive_float(name: str, default: float) -> float:
@@ -333,6 +369,7 @@ def run(profile: UnknownWorldRunProfile) -> int:
     )
     runtime_environment["SHOWCASE_DYNAMIC_OBSTACLE_ENABLED"] = "true"
     runtime_environment.update(_resolve_profile_runtime_environment(profile))
+    runtime_environment.update(_source_revision_environment(workspace))
     config = AcceptanceSessionConfig(
         name=(
             "voice-unknown-world-slam-e2e"

@@ -184,6 +184,34 @@ def test_loads_unknown_world_plan_without_scene_route_or_named_places():
     assert not hasattr(configuration.automatic, "navigate_text")
 
 
+def test_unknown_world_requires_enough_recovery_epochs_for_saturation(tmp_path):
+    plan = tmp_path / "unknown-world-insufficient-confirmation-budget.yaml"
+    contents = UNKNOWN_WORLD_MISSION_PLAN.read_text(encoding="utf-8")
+    plan.write_text(
+        contents.replace(
+            "  max_recovery_attempts: 2\n",
+            "  max_recovery_attempts: 1\n",
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "exploration.max_recovery_attempts must be at least "
+            "exploration.saturation.minimum_low_yield_epochs"
+        ),
+    ):
+        MissionConfiguration.load(
+            workspace=WORKSPACE,
+            mission_plan_path=plan,
+            scan_startup_timeout_s=20.0,
+            status_available=True,
+            dry_run=False,
+            dry_run_delay_s=0.0,
+        )
+
+
 def test_unknown_world_recovery_backup_rejects_unknown_nested_key(tmp_path):
     plan = tmp_path / "unknown-world-invalid-backup.yaml"
     contents = UNKNOWN_WORLD_MISSION_PLAN.read_text(encoding="utf-8")

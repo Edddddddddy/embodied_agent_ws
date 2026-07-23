@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -39,9 +40,18 @@ def build_session_report(
     map_provenance: Mapping[str, object] | None,
     nav2_lifecycle_active: bool,
     dynamic_navigation: Mapping[str, object] | None,
+    mapping_path_m: float,
 ) -> dict[str, object]:
     """在一个边界内完成 ROS snapshot → evaluator domain 的转换。"""
 
+    source_dirty_value = os.environ.get("ACCEPTANCE_SOURCE_DIRTY")
+    source_dirty = (
+        True
+        if source_dirty_value == "true"
+        else False
+        if source_dirty_value == "false"
+        else None
+    )
     amcl_samples, gazebo_samples, gazebo_truth_error = (
         node.localization_evidence()
     )
@@ -118,6 +128,13 @@ def build_session_report(
         nonzero_cmd_vel_samples_after_boundary=int(
             motion_evidence["nonzero_samples_after_boundary"]
         ),
+        final_phase=int(final_state.phase),
+        mapping_path_m=mapping_path_m,
+        frontier_goal_count=len(node.frontier_goal_ids),
+        source_revision=os.environ.get(
+            "ACCEPTANCE_SOURCE_REVISION", ""
+        ),
+        source_dirty=source_dirty,
     )
     return build_unknown_world_report(
         observation,

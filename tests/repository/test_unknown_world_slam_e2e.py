@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -14,12 +15,47 @@ from tools.acceptance.scenarios.unknown_world_slam_e2e import (
     _build_probe_command,
     _resolve_profile_runtime_environment,
     _run_probe_and_verify,
+    _source_revision_environment,
     _verify_profile_report,
     verify_report,
 )
 
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_source_revision_environment_binds_clean_and_dirty_git_state(tmp_path):
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "acceptance@example.invalid"],
+        cwd=tmp_path,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Acceptance Test"],
+        cwd=tmp_path,
+        check=True,
+    )
+    tracked = tmp_path / "tracked.txt"
+    tracked.write_text("baseline\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.txt"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-qm", "baseline"], cwd=tmp_path, check=True)
+
+    clean = _source_revision_environment(tmp_path)
+    assert len(clean["ACCEPTANCE_SOURCE_REVISION"]) == 40
+    assert clean["ACCEPTANCE_SOURCE_DIRTY"] == "false"
+
+    tracked.write_text("changed\n", encoding="utf-8")
+    assert _source_revision_environment(tmp_path)[
+        "ACCEPTANCE_SOURCE_DIRTY"
+    ] == "true"
+
+
+def test_source_revision_environment_marks_source_archive_unknown(tmp_path):
+    assert _source_revision_environment(tmp_path) == {
+        "ACCEPTANCE_SOURCE_REVISION": "unavailable",
+        "ACCEPTANCE_SOURCE_DIRTY": "unknown",
+    }
 
 
 def test_live_voice_profile_enables_real_audio_without_startup_utterance_race():

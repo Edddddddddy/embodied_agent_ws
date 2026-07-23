@@ -343,6 +343,7 @@ def main() -> None:
                     map_provenance=map_provenance,
                     nav2_lifecycle_active=lifecycle_active,
                     dynamic_navigation=dynamic_navigation,
+                    mapping_path_m=mapping_distance_m,
                 )
                 report = finalize_trigger_report(
                     node,

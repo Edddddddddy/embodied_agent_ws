@@ -274,11 +274,24 @@ class MissionConfiguration:
         min_growth_ratio = float(
             exploration.get("min_growth_ratio", 0.002)
         )
+        max_recovery_attempts = int(
+            exploration.get("max_recovery_attempts", 2)
+        )
+        minimum_low_yield_epochs = int(
+            saturation.get("minimum_low_yield_epochs", 2)
+        )
         # 这两个值同时进入 recovery 与 saturation；先在配置边界保留稳定的
         # 错误语义，避免后创建的任一值对象抢先抛出更模糊的异常。
         if min_growth_cells < 0:
             raise ValueError(
                 "minimum epoch map gain cells must be non-negative"
+            )
+        if max_recovery_attempts < minimum_low_yield_epochs:
+            # 重复 reachable stall 的完成证据必须来自相互独立的 Explorer
+            # epoch；确认预算小于证据门槛时，运行时永远不可能合法收口。
+            raise ValueError(
+                "exploration.max_recovery_attempts must be at least "
+                "exploration.saturation.minimum_low_yield_epochs"
             )
         frontier = FrontierMonitorConfig(
             timeout_s=float(exploration.get("timeout_s", 600.0)),
@@ -321,9 +334,7 @@ class MissionConfiguration:
                     recovery_backup.get("minimum_displacement_m", 0.20)
                 ),
             ),
-            max_recovery_attempts=int(
-                exploration.get("max_recovery_attempts", 2)
-            ),
+            max_recovery_attempts=max_recovery_attempts,
             # 与 MappingEvidenceTracker 复用同一个最小增长口径，避免 monitor
             # 和跨 epoch 收敛各自发明一套“有进展”阈值。
             minimum_epoch_map_gain_cells=min_growth_cells,
@@ -340,9 +351,7 @@ class MissionConfiguration:
                 navigation.get("goal_clearance_m", 0.25)
             ),
             saturation_policy=SaturationPolicy(
-                minimum_low_yield_epochs=int(
-                    saturation.get("minimum_low_yield_epochs", 2)
-                ),
+                minimum_low_yield_epochs=minimum_low_yield_epochs,
                 minimum_terminal_goals_per_epoch=int(
                     saturation.get("minimum_terminal_goals_per_epoch", 3)
                 ),

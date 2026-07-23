@@ -67,13 +67,15 @@ class ExplorationEpochEvidence:
 
 @dataclass(frozen=True, slots=True)
 class FinalProbeEvidence:
-    """硬预算触发后，最后一次短探测得到的独立增益证据。"""
+    """有界完成触发后，最后一次短探测得到的独立增益证据。"""
 
-    started_after_hard_budget: bool
+    trigger: "SaturationTrigger"
     start: ExplorationCounters
     end: ExplorationCounters
 
     def __post_init__(self) -> None:
+        if not isinstance(self.trigger, SaturationTrigger):
+            raise ValueError("final probe trigger is invalid")
         if self.end.peak_known_cells < self.start.peak_known_cells:
             raise ValueError("probe peak known cells must not decrease")
         if self.end.terminal_goal_count < self.start.terminal_goal_count:
@@ -99,6 +101,13 @@ class SaturationHistory:
     final_probe: FinalProbeEvidence | None
 
 
+class SaturationTrigger(str, Enum):
+    """触发最终饱和评估的有界运行时事实。"""
+
+    TIME_BUDGET = "time_budget"
+    REPEATED_REACHABLE_STALL = "repeated_reachable_stall"
+
+
 class SaturationEvidenceTracker:
     """把易重置的运行时数值压缩成跨 epoch 的单调证据。
 
@@ -111,7 +120,9 @@ class SaturationEvidenceTracker:
         self._counters = ExplorationCounters(0, 0, 0.0)
         self._epochs: list[ExplorationEpochEvidence] = []
         self._active_epoch: tuple[int, ExplorationCounters] | None = None
-        self._probe_start: tuple[bool, ExplorationCounters] | None = None
+        self._probe_start: (
+            tuple[SaturationTrigger, ExplorationCounters] | None
+        ) = None
         self._final_probe: FinalProbeEvidence | None = None
 
     def observe(
@@ -159,19 +170,21 @@ class SaturationEvidenceTracker:
         self._active_epoch = None
         return evidence
 
-    def begin_final_probe(self, *, hard_budget_reached: bool) -> None:
+    def begin_final_probe(self, *, trigger: SaturationTrigger) -> None:
         if self._active_epoch is not None:
             raise RuntimeError("finish the active epoch before the final probe")
         if self._probe_start is not None or self._final_probe is not None:
             raise RuntimeError("the final probe may run only once")
-        self._probe_start = (bool(hard_budget_reached), self._counters)
+        if not isinstance(trigger, SaturationTrigger):
+            raise ValueError("final probe trigger is invalid")
+        self._probe_start = (trigger, self._counters)
 
     def finish_final_probe(self) -> FinalProbeEvidence:
         if self._probe_start is None:
             raise RuntimeError("the final probe has not started")
-        after_budget, start = self._probe_start
+        trigger, start = self._probe_start
         self._final_probe = FinalProbeEvidence(
-            started_after_hard_budget=after_budget,
+            trigger=trigger,
             start=start,
             end=self._counters,
         )
@@ -228,10 +241,10 @@ class SaturationPolicy:
 
 @dataclass(frozen=True, slots=True)
 class SaturationRuntimeEvidence:
-    """硬预算边界上做最终决策所需的最小运行时状态。"""
+    """有界完成边界上做最终决策所需的最小运行时状态。"""
 
     history: SaturationHistory
-    hard_budget_reached: bool
+    trigger: SaturationTrigger
     recovery_attempts_remaining: int
     residual_available_frontiers: int
     active_goal_count: int
@@ -242,6 +255,8 @@ class SaturationRuntimeEvidence:
     final_stop_age_s: float | None
 
     def __post_init__(self) -> None:
+        if not isinstance(self.trigger, SaturationTrigger):
+            raise ValueError("saturation trigger is invalid")
         counters = (
             self.recovery_attempts_remaining,
             self.residual_available_frontiers,
@@ -303,12 +318,14 @@ def assess_bounded_frontier_saturation(
     """纯函数判定探索是否已进入“继续追角落收益很低”的有界终态。"""
 
     unmet: list[str] = []
-    if not evidence.hard_budget_reached:
-        unmet.append("hard_budget_not_reached")
-    # recovery_attempts_remaining 是诊断字段，不是完成门槛。现场可能在单个
-    # Explorer epoch 中耗尽整轮时间预算，而根本没有触发需要 BackUp/重启的
-    # provider reason；若强制 remaining==0，机器人会在已经连续低收益且完成
-    # 最终探测后仍被判失败。硬时间预算 + 下方独立收益/账本/停车证据才是边界。
+    if (
+        evidence.trigger is SaturationTrigger.REPEATED_REACHABLE_STALL
+        and evidence.recovery_attempts_remaining != 0
+    ):
+        # “重复停滞”必须真实消费完声明的确认轮；否则一次偶发局部最小值就会
+        # 被包装成完成。硬时间预算模式不要求耗尽恢复预算，因为 deadline
+        # 本身已经提供了独立的有界终止条件。
+        unmet.append("stall_confirmation_budget_remaining")
 
     recent_epochs = evidence.history.epochs[-policy.minimum_low_yield_epochs :]
     if len(recent_epochs) < policy.minimum_low_yield_epochs:
@@ -329,7 +346,10 @@ def assess_bounded_frontier_saturation(
 
     if evidence.history.counters.mapping_path_m < policy.minimum_mapping_path_m:
         unmet.append("insufficient_mapping_path")
-    if (
+    if evidence.trigger is SaturationTrigger.REPEATED_REACHABLE_STALL:
+        if evidence.residual_available_frontiers != 0:
+            unmet.append("reachable_frontiers_remain_after_stall")
+    elif (
         evidence.residual_available_frontiers
         > policy.maximum_residual_available_frontiers
     ):
@@ -341,8 +361,8 @@ def assess_bounded_frontier_saturation(
     if probe is None:
         unmet.append("final_probe_missing")
     else:
-        if not probe.started_after_hard_budget:
-            unmet.append("final_probe_not_after_hard_budget")
+        if probe.trigger is not evidence.trigger:
+            unmet.append("final_probe_trigger_mismatch")
         if (
             probe.map_gain_cells >= policy.maximum_low_yield_gain_cells
             or probe.map_gain_ratio >= policy.maximum_low_yield_gain_ratio
