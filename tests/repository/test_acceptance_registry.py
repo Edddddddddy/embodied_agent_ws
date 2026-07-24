@@ -91,6 +91,14 @@ def test_legacy_slam_alias_is_not_a_second_e2e_fact_source():
     assert "slam-nav-e2e" in MODE_BY_NAME
 
 
+def test_removed_acceptance_modes_cannot_reenter_registry():
+    """旧麦克风包装与超大聚合入口已移除，不能再次成为隐藏兼容层。"""
+
+    removed_modes = {"microphone-offline", "microphone-online", "all"}
+
+    assert removed_modes.isdisjoint(MODE_BY_NAME)
+
+
 def test_unknown_world_slam_entry_has_distinct_public_evidence_semantics():
     """新旧两个入口必须在帮助中明确区分，避免把已知场景回归当成自主探索证据。"""
     known_world = MODE_BY_NAME["slam-nav-e2e"]

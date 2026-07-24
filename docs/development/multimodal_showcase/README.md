@@ -6,14 +6,15 @@
 
 - `main` 当前稳定版本为 `v0.5.0`（`4125d4b`），不包含持久会话改动。
 - 控制平面 PR #89 已合入 `dev`（`2d91ffe`）。
-- `feature/demo-persistent-session` 已实现同一 Gazebo、机器人和 Agent 会话内的
+- 持久会话 PR #92 已合入 `dev`（`3769150`）；该版本实现同一 Gazebo、机器人和 Agent 会话内的
   `mapping -> navigation` 切换；本地单元/ROS 包测试与 fresh
   `showcase-gazebo-e2e` 重型门禁均已通过。
 - fresh session `20260724T053935Z-1431080-d6efcab6` 用时 `1515 s`：
   总覆盖率 `0.998`、最弱区域 `0.985`、AMCL P95 `0.125 m`、3 个导航目标、
   动态重规划、运行时连续性和 STOP 后最终零速全部通过。
-- 该证据来自 dirty feature worktree，证明当前实现闭环，但仍需整理提交、PR 到
-  `dev` 和 CI；它不是已经发布到 `main` 的版本。
+- 该重型证据来自提交前的 dirty feature worktree；随后相同实现已通过 PR #92
+  的 repository、frontier replay、ROS build/test 与容器交付 CI 并进入 `dev`。
+  它仍不是 `main` 发布证据：发布前需要在 clean commit 上重跑重型门禁。
 
 本轮 fresh 事实源保存在本地运行产物目录：
 

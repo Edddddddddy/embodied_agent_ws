@@ -66,11 +66,12 @@ HOLD
 |---:|---|---|---|
 | 0 | `main@v0.5.0` | 稳定基线 | strict unknown-world 发布门禁已通过 |
 | 1 | `feature/demo-control-plane` | PR #89 已合入 `dev` | 控制权、键盘、mux/Gate、急停 |
-| 2 | `feature/demo-persistent-session` | fresh heavy PASS，待 PR | 整理提交、CI、合入 `dev` |
-| 3 | `feature/showcase-unified-entry` | 待创建 | 一个公开启动/状态/停止入口 |
-| 4 | `feature/showcase-multimodal-handoff` | 待创建 | 语音、键盘、自治之间的接管闭环 |
-| 5 | `feature/showcase-demo-profiles` | 待创建 | quick/strict 配置、证据和讲稿 |
-| 6 | `dev -> main` | 待发布 | 集成 CI 与演示前人工门禁通过，打 `v0.6-multimodal-showcase` |
+| 2 | `feature/demo-persistent-session` | PR #92 已合入 `dev` | fresh heavy PASS、CI 全绿 |
+| 3 | `refactor/repository-surface-cleanup` | 进行中 | 删除有替代入口的旧脚本，建立连续文档导航 |
+| 4 | `feature/showcase-unified-entry` | 待创建 | 一个公开启动/状态/停止入口 |
+| 5 | `feature/showcase-multimodal-handoff` | 待创建 | 语音、键盘、自治之间的接管闭环 |
+| 6 | `feature/showcase-demo-profiles` | 待创建 | quick/strict 配置、证据和讲稿 |
+| 7 | `dev -> main` | 待发布 | 集成 CI 与演示前人工门禁通过，打 `v0.6-multimodal-showcase` |
 
 不得在当前分支未 PR 合入 `dev` 前创建下一功能分支。每个分支完成本地闭环后只
 push 一次，创建 PR 到 `dev`；`main` 不接收未集成的 feature 分支或直接推送。
@@ -124,9 +125,9 @@ logs/acceptance/showcase_gazebo_e2e/20260724T053935Z-1431080-d6efcab6/
 其中 `showcase_gazebo_e2e_report.json` 与 `acceptance_session.json` 记录了
 顶层 `passed=true`、cleanup 完成以及 source revision/dirty provenance。
 
-当前分支完成定义已经满足，可以整理 commit、push 并创建 PR 到 `dev`。CI 全绿后
-才能合入 `dev`；这仍不足以直接更新 `main`，需先完成后续演示分支或明确单独发布
-该纵向切片。
+该完成定义已经由 PR #92 与 CI 验证并合入 `dev`。这仍不足以直接更新 `main`：
+重构分支只做仓库表面收口，之后还需完成演示入口或明确单独发布该纵向切片，并在
+clean commit 上重跑发布级重型门禁。
 
 ## 5. 证据边界
 

@@ -198,14 +198,9 @@ bash scripts/acceptance_test.sh robotics-gate
 
 ## 文档
 
-- [系统架构与调用关系](docs/ARCHITECTURE.md)
-- [测试与验收契约](docs/TESTING.md)
-- [Docker 与交付流程](docs/deployment/CONTAINER_DELIVERY.md)
-- [SLAM/Nav2 学习笔记](docs/learning/SLAM_NAV2.md)
-- [语音 Agent 学习笔记](docs/learning/VOICE_AGENT.md)
-- [ROS 2/C++ 控制学习笔记](docs/learning/ROS2_CPP_CONTROL.md)
-- [Unknown-world 开发 Goal](docs/development/UNKNOWN_WORLD_SLAM_GOAL.md)
-- [15 分钟汇报](docs/PRESENTATION_15MIN.md)
+从 [文档阅读地图](docs/README.md) 开始：先用本页完成项目定位、最短部署和公开入口，再按目标进入
+[系统架构](docs/ARCHITECTURE.md)、[测试手册](docs/TESTING.md)、学习笔记、证据或
+[15 分钟汇报](docs/PRESENTATION_15MIN.md)。开发日志和历史记录不作为当前功能事实。
 
 ## 事实边界
 

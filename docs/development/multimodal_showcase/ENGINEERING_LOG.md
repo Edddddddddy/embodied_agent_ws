@@ -53,8 +53,8 @@ session：`20260721T072342Z-2344751-5452a492`
   `2d91ffe49c996c08fd2aaf7bc4e4395533a3171d`。
 - Issue #90 跟踪持久 mapping→navigation：
   <https://github.com/Edddddddddy/embodied_agent_ws/issues/90>。
-- 当前工作分支 `feature/demo-persistent-session` 尚未推送/PR；`main` 保持
-  `v0.5.0`，没有混入当前未验收改动。
+- `feature/demo-persistent-session` 后续通过 PR #92 合入 `dev`，merge commit 为
+  `3769150864c8e270442043110472f59fba5b7295`；`main` 继续保持 `v0.5.0`。
 
 实现：
 
@@ -250,8 +250,9 @@ logs/acceptance/showcase_gazebo_e2e/20260724T053935Z-1431080-d6efcab6/
 的 Markdown 链接。
 
 证据边界：报告绑定 revision `2d91ffe49c996c08fd2aaf7bc4e4395533a3171d`
-且记录 `source_dirty=true`。它证明当前 feature worktree 的实现已经闭环，但发布
-前仍须把同一实现整理为提交、PR 到 `dev` 并通过 CI。
+且记录 `source_dirty=true`。它证明当时 feature worktree 的实现已经闭环；同一
+实现随后通过 PR #92 的完整 CI 并进入 `dev`。它仍不能替代 clean commit 上的
+`main` 发布级重型证据。
 
 ## 2026-07-24：提交前本地门禁
 
@@ -275,14 +276,16 @@ HEADLESS=true USE_RVIZ=false SLAM_NAV_PROGRESS_HEARTBEAT_S=15 \
   bash scripts/acceptance_test.sh showcase-gazebo-e2e
 ```
 
-当前可以进入“整理提交 -> feature PR 到 `dev` -> CI”的阶段；在 PR 与 CI 完成
-前，不把 dirty-worktree PASS 写成已发布到 `main` 的版本。
+PR #92 已完成上述流程并合入 `dev`。下一步在独立
+`refactor/repository-surface-cleanup` 分支删除有明确替代者的旧入口、补齐门禁和
+文档导航；不在清理分支重写已通过的 SLAM 状态机。
 
 ## 下一轮安排
 
-当前功能按 `feature/demo-persistent-session -> dev` 收口后再顺序开发：
+当前功能已按 `feature/demo-persistent-session -> dev` 收口，接下来顺序开发：
 
-1. `feature/showcase-unified-entry`：统一 run/status/keyboard/stop 入口。
-2. `feature/showcase-multimodal-handoff`：语音、键盘、自治任务接管与恢复。
-3. `feature/showcase-demo-profiles`：quick/strict profile、统一报告和 15 分钟讲稿。
-4. 集成完成后由 `dev -> main` 发布 `v0.6-multimodal-showcase`。
+1. `refactor/repository-surface-cleanup`：缩小公开入口、整理连续文档地图。
+2. `feature/showcase-unified-entry`：统一 run/status/keyboard/stop 入口。
+3. `feature/showcase-multimodal-handoff`：语音、键盘、自治任务接管与恢复。
+4. `feature/showcase-demo-profiles`：quick/strict profile、统一报告和 15 分钟讲稿。
+5. 集成完成后由 `dev -> main` 发布 `v0.6-multimodal-showcase`。

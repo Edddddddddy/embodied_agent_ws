@@ -6,11 +6,12 @@ WORKSPACE="${WORKSPACE:-$(cd -- "$SCRIPT_DIR/../../.." && pwd -P)}"
 CLI="$WORKSPACE/scripts/acceptance_test.sh"
 
 PUBLIC_HELP="$(bash "$CLI" --help)"
-for mode in core continuous-offline continuous-online gazebo nav2-stage slam-nav-e2e unknown-world-slam-e2e robotics-gate; do
+for mode in core continuous-offline continuous-online gazebo nav2-stage slam-nav-e2e unknown-world-slam-e2e voice-unknown-world-slam-e2e robotics-gate; do
   grep -q "^  $mode " <<<"$PUBLIC_HELP"
 done
 grep -q "slam-nav-e2e.*Known-world deterministic" <<<"$PUBLIC_HELP"
 grep -q "unknown-world-slam-e2e.*Unknown-world autonomous exploration" <<<"$PUBLIC_HELP"
+grep -q "voice-unknown-world-slam-e2e.*Live microphone.*full-evidence unknown-world" <<<"$PUBLIC_HELP"
 if grep -q "openloris-replay-stage" <<<"$PUBLIC_HELP"; then
   echo "FAIL: evaluation modes leaked into stable public help" >&2
   exit 1
@@ -22,6 +23,12 @@ grep -q "Evaluation/experiment modes:" <<<"$ALL_HELP"
 grep -q "architecture-facts" <<<"$ALL_HELP"
 grep -q "showcase-gazebo-e2e" <<<"$ALL_HELP"
 grep -q "openloris-replay-stage" <<<"$ALL_HELP"
+for removed_mode in microphone-offline microphone-online all; do
+  if grep -q "^  $removed_mode " <<<"$ALL_HELP"; then
+    echo "FAIL: removed acceptance mode leaked into --help-all: $removed_mode" >&2
+    exit 1
+  fi
+done
 
 set +e
 UNKNOWN_OUTPUT="$(bash "$CLI" mode-that-does-not-exist 2>&1)"

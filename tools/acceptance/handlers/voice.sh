@@ -300,14 +300,6 @@ accept_asr_nlu_candidate_eval() {
     --minimum "${ASR_NLU_CANDIDATE_MINIMUM:-1.0}"
 }
 
-accept_microphone_offline() {
-  bash scripts/accept_voice_simulation_microphone.sh offline
-}
-
-accept_microphone_online() {
-  bash scripts/accept_voice_simulation_microphone.sh online
-}
-
 accept_continuous_offline() {
   bash scripts/continuous_voice_control.sh offline
 }

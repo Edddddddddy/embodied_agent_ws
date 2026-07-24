@@ -95,7 +95,3 @@ accept_gazebo_voice_online() {
 accept_runtime_evidence_summary() {
   python3 scripts/generate_runtime_evidence_summary.py
 }
-
-accept_all() {
-  run_base; run_online; run_offline; bash scripts/smoke_test_demo_sequence.sh; run_gazebo; bash scripts/smoke_test_gazebo_voice.sh; bash scripts/smoke_test_gazebo_voice_online.sh
-}
