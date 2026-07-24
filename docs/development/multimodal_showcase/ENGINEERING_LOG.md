@@ -280,12 +280,135 @@ PR #92 已完成上述流程并合入 `dev`。下一步在独立
 `refactor/repository-surface-cleanup` 分支删除有明确替代者的旧入口、补齐门禁和
 文档导航；不在清理分支重写已通过的 SLAM 状态机。
 
+## 2026-07-24：会话运行时三方案比较与本轮决策
+
+仓库表面收口后，下一处明显风险是
+`showcase_session_node.py` 同时拥有 ROS Adapter、Nav2 goal 生命周期、安全清理和
+整场 mission 编排。只按文件大小拆分会产生很多浅 Interface，因此本轮先比较 seam，
+再决定代码改动。
+
+### 方案 A：`Nav2MotionTransaction`
+
+范围是一笔 Nav2 运动：发送 goal、读取响应、处理拒绝或迟到接受、取消、独立
+priority STOP、新鲜零速、读取 terminal wrapper 和最终 fail-safe。它不拥有地图
+采样、候选 preflight、ROS `/plan` 采集/评分、mission phase 或 ROS wire schema；
+但会读取 Node 写入的 ledger 并强制执行运行期路径安全门。
+
+唯一行为 Interface 计划为：
+
+```text
+execute(
+  intent: SampledNavigate | MappingReturn | RecoveryBackup,
+  *,
+  is_cancelled,
+  deadline_monotonic,
+) -> None
+```
+
+成功返回 `None`；错误按 `Nav2GoalRejected`、`Nav2MotionFailed`、
+`Nav2SafetyFailure`、`Nav2TransactionBusy` 分类；server 不可用和业务 deadline
+耗尽使用 `TimeoutError`，取消沿用 `AutomaticMissionCancelled`。
+
+优点是改动集中，当前 sampled goal、返航 goal、恢复 BackUp 已经共享同一组安全
+不变量；删除该模块后，这些复杂性会重新散回多个调用者，因而它能形成深模块。
+
+预期代码锚点：
+
+```text
+src/embodied_slam_tools/embodied_slam_tools/nav2_motion_transaction.py
+src/embodied_slam_tools/test/test_nav2_motion_transaction.py
+```
+
+### 方案 B：`DefaultDemoSession`
+
+长期让一个会话 facade 向语音、typed Action 和统一演示入口提供同一 Interface：
+
+```text
+start() -> None
+admission(SessionRequest) -> Admission
+submit(SessionRequest) -> SessionOperation
+snapshot() -> SessionSnapshot
+close() -> None
+```
+
+`SessionOperation` 只暴露完成、进度、取消和有界等待。caller 不应直接调用
+`save_map()`、`start_navigation()`、`wait_navigation_ready()` 或逐个 Nav2 goal
+方法。预期长期锚点：
+
+```text
+src/embodied_slam_tools/embodied_slam_tools/default_demo_session.py
+src/embodied_slam_tools/embodied_slam_tools/ros_demo_runtime_adapter.py
+```
+
+该方案能获得更大的 Locality，但当前一次迁移会同时触及启动、队列、控制权、证据和
+关闭语义，风险高于先收口 Nav2 事务。
+
+### 方案 C：`MissionProgram`/phase DSL
+
+该方案用 phase registry、typed artifact 和 effect Adapter 组合 mapping、
+navigation 与未来 demo。它对未来扩展最有上限，但现在只有 mapping/navigation
+两个已经有独立事务深度的 phase。尚未出现第三个有自己的不变量、恢复和证据语义的
+phase，此时建立 DSL 会先扩大 Interface，再等待未来需求证明其 Leverage。
+
+### 当前决定和实现结果
+
+本轮选择并已实现方案 A；方案 B 作为长期方向；方案 C 暂缓。新增：
+
+```text
+src/embodied_slam_tools/embodied_slam_tools/nav2_motion_transaction.py
+src/embodied_slam_tools/embodied_slam_tools/nav2_motion_ros.py
+src/embodied_slam_tools/test/test_nav2_motion_transaction.py
+src/embodied_slam_tools/test/test_nav2_motion_ros.py
+```
+
+`run_recovery_backup()`、`run_navigation_goal()` 与
+`run_mapping_return_goal()` 已迁移到同一个 `execute(intent, ...)` seam。ROS
+`/plan` 的采集和 occupancy 评分仍由 Node 写入 ledger，事务负责执行期安全门；
+恢复位移、返航 TF 容差和成功后的 typed STOP 仍由 Node 证明。原 Node 内部
+goal-response、late accept、cancel/STOP/terminal 私有状态机及对应白盒测试已经
+删除，不保留永久转发层。
+
+本轮实现必须保持：
+
+- 正常执行共享调用者的绝对 deadline；异常清理只创建一次不可续期的 cleanup
+  deadline，late accept、cancel、STOP 与 terminal 共用该预算。
+- 同时只有一笔事务；并发进入显式失败。
+- pending cancel/timeout 必须同步收口迟到 accepted handle。
+- accepted goal 故障严格执行
+  `cancel -> 独立 priority STOP -> readable terminal`。
+- terminal 不可证明时停止 navigation stage 并 fail-closed。
+- quiescence 仅在明确拒绝或可读 terminal 后结算；sampled ledger terminal 恰好
+  一次且晚于安全收口。
+- primary error 不被 cleanup error 覆盖。
+- ROS 名称、QoS、Action result/feedback 和 typed evidence 不变。
+
+当前验证结果：
+
+```text
+embodied_slam_tools：411 passed
+repository contracts：316 passed
+事务 + ROS Adapter + Node seam：145 passed
+embodied_slam_tools ROS 包：411 tests，0 failures
+acceptance_test.sh core：547 repository/evaluation + 660 Agent tests，C++/simulation PASS
+typed Gazebo Action -> cmd_vel -> odom -> terminal：PASS
+```
+
+`core` 首次曾报告 live benchmark 没有生成报告；直接运行后确认当前 worktree
+只有 `--packages-up-to embodied_slam_tools` 的半安装层，缺少
+`embodied_agent_core`。完成全 workspace build 后，原命令无代码修改即通过。
+该经验已写入 `WSL_POWERSHELL.md`，避免把环境构建不完整误判成业务回归。
+
+unknown-world 重型 E2E 尚未执行；通过后才把本轮标记为已验证。未来实现
+`DefaultDemoSession` 时，再增加
+`RUN_DEFAULT -> MISSION_COMPLETED -> STOP -> STOPPED` 和显式 STOP 证据。
+
 ## 下一轮安排
 
-当前功能已按 `feature/demo-persistent-session -> dev` 收口，接下来顺序开发：
+persistent 功能和 repository surface 已进入 `dev`，接下来顺序开发：
 
-1. `refactor/repository-surface-cleanup`：缩小公开入口、整理连续文档地图。
-2. `feature/showcase-unified-entry`：统一 run/status/keyboard/stop 入口。
-3. `feature/showcase-multimodal-handoff`：语音、键盘、自治任务接管与恢复。
-4. `feature/showcase-demo-profiles`：quick/strict profile、统一报告和 15 分钟讲稿。
-5. 集成完成后由 `dev -> main` 发布 `v0.6-multimodal-showcase`。
+1. 完成 `refactor/showcase-session-runtime` 重型证据、PR 与 CI。
+2. 在该 Interface 合入 `dev` 后重新评估 `DefaultDemoSession`，不提前建立 phase DSL。
+3. `feature/showcase-unified-entry`：统一 run/status/keyboard/stop 入口。
+4. `feature/showcase-multimodal-handoff`：语音、键盘、自治任务接管与恢复。
+5. `feature/showcase-demo-profiles`：quick/strict profile、统一报告和 15 分钟讲稿。
+6. 集成完成后由 `dev -> main` 发布 `v0.6-multimodal-showcase`。

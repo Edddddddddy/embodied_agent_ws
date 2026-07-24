@@ -141,6 +141,25 @@ export EMBODIED_ALLOW_WORKSPACE_OVERRIDE=true
 自动任务启动前的 doctor 会检查两个核心 package prefix、`RUN_AUTOMATIC_MISSION` 生成接口和
 `explore_lite` 都属于当前 install；失败输出本身就是修复命令。
 
+### 不要用“半安装层”运行整仓门禁
+
+`colcon build --packages-up-to embodied_slam_tools` 只保证目标包及其依赖进入当前
+`install/`，不会安装与它无依赖关系的 Agent 包。此时 `install/setup.bash` 虽然存在，
+`acceptance_test.sh core` 里的在线/离线 benchmark 仍可能报
+`ModuleNotFoundError: embodied_agent_core`，随后表现为“报告文件没有生成”。
+
+这不是报告逻辑故障。运行整仓 `core` 前先建立完整安装层：
+
+```bash
+source /opt/ros/jazzy/setup.bash
+colcon build --symlink-install --executor sequential
+source install/setup.bash
+bash scripts/acceptance_test.sh core
+```
+
+定向开发可以继续使用 `--packages-up-to`，但它的结果只能证明该依赖闭包，不能替代整仓
+门禁。排障时先检查缺失模块是否出现在 `install/`，不要为了掩盖环境问题修改业务代码。
+
 ### ROS 2 接口 hash 变化后的完整重建
 
 增加 msg 字段或新增 msg/action 会改变 ROS 2 interface type hash。旧 overlay 中的 Python/C++ 类型支持
@@ -171,6 +190,23 @@ gh repo view
 gh issue list --limit 5
 gh pr checks
 ```
+
+调用 `gh api` 时不要把 PowerShell 生成的 JSON 直接通过管道送入 stdin。Windows
+PowerShell 的管道编码会在 JSON 开头加入 BOM，GitHub 可能把它识别为非法首字符；因此避免
+`ConvertTo-Json | gh api --input -` 和 `Get-Content request.json | gh api --input -`。
+需要复杂 JSON 时，先显式写成无 BOM 的 UTF-8 文件，再用 `--input` 传递：
+
+```powershell
+$json = @{ key = "value" } | ConvertTo-Json -Depth 10
+$path = Join-Path $PWD "gh-api-request.json"
+$utf8 = New-Object System.Text.UTF8Encoding -ArgumentList $false
+[System.IO.File]::WriteAllText($path, $json, $utf8)
+gh api --method PATCH repos/OWNER/REPO/... --input $path
+```
+
+如果 `gh` 运行在 WSL，就在 WSL 内创建同样的 UTF-8 JSON 文件并传 Linux 路径。只有简单字段时，
+优先使用 `gh api --method ... -f key=value`；这两种方法都比跨 PowerShell 管道传 JSON stdin
+稳定。
 
 首次登录：
 
