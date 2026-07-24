@@ -127,6 +127,7 @@ def test_history_document_cannot_be_mistaken_for_current_project_truth():
 def test_authoritative_document_local_links_resolve_to_real_files():
     documents = (
         ROOT / "README.md",
+        ROOT / "docs/README.md",
         ROOT / "docs/ARCHITECTURE.md",
         ROOT / "docs/PRESENTATION_15MIN.md",
         ROOT / "docs/TESTING.md",

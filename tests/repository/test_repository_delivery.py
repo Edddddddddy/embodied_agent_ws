@@ -499,11 +499,12 @@ def test_offline_latency_gate_remains_available_and_documented():
     assert "offline-voice-e2e-report" in readme
 
 def test_job_presentation_doc_remains_discoverable():
-    """汇报入口与三册学习笔记构成唯一知识入口。"""
+    """阅读地图、汇报入口与三册学习笔记构成连续的知识入口。"""
 
     docs = ROOT / "docs"
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     required = (
+        docs / "README.md",
         docs / "ARCHITECTURE.md",
         docs / "TESTING.md",
         docs / "PRESENTATION_15MIN.md",
@@ -512,9 +513,11 @@ def test_job_presentation_doc_remains_discoverable():
         docs / "learning" / "SLAM_NAV2.md",
     )
     assert all(path.is_file() for path in required)
-    assert all(path.name in readme for path in required)
-    presentation = required[2].read_text(encoding="utf-8")
-    architecture = required[0].read_text(encoding="utf-8")
+    assert "docs/README.md" in readme
+    docs_index = required[0].read_text(encoding="utf-8")
+    assert all(path.name in docs_index for path in required[1:])
+    presentation = required[3].read_text(encoding="utf-8")
+    architecture = required[1].read_text(encoding="utf-8")
     for token in ("15 分钟项目汇报", "AgentActionGateway", "GTSAM", "验收证据"):
         assert token in presentation
     for token in ("flowchart LR", "ExecuteRobotCommand", "FrontierExplorationMonitor"):
@@ -522,12 +525,14 @@ def test_job_presentation_doc_remains_discoverable():
 
 
 def test_core_gate_scopes_build_and_results_to_owned_packages():
-    """core 门禁不能把第三方仓库或历史 build 结果误报成本项目回归。"""
+    """core 同时覆盖在线/离线 Agent，且不把第三方结果误报成本项目回归。"""
 
     core_gate = (ROOT / "scripts" / "run_core_tests.sh").read_text(
         encoding="utf-8"
     )
 
+    assert "src/embodied_offline_agent/test" in core_gate
+    assert "src/embodied_online_agent/test" in core_gate
     assert '--packages-select "${CORE_CPP_PACKAGES[@]}"' in core_gate
     assert '--packages-select "${CORE_TEST_PACKAGES[@]}"' in core_gate
     assert '--test-result-base "build/$package"' in core_gate
@@ -659,18 +664,28 @@ def test_nav2_live_evidence_script_keeps_control_and_scoring_together():
 
 
 def test_entry_documents_stay_concise_and_point_to_authoritative_guides():
-    """顶层只保留三份权威文档，学习内容按领域分册。"""
+    """docs/README 是阅读入口，其余顶层文档各自只承担一个职责。"""
 
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    docs_index = (ROOT / "docs" / "README.md").read_text(encoding="utf-8")
     top_level = {path.name for path in (ROOT / "docs").glob("*.md")}
     assert len(readme.splitlines()) <= 220
-    assert top_level == {"ARCHITECTURE.md", "TESTING.md", "PRESENTATION_15MIN.md"}
+    assert top_level == {
+        "README.md",
+        "ARCHITECTURE.md",
+        "TESTING.md",
+        "PRESENTATION_15MIN.md",
+    }
     for required in (
         "## 核心架构", "## 推荐演示", "## 测试与验收",
+        "docs/README.md",
+    ):
+        assert required in readme
+    for required in (
         "ARCHITECTURE.md", "TESTING.md", "PRESENTATION_15MIN.md",
         "VOICE_AGENT.md", "ROS2_CPP_CONTROL.md", "SLAM_NAV2.md",
     ):
-        assert required in readme
+        assert required in docs_index
 
 
 def test_evidence_is_partitioned_by_capability():

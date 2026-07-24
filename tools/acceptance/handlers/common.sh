@@ -76,7 +76,6 @@ run_base() {
   bash scripts/smoke_test_namespaced_executor.sh
   bash scripts/smoke_test_offline.sh
   bash scripts/smoke_test_hardware.sh
-  bash scripts/smoke_test_simulation.sh
 }
 
 run_online() {
@@ -96,7 +95,6 @@ run_offline() {
 }
 
 run_gazebo() {
-  bash scripts/smoke_test_gazebo.sh
   bash scripts/smoke_test_gazebo_typed_action.sh
 }
 

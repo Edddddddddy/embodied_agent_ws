@@ -164,7 +164,19 @@ PID、start ticks、boot ID、executable 与 argv hash；Agent 角色必须绑�
 处理：本地按职责拆 commit，但一个完整功能闭环后再 push；PR 目标为 `dev`，CI
 全绿后合入。`main` 只通过发布 PR 更新，禁止 feature 分支直推。
 
-## 15. Nav2 的布尔 Launch 参数不是 Bash 布尔值
+## 15. `rosdep update` 不会刷新 Ubuntu 的 apt 索引
+
+现象：frontier patch replay 已正确重放补丁，但安装
+`ros-jazzy-image-geometry` 时，Ubuntu 镜像中的旧包地址返回 404。
+
+根因：`rosdep update` 更新的是“ROS 依赖名到系统包”的映射，不等价于
+`apt-get update`。长期存在的容器镜像可能携带已经过期的 apt 索引。
+
+处理：在 CI 容器执行 `rosdep install` 前显式运行一次 `apt-get update`。PR #92
+首次检查复现 404，加入该步骤后的同一 job 在 3 分 7 秒通过。以后遇到依赖下载
+404，应先区分“依赖声明错误”和“软件源索引过期”，不要为了绕过 CI 删除正确依赖。
+
+## 16. Nav2 的布尔 Launch 参数不是 Bash 布尔值
 
 现象：传给 Nav2 的 `use_composition=false` 最终进入
 `PythonExpression(['not ', use_composition])`，表达式求值时报
@@ -174,7 +186,7 @@ PID、start ticks、boot ID、executable 与 argv hash；Agent 角色必须绑�
 probe 验证 map server、AMCL 和 lifecycle manager 已启动/激活。不能只验证参数
 文件能够解析。
 
-## 16. 可执行 Python 脚本不一定在 argv 中出现 `python`
+## 17. 可执行 Python 脚本不一定在 argv 中出现 `python`
 
 现象：运行时连续性选择器找不到实际 Agent，但进程确实存在。
 
@@ -184,10 +196,30 @@ probe 验证 map server、AMCL 和 lifecycle manager 已启动/激活。不能�
 处理：角色选择同时识别解释器启动和可信 shebang 入口，随后仍用
 PID/start ticks/boot ID/executable/argv hash 校验身份，不能放宽成模糊进程名。
 
-## 17. 接近饱和时仍有增益，不能无限恢复
+## 18. 接近饱和时仍有增益，不能无限恢复
 
 现象：硬预算已到，但最近一次探索仍增加地图；立即结束过早，继续恢复又可能一直
 运行。
 
 处理：只允许一次最多 `240 s` 的最终确认，并在确认后检查连续低收益、账本排空、
 最终 probe、地图质量、返航和 typed STOP。它是有界收尾，不是第二个无限探索阶段。
+
+## 19. `colcon --executor sequential` 不等于 C++ 单线程编译
+
+现象：WSL 只有约 8 GiB 内存时，虽然使用了 `colcon build --executor sequential`，
+同一个 CMake 包仍同时启动大量 `cc1plus`，最终触发 OOM；第一次 OOM 后立即重跑还
+可能留下不稳定实例，表现为 `Wsl/Service/E_UNEXPECTED` 或 VM 重启。
+
+根因：`--executor sequential` 只约束 ROS 包之间的调度，CMake/Make 在包内部仍可
+按 CPU 数并行。两层并发需要分别控制。
+
+处理：
+
+```bash
+CMAKE_BUILD_PARALLEL_LEVEL=1 MAKEFLAGS=-j1 \
+  colcon build --executor sequential --parallel-workers 1
+```
+
+如果 OOM 后 WSL 命令持续返回 `E_UNEXPECTED`，先确认没有正在运行的验收，再完整
+执行一次 `wsl --shutdown`，不要把新构建叠加在残留编译进程上。本轮在干净实例上
+按上述限制完成 12 个包构建，并通过 `core` 门禁。

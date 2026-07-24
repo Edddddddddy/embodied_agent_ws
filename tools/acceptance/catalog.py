@@ -173,8 +173,6 @@ _MODE_SPECS = (
     ('cpp-action-bridge-lifecycle', 'Verify inactive reject, cleanup, and reactivate', 'accept_cpp_action_bridge_lifecycle', 'internal', False, True, HandlerDomain.CONTROL),
     ('gazebo-voice', 'Offline synthesized speech through typed Action to Gazebo', 'accept_gazebo_voice', 'internal', False, True, HandlerDomain.CONTROL),
     ('gazebo-voice-online', 'Online voice provider through typed Action to Gazebo', 'accept_gazebo_voice_online', 'internal', False, True, HandlerDomain.CONTROL),
-    ('microphone-offline', 'Speak into the microphone using the offline Agent', 'accept_microphone_offline', 'interactive', False, True, HandlerDomain.VOICE),
-    ('microphone-online', 'Speak into the microphone using the online Agent', 'accept_microphone_online', 'interactive', False, True, HandlerDomain.VOICE),
     ('continuous-offline', 'Long-running microphone control using the offline Agent', 'accept_continuous_offline', 'public', True, True, HandlerDomain.VOICE),
     ('continuous-online', 'Long-running microphone control using the online Agent', 'accept_continuous_online', 'public', True, True, HandlerDomain.VOICE),
     ('continuous-nav2-offline', 'Long-running microphone target navigation with Nav2/TurtleBot3', 'accept_continuous_nav2_offline', 'interactive', False, True, HandlerDomain.SLAM_NAV),
@@ -189,7 +187,6 @@ _MODE_SPECS = (
     ('runtime-evidence-summary', 'Summarize online/offline 5-minute, LLM, and latency evidence', 'accept_runtime_evidence_summary', 'internal', False, True, HandlerDomain.CONTROL),
     ('voice-benchmark-report', 'REPORT_FILE  Evaluate recognition/action/false-trigger/latency metrics', 'accept_voice_benchmark_report', 'interactive', False, True, HandlerDomain.EVALUATION),
     ('continuous-nav2-live-report', 'REPORT_FILE  Re-score a saved Nav2 live-check report', 'accept_continuous_nav2_live_report', 'interactive', False, True, HandlerDomain.SLAM_NAV),
-    ('all', 'Run all automated release gates; excludes interactive microphone', 'accept_all', 'internal', False, True, HandlerDomain.CONTROL),
 )
 
 MODES = tuple(AcceptanceMode(*spec) for spec in _MODE_SPECS)

@@ -1,7 +1,9 @@
 # 测试与验收
 
-本文是当前项目的验收契约。命令注册以 `tools/acceptance/catalog.py` 为准；架构边界见
-[ARCHITECTURE.md](ARCHITECTURE.md)，算法和代码走读见 [SLAM/Nav2 学习笔记](learning/SLAM_NAV2.md)。
+本文是测试命令、PASS 条件、产物位置和故障分层的唯一说明。第一次阅读请先看
+[文档阅读地图](README.md)；命令注册以 `tools/acceptance/catalog.py` 为准，稳定模块边界见
+[系统架构](ARCHITECTURE.md)，算法原理和代码走读见对应的 [学习笔记](learning/)；已经产生的运行
+事实见 [证据索引](evidence/README.md)。开发计划或历史记录不能替代本页的当前验收契约。
 
 ## 1. 证据分层
 
@@ -65,12 +67,11 @@ bash scripts/acceptance_test.sh robotics-gate
 
 ```bash
 bash scripts/acceptance_test.sh core
-pytest -q src/embodied_online_agent/test
 bash scripts/acceptance_test.sh slam-autonomous-mission-stage
 ```
 
-`core` 已聚合仓库/评估、离线 Agent、CLI 与核心 C++ 回归；这里只单独补它未覆盖的在线 Agent，避免同一
-测试被手工重复运行。需要定位失败时再按 `core` 输出执行对应 pytest/colcon 子集。
+`core` 已聚合仓库/评估、在线与离线 Agent、CLI 以及核心 C++ 回归，无需再手工重复执行两类 Agent
+单测。需要定位失败时，再按 `core` 输出运行对应的 pytest/colcon 子集。
 
 ROS 2/C++ 门禁：
 
