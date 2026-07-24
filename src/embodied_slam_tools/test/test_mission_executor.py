@@ -502,6 +502,80 @@ def test_time_budget_saturation_quiesces_returns_home_then_saves_map():
     ) == 3
 
 
+def test_time_budget_adds_one_confirmation_epoch_when_history_is_material():
+    """硬预算撞上高收益历史时，再观察一轮，不能立即失败或放宽完成门槛。"""
+
+    evidence = MappingEvidenceTracker(1)
+    evidence.record_map([0] * 25_000)
+    evidence.mark_scan_ready()
+
+    class _MaterialHistoryRuntime(_UnknownWorldRuntime):
+        def __init__(self):
+            super().__init__(
+                evidence,
+                (
+                    "recovery_required:frontier_attempts_exhausted",
+                    "assessment_required:time_budget",
+                    "assessment_required:time_budget",
+                ),
+                # 第一次恢复仍显著扩图，final probe 只产生少量边缘细化。
+                recovery_map_sizes=(25_500, 25_535),
+                recovery_backup_displacements=(0.24,),
+            )
+            self._epoch = 0
+            self._odom_x = 0.0
+
+        def wait_for_frontier(self, request, **kwargs):
+            self._epoch += 1
+            known_cells = (25_400, 25_520, 25_530)[self._epoch - 1]
+            self.evidence.record_map([0] * known_cells)
+            for _ in range(21):
+                self.evidence.record_odom(self._odom_x, 0.0)
+                self._odom_x += 0.35
+            self.evidence.record_frontier_telemetry(
+                FrontierTelemetry(
+                    status="exploration_blocked",
+                    detected_frontier_count=8,
+                    available_frontier_count=4,
+                    blacklisted_frontier_count=1,
+                    accepted_goal_count=3,
+                    succeeded_goal_count=3,
+                )
+            )
+            return super().wait_for_frontier(request, **kwargs)
+
+    manager = _Manager(dry_run=False)
+    runtime = _MaterialHistoryRuntime()
+    spec = replace(
+        _unknown_spec(max_recovery_attempts=2),
+        exploration_timeout_s=0.1,
+        final_confirmation_timeout_s=240.0,
+        saturation_policy=SaturationPolicy(required_map_quiet_s=0.001),
+    )
+
+    UnknownWorldMissionExecutor(runtime, manager, evidence, spec).run(
+        _request()
+    )
+
+    # 第三轮是独立的低收益确认 epoch；它复用同一地图和 Action 总账，
+    # 不追加 BackUp，也不把原 900 秒预算重新赠送给普通探索。
+    assert manager.calls == [
+        ("start_explorer", Path("/tmp/frontier.yaml")),
+        ("stop_explorer",),
+        ("start_explorer", Path("/tmp/frontier.yaml")),
+        ("stop_explorer",),
+        ("start_explorer", Path("/tmp/frontier.yaml")),
+        ("stop_explorer",),
+    ]
+    waits = [call for call in runtime.calls if call[0] == "wait_frontier"]
+    assert waits[0][2] == waits[1][2]
+    assert waits[2][2] >= waits[1][2] + 239.0
+    assert len(
+        [call for call in runtime.calls if call[0] == "recovery_backup"]
+    ) == 1
+    assert evidence.completion_reason == "time_budget_exhausted"
+
+
 def test_frontier_wait_failure_uses_independent_typed_stop_request():
     """Explorer 超时后，即使用户请求已取消也必须真正发出安全停车。"""
 

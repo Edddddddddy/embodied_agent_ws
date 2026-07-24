@@ -742,6 +742,42 @@ def test_unknown_world_timeout_requests_bounded_completion_assessment():
     ) == "assessment_required:time_budget"
 
 
+def test_time_budget_preempts_attempt_exhaustion_quiet_window():
+    """回放 917s 现场故障：硬预算不能被 typed epoch terminal 吞掉."""
+
+    now = [10.0]
+    evidence = _ready_evidence(now)
+    evidence.record_frontier_telemetry(
+        FrontierTelemetry(
+            status="exploration_blocked",
+            detected_frontier_count=8,
+            blacklisted_frontier_count=2,
+            accepted_goal_count=31,
+            succeeded_goal_count=9,
+            canceled_goal_count=22,
+            completion_reason="frontier_attempts_exhausted_recoverable",
+        )
+    )
+    monitor = FrontierExplorationMonitor(
+        evidence,
+        _Explorer(),
+        _config(
+            timeout_s=0.0,
+            stable_map_s=5.0,
+            policy_mode="unknown_world",
+        ),
+        cancel_motion=lambda: None,
+        clock=lambda: now[0],
+    )
+
+    # 地图刚增长，attempt-exhaustion 分支尚未满足 quiet window；但是整轮
+    # unknown-world 绝对预算已经到期，必须转交上层执行 final probe 和有界
+    # 饱和评估，不能返回 None 后落入通用 TimeoutError。
+    assert monitor.wait(
+        _request(), recovery_attempts_remaining=0
+    ) == "assessment_required:time_budget"
+
+
 def test_unknown_world_absolute_deadline_caps_restarted_monitor_budget():
     now = [10.0]
     evidence = _ready_evidence(now)

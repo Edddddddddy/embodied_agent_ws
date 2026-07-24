@@ -130,10 +130,21 @@ def test_velocity_mux_is_an_installed_runtime_dependency():
     exec_dependencies = {
         element.text for element in package.findall("exec_depend")
     }
+    test_dependencies = {
+        element.text for element in package.findall("test_depend")
+    }
     cmake = (SIMULATION_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
 
-    assert "twist_mux" in exec_dependencies
-    assert "install(DIRECTORY config launch maps rviz worlds" in cmake
+    assert {
+        "nav2_minimal_tb3_sim",
+        "robot_state_publisher",
+        "ros_gz_sim",
+        "twist_mux",
+        "xacro",
+    } <= exec_dependencies
+    assert "ament_cmake_pytest" in test_dependencies
+    assert "install(DIRECTORY config maps rviz worlds" in cmake
+    assert "launch/persistent_voice_nav_base.launch.py" in cmake
 
 
 def test_authority_manager_heartbeats_typed_state_without_boolean_locks():
