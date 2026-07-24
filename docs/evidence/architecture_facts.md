@@ -9,8 +9,8 @@
 | ROS 2 package | 12 |
 | GitHub Actions 构建 package | 12 |
 | 公开验收入口 | 9 |
-| 高级帮助入口 | 136 |
-| CLI router mode | 136 |
+| 高级帮助入口 | 137 |
+| CLI router mode | 137 |
 | `scripts/` 顶层文件 | 134 |
 | `scripts/` 递归文件 | 134 |
 | online Agent 主节点行数 | 549 |

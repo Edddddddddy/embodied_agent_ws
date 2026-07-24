@@ -1,6 +1,6 @@
 {
   "acceptance_cli": {
-    "advanced_help_mode_count": 136,
+    "advanced_help_mode_count": 137,
     "public_mode_count": 9,
     "public_modes": [
       "continuous-offline",
@@ -13,7 +13,7 @@
       "unknown-world-slam-e2e",
       "voice-unknown-world-slam-e2e"
     ],
-    "router_mode_count": 136,
+    "router_mode_count": 137,
     "undocumented_router_modes": []
   },
   "ci": {
