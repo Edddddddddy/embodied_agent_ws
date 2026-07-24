@@ -489,8 +489,9 @@ fresh 零速必须晚于本次动态 Action 的 terminal boundary。mission 取�
   `cancel -> priority STOP -> terminal`。
 - `nav2_motion_ros.py:RosNav2MotionAdapter`：把纯事务端口适配到
   `NavigateToPose`、`BackUp`、ROS clock 和现有 quiescence ledger。
-- `showcase_session_node.py:run_navigation_goal()`：保留候选 preflight 与运行中
-  `/plan` audit，然后提交 `SampledNavigate`。
+- `showcase_session_node.py:run_navigation_goal()`：保留候选 preflight；Node 层采集
+  `/plan`、按 occupancy 评分并写入 ledger，事务再读取 ledger 强制执行运行期路径
+  安全门，随后完成 `SampledNavigate` 的 Action 生命周期。
 - `showcase_session_node.py:run_mapping_return_goal()`：提交 `MappingReturn`，成功后
   再验证 TF 返航误差及独立停车证据。
 - `showcase_session_node.py:run_recovery_backup()`：把恢复动作提交为
@@ -580,13 +581,18 @@ STOP 失败、terminal 缺失、callback 异常和并发边界；ROS Adapter 测
 
 ## 8. 证据状态与阅读顺序
 
-当前 session `20260721T072342Z-2344751-5452a492` 已证明新契约的 schema v4 六阶段链路：reachable
+历史 strict baseline session `20260721T072342Z-2344751-5452a492` 证明了 schema v4 六阶段业务链路，
+但它早于本轮 `Nav2MotionTransaction`，不能替代当前分支的重型回归。该历史 session 的 reachable
 coverage `99.81%`、区域最低 `98.76%`、unknown `0.19%`、障碍召回/false-free `85.21% / 1.69%`，
 AMCL P95 `0.120 m`，返航位置/角度误差 `0.0188 m / 0.1828 rad`，3/3 运行时目标成功，动态净空
 `0.020 m → 0.998 m`，最终 fresh 零速。该次地图自然满足 strict frontier；bounded saturation 是
 残余前沿仍存在时的备用收口路径，不能因本次未触发而删掉。生产与 schema v4 evaluator 阈值均未下调。完整阈值、
 路径 `unknown/occupied/map-outside` 合同与报告位置只在
 [测试手册](../TESTING.md) 维护。
+
+本轮事务重构已由 clean commit `bc65b8f` 的独立 unknown-world session
+`20260724T143855Z-274112-d0619407` 验证；根因闭环与完整指标见
+[工程日志](../development/multimodal_showcase/ENGINEERING_LOG.md)。
 
 建议阅读顺序：`unknown_world_slam_mission.yaml` → `exploration_saturation.py` / `mapping_return.py` →
 `mission_executor.py` → `showcase_session_node.py` → `nav2_motion_transaction.py` →

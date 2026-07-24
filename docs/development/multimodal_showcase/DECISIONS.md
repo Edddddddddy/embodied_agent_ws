@@ -199,7 +199,7 @@ probe、地图质量和 typed STOP 共同裁决，不能无限延长。
 
 ## ADR-016：先提取 Nav2 运动事务，长期收口默认演示会话
 
-状态：已接受，代码与轻量门禁已完成，重型门禁待执行。
+状态：已接受、已实现，并已通过 clean commit 重型门禁。
 
 比较：
 
@@ -262,4 +262,5 @@ probe、地图质量和 typed STOP 共同裁决，不能无限延长。
    `DefaultDemoSession` 落地，还必须新增显式 STOP 到 STOPPED 的证据。
 
 当前代码迁移、接口测试、包测试、repository contracts、`acceptance_test.sh core`
-和 typed Gazebo 门禁已通过；unknown-world 重型 E2E 通过后再把状态更新为“已验证”。
+和 typed Gazebo 门禁均已通过。clean commit `bc65b8f` 的 unknown-world E2E 也已
+验证建图、返航、定位、三点导航、动态重规划与最终新鲜零速，ADR-016 至此完成验证。

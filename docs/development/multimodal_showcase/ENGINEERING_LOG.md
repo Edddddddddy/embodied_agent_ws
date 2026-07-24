@@ -398,15 +398,48 @@ typed Gazebo Action -> cmd_vel -> odom -> terminal：PASS
 `embodied_agent_core`。完成全 workspace build 后，原命令无代码修改即通过。
 该经验已写入 `WSL_POWERSHELL.md`，避免把环境构建不完整误判成业务回归。
 
-unknown-world 重型 E2E 尚未执行；通过后才把本轮标记为已验证。未来实现
-`DefaultDemoSession` 时，再增加
-`RUN_DEFAULT -> MISSION_COMPLETED -> STOP -> STOPPED` 和显式 STOP 证据。
+## 2026-07-24：clean commit 重型门禁与最终停车证据闭环
+
+本轮第一次进入长时 unknown-world 收口时，Nav2 Action 和 typed STOP 都已有
+terminal，但 verifier 没有收到 STOP 之后的新鲜 `/cmd_vel=0`。这不是机器人仍在
+运动，而是 legacy `voice_nav2` 启动入口遗漏了 `stop_pub_timeout` 覆盖：Nav2 官方
+Collision Monitor 默认只在停车后的约 `2 s` 内继续转发零速，未知环境探索静止数十秒
+后再发 STOP 时，控制面已经完成，最终速度边界却没有本次操作的新鲜见证。
+
+修复没有放宽 verifier，而是统一速度出口的契约：
+
+- legacy `voice_nav2` 与 persistent profile 都把 `stop_pub_timeout` 设为
+  `86400 s`，覆盖整场长任务，保证晚到 STOP 仍能穿过 Collision Monitor 留下新鲜
+  零速；
+- 把 Nav2 `docking_server` 的速度 writer 从底盘 `/cmd_vel` remap 到
+  `/control/docking/cmd_vel`，继续保持 Collision Monitor 是唯一最终 writer；
+- 增加 launch contract 测试，防止旧入口再次漏掉长时零速心跳或恢复旁路 writer。
+
+clean commit `bc65b8f` 随后完成独立重型验收：
+
+```text
+session: 20260724T143855Z-274112-d0619407
+elapsed: 1032 s
+reachable coverage: 0.997
+minimum region coverage: 0.983
+mapping path: 175.305 m
+frontier goals: 33
+AMCL P95: 0.160 m
+sampled Nav2 goals: 3 / 3
+dynamic obstacle replan: PASS
+STOP 后 fresh final zero: PASS
+```
+
+这次证据同时证明事务重构没有破坏未知环境建图、返航、保存图、定位和规划闭环，
+并验证了 Action terminal 与物理速度见证必须同时成立。ADR-016 至此完成重型验证。
+未来实现 `DefaultDemoSession` 时，再增加
+`RUN_DEFAULT -> MISSION_COMPLETED -> STOP -> STOPPED` 的会话级证据。
 
 ## 下一轮安排
 
 persistent 功能和 repository surface 已进入 `dev`，接下来顺序开发：
 
-1. 完成 `refactor/showcase-session-runtime` 重型证据、PR 与 CI。
+1. 为已完成本地闭环的 `refactor/showcase-session-runtime` 创建 PR 并等待 CI。
 2. 在该 Interface 合入 `dev` 后重新评估 `DefaultDemoSession`，不提前建立 phase DSL。
 3. `feature/showcase-unified-entry`：统一 run/status/keyboard/stop 入口。
 4. `feature/showcase-multimodal-handoff`：语音、键盘、自治任务接管与恢复。

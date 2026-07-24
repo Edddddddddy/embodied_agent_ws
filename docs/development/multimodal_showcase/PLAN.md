@@ -60,7 +60,7 @@ HOLD
 
 任一步超时、进程退出、manager epoch 改变、KEYBOARD 或 ESTOP 都不得自动恢复。
 
-### 本轮运行时重构（重型验收前）
+### 本轮运行时重构（已通过重型验收）
 
 本轮比较了三个不同深度的 seam：
 
@@ -98,7 +98,7 @@ artifact 和 effect 类型，会增加调用者必须学习的 Interface，却�
 | 1 | `feature/demo-control-plane` | PR #89 已合入 `dev` | 控制权、键盘、mux/Gate、急停 |
 | 2 | `feature/demo-persistent-session` | PR #92 已合入 `dev` | fresh heavy PASS、CI 全绿 |
 | 3 | `refactor/repository-surface-cleanup` | PR #93 已合入 `dev` | 公开入口与文档表面已收口 |
-| 4 | `refactor/showcase-session-runtime` | 重型验收前 | 事务/Adapter/core/Gazebo 已完成，待 unknown-world E2E |
+| 4 | `refactor/showcase-session-runtime` | 本地闭环，待 PR/CI | 事务、Adapter、core、Gazebo 与 unknown-world E2E 已通过 |
 | 5 | `feature/showcase-unified-entry` | 待创建 | 一个公开启动/状态/停止入口 |
 | 6 | `feature/showcase-multimodal-handoff` | 待创建 | 语音、键盘、自治之间的接管闭环 |
 | 7 | `feature/showcase-demo-profiles` | 待创建 | quick/strict 配置、证据和讲稿 |
@@ -141,8 +141,9 @@ acceptance_test.sh core：547 repository/evaluation + 660 Agent tests，
 typed Gazebo Action -> cmd_vel -> odom -> terminal：PASS
 ```
 
-这些结果证明接口、局部 ROS 行为和 typed Gazebo 运动闭环；unknown-world 长时门禁
-仍需在本分支代码完成后执行。
+这些结果证明接口、局部 ROS 行为和 typed Gazebo 运动闭环。clean commit
+`bc65b8f` 又通过本分支独立的 unknown-world 长时门禁；详细失败闭环和指标见
+[工程日志](ENGINEERING_LOG.md)。
 
 ### 本轮重构完成门槛
 
@@ -168,9 +169,9 @@ typed Gazebo Action -> cmd_vel -> odom -> terminal：PASS
 `TimeoutError`，用户取消继续使用 `AutomaticMissionCancelled`。成功返回 `None`，
 不能靠一个含糊布尔值压平终态语义。
 
-前四项和轻量门禁已经通过；第 5 项中的 unknown-world 重型 E2E 尚未执行。
+五项门槛均已通过；当前分支已完成本地闭环，下一步是 PR 与 CI。
 
-### fresh 重型证据
+### 继承的 PR #92 fresh 重型证据
 
 session `20260724T053935Z-1431080-d6efcab6` 完整运行 `1515 s`，结果：
 
@@ -195,9 +196,10 @@ logs/acceptance/showcase_gazebo_e2e/20260724T053935Z-1431080-d6efcab6/
 其中 `showcase_gazebo_e2e_report.json` 与 `acceptance_session.json` 记录了
 顶层 `passed=true`、cleanup 完成以及 source revision/dirty provenance。
 
-该完成定义已经由 PR #92 与 CI 验证并合入 `dev`。这仍不足以直接更新 `main`：
-当前运行时事务重构需要自己的接口回归和 unknown-world 重型证据；之后还需完成
-统一演示入口，或明确单独发布该纵向切片。
+该 persistent 会话基线已经由 PR #92 与 CI 验证并合入 `dev`，但它不构成本轮
+运行时事务重构的重型证据。本轮已使用 clean commit `bc65b8f` 独立通过
+unknown-world E2E；后续仍需经过 PR/CI，再决定单独发布该纵向切片还是继续完成
+统一演示入口。
 
 ## 5. 证据边界
 
