@@ -140,6 +140,11 @@ NAV2_PARAMS_FILE="${NAV2_PARAMS_FILE:-}"
 NAV2_PLACES_FILE="${NAV2_PLACES_FILE:-}"
 NAV2_EXECUTOR_PLUGIN="${NAV2_EXECUTOR_PLUGIN:-embodied_simulation/Nav2RobotExecutor}"
 NAV2_ENABLE_DYNAMIC_OBSTACLE_LAYER="${NAV2_ENABLE_DYNAMIC_OBSTACLE_LAYER:-false}"
+# 持久会话由 StageProcessManager 显式注入该标志。base 只装配一次语音、
+# Gazebo、机器人、RViz 与 Nav2 common；SLAM/AMCL executor 由阶段 launch 持有。
+SHOWCASE_PERSISTENT_SESSION="${SHOWCASE_PERSISTENT_SESSION:-false}"
+SHOWCASE_SESSION_DIR="${SHOWCASE_SESSION_DIR:-}"
+SHOWCASE_MAP_PREFIX="${SHOWCASE_MAP_PREFIX:-}"
 # 多控制源演示显式开启；旧的语音/Nav2 验收默认关闭以保持兼容。
 CONTROL_AUTHORITY_ENABLED="${CONTROL_AUTHORITY_ENABLED:-false}"
 # manager 与 quiescence coordinator 必须由整场 showcase 会话持有。阶段脚本
@@ -164,7 +169,11 @@ SYSTEM_READINESS_STALE_TIMEOUT_S="${SYSTEM_READINESS_STALE_TIMEOUT_S:-30.0}"
 # 子脚本必须复用本入口已经审计过的同一组运行时资产，不能重新退回代码 worktree。
 export LLAMA_SERVER LLAMA_MODEL SILERO_VAD_MODEL_PATH VOICE_CALIBRATION_ENV
 
-source "$WORKSPACE/scripts/activate.sh"
+# `CONTINUOUS_PRINT_CONFIG` 是无副作用的部署审计入口；它不应强迫一个尚未
+# build 的 feature worktree 先生成 install 层。真实启动仍必须完整激活 ROS。
+if [[ "$PRINT_CONFIG" != "true" ]]; then
+  source "$WORKSPACE/scripts/activate.sh"
+fi
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((140 + $$ % 80))}"
 export GZ_PARTITION="${GZ_PARTITION:-embodied_agent_${ROS_DOMAIN_ID}}"
 export IGN_PARTITION="${IGN_PARTITION:-$GZ_PARTITION}"
@@ -182,6 +191,29 @@ if [[ "$CONTROL_AUTHORITY_MANAGER_ENABLED" != "true" && \
       "$CONTROL_AUTHORITY_MANAGER_ENABLED" != "false" ]]; then
   echo "FAIL: CONTROL_AUTHORITY_MANAGER_ENABLED must be true or false." >&2
   exit 2
+fi
+if [[ "$SHOWCASE_PERSISTENT_SESSION" != "true" && \
+      "$SHOWCASE_PERSISTENT_SESSION" != "false" ]]; then
+  echo "FAIL: SHOWCASE_PERSISTENT_SESSION must be true or false." >&2
+  exit 2
+fi
+if [[ "$SHOWCASE_PERSISTENT_SESSION" == "true" && \
+      "$CONTROL_AUTHORITY_ENABLED" != "true" ]]; then
+  echo "FAIL: persistent base requires CONTROL_AUTHORITY_ENABLED=true." >&2
+  echo "      Start it through voice_slam_nav_showcase.sh auto/base." >&2
+  exit 2
+fi
+if [[ "$SHOWCASE_PERSISTENT_SESSION" == "true" ]]; then
+  # base 首次就绪门禁与 mapping stage 对齐；navigation 切换由编排器
+  # 使用另一 exact profile 再验证，禁止复用旧阶段的 ready。
+  SYSTEM_READINESS_PROFILE="persistent_mapping_stage"
+  INITIAL_POSE_POLICY="stage"
+elif [[ "$NAV2_SLAM" == "true" ]]; then
+  SYSTEM_READINESS_PROFILE="voice_nav2"
+  INITIAL_POSE_POLICY="slam"
+else
+  SYSTEM_READINESS_PROFILE="voice_nav2"
+  INITIAL_POSE_POLICY="amcl"
 fi
 if [[ "$CONTROL_AUTHORITY_ENABLED" == "true" && \
       "$CONTROL_AUTHORITY_MANAGER_ENABLED" == "true" ]]; then
@@ -256,7 +288,11 @@ add_optional_launch_arg() {
 }
 
 build_launch_args() {
-  LAUNCH_ARGS=(embodied_simulation voice_nav2_turtlebot3.launch.py)
+  if [[ "$SHOWCASE_PERSISTENT_SESSION" == "true" ]]; then
+    LAUNCH_ARGS=(embodied_simulation persistent_voice_nav_base.launch.py)
+  else
+    LAUNCH_ARGS=(embodied_simulation voice_nav2_turtlebot3.launch.py)
+  fi
   local effective_capture_enabled="$CAPTURE_ENABLED"
   if [[ "$PULSE_CAPTURE_BRIDGE_ACTIVE" == "true" ]]; then
     effective_capture_enabled=false
@@ -299,20 +335,26 @@ build_launch_args() {
   add_launch_arg auto_gain_enabled "$AUTO_GAIN_ENABLED"
   add_launch_arg use_rviz "$USE_RVIZ"
   add_launch_arg headless "$HEADLESS"
-  add_launch_arg nav_action_timeout_s "$NAV_ACTION_TIMEOUT_S"
-  add_launch_arg readiness_stale_timeout_s "$SYSTEM_READINESS_STALE_TIMEOUT_S"
-  add_launch_arg executor_plugin "$NAV2_EXECUTOR_PLUGIN"
-  add_launch_arg enable_dynamic_obstacle_layer "$NAV2_ENABLE_DYNAMIC_OBSTACLE_LAYER"
   add_launch_arg control_authority_enabled "$CONTROL_AUTHORITY_ENABLED"
-  add_launch_arg control_authority_manager_enabled "$CONTROL_AUTHORITY_MANAGER_ENABLED"
-  add_launch_arg authority_state_heartbeat_ms "$AUTHORITY_STATE_HEARTBEAT_MS"
-  add_launch_arg slam "$NAV2_SLAM"
   add_optional_launch_arg world "$NAV2_WORLD"
-  add_optional_launch_arg map "$NAV2_MAP"
   add_optional_launch_arg params_file "$NAV2_PARAMS_FILE"
   add_launch_arg x_pose "$SPAWN_X"
   add_launch_arg y_pose "$SPAWN_Y"
   add_launch_arg yaw "$SPAWN_YAW"
+  if [[ "$SHOWCASE_PERSISTENT_SESSION" == "true" ]]; then
+    # partition 必须显式传入 launch；只依赖 shell 默认值会让阶段进程在手工
+    # 调试时意外连到另一个 Gazebo world。
+    add_launch_arg gz_partition "$GZ_PARTITION"
+  else
+    add_launch_arg readiness_stale_timeout_s "$SYSTEM_READINESS_STALE_TIMEOUT_S"
+    add_launch_arg nav_action_timeout_s "$NAV_ACTION_TIMEOUT_S"
+    add_launch_arg authority_state_heartbeat_ms "$AUTHORITY_STATE_HEARTBEAT_MS"
+    add_launch_arg executor_plugin "$NAV2_EXECUTOR_PLUGIN"
+    add_launch_arg enable_dynamic_obstacle_layer "$NAV2_ENABLE_DYNAMIC_OBSTACLE_LAYER"
+    add_launch_arg control_authority_manager_enabled "$CONTROL_AUTHORITY_MANAGER_ENABLED"
+    add_launch_arg slam "$NAV2_SLAM"
+    add_optional_launch_arg map "$NAV2_MAP"
+  fi
 }
 
 print_configuration() {
@@ -320,6 +362,11 @@ print_configuration() {
   cat <<EOF
 ROS_DOMAIN_ID=$ROS_DOMAIN_ID，Nav2 连续语音导航模式=$MODE
 GZ_PARTITION=$GZ_PARTITION（隔离 Gazebo Transport，避免残留世界抢占 /clock）
+SHOWCASE_PERSISTENT_SESSION=$SHOWCASE_PERSISTENT_SESSION
+SHOWCASE_SESSION_DIR=${SHOWCASE_SESSION_DIR:-<legacy>}
+SHOWCASE_MAP_PREFIX=${SHOWCASE_MAP_PREFIX:-<legacy>}
+SYSTEM_READINESS_PROFILE=$SYSTEM_READINESS_PROFILE
+INITIAL_POSE_POLICY=$INITIAL_POSE_POLICY
 PROVIDER_MODE=$PROVIDER_MODE
 MICROPHONE_ENABLED=$MICROPHONE_ENABLED
 CAPTURE_ENABLED=$CAPTURE_ENABLED
@@ -525,20 +572,23 @@ if [[ "$MONITOR_ENABLED" == "true" ]]; then
   MONITOR_PID=$!
 fi
 
-if [[ "$NAV2_SLAM" != "true" ]]; then
+if [[ "$INITIAL_POSE_POLICY" == "amcl" ]]; then
   echo
   echo "等待 Nav2/AMCL 订阅 /initialpose，并发布初始位姿..."
   python3 "$WORKSPACE/scripts/publish_nav2_initial_pose.py" \
     --x "$INITIAL_X" --y "$INITIAL_Y" --yaw "$INITIAL_YAW"
-else
+elif [[ "$INITIAL_POSE_POLICY" == "slam" ]]; then
   echo
   echo "SLAM mapping 模式由 slam_toolbox 发布 map->odom，不向 AMCL 发布 /initialpose。"
+else
+  echo
+  echo "持久 base 不拥有定位 provider；/initialpose 由 navigation stage 在 AMCL 启动后发布。"
 fi
 
 echo
 echo "正在等待语音/Nav2 组件就绪（typed system readiness）..."
 python3 "$WORKSPACE/scripts/system_readiness_check.py" \
-  --timeout "$SYSTEM_READINESS_TIMEOUT" --profile voice_nav2
+  --timeout "$SYSTEM_READINESS_TIMEOUT" --profile "$SYSTEM_READINESS_PROFILE"
 
 if [[ "$READINESS_ENABLED" == "true" ]]; then
   readiness_args=(--duration "$READINESS_DURATION")

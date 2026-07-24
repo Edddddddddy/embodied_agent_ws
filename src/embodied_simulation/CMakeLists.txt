@@ -91,10 +91,21 @@ install(TARGETS
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 install(DIRECTORY include/ DESTINATION include)
-install(DIRECTORY config launch maps rviz worlds DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY config maps rviz worlds DESTINATION share/${PROJECT_NAME})
+# launch 是用户可见 interface，采用显式白名单，避免开发期临时入口被带入安装包。
+install(FILES
+  launch/persistent_mapping_stage.launch.py
+  launch/persistent_navigation_stage.launch.py
+  launch/persistent_voice_nav_base.launch.py
+  launch/simulation_control.launch.py
+  launch/voice_nav2_turtlebot3.launch.py
+  launch/voice_turtlebot3.launch.py
+  DESTINATION share/${PROJECT_NAME}/launch
+)
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
+  find_package(ament_cmake_pytest REQUIRED)
   find_package(ament_cmake_cppcheck REQUIRED)
   find_package(ament_cmake_lint_cmake REQUIRED)
   find_package(ament_cmake_xmllint REQUIRED)
@@ -103,6 +114,10 @@ if(BUILD_TESTING)
     ENVIRONMENT "AMENT_CPPCHECK_ALLOW_SLOW_VERSIONS=1")
   ament_lint_cmake()
   ament_xmllint()
+  ament_add_pytest_test(
+    test_persistent_launch_contract
+    test/test_persistent_launch_contract.py
+  )
   ament_add_gtest(test_simulation_controller test/test_simulation_controller.cpp)
   target_link_libraries(test_simulation_controller simulation_control_core)
   ament_add_gtest(test_action_execution test/test_action_execution.cpp)

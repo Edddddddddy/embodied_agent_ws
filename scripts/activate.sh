@@ -34,6 +34,22 @@ _embodied_activate_main() {
     fi
   fi
 
+  # 验收隔离层会保留当前 worktree 的 prefix、删除其它 worktree。若同一子进程
+  # 再次 source colcon setup，旧 underlay 会因“新加入”反而排到当前 prefix 前面。
+  # 只有 marker 与 COLCON_PREFIX_PATH 同时证明当前 worktree 已激活时才短路；
+  # 切换 worktree 或环境不完整时仍执行下面的完整激活流程。
+  if [[ $status -eq 0 && \
+        "${EMBODIED_ACTIVE_WORKSPACE:-}" == "$WORKSPACE" ]]; then
+    case ":${COLCON_PREFIX_PATH:-}:" in
+      *":$WORKSPACE/install:"*)
+        if [[ "$had_allexport" == true ]]; then set -a; else set +a; fi
+        if [[ "$had_nounset" == true ]]; then set -u; else set +u; fi
+        if [[ "$had_errexit" == true ]]; then set -e; else set +e; fi
+        return 0
+        ;;
+    esac
+  fi
+
   local ros_setup="${EMBODIED_ROS_SETUP:-/opt/ros/jazzy/setup.bash}"
   if [[ $status -eq 0 && ! -f "$ros_setup" ]]; then
     cat >&2 <<EOF
@@ -100,6 +116,9 @@ EOF
     set +a
   fi
 
+  if [[ $status -eq 0 ]]; then
+    export EMBODIED_ACTIVE_WORKSPACE="$WORKSPACE"
+  fi
   if [[ "$had_allexport" == true ]]; then set -a; else set +a; fi
   if [[ "$had_nounset" == true ]]; then set -u; else set +u; fi
   # errexit 最后恢复，避免清理过程中的非关键命令提前终止调用者 shell。

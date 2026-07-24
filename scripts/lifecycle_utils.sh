@@ -86,6 +86,16 @@ embodied_workspace_doctor() {
   local install_root="$WORKSPACE/install"
   local failed=0
   local package prefix
+  local runtime_packages=(
+    embodied_agent_interfaces
+    embodied_agent_cpp
+    embodied_agent_bringup
+    embodied_online_agent
+    embodied_offline_agent
+    embodied_voice_frontend
+    embodied_simulation
+    embodied_slam_tools
+  )
 
   echo "Workspace doctor: $WORKSPACE"
   if [[ ! -f "$install_root/setup.bash" ]]; then
@@ -96,8 +106,9 @@ embodied_workspace_doctor() {
     echo "[PASS] install overlay: $install_root/setup.bash"
   fi
 
-  # 不能只判断 package 存在；prefix 必须属于当前 worktree 的 install。
-  for package in embodied_agent_interfaces embodied_slam_tools; do
+  # 不能只判断 package 存在；完整演示涉及的每个 prefix 都必须属于当前
+  # worktree。否则隔离层清除旧分支后，launch 才会延迟暴露缺包。
+  for package in "${runtime_packages[@]}"; do
     prefix="$(ros2 pkg prefix "$package" 2>/dev/null || true)"
     case "$prefix" in
       "$install_root"/*) echo "[PASS] package prefix $package: $prefix" ;;
