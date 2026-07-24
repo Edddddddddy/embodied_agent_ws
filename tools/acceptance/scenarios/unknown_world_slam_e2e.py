@@ -13,6 +13,9 @@ from typing import Sequence
 import yaml
 
 from tools.acceptance.paths import repository_root
+from tools.acceptance.showcase_evidence import (
+    verify_persistent_runtime_report,
+)
 from tools.acceptance.scenarios.unknown_world_contract import (
     UNKNOWN_WORLD_CLEARED_ENVIRONMENT_KEYS,
     audit_unknown_world_policy_spawn,
@@ -148,15 +151,29 @@ def _run_probe_and_verify(
     gate_timeout_s: float,
     failed_map_prefix: Path,
     profile: UnknownWorldRunProfile | None = None,
+    persistent_runtime_enabled: bool = False,
+    require_rviz_continuity: bool = False,
 ) -> dict[str, float | int]:
     """运行探针并验证报告；失败快照只用于诊断，不代表 map_saved。"""
 
     try:
         session.run(probe_command, timeout_s=gate_timeout_s)
         report = json.loads(report_path.read_text(encoding="utf-8"))
+        selected_profile = profile or UnknownWorldRunProfile.synthetic()
+        if persistent_runtime_enabled:
+            if selected_profile.trigger_source != "synthetic":
+                raise ValueError(
+                    "persistent showcase currently requires synthetic profile"
+                )
+            return verify_persistent_runtime_report(
+                report,
+                expected_session_id=expected_session_id,
+                require_rviz=require_rviz_continuity,
+                agent_mode=selected_profile.agent_mode,
+            )
         return _verify_profile_report(
             report,
-            profile=profile or UnknownWorldRunProfile.synthetic(),
+            profile=selected_profile,
             expected_session_id=expected_session_id,
         )
     except Exception:
@@ -175,6 +192,7 @@ def _build_orchestrator_command(
     workspace: Path,
     map_prefix: Path,
     mission_plan: Path,
+    persistent_runtime_enabled: bool = False,
 ) -> list[str]:
     """构造真实启动命令，Agent 模式必须来自本次验收 profile。"""
 
@@ -202,6 +220,15 @@ def _build_orchestrator_command(
         "-p",
         f"stop_timeout_s:={STAGE_STOP_TIMEOUT_S}",
     ]
+    if persistent_runtime_enabled:
+        command.extend(
+            [
+                "-p",
+                "authority_gate_enabled:=true",
+                "-p",
+                "persistent_runtime_enabled:=true",
+            ]
+        )
     return command
 
 
@@ -222,6 +249,8 @@ def _build_probe_command(
     scene_spec: Path,
     truth_map: Path,
     voice_trigger_timeout_s: float,
+    persistent_runtime_enabled: bool = False,
+    require_rviz_continuity: bool = False,
 ) -> list[str]:
     """构造联合探针 argv；显式传递触发来源，禁止探针自行猜测。"""
 
@@ -274,22 +303,65 @@ def _build_probe_command(
         "--unknown-world",
         "--automatic-mission",
     ]
+    if persistent_runtime_enabled:
+        command.append("--require-runtime-continuity")
+        if require_rviz_continuity:
+            command.append("--require-rviz-continuity")
+        # 持久连续性证据必须绑定真正运行的 Agent，而不是依赖 CLI 默认值猜测。
+        command.extend(["--agent-mode", profile.agent_mode])
     if profile.trigger_source == "live_voice":
         # 合成门禁保持原 argv 不变；只有联合验收需要启用新增探针接口。
+        command.extend(["--automatic-trigger-source", profile.trigger_source])
+        if not persistent_runtime_enabled:
+            command.extend(["--agent-mode", profile.agent_mode])
         command.extend(
-            [
-                "--automatic-trigger-source",
-                profile.trigger_source,
-                "--agent-mode",
-                profile.agent_mode,
-                "--voice-trigger-timeout",
-                str(voice_trigger_timeout_s),
-            ]
+            ["--voice-trigger-timeout", str(voice_trigger_timeout_s)]
         )
     return command
 
 
-def run(profile: UnknownWorldRunProfile) -> int:
+def _build_authority_manager_command() -> list[str]:
+    """构造唯一的会话级控制权管理器命令。"""
+
+    return [
+        "ros2",
+        "run",
+        "embodied_agent_cpp",
+        "control_authority",
+        "--ros-args",
+        "-p",
+        "use_sim_time:=false",
+        "-p",
+        "bootstrap_quiescence_acknowledged:=true",
+    ]
+
+
+def _start_persistent_authority(session: AcceptanceSession) -> None:
+    """先启动唯一 manager，再通过 typed bootstrap 明确恢复自治权。"""
+
+    session.spawn(
+        "control_authority",
+        _build_authority_manager_command(),
+        log_path=session.log_path("control_authority"),
+    )
+    # bootstrap 自己会等待 service、校验冷启动 HOLD，再等待同 epoch 的
+    # AUTONOMY 状态可见；成功后才允许编排器启动，避免 admission 读取旧状态。
+    session.run(
+        [
+            "ros2",
+            "run",
+            "embodied_slam_tools",
+            "control_authority_bootstrap",
+        ],
+        timeout_s=12.0,
+    )
+
+
+def run(
+    profile: UnknownWorldRunProfile,
+    *,
+    persistent_runtime_enabled: bool = False,
+) -> int:
     """运行 strict unknown-world 门禁，差异仅由显式 profile 注入。"""
 
     workspace = repository_root(Path(__file__))
@@ -299,8 +371,12 @@ def run(profile: UnknownWorldRunProfile) -> int:
         if os.environ.get("SLAM_NAV_ROS_DOMAIN_ID")
         else None
     )
+    if persistent_runtime_enabled and profile.trigger_source != "synthetic":
+        raise ValueError("persistent showcase currently requires synthetic profile")
     artifact_environment_key = (
-        "VOICE_UNKNOWN_WORLD_ARTIFACT_DIR"
+        "SHOWCASE_GAZEBO_ARTIFACT_DIR"
+        if persistent_runtime_enabled
+        else "VOICE_UNKNOWN_WORLD_ARTIFACT_DIR"
         if profile.trigger_source == "live_voice"
         else "UNKNOWN_WORLD_ARTIFACT_DIR"
     )
@@ -369,16 +445,35 @@ def run(profile: UnknownWorldRunProfile) -> int:
     )
     runtime_environment["SHOWCASE_DYNAMIC_OBSTACLE_ENABLED"] = "true"
     runtime_environment.update(_resolve_profile_runtime_environment(profile))
+    if persistent_runtime_enabled:
+        runtime_environment.update(
+            {
+                "SHOWCASE_PERSISTENT_SESSION": "true",
+                "CONTROL_AUTHORITY_ENABLED": "true",
+                # manager 只由 AcceptanceSession 创建一次；base/stage 子进程
+                # 必须显式关闭各自的默认 manager，避免双写控制权状态机。
+                "CONTROL_AUTHORITY_MANAGER_ENABLED": "false",
+                "SESSION_CONTROL_AUTHORITY_MANAGER_ENABLED": "false",
+            }
+        )
     runtime_environment.update(_source_revision_environment(workspace))
     config = AcceptanceSessionConfig(
         name=(
-            "voice-unknown-world-slam-e2e"
+            "showcase-gazebo-e2e"
+            if persistent_runtime_enabled
+            else "voice-unknown-world-slam-e2e"
             if profile.trigger_source == "live_voice"
             else "unknown-world-slam-e2e"
         ),
         workspace=workspace,
         artifact_root=(
-            workspace / "logs/acceptance" / profile.artifact_directory_name
+            workspace
+            / "logs/acceptance"
+            / (
+                "showcase_gazebo_e2e"
+                if persistent_runtime_enabled
+                else profile.artifact_directory_name
+            )
         ),
         artifact_dir=artifact_dir,
         session_id=os.environ.get("SLAM_NAV_SESSION_ID"),
@@ -394,9 +489,17 @@ def run(profile: UnknownWorldRunProfile) -> int:
     )
 
     with AcceptanceSession(config) as session:
-        map_prefix = session.artifact_dir / "unknown_world_map"
+        map_prefix = session.artifact_dir / (
+            "showcase_gazebo_map"
+            if persistent_runtime_enabled
+            else "unknown_world_map"
+        )
         failed_map_prefix = session.artifact_dir / "failed_exploration_map"
-        report_path = session.artifact_dir / profile.report_filename
+        report_path = session.artifact_dir / (
+            "showcase_gazebo_e2e_report.json"
+            if persistent_runtime_enabled
+            else profile.report_filename
+        )
         runtime_log = session.log_path("runtime")
         for stale in (
             map_prefix.with_suffix(".yaml"),
@@ -408,7 +511,11 @@ def run(profile: UnknownWorldRunProfile) -> int:
         ):
             stale.unlink(missing_ok=True)
 
-        print("Unknown-world SLAM/Nav2 end-to-end acceptance")
+        print(
+            "Persistent Gazebo showcase end-to-end acceptance"
+            if persistent_runtime_enabled
+            else "Unknown-world SLAM/Nav2 end-to-end acceptance"
+        )
         print(f"  session: {session.session_id}")
         print(
             f"  trigger: {profile.trigger_source}; "
@@ -427,6 +534,17 @@ def run(profile: UnknownWorldRunProfile) -> int:
             f"gate={budget.gate_s:.0f}s"
         )
         print(f"  evidence: {report_path}")
+        if persistent_runtime_enabled:
+            rviz_suffix = (
+                " + RViz"
+                if os.environ.get("USE_RVIZ", "false").lower() == "true"
+                else ""
+            )
+            print(
+                "  continuity: Gazebo + robot_state_publisher + "
+                f"{profile.agent_mode}_agent"
+                + rviz_suffix
+            )
 
         if session.run(
             ["ros2", "pkg", "prefix", "explore_lite"],
@@ -442,6 +560,7 @@ def run(profile: UnknownWorldRunProfile) -> int:
             workspace=workspace,
             map_prefix=map_prefix,
             mission_plan=mission_plan,
+            persistent_runtime_enabled=persistent_runtime_enabled,
         )
         # 审计最终的 session.environment，而不是另造一份“看起来安全”的测试
         # argv/env。这样宿主 shell 遗留的地图或路线变量也会在真正 spawn 前失败。
@@ -452,7 +571,13 @@ def run(profile: UnknownWorldRunProfile) -> int:
             scene_spec_path=scene_spec,
             truth_map_path=truth_map,
         )
+        if persistent_runtime_enabled:
+            _start_persistent_authority(session)
         session.spawn("orchestrator", orchestrator_command, log_path=runtime_log)
+        require_rviz_continuity = (
+            persistent_runtime_enabled
+            and os.environ.get("USE_RVIZ", "false").lower() == "true"
+        )
         probe_command = _build_probe_command(
             profile=profile,
             workspace=workspace,
@@ -469,6 +594,8 @@ def run(profile: UnknownWorldRunProfile) -> int:
             scene_spec=scene_spec,
             truth_map=truth_map,
             voice_trigger_timeout_s=voice_trigger_timeout_s,
+            persistent_runtime_enabled=persistent_runtime_enabled,
+            require_rviz_continuity=require_rviz_continuity,
         )
         summary = _run_probe_and_verify(
             session,
@@ -478,6 +605,8 @@ def run(profile: UnknownWorldRunProfile) -> int:
             gate_timeout_s=probe_timeout_s,
             failed_map_prefix=failed_map_prefix,
             profile=profile,
+            persistent_runtime_enabled=persistent_runtime_enabled,
+            require_rviz_continuity=require_rviz_continuity,
         )
         print("Evidence verified; cleaning up acceptance process groups ...")
 

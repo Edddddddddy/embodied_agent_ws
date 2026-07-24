@@ -33,6 +33,12 @@ from tools.acceptance.probes.slam_nav.live_voice_trigger import (
     await_automatic_mission_trigger,
     finalize_trigger_report,
 )
+from tools.acceptance.probes.slam_nav.progress_adapter import (
+    publish_state_progress,
+)
+from tools.acceptance.probes.slam_nav.runtime_continuity_adapter import (
+    RuntimeContinuityProbe,
+)
 from tools.acceptance.probes.slam_nav.session_observer import (
     GazeboTruthConfig,
     SessionObserver,
@@ -58,38 +64,13 @@ from tools.acceptance.unknown_world_evidence import load_scene_evaluation_contex
 import yaml
 
 
-def _publish_state_progress(
-    progress: AcceptanceProgress, message: SlamSessionState
-) -> None:
-    """把细粒度状态机压缩成操作者关心的六个验收里程碑。"""
-
-    milestone = {
-        SlamSessionState.STARTING_MAPPING: (1, "runtime_startup"),
-        SlamSessionState.MAPPING: (1, "runtime_startup"),
-        SlamSessionState.AUTOMATIC_MAPPING: (2, "frontier_slam"),
-        SlamSessionState.SAVING_MAP: (3, "map_save"),
-        SlamSessionState.MAP_SAVED: (3, "map_save"),
-        SlamSessionState.SWITCHING_TO_NAVIGATION: (
-            4,
-            "localization_and_semantic_nav",
-        ),
-        SlamSessionState.STARTING_NAVIGATION: (
-            4,
-            "localization_and_semantic_nav",
-        ),
-        SlamSessionState.NAVIGATING: (4, "localization_and_semantic_nav"),
-        SlamSessionState.AUTOMATIC_NAVIGATING: (
-            4,
-            "localization_and_semantic_nav",
-        ),
-    }.get(int(message.phase))
-    if milestone is not None:
-        # AcceptanceProgress 自带去重，transient-local 重投递不会刷屏。
-        progress.stage(*milestone, detail=str(message.detail))
-
-
 def main() -> None:
     args = build_parser().parse_args()
+    continuity = RuntimeContinuityProbe.from_flags(
+        enabled=args.require_runtime_continuity,
+        require_rviz=args.require_rviz_continuity,
+        agent_mode=args.agent_mode,
+    )
     live_voice_trigger = args.automatic_trigger_source == "live_voice"
     if live_voice_trigger and not args.automatic_mission:
         raise ValueError("live_voice trigger requires --automatic-mission")
@@ -110,11 +91,7 @@ def main() -> None:
         )
     progress = (
         AcceptanceProgress(
-            label=(
-                "unknown-world-slam-e2e"
-                if args.unknown_world
-                else "slam-nav-e2e"
-            ),
+            label=continuity.progress_label(unknown_world=args.unknown_world),
             total_stages=6,
             heartbeat_s=args.progress_heartbeat_s,
         )
@@ -124,7 +101,7 @@ def main() -> None:
     progress_outcome = "FAIL"
     rclpy.init()
     state_observer = (
-        (lambda message: _publish_state_progress(progress, message))
+        (lambda message: publish_state_progress(progress, message))
         if progress is not None
         else None
     )
@@ -153,6 +130,7 @@ def main() -> None:
     thread.start()
     try:
         wait_for_mapping_startup(node, args.transition_timeout)
+        continuity.capture_mapping_ready()
         if args.automatic_mission or args.cancel_automatic_mission:
             state_start = len(node.states)
             await_automatic_mission_trigger(
@@ -256,6 +234,8 @@ def main() -> None:
                         "Gazebo SceneBroadcaster robot truth is missing",
                     )
                 lifecycle = lifecycle_states(node)
+                # lifecycle active 后再采样，证明切换完成时底座仍为同一进程。
+                continuity.capture_navigation_ready()
                 if args.dynamic_scenario is not None:
                     if progress is not None:
                         progress.stage(
@@ -345,6 +325,7 @@ def main() -> None:
                     dynamic_navigation=dynamic_navigation,
                     mapping_path_m=mapping_distance_m,
                 )
+                continuity.attach_to(core_report)
                 report = finalize_trigger_report(
                     node,
                     core_report,

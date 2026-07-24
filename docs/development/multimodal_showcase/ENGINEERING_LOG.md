@@ -1,116 +1,288 @@
-# 工程日志
+# 多模态演示工程日志
 
-## 2026-07-23：基线与计划
+## 2026-07-21：strict unknown-world 用户验收基线
 
-### 已完成
+session：`20260721T072342Z-2344751-5452a492`
 
-- 审计 `main`、`dev`、功能 PR 与 CI。
-- Docker 交付 PR 合入 `dev`。
-- unknown-world SLAM/Nav2 PR 在合并最新 `dev` 后通过：
-  - repository layout；
-  - ROS 2 build-and-test；
-  - frontier patch replay；
-  - container build/runtime smoke。
-- unknown-world SLAM/Nav2 PR 合并到 `dev`，合并提交：`68a4513`。
-- 从该提交创建 `feature/demo-control-plane`。
-- 建立本目录，保存演示目标、架构决策、资料、工具和风险。
+报告：
 
-### 正在执行
+```text
+/home/ubuntu/embodied_agent_ws_worktrees/voice-unknown-world-e2e/
+  logs/acceptance/unknown_world_slam_nav/
+  20260721T072342Z-2344751-5452a492/unknown_world_slam_e2e_report.json
+```
 
-- 严格 E2E 的 ROS 包版本混装问题已排除，并通过最小 Nav2/Gazebo 运动烟测。
-- 第二次 E2E 在首次 `reachable_frontiers_stalled` 恢复处误拒绝；诊断地图实际
-  达到 99.78% 总覆盖、98.51% 最差区域覆盖。
-- 已从 `origin/dev@68a4513` 创建 `fix/frontier-saturation-completion`，
-  以连续低收益 epoch 修复完成判定，不降低原 40 cells / 0.002 阈值。
-- `feature/demo-control-plane` 已形成 typed authority、C++ 键盘、自治 mux、
-  最终速度 AuthorityGate、ActionGuard 准入和 SLAM 接管取消的首版实现。
+可核验结果：
 
-### 待执行
+| 指标 | 结果 |
+|---|---:|
+| 运行时间 | 1092 s |
+| reachable free coverage | 0.9981426 |
+| 最弱区域 coverage | 0.9875519 |
+| frontier accepted/terminal | 32 / 32 |
+| 返航位置误差 | 0.0188 m |
+| AMCL P95 位置误差 | 0.1196 m |
+| 采样 Nav2 目标成功 | 3 / 3 |
+| 动态障碍重规划 | PASS |
+| STOP 后最终新鲜零速 | PASS |
 
-- 完成两个分支的本地门禁；先合入严格验收稳定性修复，再让控制面分支同步最新 `dev`。
-- 严格 E2E 通过后创建 `dev -> main` 发布 PR。
+证据边界：该 session 使用 mock provider，产生于 persistent base 开发之前，报告
+不含 `runtime_continuity`。它只证明 strict SLAM→存图→定位→规划→动态重规划
+业务链路，不证明本轮跨阶段进程连续性，也不证明真实麦克风。
 
-### 证据
+## 2026-07-23：发布基线与控制平面
 
-- PR #85：<https://github.com/Edddddddddy/embodied_agent_ws/pull/85>
-- 最终严格 E2E 报告路径将在完成后追加。
+- unknown-world 稳定性修复在 PR #87 收口，没有降低原 `40 cells / 0.002`
+  地图增益门槛。
+- 在干净 detached worktree 的 exact revision 上运行发布 strict E2E：
+  总覆盖率 `0.999`、最弱区域 `0.992`、路径 `160.543 m`、39 个 frontier
+  goal、AMCL P95 `0.185 m`、3 个目标和动态重规划通过，cleanup 完成。
+- PR #88 合入 `main`，merge commit 为
+  `4125d4b5fba59fdb5f44700357cd8e32e4ffda16`，发布标签 `v0.5.0`。
+- 控制平面独立开发：typed authority、C++ 键盘、自治 mux、AuthorityGate、
+  manager epoch/lease、同代 quiescence ACK、急停锁存和 deadman。
+- Python/C++ 对同 epoch 断租统一为 sticky fail-closed；RESUME 后先完成零速
+  source-ready 握手，旧非零 DDS 帧不能复驶。
+- 低内存门禁使用精确包选择和单线程构建；控制权 stage、在线/离线多命令回归通过。
 
-## 2026-07-23：可达前沿收口与控制面安全门
+## 2026-07-24：控制平面合并与 persistent 纵向切片
 
-- PR #87（`e9d52d3`）完成 `reachable_frontiers_stalled` 的有界饱和收口。
-- 本地阶段门禁：596 项 pytest、283 项 colcon 测试通过。
-- 审计旧成功 session 时发现报告顶层 `final_phase`、`mapping_path_m`、
-  `frontier_goal_count` 为 `null`，且无法定位产生证据的源码版本。
-- 修复分支已补：
-  - `source_revision`、`source_dirty`；
-  - `final_phase`、`mapping_path_m`、`frontier_goal_count` 三项顶层诊断字段。
-- 多输入控制面新增：
-  - manager heartbeat lease 与重启 `manager_epoch`；
-  - Nav2/voice 自治 mux；
-  - AUTONOMY/KEYBOARD typed 正授权；
-  - TurtleBot3 平面轴与速度包络；
-  - 稳定窗口逐帧验收，未授权非零速度零容忍；
-  - 键盘 deadman 与非阻塞单实例锁。
+版本状态：
 
-## 2026-07-23：严格基线证据与统一演示安排
+- PR #89 已合入 `dev`，merge commit：
+  `2d91ffe49c996c08fd2aaf7bc4e4395533a3171d`。
+- Issue #90 跟踪持久 mapping→navigation：
+  <https://github.com/Edddddddddy/embodied_agent_ws/issues/90>。
+- 当前工作分支 `feature/demo-persistent-session` 尚未推送/PR；`main` 保持
+  `v0.5.0`，没有混入当前未验收改动。
 
-- 在干净 detached worktree 上对 `origin/dev@a1b6badae7ca688007ef0aa176c750d483750f29`
-  运行 `unknown-world-slam-e2e`，session：
-  `20260723T130648Z-325489-748996e5`。
-- 严格门禁 1002 秒通过：
-  - 总覆盖率 `0.999`，最弱区域覆盖率 `0.992`；
-  - 建图路径 `160.543 m`，共完成 `39` 个 frontier goal；
-  - 动态起点返航、同会话存图、AMCL/Nav2 lifecycle、3 个动态采样目标、
-    动态障碍重规划和最终新鲜零速全部通过；
-  - AMCL P95 位置误差 `0.185 m`；
-  - 报告绑定 exact SHA，`source_dirty=false`；
-  - session manifest 标记 `cleanup_complete=true`，无遗留 ROS/Gazebo 进程。
-- 发布 PR #88 已合入 `main`，merge commit：
-  `4125d4b5fba59fdb5f44700357cd8e32e4ffda16`。
-- `main` 的 ROS 2 CI、容器交付均通过；阶段标签 `v0.5.0` 已推送。
-- tag workflow 对 exact candidate digest 完成 runtime smoke，再发布到 GHCR，
-  immutable release evidence 与 manifest 上传成功。
-- 控制平面未完成改动未混入该发布版本。
-- 统一演示开发拆为三个完整功能 PR：
-  1. session 级控制权、键盘接管、速度安全与同代终止确认；
-  2. 同一 Gazebo/RViz/Agent 会话中的 mapping→navigation 阶段切换；
-  3. `showcase offline|online` 单一入口、状态看板、证据报告与文档。
-- 明确 launch 所有权：顶层编排归 `embodied_agent_bringup`，仿真、Agent、
-  SLAM/Nav2 和控制权分别保留自己的窄 interface。
+实现：
 
-## 2026-07-23：控制平面真实 ROS stage 收口
+- 新增 persistent base、mapping stage、navigation stage 三层 launch。
+- `StageProcessManager` 分离 base/stage/explorer/map-saver 所有权。
+- `SessionOrchestratorNode` 以 opt-in persistent mode 执行
+  HOLD→typed quiescence→stage switch→readiness→RESUME。
+- session Nav2 参数在 base 前原子生成一次；navigation 只加载本次保存的地图。
+- `showcase-gazebo-e2e` 复用 strict evaluator 并追加运行时连续性证据。
 
-- 独立审查发现并修复三项提交前 P1：
-  - Python/C++ authority lease 统一为同 epoch 断租后 sticky fail-closed；
-  - 每次 RESUME 后先完成新一代零速握手，再接受自治非零速度；
-  - manager 与共享 launch factory 默认不预先确认 quiescence，单独重启不能
-    绕过旧 Nav2/Explore terminal 证据。
-- 进一步关闭独立入口的可用性/安全冲突：
-  - 纯 C++ 状态机默认同样改为严格 bootstrap；
-  - mapping/navigation 阶段 launch 不再创建 manager；
-  - 缺少会话级 coordinator 却请求自带 manager 时启动前 fail-fast；
-  - `continuous_nav2_voice_control.sh` 开启 Gate 时会等待两个 typed manager
-    service及 `/slam/session_state` coordinator，避免系统运行后才表现为永久 HOLD。
-- 处理 cold-start DDS late-join 竞态：会话根在确认没有旧 Gazebo/Nav2/SLAM
-  进程和旧 manager 后，显式声明“整套运动栈冷启动”并消费一次 bootstrap ACK；
-  因而不会在 ActionGuard 尚未订阅时发布一次性 STOP。以后所有撤权仍必须走
-  Explore/Nav2 terminal、exact priority STOP result 与新鲜零速的严格 ACK。
-- 新增 `control_authority_bootstrap` typed 客户端：校验初始
-  `HOLD/seq=0/ack=true`，调用 `RESUME_AUTONOMY`，再等待相同 manager epoch 的
-  AUTONOMY topic 状态。隔离 domain 的真实 manager 烟测通过：
-  `epoch=30382631394719, sequence=1`。
-- manager 生成的 priority STOP ID 加入 `manager_epoch`，避免重启后与旧调度器
-  幂等键冲突。
-- Nav2 STOP 语义从“cancel request 已接受”收紧为等待真实 Action terminal；
-  cancel 拒绝和 terminal timeout 均 fail-closed。
-- 拒绝 quarantine 帧的日志改为节流告警，避免正常安全隔离刷屏淹没故障。
-- 低内存门禁结果：
-  - repository + bringup + SLAM/launch + release-gate Python：
-    `649 passed`（包含 cold-start typed bootstrap 的 10 个新增用例）；
-  - `embodied_agent_cpp`：15 个 CTest suite 全部通过；
-  - `embodied_simulation`：14 个 CTest suite 全部通过；
-  - `control-authority-stage` 通过真实 manager、mux、Gate、typed ACK、
-    lease 失效与 manager 重启验证；
-  - `continuous-multi-command` 在线、离线回归均通过。
-- WSL 构建策略改为单线程、精确包选择；不再用会拉入整套 Agent 的
-  `--packages-up-to embodied_simulation`。
+## 2026-07-24：重型门禁失败闭环
+
+以下是实际失败，不是推测；每一项都新增了对应防回归测试。
+
+### 1. Gazebo 运行时身份未找到
+
+- 现象：第一次 heavy run 在约 5 秒内失败。
+- 根因：Gazebo Harmonic Ruby wrapper 把 `gz sim -r -s ...` 暴露成不同于预期的
+  `/proc/<pid>/cmdline` 形态。
+- 修复：identity selector 兼容该 argv 形式，同时保留
+  PID/start ticks/boot ID/executable/argv hash 校验，不退化为进程名匹配。
+
+### 2. 长会话最终零速缺失
+
+- 现象：第二次运行约 12 分钟，真实完成 `84.82 m` 和 23 个 frontier goal，
+  最后却没有 STOP 边界之后的新鲜 `/cmd_vel=0`。
+- 根因：Collision Monitor 默认 `stop_pub_timeout` 约 2 秒；机器人长时间静止后，
+  上游虽然继续发零速，最终出口会抑制重复零样本。
+- 修复：仅 persistent base 将零速心跳窗口设为可配置长会话值；Collision Monitor
+  仍是唯一最终出口，STOP generation 与雷达安全门槛不变。
+
+### 3. hard budget 被恢复原因遮蔽
+
+- 现象：后续运行约 917 秒、`116.1 m`、31 个 goal 后失败；frontier
+  `attempts_exhausted` 路径继续走恢复，掩盖了已达到硬时间预算。
+- 根因：恢复原因的优先级高于 hard budget，造成有界任务变成额外长等待。
+- 修复：`frontier_monitor.py` 先裁决硬预算，再解释可恢复原因；新增对应单测。
+
+### 4. typed bridge 冷启动竞态
+
+- 现象：最新一次运行约 49 秒、进入 MAPPING 前失败；
+  persistent base code=1，typed Action bridge 未 ACTIVE。
+- 根因：`LifecycleNode(autostart=True)` 通过 volatile transition event 串联
+  configure/activate；冷启动时 service discovery 可能早于 topic matching，
+  configure event 丢失后节点会停在 INACTIVE。
+- 修复：
+  - persistent 模式关闭 bridge 自启动；
+  - orchestrator 成为唯一 Lifecycle 所有者，主动读取状态并驱动
+    configure/activate；
+  - service response 丢失时重新读取真实状态，不把未知响应冒充成功；
+  - 等待期间持续检查 base liveness；
+  - 任何提前退出都会拒绝新 goal、释放排队 goal、关闭会话和回收进程。
+
+### 5. `/initialpose` 盲发导致假定位 readiness
+
+- 现象：旧脚本在 navigation launch 前后台运行，等待固定时间后即使没有
+  subscriber 也发布并退出 0。
+- 根因：生产者“调用 publish”被误当成 AMCL 已消费并生成新定位。
+- 修复：初始化事务移入 orchestrator，依次等待 AMCL ACTIVE、订阅匹配，发布本次
+  返航终点，再等待当前 generation 的新鲜 `/amcl_pose`。独立 helper 没有
+  subscriber 时现在非零退出。
+
+### 6. launch wrapper 退出后遗留 detached child
+
+- 现象：stage wrapper 已退出，AMCL/Gazebo 等后代仍可能留在 ROS graph，污染下次
+  cold start。
+- 根因：旧实现只信任根 PID/进程组；wrapper 生命周期不等于所有后代生命周期。
+- 修复：运行期间记录 owned process tree，清理前校验 PID starttime 与 PGID；
+  wrapper 已退出仍回收已登记后代，PID 复用时拒绝误杀。
+
+### 7. runtime continuity 证据过弱
+
+- 现象：只比较 launch parent 或缓存的 PASS，无法证明实际 Agent 未重启。
+- 根因：证据 schema 没有约束 role/label/时间顺序，verifier 也未始终从原始
+  checkpoint 重算。
+- 修复：绑定实际 `offline_agent`/`online_agent`，要求 schema v1、精确 role、
+  `mapping_ready`/`navigation_ready`、严格递增 wall time 和完整进程身份；验证器
+  拒绝 cached PASS。
+
+## 2026-07-24：fresh 重跑链——从失败到闭环
+
+这一轮不是靠反复延长 timeout 得到 PASS。每次都先读取本次 session 的第一处致命
+证据，再修正对应所有权或边界，并增加回归测试。下面按发生顺序保留最短、但足以
+解释上下文的记录。
+
+### `20260724T040928Z`：Python shebang 进程没有被识别
+
+- 现象：会话刚开始做运行时连续性采样，就报告找不到 Agent。
+- 根因：Agent 是带 shebang 的可执行 Python 入口，内核可直接执行脚本；
+  `/proc/<pid>/cmdline` 不一定含有 `python3`。旧选择器把“argv 有 Python
+  解释器”误当成 Python 进程的必要条件。
+- 设计决策：在
+  [`runtime_continuity.py`](../../../tools/acceptance/runtime_continuity.py)
+  同时识别解释器启动与可信 shebang 入口，身份验证仍保留 PID、start ticks、
+  boot ID、executable 和 argv hash，不退化为模糊进程名。
+- 验证：新增 shebang Agent selector 回归后，后续 session 能取得
+  `mapping_ready` 与 `navigation_ready` 两个 checkpoint。
+
+### `20260724T041407Z`：有界探索到期，但最近仍有有效增益
+
+- 现象：地图已经接近完成，硬预算到期时最近 epoch 仍有实质增益；立即结束可能
+  过早，继续普通恢复则可能无界等待。
+- 根因：完成判定只有“现在停止”与“继续恢复”两个分支，没有一个有上限的最终
+  复核步骤。
+- 设计决策：在
+  [`mission_executor.py`](../../../src/embodied_slam_tools/embodied_slam_tools/mission_executor.py)
+  增加一次最多 `240 s` 的最终确认机会；仅当近期历史仍有实质增益时触发，
+  确认后仍必须通过连续低收益、剩余 frontier、最终 probe、地图质量、返航和
+  typed STOP。
+- 验证：最终 fresh session 的确认 probe 增益为 0，系统按
+  `bounded_saturation` 正常收口，没有降低 coverage 阈值。
+
+### `20260724T044459Z`：Nav2 收到小写 `false`
+
+- 现象：建图、返航、存图已经完成，切到导航阶段后没有 map server/AMCL。
+- 根因：launch 把字符串 `false` 传给 Nav2 的
+  `PythonExpression(['not ', use_composition])`，Python 求值时报
+  `name 'false' is not defined`。
+- 设计决策：在
+  [`persistent_navigation_stage.launch.py`](../../../src/embodied_simulation/launch/persistent_navigation_stage.launch.py)
+  的边界把布尔参数统一为 Python 字面量 `True`/`False`，而不是要求下游猜测
+  Bash 字符串语义。
+- 验证：真实 20 秒 launch probe 观察到 map server、AMCL 和生命周期管理器
+  启动并激活；对应 launch contract 测试通过。
+
+### `20260724T051736Z`：typed bridge 自启动事件竞态
+
+- 现象：typed bridge 完成 configure，却没有 activate，mapping stage 因 Action
+  server 不可用而停止。
+- 根因：自启动依赖 volatile `/transition_event`；service 已发现并不代表订阅已
+  匹配，configure event 可能在冷启动窗口丢失。
+- 设计决策：关闭 persistent typed bridge 自启动，由
+  [`showcase_session_node.py`](../../../src/embodied_slam_tools/embodied_slam_tools/showcase_session_node.py)
+  的 `SessionOrchestratorNode` 读取真实状态并驱动
+  `configure -> activate`。响应未知时重新读状态；只有状态实际前进才继续。
+- 验证：定向测试覆盖正常迁移、响应丢失但状态已前进，以及响应持续未知且状态不
+  前进三种情况。
+
+### `20260724T052728Z`：为验证启动链而人工停止
+
+- 现象：该 session 已经进入 frontier exploration，但没有生成最终报告。
+- 原因：这是一次有意停止的短探针，只用来确认上一步 bridge 修复已越过启动阶段；
+  随后先补上“response unknown 必须重读状态”的防回归逻辑，避免再跑二十多分钟
+  才发现边界漏洞。
+- 结论：它不是失败证据，也不是 PASS 证据；工程记录明确标注为人工终止，不能与
+  最终 fresh session 混用。
+
+### `20260724T053240Z`：stage 内第二个 Lifecycle 所有者
+
+- 现象：typed bridge 已 ACTIVE、mapping stage 已启动，但
+  `simulation_control` 停在 INACTIVE；日志出现
+  `change_state response timeout`。
+- 根因：stage 内 Nav2 lifecycle manager 与 orchestrator 同时改变
+  `simulation_control` 状态，形成第二个所有者。manager 等不到 response 后挂起，
+  readiness 只看到节点存在，看不到 ACTIVE。
+- 设计决策：
+  - persistent mapping/navigation stage 关闭内部 lifecycle manager；
+  - `simulation_control` 使用 `autostart=false`；
+  - `SessionOrchestratorNode` 复用同一个 lifecycle 收敛函数，先确认 stage owner
+    存活，再把 executor 驱动到 ACTIVE，之后才运行 SystemReadiness。
+- 验证：launch contract、状态迁移顺序和两个 ROS 包测试通过；至此 typed bridge
+  与 stage executor 都由同一个业务状态机拥有。
+
+### `20260724T053935Z-1431080-d6efcab6`：最终 fresh PASS
+
+修复后的权威命令完整运行 `1515 s`，同一个 Gazebo、机器人状态发布器和
+`offline_agent` 从建图持续到导航，没有重启。结果如下：
+
+| 指标 | 结果 |
+|---|---:|
+| reachable free coverage | `0.998` |
+| 最弱区域 coverage | `0.985` |
+| 建图路径 | `147.661 m` |
+| frontier goal | `32` |
+| AMCL P95 位置误差 | `0.125 m` |
+| 采样 Nav2 目标 | `3 / 3` |
+| 动态障碍重规划 | PASS |
+| runtime continuity | PASS |
+| STOP 后最终新鲜零速 | PASS |
+
+报告的顶层 `passed=true`，所有发布门禁检查均为 true；其中探索以
+`bounded_saturation` 合法完成，地图保存、返航、定位、规划、动态重规划、实际
+运动和最终停车均有本 session 的新鲜证据。本地事实源位于：
+
+```text
+logs/acceptance/showcase_gazebo_e2e/20260724T053935Z-1431080-d6efcab6/
+├── showcase_gazebo_e2e_report.json
+├── acceptance_session.json
+└── runtime.log
+```
+
+`logs/` 是被 Git 忽略的运行产物，因此这里保留可复现路径，而不提供推送后会失效
+的 Markdown 链接。
+
+证据边界：报告绑定 revision `2d91ffe49c996c08fd2aaf7bc4e4395533a3171d`
+且记录 `source_dirty=true`。它证明当前 feature worktree 的实现已经闭环，但发布
+前仍须把同一实现整理为提交、PR 到 `dev` 并通过 CI。
+
+## 2026-07-24：提交前本地门禁
+
+已运行：
+
+```text
+pytest（slam tools + repository + integration）：717 passed
+colcon build --packages-select embodied_slam_tools embodied_simulation：PASS
+最新 colcon test：692 tests，0 errors，0 failures，0 skipped
+stage process manager 定向测试：16 passed
+compileall：PASS
+git diff --check：PASS
+```
+
+这些门禁覆盖 fail-close、Lifecycle、AMCL generation、孤儿进程与 evidence
+schema；完整真实 Gazebo 长时门禁也已由上述 fresh session 覆盖。复现入口：
+
+```bash
+CLEANUP_CONFIRM=true bash scripts/cleanup_simulation_processes.sh
+HEADLESS=true USE_RVIZ=false SLAM_NAV_PROGRESS_HEARTBEAT_S=15 \
+  bash scripts/acceptance_test.sh showcase-gazebo-e2e
+```
+
+当前可以进入“整理提交 -> feature PR 到 `dev` -> CI”的阶段；在 PR 与 CI 完成
+前，不把 dirty-worktree PASS 写成已发布到 `main` 的版本。
+
+## 下一轮安排
+
+当前功能按 `feature/demo-persistent-session -> dev` 收口后再顺序开发：
+
+1. `feature/showcase-unified-entry`：统一 run/status/keyboard/stop 入口。
+2. `feature/showcase-multimodal-handoff`：语音、键盘、自治任务接管与恢复。
+3. `feature/showcase-demo-profiles`：quick/strict profile、统一报告和 15 分钟讲稿。
+4. 集成完成后由 `dev -> main` 发布 `v0.6-multimodal-showcase`。

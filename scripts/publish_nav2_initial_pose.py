@@ -38,6 +38,7 @@ def main() -> None:
     parser.add_argument("--yaw", type=float, default=0.0)
     parser.add_argument("--repeat", type=int, default=10)
     parser.add_argument("--interval", type=float, default=0.2)
+    parser.add_argument("--subscriber-timeout", type=float, default=10.0)
     args = parser.parse_args()
 
     rclpy.init()
@@ -45,9 +46,15 @@ def main() -> None:
     publisher = node.create_publisher(PoseWithCovarianceStamped, "/initialpose", 10)
     try:
         # 等待 AMCL 订阅者出现；如果等待不到也继续发布，便于人工启动时容错。
-        deadline = time.monotonic() + 10.0
+        deadline = time.monotonic() + max(0.0, args.subscriber_timeout)
         while publisher.get_subscription_count() == 0 and time.monotonic() < deadline:
             rclpy.spin_once(node, timeout_sec=0.1)
+        if publisher.get_subscription_count() == 0:
+            # 旧实现会在没有 AMCL 时盲发并返回 0，使 shell 把定位失败误报为成功。
+            # legacy 独立入口仍使用本脚本，因此也必须 fail-close。
+            raise SystemExit(
+                "FAIL: /initialpose has no subscriber before timeout"
+            )
         for _ in range(max(1, args.repeat)):
             message = build_initial_pose(node, args.x, args.y, args.yaw)
             publisher.publish(message)

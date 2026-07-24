@@ -39,6 +39,10 @@ jobs:
             rosdep init
           fi
           rosdep update
+      - name: Refresh apt package metadata
+        # rosdep update 只更新 ROS 依赖映射，不会刷新 Ubuntu 软件包索引。
+        # 容器镜像的旧索引可能指向已下线的 deb，安装前刷新可避免可重复的 404。
+        run: apt-get update
       - name: Install Explore Lite dependencies
         run: >-
           rosdep install --from-paths third_party/m-explore-ros2 --ignore-src

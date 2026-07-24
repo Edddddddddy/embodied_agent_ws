@@ -17,16 +17,20 @@ FRONTIER_NAV2_PARAMS="$SESSION_DIR/frontier_nav2_params.yaml"
 FRONTIER_SLAM_PARAMS="$WORKSPACE/src/embodied_simulation/config/frontier_slam_toolbox.yaml"
 DYNAMIC_NAV2_PARAMS="$SESSION_DIR/showcase_dynamic_nav2_params.yaml"
 SHOWCASE_DYNAMIC_OBSTACLE_ENABLED="${SHOWCASE_DYNAMIC_OBSTACLE_ENABLED:-true}"
-# 统一语音+键盘演示才开启控制权安全门；严格旧验收保持 false。
-CONTROL_AUTHORITY_ENABLED="${CONTROL_AUTHORITY_ENABLED:-false}"
+SHOWCASE_PERSISTENT_SESSION="${SHOWCASE_PERSISTENT_SESSION:-false}"
+SHOWCASE_PRINT_CONFIG="${SHOWCASE_PRINT_CONFIG:-false}"
+# 持久 stage 切换必须经过 HOLD/ACK/RESUME；opt-in 后默认同时开启控制权，
+# 避免用户还要记住第二个隐藏开关。legacy strict 仍保持 false。
+CONTROL_AUTHORITY_ENABLED="${CONTROL_AUTHORITY_ENABLED:-$SHOWCASE_PERSISTENT_SESSION}"
 # 只有 auto 会话根可以创建 manager，并把 false 透传给阶段子进程。手工
 # mapping/navigation 若开启控制权，必须复用已经运行的外部会话 manager；
 # 阶段 launch 不具备聚合旧任务 terminal 证据的资格。
 CONTROL_AUTHORITY_MANAGER_ENABLED="${CONTROL_AUTHORITY_MANAGER_ENABLED:-$CONTROL_AUTHORITY_ENABLED}"
 SESSION_CONTROL_AUTHORITY_MANAGER_ENABLED="$CONTROL_AUTHORITY_MANAGER_ENABLED"
 AUTHORITY_STATE_HEARTBEAT_MS="${AUTHORITY_STATE_HEARTBEAT_MS:-200}"
+SYSTEM_READINESS_STALE_TIMEOUT_S="${SYSTEM_READINESS_STALE_TIMEOUT_S:-30.0}"
 export CONTROL_AUTHORITY_ENABLED CONTROL_AUTHORITY_MANAGER_ENABLED
-export AUTHORITY_STATE_HEARTBEAT_MS
+export AUTHORITY_STATE_HEARTBEAT_MS SYSTEM_READINESS_STALE_TIMEOUT_S
 AUTHORITY_MANAGER_PID=""
 SLAM_MISSION_PROFILE="${SLAM_MISSION_PROFILE:-known_world}"
 if [[ "$SLAM_MISSION_PROFILE" != "known_world" && \
@@ -43,6 +47,28 @@ else
 fi
 export FRONTIER_XY_GOAL_TOLERANCE
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-30}"
+export GZ_PARTITION="${GZ_PARTITION:-embodied_agent_${ROS_DOMAIN_ID}}"
+export IGN_PARTITION="${IGN_PARTITION:-$GZ_PARTITION}"
+
+if [[ "$SHOWCASE_DYNAMIC_OBSTACLE_ENABLED" == "true" ]]; then
+  SESSION_NAV2_PARAMS="$DYNAMIC_NAV2_PARAMS"
+elif [[ "$SHOWCASE_DYNAMIC_OBSTACLE_ENABLED" == "false" ]]; then
+  SESSION_NAV2_PARAMS="$FRONTIER_NAV2_PARAMS"
+else
+  echo "FAIL: SHOWCASE_DYNAMIC_OBSTACLE_ENABLED must be true or false." >&2
+  exit 2
+fi
+if [[ "$SHOWCASE_PERSISTENT_SESSION" != "true" && \
+      "$SHOWCASE_PERSISTENT_SESSION" != "false" ]]; then
+  echo "FAIL: SHOWCASE_PERSISTENT_SESSION must be true or false." >&2
+  exit 2
+fi
+if [[ "$SHOWCASE_PERSISTENT_SESSION" == "true" && \
+      "$CONTROL_AUTHORITY_ENABLED" != "true" ]]; then
+  echo "FAIL: persistent session requires CONTROL_AUTHORITY_ENABLED=true." >&2
+  echo "      Stage switching must use the typed HOLD/ACK/RESUME transaction." >&2
+  exit 2
+fi
 
 usage() {
   cat <<'EOF'
@@ -50,6 +76,7 @@ usage() {
 
 Terminal 1：
   bash scripts/voice_slam_nav_showcase.sh auto offline   # 推荐：办公巡检完整任务
+  bash scripts/voice_slam_nav_showcase.sh base offline   # 持久会话内部入口
   bash scripts/voice_slam_nav_showcase.sh mapping offline
   bash scripts/voice_slam_nav_showcase.sh navigation offline
 
@@ -72,8 +99,65 @@ EOF
 }
 
 activate() {
+  # PRINT_CONFIG 用于 CI 验证 shell→launch 参数契约，不启动 ROS，也不要求
+  # feature worktree 已经生成 install 层。
+  [[ "$SHOWCASE_PRINT_CONFIG" != "true" ]] || return 0
   # shellcheck source=activate.sh
   source "$WORKSPACE/scripts/activate.sh"
+}
+
+prepare_persistent_session_params() {
+  # planner/controller 常驻 base，因此 frontier 与动态障碍覆盖必须在 base
+  # 启动前合成一次；三个进程只读取同一个 session 参数文件，禁止阶段漂移。
+  export NAV2_PARAMS_FILE="$SESSION_NAV2_PARAMS"
+  if [[ "$SHOWCASE_PRINT_CONFIG" == "true" ]]; then
+    return 0
+  fi
+  if [[ "${SHOWCASE_SESSION_PARAMS_PREPARED:-false}" == "true" ]]; then
+    if [[ ! -s "$SESSION_NAV2_PARAMS" ]]; then
+      echo "FAIL: prepared session params are missing: $SESSION_NAV2_PARAMS" >&2
+      return 2
+    fi
+    return 0
+  fi
+
+  # 默认 logs/showcase 会跨多次演示复用目录，因此“文件存在”不能证明它
+  # 对应当前源码与配置。每个 runtime 在启动任何 ROS 进程前原子重建一次。
+  mkdir -p "$SESSION_DIR"
+  local temporary_dir
+  temporary_dir="$(mktemp -d "$SESSION_DIR/.nav2-params.XXXXXX")"
+  local temporary_frontier="$temporary_dir/frontier_nav2_params.yaml"
+  local temporary_dynamic="$temporary_dir/showcase_dynamic_nav2_params.yaml"
+  if ! python3 "$WORKSPACE/scripts/prepare_frontier_nav2_params.py" \
+    --slam-params-source "$FRONTIER_SLAM_PARAMS" \
+    --output "$temporary_frontier" \
+    --xy-goal-tolerance "$FRONTIER_XY_GOAL_TOLERANCE"; then
+    rm -rf -- "$temporary_dir"
+    return 1
+  fi
+  if [[ "$SHOWCASE_DYNAMIC_OBSTACLE_ENABLED" == "true" ]]; then
+    if ! python3 "$WORKSPACE/scripts/build_slam_nav2_params.py" \
+      --base "$temporary_frontier" \
+      --override "$WORKSPACE/src/embodied_navigation/config/navigation_overrides.yaml" \
+      --output "$temporary_dynamic"; then
+      rm -rf -- "$temporary_dir"
+      return 1
+    fi
+    mv -f -- "$temporary_dynamic" "$DYNAMIC_NAV2_PARAMS"
+  fi
+  mv -f -- "$temporary_frontier" "$FRONTIER_NAV2_PARAMS"
+  rmdir -- "$temporary_dir"
+  export SHOWCASE_SESSION_PARAMS_PREPARED=true
+}
+
+run_or_print_ros2_launch() {
+  if [[ "$SHOWCASE_PRINT_CONFIG" == "true" ]]; then
+    printf 'ros2 launch'
+    printf ' %q' "$@"
+    printf '\n'
+    return 0
+  fi
+  exec ros2 launch "$@"
 }
 
 cleanup_session_authority_manager() {
@@ -201,28 +285,77 @@ run_voice_stage() {
   export NAV2_SPAWN_Y="${NAV2_SPAWN_Y:--3.15}"
   export NAV2_SPAWN_YAW="${NAV2_SPAWN_YAW:-0.0}"
   export NAV_ACTION_TIMEOUT_S="${NAV_ACTION_TIMEOUT_S:-300.0}"
+  if [[ "$SHOWCASE_PRINT_CONFIG" == "true" ]]; then
+    export CONTINUOUS_PRINT_CONFIG=true
+  fi
   exec bash "$WORKSPACE/scripts/continuous_nav2_voice_control.sh" "$MODE"
 }
 
 case "$COMMAND" in
+  prepare)
+    # StageProcessManager 在并发启动 base/mapping 前同步调用一次。该入口
+    # 不启动 ROS/Gazebo，仅生成本次会话不可变的 Nav2 参数快照。
+    activate
+    prepare_persistent_session_params
+    echo "[showcase] session Nav2 params prepared: $SESSION_NAV2_PARAMS"
+    ;;
+  base)
+    # base 是 StageProcessManager 的持久 seam：整场只启动一次麦克风、
+    # llama/Pulse/monitor、Agent、Gazebo、机器人与 RViz。阶段脚本不得复制这些资源。
+    export SHOWCASE_PERSISTENT_SESSION=true
+    # base 是持久部署的内部入口，绝不能因脚本解析参数时还处于 legacy
+    # 默认值而关闭速度权限门；manager 仍由外层 auto 会话唯一持有。
+    export CONTROL_AUTHORITY_ENABLED=true
+    export SHOWCASE_SESSION_DIR="$SESSION_DIR"
+    export SHOWCASE_MAP_PREFIX="$SAVED_MAP_PREFIX"
+    export NAV2_WORLD="$WORLD"
+    export NAV2_SPAWN_X="${NAV2_SPAWN_X:--4.15}"
+    export NAV2_SPAWN_Y="${NAV2_SPAWN_Y:--3.15}"
+    export NAV2_SPAWN_YAW="${NAV2_SPAWN_YAW:-0.0}"
+    if [[ "$SLAM_MISSION_PROFILE" == "known_world" ]]; then
+      # Agent 与 base 同寿命，语义地点必须在它启动前固定；阶段切换后再 export
+      # 不会影响已经运行的进程。
+      export NAV2_PLACES_FILE="$MAPPING_PLACES"
+    else
+      export NAV2_PLACES_FILE=""
+    fi
+    if [[ "$SHOWCASE_PRINT_CONFIG" == "true" ]]; then
+      export CONTINUOUS_PRINT_CONFIG=true
+    fi
+    activate
+    prepare_persistent_session_params
+    echo "[showcase] 持久 base：语音支持 + Agent + Gazebo/机器人/RViz + Nav2 common"
+    exec bash "$WORKSPACE/scripts/continuous_nav2_voice_control.sh" "$MODE"
+    ;;
   auto)
     activate
-    # 在拉起 Gazebo 前先失败，避免用户等到状态机内部才看到 explorer 或旧 Action 报错。
-    embodied_workspace_doctor true
     print_mission_plan
     echo "[showcase] ROS_DOMAIN_ID=$ROS_DOMAIN_ID"
+    echo "[showcase] GZ_PARTITION=$GZ_PARTITION"
     echo "[showcase] 单终端自动编排：办公巡检建图 -> 保存 -> AMCL -> 多目标 Nav2"
+    orchestrator_args=(
+      embodied_slam_tools voice_slam_session_orchestrator --ros-args
+      -p "workspace:=$WORKSPACE"
+      -p "mode:=$MODE"
+      -p "map_prefix:=$SAVED_MAP_PREFIX"
+      -p "authority_gate_enabled:=$CONTROL_AUTHORITY_ENABLED"
+      -p "persistent_runtime_enabled:=$SHOWCASE_PERSISTENT_SESSION"
+      -p "dry_run:=${SHOWCASE_ORCHESTRATOR_DRY_RUN:-false}"
+    )
+    if [[ "$SHOWCASE_PRINT_CONFIG" == "true" ]]; then
+      printf 'ros2 run'
+      printf ' %q' "${orchestrator_args[@]}"
+      printf '\n'
+      exit 0
+    fi
+    # 在拉起 Gazebo 前先失败，避免用户等到状态机内部才看到 explorer 或旧 Action 报错。
+    embodied_workspace_doctor true
     # 整场会话只保留一个 manager；StageProcessManager 启停 mapping/navigation
     # 时继承 CONTROL_AUTHORITY_MANAGER_ENABLED=false，因此 epoch 不会随阶段改变。
     trap cleanup_session_authority_manager EXIT INT TERM
     start_session_authority_manager
     status=0
-    ros2 run embodied_slam_tools voice_slam_session_orchestrator --ros-args \
-      -p "workspace:=$WORKSPACE" \
-      -p "mode:=$MODE" \
-      -p "map_prefix:=$SAVED_MAP_PREFIX" \
-      -p "authority_gate_enabled:=$CONTROL_AUTHORITY_ENABLED" \
-      -p "dry_run:=${SHOWCASE_ORCHESTRATOR_DRY_RUN:-false}" || status=$?
+    ros2 run "${orchestrator_args[@]}" || status=$?
     cleanup_session_authority_manager
     trap - EXIT INT TERM
     exit "$status"
@@ -236,12 +369,33 @@ case "$COMMAND" in
     echo "[showcase] 阶段 1/3：真实感室内场景 + SLAM Toolbox 在线建图"
     echo "[showcase] 另开终端运行 save 后，再 Ctrl+C 结束本阶段。"
     activate
+    if [[ "$SHOWCASE_PERSISTENT_SESSION" == "true" ]]; then
+      # 持久阶段只拥有 SLAM provider 与 Gazebo executor；Pulse、llama、
+      # monitor、Agent、Gazebo、机器人和 RViz 均由已运行的 base 持有。
+      export NAV2_PARAMS_FILE="$SESSION_NAV2_PARAMS"
+      if [[ "$SHOWCASE_PRINT_CONFIG" != "true" && \
+            ! -s "$SESSION_NAV2_PARAMS" ]]; then
+        echo "FAIL: 持久 base 尚未生成会话参数：$SESSION_NAV2_PARAMS" >&2
+        echo "      请由 StageProcessManager 先启动 base，再启动 mapping。" >&2
+        exit 2
+      fi
+      echo "[showcase] persistent mapping: session=$SESSION_DIR map_prefix=$SAVED_MAP_PREFIX"
+      echo "[showcase] ROS_DOMAIN_ID=$ROS_DOMAIN_ID GZ_PARTITION=$GZ_PARTITION"
+      run_or_print_ros2_launch \
+        embodied_simulation persistent_mapping_stage.launch.py \
+        "params_file:=$SESSION_NAV2_PARAMS" \
+        "readiness_stale_timeout_s:=$SYSTEM_READINESS_STALE_TIMEOUT_S" \
+        "action_timeout_s:=${NAV_ACTION_TIMEOUT_S:-300.0}"
+      exit 0
+    fi
     # 建图阶段一次装配 Nav2、frontier 目标容差和 SLAM 扫描接纳策略；切到
     # navigation 后不传该文件，自动恢复 Nav2 官方定位/导航参数。
-    python3 "$WORKSPACE/scripts/prepare_frontier_nav2_params.py" \
-      --slam-params-source "$FRONTIER_SLAM_PARAMS" \
-      --output "$FRONTIER_NAV2_PARAMS" \
-      --xy-goal-tolerance "$FRONTIER_XY_GOAL_TOLERANCE"
+    if [[ "$SHOWCASE_PRINT_CONFIG" != "true" ]]; then
+      python3 "$WORKSPACE/scripts/prepare_frontier_nav2_params.py" \
+        --slam-params-source "$FRONTIER_SLAM_PARAMS" \
+        --output "$FRONTIER_NAV2_PARAMS" \
+        --xy-goal-tolerance "$FRONTIER_XY_GOAL_TOLERANCE"
+    fi
     export NAV2_PARAMS_FILE="$FRONTIER_NAV2_PARAMS"
     if [[ "$SLAM_MISSION_PROFILE" == "unknown_world" ]]; then
       # unknown-world 运行时不能把场景真值或预生成地点表放进进程参数；SLAM
@@ -270,6 +424,30 @@ case "$COMMAND" in
       exit 2
     }
     echo "[showcase] 阶段 3/3：加载语音建图结果 + AMCL 定位 + Nav2 规划/避障"
+    activate
+    if [[ "$SHOWCASE_PERSISTENT_SESSION" == "true" ]]; then
+      persistent_navigation_args=(
+        embodied_simulation persistent_navigation_stage.launch.py
+        "map:=$SAVED_MAP_PREFIX.yaml"
+        "readiness_stale_timeout_s:=$SYSTEM_READINESS_STALE_TIMEOUT_S"
+        "enable_dynamic_obstacle_layer:=$SHOWCASE_DYNAMIC_OBSTACLE_ENABLED"
+        "action_timeout_s:=${NAV_ACTION_TIMEOUT_S:-300.0}"
+      )
+      if [[ "$SHOWCASE_PRINT_CONFIG" != "true" && \
+            ! -s "$SESSION_NAV2_PARAMS" ]]; then
+        echo "FAIL: 持久 base 尚未生成会话 Nav2 参数：$SESSION_NAV2_PARAMS" >&2
+        echo "      请由 StageProcessManager 先启动 base，再切换 navigation。" >&2
+        exit 2
+      fi
+      persistent_navigation_args+=("params_file:=$SESSION_NAV2_PARAMS")
+      echo "[showcase] persistent navigation: session=$SESSION_DIR map_prefix=$SAVED_MAP_PREFIX"
+      echo "[showcase] ROS_DOMAIN_ID=$ROS_DOMAIN_ID GZ_PARTITION=$GZ_PARTITION"
+      # persistent 会话的 /initialpose 由 SessionOrchestrator 在 AMCL ACTIVE、
+      # 订阅匹配之后发布，并等待本代 /amcl_pose。shell 后台 helper 无法观察
+      # lifecycle/generation，也无法把提前退出传播给会话，因此禁止在这里竞态启动。
+      run_or_print_ros2_launch "${persistent_navigation_args[@]}"
+      exit 0
+    fi
     if [[ "$SHOWCASE_DYNAMIC_OBSTACLE_ENABLED" == "true" ]]; then
       # 只在导航阶段插入预测层；SLAM 阶段不能让演示障碍污染待保存地图。
       python3 "$WORKSPACE/scripts/build_slam_nav2_params.py" \

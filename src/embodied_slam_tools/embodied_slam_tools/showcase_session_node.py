@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 import math
 import os
 from pathlib import Path
@@ -25,8 +25,8 @@ from embodied_agent_interfaces.msg import (
     SystemReadiness,
     WakeEvent,
 )
-from lifecycle_msgs.msg import State
-from lifecycle_msgs.srv import GetState
+from lifecycle_msgs.msg import State, Transition
+from lifecycle_msgs.srv import ChangeState, GetState
 from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
 from nav_msgs.msg import OccupancyGrid, Odometry, Path as NavPath
 from nav2_msgs.action import BackUp, ComputePathToPose, FollowWaypoints, NavigateToPose
@@ -115,6 +115,11 @@ try:
 except ImportError:  # source-only 单测可通过依赖注入绕过尚未生成的 ROS 接口。
     AcknowledgeAutonomyQuiescence = None
 
+try:
+    from embodied_agent_interfaces.srv import SetControlAuthority
+except ImportError:  # 与 ACK 接口分别降级，避免一个缺失掩盖另一个诊断。
+    SetControlAuthority = None
+
 
 _ACTION_TYPES = {
     "stop": RobotCommand.STOP,
@@ -154,12 +159,26 @@ class _NavigationGoalRejected(RuntimeError):
     """Nav2 在执行前拒绝目标；与执行中 ABORTED 分开记录。"""
 
 
+class _PersistentStageSwitchInterrupted(RuntimeError):
+    """mapping 已销毁后被接管；禁止外层伪恢复到 MAPPING。"""
+
+
 class _GoalCandidateRejected(RuntimeError):
     """单个候选不可达或路径不安全；允许 admission 继续尝试下一点。"""
 
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
         self.reason = str(reason)
+
+
+@dataclass(slots=True)
+class _InternalStageSwitch:
+    """绑定一次内部 HOLD 的防重放身份与唯一 reason token。"""
+
+    reason: str
+    manager_epoch: int
+    transition_sequence_floor: int
+    identity: QuiescenceIdentity | None = None
 
 
 def _navigation_safety_stop_request() -> CommandRequest:
@@ -314,6 +333,80 @@ def _get_lifecycle_state(client, timeout_s: float) -> int | None:
     if response is None:
         return None
     return int(response.current_state.id)
+
+
+def _request_lifecycle_transition(
+    client,
+    transition_id: int,
+    timeout_s: float,
+) -> bool | None:
+    """提交 lifecycle 转换；``None`` 表示响应未知，不能等同于明确拒绝。"""
+
+    request = ChangeState.Request()
+    request.transition.id = int(transition_id)
+    response = client.call(request, timeout_sec=timeout_s)
+    if response is None:
+        return None
+    return bool(response.success)
+
+
+def _converge_lifecycle_active(
+    state_client,
+    change_client,
+    *,
+    deadline: float,
+    label: str,
+    runtime_guard: Callable[[], None],
+) -> None:
+    """通过 state/service 闭环把 lifecycle 节点推进到 ACTIVE。"""
+
+    while True:
+        runtime_guard()
+        remaining = deadline - time.monotonic()
+        if remaining <= 0.0:
+            raise TimeoutError(f"{label} did not become active before timeout")
+        if not state_client.wait_for_service(
+            timeout_sec=min(0.5, remaining)
+        ):
+            continue
+        state = _get_lifecycle_state(
+            state_client,
+            min(0.5, remaining),
+        )
+        if state == State.PRIMARY_STATE_ACTIVE:
+            # ACTIVE 响应和提交下一阶段之间仍存在调度窗口；返回前复核
+            # owner 进程，禁止用已退出进程的迟到响应放行。
+            runtime_guard()
+            return
+        if state == State.PRIMARY_STATE_FINALIZED:
+            raise RuntimeError(f"{label} reached finalized during startup")
+
+        transition_id = None
+        if state == State.PRIMARY_STATE_UNCONFIGURED:
+            transition_id = Transition.TRANSITION_CONFIGURE
+        elif state == State.PRIMARY_STATE_INACTIVE:
+            transition_id = Transition.TRANSITION_ACTIVATE
+        if transition_id is None:
+            # configuring/activating 等过渡态只能等待，禁止重复发送转换。
+            time.sleep(min(0.1, max(0.0, remaining)))
+            continue
+        if not change_client.wait_for_service(
+            timeout_sec=min(0.5, remaining)
+        ):
+            continue
+        transition_result = _request_lifecycle_transition(
+            change_client,
+            transition_id,
+            min(0.5, remaining),
+        )
+        if transition_result is False:
+            raise RuntimeError(
+                f"{label} rejected lifecycle transition "
+                f"{transition_id} from state={state}"
+            )
+        if transition_result is None:
+            # 响应超时不等于转换未执行；重新 GetState 判断真实结果。
+            time.sleep(min(0.05, max(0.0, remaining)))
 
 
 def _path_points_for_goal(
@@ -494,6 +587,13 @@ class SessionOrchestratorNode(Node):
             self.declare_parameter("stop_timeout_s", 15.0).value
         )
         dry_run = bool(self.declare_parameter("dry_run", False).value)
+        # 在新的持久演示完成 Gazebo E2E 之前保持默认关闭，避免改变已发布的
+        # unknown-world 门禁语义。新 launch 必须显式 opt-in 才复用同一 base。
+        self._persistent_runtime_enabled = bool(
+            self.declare_parameter(
+                "persistent_runtime_enabled", False
+            ).value
+        )
         dry_run_exploration_delay_s = float(
             self.declare_parameter("dry_run_exploration_delay_s", 0.0).value
         )
@@ -531,6 +631,7 @@ class SessionOrchestratorNode(Node):
             stop_timeout_s=stop_timeout_s,
             dry_run=dry_run,
             mission_profile=self._mission_profile,
+            persistent_runtime_enabled=self._persistent_runtime_enabled,
         )
         self._mapping_evidence = MappingEvidenceTracker(
             mission_configuration.evidence_min_growth_cells
@@ -566,9 +667,16 @@ class SessionOrchestratorNode(Node):
             )
         self._dry_run = dry_run
         self._state_lock = threading.RLock()
+        self._authority_condition = threading.Condition(self._state_lock)
+        self._authority_snapshot: AuthoritySnapshot | None = None
+        self._internal_stage_switch: _InternalStageSwitch | None = None
+        self._internal_stage_switch_sequence = 0
         self._ready_condition = threading.Condition()
         self._ready_generation = 0
         self._latest_ready = False
+        # persistent mapping/navigation 各自拥有 readiness aggregator。切换前
+        # 先武装 exact profile，避免常驻 base 或旧 stage 心跳提前解锁 RESUME。
+        self._expected_readiness_profile = ""
         self._intent_lock = threading.Lock()
         self._last_intent: tuple[SessionCommand | None, float] = (None, 0.0)
         self._requests: queue.Queue[CommandRequest | None] = queue.Queue(maxsize=4)
@@ -583,6 +691,13 @@ class SessionOrchestratorNode(Node):
         self._authority_gate_enabled = bool(
             self.declare_parameter("authority_gate_enabled", False).value
         )
+        if (
+            self._persistent_runtime_enabled
+            and not self._authority_gate_enabled
+        ):
+            raise ValueError(
+                "persistent runtime requires authority_gate_enabled=true"
+            )
         authority_state_timeout_s = float(
             self.declare_parameter(
                 "authority_state_timeout_s", 1.0
@@ -612,11 +727,13 @@ class SessionOrchestratorNode(Node):
         self._latest_occupancy: OccupancySnapshot | None = None
         self._latest_map_pose_xy: tuple[float, float] | None = None
         self._navigation_input_generation = 0
+        self._navigation_inputs_enabled = False
         self._latest_occupancy_generation = -1
         self._latest_map_pose_generation = -1
         self._mission_sequence = 0
         self._mission_outcome = SlamSessionState.MISSION_IDLE
         self._mission_message = ""
+        self._child_runtime_failure = ""
         self._navigation_startup_failure_pending = False
         self._internal_command_sequence = 0
         self._navigation_goal_ledger = NavigationGoalLedger()
@@ -640,6 +757,14 @@ class SessionOrchestratorNode(Node):
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.VOLATILE,
         )
+        initial_pose_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=10,
+            reliability=ReliabilityPolicy.RELIABLE,
+            # 编排器跨 mapping/navigation stage 常驻。禁止 transient-local，
+            # 否则下一代 AMCL 会自动收到上一代缓存位姿，绕过 generation 屏障。
+            durability=DurabilityPolicy.VOLATILE,
+        )
         callback_group = ReentrantCallbackGroup()
         self._tf_buffer = Buffer(cache_time=Duration(seconds=30.0))
         # 节点已经运行在 MultiThreadedExecutor；不另起 TF spin 线程，避免同一
@@ -651,6 +776,11 @@ class SessionOrchestratorNode(Node):
         )
         self._state_pub = self.create_publisher(
             SlamSessionState, "/slam/session_state", state_qos
+        )
+        self._initial_pose_pub = self.create_publisher(
+            PoseWithCovarianceStamped,
+            "/initialpose",
+            initial_pose_qos,
         )
         self._agent_text_pub = self.create_publisher(
             String, "/agent/text_input", event_qos
@@ -800,16 +930,60 @@ class SessionOrchestratorNode(Node):
             "/waypoint_follower/get_state",
             callback_group=callback_group,
         )
+        self._collision_monitor_state_client = self.create_client(
+            GetState,
+            "/collision_monitor/get_state",
+            callback_group=callback_group,
+        )
+        self._typed_action_bridge_state_client = self.create_client(
+            GetState,
+            "/typed_action_bridge/get_state",
+            callback_group=callback_group,
+        )
+        self._typed_action_bridge_change_client = self.create_client(
+            ChangeState,
+            "/typed_action_bridge/change_state",
+            callback_group=callback_group,
+        )
+        self._simulation_control_state_client = self.create_client(
+            GetState,
+            "/simulation_control/get_state",
+            callback_group=callback_group,
+        )
+        self._simulation_control_change_client = self.create_client(
+            ChangeState,
+            "/simulation_control/change_state",
+            callback_group=callback_group,
+        )
+        self._map_server_state_client = self.create_client(
+            GetState,
+            "/map_server/get_state",
+            callback_group=callback_group,
+        )
+        self._amcl_state_client = self.create_client(
+            GetState,
+            "/amcl/get_state",
+            callback_group=callback_group,
+        )
         self._quiescence_ack_client = None
+        self._authority_control_client = None
         if self._authority_gate_enabled:
-            if AcknowledgeAutonomyQuiescence is None:
+            if (
+                AcknowledgeAutonomyQuiescence is None
+                or SetControlAuthority is None
+            ):
                 raise RuntimeError(
-                    "authority gate requires generated "
-                    "AcknowledgeAutonomyQuiescence service"
+                    "authority gate requires generated control authority "
+                    "services"
                 )
             self._quiescence_ack_client = self.create_client(
                 AcknowledgeAutonomyQuiescence,
                 "/control/acknowledge_autonomy_quiescence",
+                callback_group=callback_group,
+            )
+            self._authority_control_client = self.create_client(
+                SetControlAuthority,
+                "/control/set_authority",
                 callback_group=callback_group,
             )
         self._action_server = ActionServer(
@@ -999,6 +1173,15 @@ class SessionOrchestratorNode(Node):
 
     def _on_readiness(self, message: SystemReadiness) -> None:
         with self._ready_condition:
+            expected_profile = getattr(
+                self, "_expected_readiness_profile", ""
+            )
+            if (
+                expected_profile
+                and str(getattr(message, "profile", ""))
+                != expected_profile
+            ):
+                return
             self._ready_generation += 1
             self._latest_ready = bool(message.ready)
             self._ready_condition.notify_all()
@@ -1034,6 +1217,8 @@ class SessionOrchestratorNode(Node):
             self.get_logger().error(f"cannot sample goals from /map: {exc}")
             return
         with self._map_pose_condition:
+            if not getattr(self, "_navigation_inputs_enabled", True):
+                return
             self._latest_occupancy = snapshot
             self._latest_occupancy_generation = (
                 self._navigation_input_generation
@@ -1074,6 +1259,8 @@ class SessionOrchestratorNode(Node):
     def _on_amcl_pose(self, message: PoseWithCovarianceStamped) -> None:
         position = message.pose.pose.position
         with self._map_pose_condition:
+            if not getattr(self, "_navigation_inputs_enabled", True):
+                return
             self._latest_map_pose_xy = (
                 float(position.x),
                 float(position.y),
@@ -1262,7 +1449,7 @@ class SessionOrchestratorNode(Node):
 
         with self._mapping_evidence.condition:
             while True:
-                if request.canceled:
+                if getattr(request, "canceled", False):
                     raise AutomaticMissionCancelled(
                         "automatic mission canceled during recovery backup"
                     )
@@ -1339,7 +1526,7 @@ class SessionOrchestratorNode(Node):
                     reason=reason,
                     quiescence_token=quiescence_token,
                 )
-                if request.canceled:
+                if getattr(request, "canceled", False):
                     raise AutomaticMissionCancelled(reason)
                 raise TimeoutError(reason)
             time.sleep(0.05)
@@ -1445,7 +1632,7 @@ class SessionOrchestratorNode(Node):
         deadline = time.monotonic() + timeout_s
         last_error = "transform unavailable"
         while time.monotonic() < deadline:
-            if request.canceled:
+            if getattr(request, "canceled", False):
                 raise AutomaticMissionCancelled("automatic mission canceled")
             try:
                 transform = self._tf_buffer.lookup_transform(
@@ -1562,7 +1749,7 @@ class SessionOrchestratorNode(Node):
                 or self._latest_map_pose_generation
                 != self._navigation_input_generation
             ):
-                if request.canceled:
+                if getattr(request, "canceled", False):
                     raise AutomaticMissionCancelled(
                         "automatic mission canceled"
                     )
@@ -1587,7 +1774,7 @@ class SessionOrchestratorNode(Node):
         )
 
         def admit(goal_xy: tuple[float, float]) -> None:
-            if request.canceled:
+            if getattr(request, "canceled", False):
                 raise AutomaticMissionCancelled(
                     "automatic mission canceled"
                 )
@@ -1920,7 +2107,7 @@ class SessionOrchestratorNode(Node):
                     reason=reason,
                     quiescence_token=quiescence_token,
                 )
-                if request.canceled:
+                if getattr(request, "canceled", False):
                     raise AutomaticMissionCancelled(reason)
                 raise TimeoutError(reason)
             time.sleep(0.05)
@@ -2378,6 +2565,101 @@ class SessionOrchestratorNode(Node):
                 )
         raise TimeoutError("stage did not publish ready SystemReadiness before timeout")
 
+    def _wait_persistent_base_control_ready(self) -> None:
+        """由唯一编排器把常驻 typed bridge 推进到 ACTIVE，再启动 stage."""
+
+        if self._dry_run:
+            return
+        deadline = time.monotonic() + self._startup_timeout_s
+
+        def require_live_base() -> None:
+            role, code = self._manager.unexpected_exit()
+            if role == "base":
+                raise RuntimeError(
+                    "persistent base process exited "
+                    f"code={code} before typed Action bridge became active"
+                )
+
+        _converge_lifecycle_active(
+            self._typed_action_bridge_state_client,
+            self._typed_action_bridge_change_client,
+            deadline=deadline,
+            label="typed Action bridge",
+            runtime_guard=require_live_base,
+        )
+
+    def _wait_persistent_stage_executor_ready(self) -> None:
+        """由会话 owner 激活当前代 simulation_control executor。"""
+
+        if self._dry_run:
+            return
+        deadline = time.monotonic() + self._startup_timeout_s
+
+        def require_live_runtime() -> None:
+            role, code = self._manager.unexpected_exit()
+            if role is not None:
+                raise RuntimeError(
+                    f"{role} process exited code={code} before "
+                    "simulation_control became active"
+                )
+
+        _converge_lifecycle_active(
+            self._simulation_control_state_client,
+            self._simulation_control_change_client,
+            deadline=deadline,
+            label="simulation_control",
+            runtime_guard=require_live_runtime,
+        )
+
+    def _wait_persistent_velocity_pipeline_ready(self) -> None:
+        """在开放建图动作前验证最终速度安全边界已真正可用."""
+
+        if self._dry_run:
+            return
+        deadline = time.monotonic() + self._startup_timeout_s
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0.0:
+                raise TimeoutError(
+                    "Collision Monitor did not become active before timeout"
+                )
+            if not self._collision_monitor_state_client.wait_for_service(
+                timeout_sec=min(0.5, remaining)
+            ):
+                continue
+            state = _get_lifecycle_state(
+                self._collision_monitor_state_client,
+                min(0.5, remaining),
+            )
+            if state == State.PRIMARY_STATE_ACTIVE:
+                break
+            time.sleep(0.1)
+
+        with self._cmd_vel_condition:
+            generation = self._cmd_vel_generation
+            while True:
+                publisher_count = self.count_publishers("/cmd_vel")
+                linear_x, angular_z = self._last_cmd_vel
+                if (
+                    publisher_count == 1
+                    and self._cmd_vel_generation > generation
+                    and abs(linear_x) <= 1.0e-3
+                    and abs(angular_z) <= 1.0e-3
+                ):
+                    return
+                remaining = deadline - time.monotonic()
+                if remaining <= 0.0:
+                    raise TimeoutError(
+                        "final velocity pipeline is not ready: "
+                        f"publishers={publisher_count} "
+                        f"generation={self._cmd_vel_generation} "
+                        f"velocity=({linear_x:.4f},{angular_z:.4f})"
+                    )
+                # 必须观察 ACTIVE 之后的新鲜最终零速；启动前缓存和仅有
+                # /control/selected/cmd_vel 的零速都不能证明 Collision Monitor
+                # 已接管最后一道障碍安全裁决。
+                self._cmd_vel_condition.wait(timeout=min(0.1, remaining))
+
     def wait_navigation_ready(self, request: CommandRequest) -> None:
         """通用 readiness 之后再验证 Nav2 的两个长任务 Action 已真正激活。"""
 
@@ -2414,6 +2696,13 @@ class SessionOrchestratorNode(Node):
             ("bt_navigator", self._bt_navigator_state_client),
             ("waypoint_follower", self._waypoint_follower_state_client),
         )
+        if getattr(self, "_persistent_runtime_enabled", False):
+            # bt_navigator/waypoint_follower 属于常驻或可提前激活的公共组件，
+            # 不能证明本轮保存地图对应的 map_server/AMCL stage 已经 ready。
+            lifecycle_clients += (
+                ("map_server", self._map_server_state_client),
+                ("amcl", self._amcl_state_client),
+            )
         for name, client in lifecycle_clients:
             while True:
                 if request.canceled:
@@ -2431,9 +2720,180 @@ class SessionOrchestratorNode(Node):
                 if state == State.PRIMARY_STATE_ACTIVE:
                     break
                 time.sleep(0.1)
+        if getattr(self, "_persistent_runtime_enabled", False):
+            # /initialpose 必须属于同一 readiness 事务：只有 AMCL ACTIVE 且
+            # DDS 订阅已匹配后才发布，并等待本代 /amcl_pose 回执。
+            self._seed_persistent_amcl_pose(request, deadline)
+            SessionOrchestratorNode._wait_for_persistent_navigation_inputs(
+                self, request, deadline
+            )
         self.get_logger().info(
             "Nav2 navigation Action servers and lifecycle nodes are active"
         )
+
+    def _persistent_navigation_seed_pose(self) -> PlanarPose:
+        """选择切换前最后一帧可信 SLAM 位姿作为 AMCL 初值."""
+
+        evidence = getattr(self, "_return_to_start_evidence", None)
+        if evidence is None:
+            # 兼容手工 save→navigation：旧入口的明确契约就是保存地图起点
+            # (0,0,0)。自动任务必须有返航证据，因此不会走到这个兼容分支。
+            return PlanarPose(
+                x=0.0,
+                y=0.0,
+                yaw=0.0,
+                frame_id="map",
+                observed_at_ns=0,
+            )
+        final_pose = evidence.final_pose
+        if final_pose is None or final_pose.frame_id != "map":
+            raise RuntimeError(
+                "persistent navigation requires a finalized return pose "
+                "in the map frame"
+            )
+        if int(getattr(evidence, "map_saved_at_ns", 0)) <= 0:
+            raise RuntimeError(
+                "persistent navigation return evidence is not finalized "
+                "after map save"
+            )
+        return final_pose
+
+    def _build_persistent_initial_pose(
+        self, pose: PlanarPose
+    ) -> PoseWithCovarianceStamped:
+        message = PoseWithCovarianceStamped()
+        message.header.frame_id = "map"
+        message.header.stamp = self.get_clock().now().to_msg()
+        message.pose.pose.position.x = pose.x
+        message.pose.pose.position.y = pose.y
+        message.pose.pose.orientation.z = math.sin(pose.yaw / 2.0)
+        message.pose.pose.orientation.w = math.cos(pose.yaw / 2.0)
+        message.pose.covariance[0] = 0.25
+        message.pose.covariance[7] = 0.25
+        message.pose.covariance[35] = 0.0685
+        return message
+
+    def _seed_persistent_amcl_pose(
+        self,
+        request: CommandRequest,
+        deadline: float,
+    ) -> None:
+        """匹配 ACTIVE AMCL，并重发初值直到收到当前代定位回执."""
+
+        pose = SessionOrchestratorNode._persistent_navigation_seed_pose(self)
+        while self._initial_pose_pub.get_subscription_count() <= 0:
+            if getattr(request, "canceled", False):
+                self._cancel_automatic_motion()
+                raise AutomaticMissionCancelled(
+                    "automatic mission canceled"
+                )
+            role, code = self._manager.unexpected_exit()
+            if role is not None:
+                raise RuntimeError(
+                    f"{role} process exited code={code} while waiting for "
+                    "AMCL initial-pose subscriber"
+                )
+            remaining = deadline - time.monotonic()
+            if remaining <= 0.0:
+                raise TimeoutError(
+                    "/initialpose subscriber did not match before "
+                    "navigation startup deadline"
+                )
+            time.sleep(min(0.05, remaining))
+
+        generation = self._navigation_input_generation
+        next_publish_at = 0.0
+        publish_count = 0
+        while True:
+            with self._map_pose_condition:
+                if (
+                    self._latest_map_pose_xy is not None
+                    and self._latest_map_pose_generation == generation
+                ):
+                    self.get_logger().info(
+                        "AMCL initial pose acknowledged for "
+                        f"generation={generation} after "
+                        f"{publish_count} publish attempt(s)"
+                    )
+                    return
+            if getattr(request, "canceled", False):
+                self._cancel_automatic_motion()
+                raise AutomaticMissionCancelled(
+                    "automatic mission canceled"
+                )
+            role, code = self._manager.unexpected_exit()
+            if role is not None:
+                raise RuntimeError(
+                    f"{role} process exited code={code} before AMCL "
+                    "initial pose acknowledgement"
+                )
+            now = time.monotonic()
+            remaining = deadline - now
+            if remaining <= 0.0:
+                raise TimeoutError(
+                    "AMCL did not publish a current-generation pose after "
+                    f"{publish_count} /initialpose attempt(s)"
+                )
+            if now >= next_publish_at:
+                self._initial_pose_pub.publish(
+                    SessionOrchestratorNode._build_persistent_initial_pose(
+                        self, pose
+                    )
+                )
+                publish_count += 1
+                next_publish_at = now + 0.25
+            with self._map_pose_condition:
+                self._map_pose_condition.wait(
+                    timeout=min(
+                        0.05,
+                        remaining,
+                        max(0.0, next_publish_at - time.monotonic()),
+                    )
+                )
+
+    def _wait_for_persistent_navigation_inputs(
+        self,
+        request: CommandRequest,
+        deadline: float,
+    ) -> None:
+        """等待当前 navigation 代际的 map 与 AMCL 首帧，拒绝旧缓存。"""
+
+        with self._map_pose_condition:
+            generation = self._navigation_input_generation
+            while True:
+                fresh_map = (
+                    self._latest_occupancy is not None
+                    and self._latest_occupancy_generation == generation
+                )
+                fresh_pose = (
+                    self._latest_map_pose_xy is not None
+                    and self._latest_map_pose_generation == generation
+                )
+                if fresh_map and fresh_pose:
+                    return
+                if getattr(request, "canceled", False):
+                    self._cancel_automatic_motion()
+                    raise AutomaticMissionCancelled(
+                        "automatic mission canceled"
+                    )
+                remaining = deadline - time.monotonic()
+                if remaining <= 0.0:
+                    raise TimeoutError(
+                        "navigation stage did not publish fresh /map and "
+                        "/amcl_pose for the current generation"
+                    )
+                self._map_pose_condition.wait(
+                    timeout=min(0.1, remaining)
+                )
+
+    def _wait_persistent_navigation_ready(
+        self, request: CommandRequest
+    ) -> None:
+        """stage 切换事务内的完整 Nav2 就绪门，成功后才允许 RESUME。"""
+
+        if self._dry_run:
+            return
+        self._wait_navigation_ready_impl(request)
 
     def _cleanup_failed_navigation_startup(self, primary_error: Exception) -> None:
         """回收半启动导航 stage，同时保留最先暴露的根因。"""
@@ -2442,7 +2902,12 @@ class SessionOrchestratorNode(Node):
         # 必须 fail-close；若 stop 也失败，只把它作为异常附注，不能覆盖首因。
         self._navigation_startup_failure_pending = True
         try:
-            self._manager.stop()
+            if getattr(self, "_persistent_runtime_enabled", False):
+                # 导航 stage 半启动只污染可替换层；base 仍是本次会话唯一的
+                # Gazebo/机器人所有者，故障清理不能把它一并销毁。
+                self._manager.stop_stage()
+            else:
+                self._manager.stop()
         except Exception as cleanup_error:
             note = f"navigation startup cleanup failed: {cleanup_error}"
             add_note = getattr(primary_error, "add_note", None)
@@ -2454,7 +2919,20 @@ class SessionOrchestratorNode(Node):
         with self._ready_condition:
             return self._ready_generation
 
+    def _arm_readiness_profile(self, profile: str) -> int:
+        """原子切换期望 profile，并返回本轮等待使用的代际基线。"""
+
+        with self._ready_condition:
+            self._expected_readiness_profile = profile
+            # 旧 profile 的 true 不能泄漏进新阶段；新 aggregator 至少发布一帧
+            # exact profile 后 generation 才会推进。
+            self._latest_ready = False
+            return self._ready_generation
+
     def _goal_callback(self, goal_request) -> GoalResponse:
+        stopping = getattr(self, "_stopping", None)
+        if stopping is not None and stopping.is_set():
+            return GoalResponse.REJECT
         try:
             command = SessionCommand(goal_request.command)
         except ValueError:
@@ -2482,6 +2960,13 @@ class SessionOrchestratorNode(Node):
         return CancelResponse.ACCEPT
 
     def _enqueue(self, request: CommandRequest) -> bool:
+        stopping = getattr(self, "_stopping", None)
+        if stopping is not None and stopping.is_set():
+            # startup fail-close 与 Action goal/execute callback 可能并发；先释放
+            # 等待者，再拒绝入队，避免调用方一直等待一个已经没有 worker 的请求。
+            request.message = "session is stopping"
+            request.completed.set()
+            return False
         barrier = getattr(self, "_autonomy_quiescence", None)
         if barrier is not None and barrier.active:
             # SAVE_MAP/START_NAV 同样会启停 stage，必须等本轮 Explore/Nav2
@@ -2612,6 +3097,315 @@ class SessionOrchestratorNode(Node):
         )
         return True
 
+    def _call_control_authority(
+        self,
+        command: int,
+        *,
+        reason: str,
+        timeout_s: float,
+    ) -> Any:
+        """在 worker 线程同步等待 typed service，ROS executor 仍可处理回调。"""
+
+        service_type = SetControlAuthority
+        client = getattr(self, "_authority_control_client", None)
+        if service_type is None or client is None:
+            raise RuntimeError(
+                "control authority service is unavailable"
+            )
+        deadline = time.monotonic() + timeout_s
+        if not client.wait_for_service(timeout_sec=timeout_s):
+            raise TimeoutError(
+                "control authority service unavailable"
+            )
+        service_request = service_type.Request()
+        service_request.command = command
+        service_request.requester = "slam_session_stage_switch"
+        service_request.reason = reason
+        future = client.call_async(service_request)
+        completed = threading.Event()
+        future.add_done_callback(lambda _future: completed.set())
+        if not completed.wait(
+            timeout=max(0.0, deadline - time.monotonic())
+        ):
+            raise TimeoutError(
+                "control authority service response timeout"
+            )
+        response = future.result()
+        if response is None:
+            raise RuntimeError("control authority service returned no response")
+        return response
+
+    def _enter_internal_stage_switch_hold(
+        self, request: CommandRequest
+    ) -> QuiescenceIdentity:
+        """进入 exact HOLD，并等现有 quiescence 屏障完成 typed ACK。"""
+
+        deadline = (
+            time.monotonic() + self._autonomy_quiescence_timeout_s
+        )
+
+        def remaining() -> float:
+            value = deadline - time.monotonic()
+            if value <= 0.0:
+                raise TimeoutError(
+                    "internal stage switch HOLD budget exhausted"
+                )
+            return value
+
+        with self._state_lock:
+            snapshot = getattr(self, "_authority_snapshot", None)
+            if (
+                snapshot is None
+                or snapshot.authority != AUTONOMY
+                or not self._authority_lease.fresh_autonomy(
+                    time.monotonic()
+                )
+            ):
+                raise RuntimeError(
+                    "internal stage switch requires fresh AUTONOMY authority"
+                )
+            self._internal_stage_switch_sequence += 1
+            reason = (
+                "internal_stage_switch:"
+                f"{snapshot.manager_epoch}:"
+                f"{snapshot.transition_sequence}:"
+                f"{self._internal_stage_switch_sequence}"
+            )
+            intent = _InternalStageSwitch(
+                reason=reason,
+                manager_epoch=snapshot.manager_epoch,
+                transition_sequence_floor=snapshot.transition_sequence,
+            )
+            self._internal_stage_switch = intent
+
+        response = SessionOrchestratorNode._call_control_authority(
+            self,
+            SetControlAuthority.Request.ENTER_HOLD,
+            reason=reason,
+            timeout_s=remaining(),
+        )
+        state = response.state
+        identity = QuiescenceIdentity(
+            int(state.manager_epoch),
+            int(state.pending_autonomy_revocation_sequence),
+        )
+        if (
+            not bool(response.accepted)
+            or not bool(response.changed)
+            or not bool(response.stop_requested)
+            or int(state.authority) != ControlAuthorityState.HOLD
+            or bool(state.estop_latched)
+            or int(state.manager_epoch) != intent.manager_epoch
+            or int(state.transition_sequence)
+            <= intent.transition_sequence_floor
+            or int(state.pending_autonomy_revocation_sequence)
+            != int(state.transition_sequence)
+            or bool(state.autonomy_quiescence_acknowledged)
+            or str(state.active_source)
+            or str(state.reason) != intent.reason
+        ):
+            detail = str(getattr(response, "message", "invalid state"))
+            raise RuntimeError(
+                "internal stage switch HOLD rejected or stale: "
+                f"{detail}"
+            )
+        with self._state_lock:
+            if self._internal_stage_switch is not intent:
+                raise RuntimeError(
+                    "internal stage switch intent was replaced"
+                )
+            if intent.identity not in {None, identity}:
+                raise RuntimeError(
+                    "internal stage switch revocation identity conflict"
+                )
+            intent.identity = identity
+
+        # 回调侧复用既有安全深模块完成 Explore/Nav2 terminal、priority
+        # STOP、新鲜零速与 exact ACK；这里不复制第二套“看起来相似”的停车逻辑。
+        self._autonomy_quiescence.wait_acknowledged(
+            identity,
+            timeout_s=remaining(),
+        )
+        if request.canceled:
+            raise AutomaticMissionCancelled(
+                "external control authority changed during stage quiescence"
+            )
+        return identity
+
+    def _resume_internal_stage_switch(
+        self, identity: QuiescenceIdentity
+    ) -> None:
+        """只从本轮已 ACK 的 HOLD 显式恢复；并发人工接管保持 fail-closed。"""
+
+        deadline = (
+            time.monotonic() + self._autonomy_quiescence_timeout_s
+        )
+
+        def remaining() -> float:
+            value = deadline - time.monotonic()
+            if value <= 0.0:
+                raise TimeoutError(
+                    "internal stage switch RESUME budget exhausted"
+                )
+            return value
+
+        condition = self._authority_condition
+        with condition:
+            while True:
+                intent = self._internal_stage_switch
+                snapshot = self._authority_snapshot
+                intent_matches = (
+                    intent is not None
+                    and intent.identity == identity
+                    and intent.manager_epoch == identity.manager_epoch
+                )
+                hold_is_acknowledged = (
+                    snapshot is not None
+                    and snapshot.authority
+                    == ControlAuthorityState.HOLD
+                    and snapshot.manager_epoch == identity.manager_epoch
+                    and snapshot.pending_autonomy_revocation_sequence
+                    == identity.revocation_sequence
+                    and snapshot.autonomy_quiescence_acknowledged
+                    and not snapshot.estop_latched
+                    and not snapshot.active_source
+                )
+                if intent_matches and hold_is_acknowledged:
+                    hold_sequence = snapshot.transition_sequence
+                    resume_reason = f"{intent.reason}:resume"
+                    break
+                if (
+                    not intent_matches
+                    or snapshot is None
+                    or snapshot.manager_epoch != identity.manager_epoch
+                    or snapshot.authority
+                    in {
+                        ControlAuthorityState.KEYBOARD,
+                        ControlAuthorityState.ESTOP,
+                    }
+                ):
+                    raise RuntimeError(
+                        "control authority changed during internal stage switch"
+                    )
+                condition.wait(timeout=remaining())
+
+        response = SessionOrchestratorNode._call_control_authority(
+            self,
+            SetControlAuthority.Request.RESUME_AUTONOMY,
+            reason=resume_reason,
+            timeout_s=remaining(),
+        )
+        state = response.state
+        resumed_sequence = int(state.transition_sequence)
+        if (
+            not bool(response.accepted)
+            or not bool(response.changed)
+            or bool(response.stop_requested)
+            or int(state.authority) != ControlAuthorityState.AUTONOMY
+            or bool(state.estop_latched)
+            or int(state.manager_epoch) != identity.manager_epoch
+            or resumed_sequence <= hold_sequence
+            or int(state.pending_autonomy_revocation_sequence) != 0
+            or bool(state.autonomy_quiescence_acknowledged)
+            or str(state.active_source) != "autonomy"
+            or str(state.reason) != resume_reason
+        ):
+            detail = str(getattr(response, "message", "invalid state"))
+            raise RuntimeError(
+                "internal stage switch RESUME rejected or stale: "
+                f"{detail}"
+            )
+
+        # service response 与 transient-local topic 是两条 DDS 通道。只有本地
+        # lease 也看见同代 AUTONOMY 后才允许新 Nav2 goal 离开 orchestrator。
+        with condition:
+            while True:
+                snapshot = self._authority_snapshot
+                if (
+                    snapshot is not None
+                    and snapshot.manager_epoch == identity.manager_epoch
+                    and snapshot.transition_sequence >= resumed_sequence
+                    and snapshot.authority
+                    == ControlAuthorityState.AUTONOMY
+                    and snapshot.active_source == "autonomy"
+                ):
+                    return
+                if (
+                    snapshot is None
+                    or snapshot.manager_epoch != identity.manager_epoch
+                    or (
+                        snapshot.transition_sequence >= resumed_sequence
+                        and snapshot.authority
+                        != ControlAuthorityState.AUTONOMY
+                    )
+                ):
+                    raise RuntimeError(
+                        "control authority was superseded before RESUME "
+                        "became visible"
+                    )
+                condition.wait(timeout=remaining())
+
+    def _clear_internal_stage_switch(self) -> None:
+        with self._state_lock:
+            self._internal_stage_switch = None
+
+    def _matches_internal_stage_switch_revocation(
+        self,
+        snapshot: AuthoritySnapshot,
+    ) -> bool:
+        """只豁免由本节点发起且身份完全匹配的内部 HOLD。
+
+        reason token 只用于捕获首个 HOLD 边沿；拿到 exact epoch/revocation
+        后，ACK 会改变 reason 和 transition_sequence，因此后续状态改用
+        pending revocation 身份匹配。KEYBOARD/ESTOP 永远不会走此豁免。
+        """
+
+        intent = getattr(self, "_internal_stage_switch", None)
+        if intent is None or snapshot.authority != ControlAuthorityState.HOLD:
+            return False
+        identity = QuiescenceIdentity(
+            snapshot.manager_epoch,
+            snapshot.pending_autonomy_revocation_sequence,
+        )
+        if intent.identity is not None:
+            return identity == intent.identity
+        exact_hold = (
+            snapshot.manager_epoch == intent.manager_epoch
+            and snapshot.transition_sequence
+            > intent.transition_sequence_floor
+            and snapshot.pending_autonomy_revocation_sequence
+            == snapshot.transition_sequence
+            and not snapshot.autonomy_quiescence_acknowledged
+            and snapshot.reason == intent.reason
+        )
+        if exact_hold:
+            # callback 可能早于 service future；在看到唯一 reason token 时立即
+            # 固化身份，避免紧随其后的 ACK heartbeat 被误判成用户接管。
+            intent.identity = identity
+        return exact_hold
+
+    def _matches_internal_stage_switch_resume(
+        self,
+        snapshot: AuthoritySnapshot,
+    ) -> bool:
+        """识别本节点唯一的 RESUME 边沿，不放宽普通 AUTONOMY heartbeat。"""
+
+        intent = getattr(self, "_internal_stage_switch", None)
+        identity = None if intent is None else intent.identity
+        return (
+            intent is not None
+            and identity is not None
+            and snapshot.authority == ControlAuthorityState.AUTONOMY
+            and snapshot.manager_epoch == identity.manager_epoch
+            and snapshot.transition_sequence
+            > identity.revocation_sequence
+            and snapshot.pending_autonomy_revocation_sequence == 0
+            and not snapshot.autonomy_quiescence_acknowledged
+            and not snapshot.estop_latched
+            and snapshot.active_source == "autonomy"
+            and snapshot.reason == f"{intent.reason}:resume"
+        )
+
     def _on_control_authority_state(
         self, message: ControlAuthorityState
     ) -> None:
@@ -2656,8 +3450,38 @@ class SessionOrchestratorNode(Node):
                 f"sequence={message.transition_sequence} "
                 f"reason={update.decision.value}"
             )
+            if update.lease_discontinuity:
+                self._authority_lease_failure_reported = True
+                SessionOrchestratorNode._cancel_active_automatic_mission(
+                    self, "authority_lease_discontinuity"
+                )
+                self._fail_autonomy_quiescence(
+                    TimeoutError(
+                        "authority manager lease_discontinuity before "
+                        "typed revocation"
+                    )
+                )
             return
         self._authority_lease_failure_reported = False
+        with self._state_lock:
+            self._authority_snapshot = snapshot
+            authority_condition = getattr(
+                self, "_authority_condition", None
+            )
+            if authority_condition is not None:
+                authority_condition.notify_all()
+            internal_stage_switch_revocation = (
+                SessionOrchestratorNode
+                ._matches_internal_stage_switch_revocation(
+                    self, snapshot
+                )
+            )
+            internal_stage_switch_resume = (
+                SessionOrchestratorNode
+                ._matches_internal_stage_switch_resume(
+                    self, snapshot
+                )
+            )
         pending_revocation = (
             snapshot.pending_autonomy_revocation_sequence
         )
@@ -2735,8 +3559,12 @@ class SessionOrchestratorNode(Node):
 
         # 屏障必须先绑定 revocation，随后才能设置用户 request 的 canceled 位；
         # 否则 Action result/零速回调可能抢在 begin() 前到达并被本轮错误丢弃。
-        if authority != AUTONOMY or (
-            was_observed and not was_fresh_autonomy
+        if (
+            authority != AUTONOMY
+            or (was_observed and not was_fresh_autonomy)
+        ) and not (
+            internal_stage_switch_revocation
+            or internal_stage_switch_resume
         ):
             reason = {
                 ControlAuthorityState.HOLD: "authority_hold",
@@ -3055,10 +3883,29 @@ class SessionOrchestratorNode(Node):
         request.goal_handle.publish_feedback(feedback)
 
     def _start_mapping(self) -> None:
-        generation = self._readiness_generation()
+        persistent_runtime = getattr(
+            self, "_persistent_runtime_enabled", False
+        )
+        generation = (
+            self._arm_readiness_profile("persistent_mapping_stage")
+            if persistent_runtime
+            else self._readiness_generation()
+        )
         self.transition(SessionPhase.STARTING_MAPPING, detail="starting mapping stage")
-        self._manager.start("mapping")
+        if persistent_runtime:
+            # base 拥有 Gazebo/robot/RViz/Agent，只在会话启动一次；mapping 是
+            # 可替换 stage，之后切 Nav2 时不能把机器人世界一并销毁。
+            self._manager.start_base()
+            # Bridge ACTIVE 是 base 与 stage 的明确提交边界。mapping stage 会
+            # 继续制造大量 DDS endpoint，不能与首轮 lifecycle 转换竞争。
+            self._wait_persistent_base_control_ready()
+            self._manager.start_mapping()
+            self._wait_persistent_stage_executor_ready()
+        else:
+            self._manager.start("mapping")
         self._wait_for_new_ready(generation)
+        if persistent_runtime:
+            self._wait_persistent_velocity_pipeline_ready()
         self.transition(SessionPhase.MAPPING, detail="mapping ready; explore by voice")
 
     def save_map(self, request: CommandRequest) -> None:
@@ -3137,19 +3984,65 @@ class SessionOrchestratorNode(Node):
             detail="stopping mapping stage",
         )
         self.feedback(request, 0.65)
+        persistent_runtime = getattr(
+            self, "_persistent_runtime_enabled", False
+        )
+        map_yaml_path: Path | None = None
+        if persistent_runtime:
+            saved_map_path = self._fsm.snapshot.map_yaml_path
+            if not saved_map_path:
+                raise RuntimeError(
+                    "persistent navigation requires a saved map path"
+                )
+            map_yaml_path = Path(saved_map_path)
+        authority_transaction = (
+            persistent_runtime
+            and getattr(self, "_authority_gate_enabled", False)
+        )
+        switch_identity: QuiescenceIdentity | None = None
+        stage_replaced = False
         try:
-            self._manager.stop()
+            if authority_transaction:
+                # 进程替换不能在 AUTONOMY 下进行：先进入 exact HOLD，并复用
+                # Explore/Nav2 terminal、priority STOP、fresh zero、typed ACK 屏障。
+                switch_identity = self._enter_internal_stage_switch_hold(
+                    request
+                )
+                if getattr(request, "canceled", False):
+                    raise AutomaticMissionCancelled(
+                        "control authority changed during stage switch"
+                    )
+            if persistent_runtime:
+                # 先彻底停止 mapping owner，再创建 navigation 代际。该顺序
+                # 防止新 AMCL/map 首帧在缓存清理前到达又被擦除。
+                stage_replaced = True
+                self._manager.stop_stage()
+            else:
+                self._manager.stop()
             with self._map_pose_condition:
-                # mapping 进程停止后再开启新代际，并在 navigation 启动前清缓存；否则
-                # transient-local 或迟到的 SLAM /map 会与旧 AMCL pose 拼成“新保存图”，
-                # 让候选采样读到跨阶段快照。回调和 admission 都检查同一代际。
+                # stop_stage 已等待旧进程退出。先关闭输入闸门并开启新代际，
+                # 之后才允许 map_server/AMCL 启动，杜绝跨阶段快照。
+                self._navigation_inputs_enabled = False
                 self._navigation_input_generation += 1
                 self._latest_occupancy = None
                 self._latest_map_pose_xy = None
                 self._latest_occupancy_generation = -1
                 self._latest_map_pose_generation = -1
                 self._map_pose_condition.notify_all()
-            generation = self._readiness_generation()
+            if getattr(request, "canceled", False):
+                raise AutomaticMissionCancelled(
+                    "control authority changed after mapping stopped"
+                )
+            if persistent_runtime:
+                assert map_yaml_path is not None
+                self._manager.prepare_navigation(map_yaml_path)
+            generation = (
+                self._arm_readiness_profile(
+                    "persistent_navigation_stage"
+                )
+                if persistent_runtime
+                else self._readiness_generation()
+            )
             self.transition(
                 SessionPhase.STARTING_NAVIGATION,
                 detail="starting saved-map AMCL/Nav2 stage",
@@ -3157,11 +4050,61 @@ class SessionOrchestratorNode(Node):
             # 进程切换很快时 transient-local state topic 只保证新订阅者拿到“最新状态”，
             # 不保证测试或 UI 一定调度到每个中间快照；Action feedback因此同步承载阶段进度。
             self.feedback(request, 0.8)
+            with self._map_pose_condition:
+                self._navigation_inputs_enabled = True
+                self._map_pose_condition.notify_all()
             self._manager.start("navigation")
+            if persistent_runtime:
+                self._wait_persistent_stage_executor_ready()
             self._wait_for_new_ready(generation)
-        except Exception as exc:
-            self._cleanup_failed_navigation_startup(exc)
+            if getattr(request, "canceled", False):
+                raise AutomaticMissionCancelled(
+                    "control authority changed before navigation readiness"
+                )
+            if persistent_runtime:
+                # readiness profile 只证明 stage 聚合器完成；还必须看到
+                # map_server/AMCL ACTIVE 与本代 fresh map/pose，才能恢复自治。
+                self._wait_persistent_navigation_ready(request)
+            if switch_identity is not None:
+                if getattr(request, "canceled", False):
+                    raise AutomaticMissionCancelled(
+                        "control authority changed before navigation resume"
+                    )
+                # 只有新 navigation stage 已 ready 才消费一次性 ACK 许可。
+                # KEYBOARD/ESTOP 若并发到达，service 会拒绝且保持非自治状态。
+                self._resume_internal_stage_switch(switch_identity)
+        except AutomaticMissionCancelled as exc:
+            with self._map_pose_condition:
+                self._navigation_inputs_enabled = False
+                self._map_pose_condition.notify_all()
+            if persistent_runtime and stage_replaced:
+                self._manager.stop_stage()
+                self._navigation_startup_failure_pending = True
+                raise _PersistentStageSwitchInterrupted(
+                    "control authority changed after mapping stage was "
+                    "replaced; persistent session remains safely stopped"
+                ) from exc
             raise
+        except Exception as exc:
+            with self._map_pose_condition:
+                self._navigation_inputs_enabled = False
+                self._map_pose_condition.notify_all()
+            if (
+                authority_transaction
+                and self._autonomy_quiescence.snapshot().state
+                is QuiescenceState.FAILED
+            ):
+                # 屏障失败意味着 terminal/STOP/zero/ACK 至少一项不可证明；
+                # 外层 mission 的通用恢复分支不得把 FAILED 覆盖成 MAPPING。
+                self._navigation_startup_failure_pending = True
+            # HOLD/ACK 在 stage 替换前失败时仍保留可诊断的 mapping stage；
+            # 只有已开始替换，或旧兼容模式，才需要回收半启动进程。
+            if not persistent_runtime or stage_replaced:
+                self._cleanup_failed_navigation_startup(exc)
+            raise
+        finally:
+            if authority_transaction:
+                self._clear_internal_stage_switch()
         self.transition(
             SessionPhase.NAVIGATING,
             detail="navigation ready; semantic goals accepted",
@@ -3234,13 +4177,33 @@ class SessionOrchestratorNode(Node):
                 self.start_navigation(request)
             if request.command == SessionCommand.STOP_SESSION:
                 self.transition(SessionPhase.STOPPING, detail="stopping session")
-                self._manager.stop()
+                if getattr(self, "_persistent_runtime_enabled", False):
+                    # STOP_SESSION 是整场演示的终点，必须释放 base 所有权；
+                    # 普通 mapping→navigation 切换只允许 stop_stage。
+                    self._manager.shutdown()
+                else:
+                    self._manager.stop()
                 self.transition(SessionPhase.STOPPED, detail="session stopped")
             request.success = True
             if not request.message:
                 request.message = "session command completed"
         except AutomaticMissionCancelled as exc:
             request.message = str(exc)
+            runtime_failure = getattr(self, "_child_runtime_failure", "")
+            if runtime_failure:
+                # base 崩溃属于不可恢复的会话故障，不是普通用户取消。watchdog
+                # 已进入 FAILED 后，worker 绝不能再按 manager.stage 虚报 MAPPING。
+                request.message = runtime_failure
+                if request.command == SessionCommand.RUN_AUTOMATIC_MISSION:
+                    self._mission_outcome = SlamSessionState.MISSION_FAILED
+                    self._mission_message = runtime_failure
+                if self._fsm.snapshot.phase != SessionPhase.FAILED:
+                    self.transition(
+                        SessionPhase.FAILED,
+                        detail=runtime_failure,
+                    )
+                self.get_logger().error(runtime_failure)
+                return
             revocation = request.authority_revocation_identity
             if (
                 request.command == SessionCommand.RUN_AUTOMATIC_MISSION
@@ -3334,11 +4297,57 @@ class SessionOrchestratorNode(Node):
             self._operation_active.clear()
             request.completed.set()
 
+    def _request_process_shutdown(self) -> None:
+        """让 fatal startup failure 结束 ROS 进程，而非留下 FAILED 空壳."""
+
+        if rclpy.ok():
+            rclpy.shutdown()
+
+    def _fail_mapping_startup(self, error: BaseException) -> None:
+        """启动失败时原子拒绝新工作、释放等待者并回收整场运行时."""
+
+        detail = f"mapping startup failed: {error}"
+        self._stopping.set()
+        with self._state_lock:
+            self._mission_outcome = SlamSessionState.MISSION_FAILED
+            self._mission_message = detail
+        self.transition(SessionPhase.FAILED, detail=detail)
+
+        # Action server 在 base 启动期间已经可见；失败边沿前进入队列的请求必须
+        # 得到明确终态，不能因 worker 直接返回而永久阻塞 execute callback。
+        while True:
+            try:
+                pending = self._requests.get_nowait()
+            except queue.Empty:
+                break
+            if pending is None:
+                continue
+            pending.success = False
+            pending.message = detail
+            pending.completed.set()
+
+        try:
+            if getattr(self, "_persistent_runtime_enabled", False):
+                self._manager.shutdown()
+            else:
+                self._manager.stop()
+        except Exception as cleanup_error:
+            note = f"mapping startup cleanup failed: {cleanup_error}"
+            add_note = getattr(error, "add_note", None)
+            if callable(add_note):
+                add_note(note)
+            self.get_logger().error(note)
+        finally:
+            # 仅发布 FAILED 仍会让 authority manager 和外层 launch 误以为会话活着；
+            # 结束 rclpy context 后，脚本 trap 才能回收 session 级 manager。
+            self._request_process_shutdown()
+
     def _worker_loop(self) -> None:
         try:
             self._start_mapping()
         except Exception as exc:
-            self.transition(SessionPhase.FAILED, detail=f"mapping startup failed: {exc}")
+            SessionOrchestratorNode._fail_mapping_startup(self, exc)
+            return
         while not self._stopping.is_set():
             try:
                 request = self._requests.get(timeout=0.2)
@@ -3349,25 +4358,63 @@ class SessionOrchestratorNode(Node):
             self._execute_request(request)
 
     def _check_child_process(self) -> None:
-        if self._operation_active.is_set() or self._stopping.is_set():
+        if self._stopping.is_set():
             return
-        exited, code = self._manager.exited_unexpectedly()
+        persistent_runtime = getattr(
+            self, "_persistent_runtime_enabled", False
+        )
+        operation_active = self._operation_active.is_set()
+        if persistent_runtime:
+            role, code = self._manager.unexpected_exit()
+            # stage/explorer 在任务内部会被主动替换或回收；但常驻 base 无论
+            # 是否正在执行任务都不应退出，不能让 operation_active 掩盖其崩溃。
+            if operation_active and role not in {None, "base"}:
+                return
+            exited = role is not None
+            owner = role or "runtime"
+        else:
+            if operation_active:
+                return
+            exited, code = self._manager.exited_unexpectedly()
+            owner = self._manager.stage or "stage"
         if exited and self._fsm.snapshot.phase not in {
             SessionPhase.STOPPED,
             SessionPhase.FAILED,
         }:
+            failure_detail = f"{owner} process exited code={code}"
+            if persistent_runtime and owner == "base":
+                with self._state_lock:
+                    self._child_runtime_failure = failure_detail
+                    active_request = self._active_request
+                    if active_request is not None:
+                        active_request.canceled = True
+                        if not active_request.message:
+                            active_request.message = (
+                                "persistent base process exited"
+                            )
             self.transition(
                 SessionPhase.FAILED,
-                detail=f"{self._manager.stage or 'stage'} process exited code={code}",
+                detail=failure_detail,
             )
 
     def close(self) -> None:
         self._stopping.set()
+        # 先在同一状态锁下取消 worker 当前请求，再关闭 manager。配合 manager
+        # 的 terminal lifecycle lock，可保证 shutdown 后不会迟到 spawn Nav2。
+        with self._state_lock:
+            active_request = self._active_request
+            if active_request is not None:
+                active_request.canceled = True
+                if not active_request.message:
+                    active_request.message = "session is closing"
         try:
             self._requests.put_nowait(None)
         except queue.Full:
             pass
-        self._manager.stop()
+        if getattr(self, "_persistent_runtime_enabled", False):
+            self._manager.shutdown()
+        else:
+            self._manager.stop()
         self._worker.join(timeout=3.0)
         self._action_server.destroy()
 

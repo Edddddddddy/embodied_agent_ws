@@ -1,173 +1,198 @@
-# 架构决策
+# 多模态演示架构决策
 
-## ADR-001：控制权状态机与速度 mux 分离
+这里仅保留会影响模块边界、安全语义或验收可信度的决定。
+
+## ADR-001：业务控制权与速度仲裁分层
 
 状态：已接受。
 
 决定：
 
-- C++ `ControlAuthorityManager` 管理控制权、接管、急停和显式恢复。
-- `twist_mux` 只按优先级和 timeout 仲裁 Nav2/语音两个自治速度源。
-- C++ `VelocityAuthorityGate` 按 typed authority 对自治/键盘做互斥正授权。
-- HOLD、ESTOP、来源超时或 manager 心跳超时均持续输出零速。
+- C++ `ControlAuthorityManager` 管理 AUTONOMY、KEYBOARD、HOLD、ESTOP。
+- `twist_mux` 只仲裁语音原语和 Nav2 两个自治速度源。
+- C++ `VelocityAuthorityGate` 按 typed authority 正授权自治或键盘，并校验
+  TurtleBot3 平面轴与速度包络。
 
-原因：
-
-- mux 不知道 Nav2 Action、语音队列或 SLAM 会话，不能正确取消业务任务。
-- 自写自治速度 mux 会重复成熟组件的 QoS、priority 和 timeout 行为。
-- `twist_mux` 的全局 priority lock 无法表达“KEYBOARD 时只允许键盘、
-  AUTONOMY 时只允许自治”的 allowlist，因此不能承担安全授权。
-- 分离后，状态机和最终权限门都可纯 C++ 单测，自治仲裁可独立集成测试。
+理由：数值优先级不能表达 Action 取消、人工接管或按状态选择来源；把业务状态塞进
+mux 会产生第二套不可测试的状态机。
 
 ## ADR-002：Collision Monitor 是唯一最终速度出口
 
 状态：已接受。
 
-决定：
+决定：所有速度依次经过自治 mux、AuthorityGate 和 Collision Monitor，只有
+Collision Monitor 发布最终 `/cmd_vel`。
 
-- Nav2/语音先进入 mux，mux 与键盘进入 C++ AuthorityGate。
-- Gate 输出进入 Nav2 Collision Monitor。
-- 只有 Collision Monitor 向 TurtleBot3 bridge 的 `/cmd_vel` 发布。
+理由：多个直接发布者没有确定的业务优先级；任何语音或键盘旁路都会绕过雷达安全。
 
-原因：
-
-- 如果键盘或语音绕过 Collision Monitor，人工控制可能绕过碰撞安全。
-- 如果多个节点直接发布 `/cmd_vel`，DDS 不提供业务优先级，结果不可证明。
-
-## ADR-003：人工接管后必须显式恢复
+## ADR-003：撤权与恢复必须显式、同代、fail-closed
 
 状态：已接受。
 
 决定：
 
-- 键盘非零输入触发 takeover。
-- deadman 只负责零速并进入 HOLD，不自动回到 AUTONOMY。
-- 急停 RESET 只解除锁存，仍保持 HOLD；用户按 R 才恢复自动控制。
+- 接管/急停先撤销旧自治任务并生成 `autonomy_revocation_sequence`。
+- 只有相同 `manager_epoch + revocation_sequence` 的 Explore/Nav2 terminal、
+  priority STOP result 和 STOP 后新鲜零速组成 typed ACK。
+- deadman 和 RESET 只进入 HOLD；用户显式 RESUME 后才恢复 AUTONOMY。
+- manager lease 在同一 epoch 中断后保持失效；迟到 heartbeat 不能重新授权。
 
-原因：
+理由：松键、固定 sleep、进程退出或旧零速都不能证明旧 Action 已终止。显式同代
+确认可阻止 ghost motion、late result 和 manager 重启绕过安全边界。
 
-- 避免用户松键后旧 Nav2 goal 或旧语音动作突然恢复，形成 ghost motion。
-- 把恢复动作变成可观察、可审计的用户决定。
+## ADR-004：`SessionOrchestratorNode` 是唯一 SLAM/Nav2 业务状态机
 
-## ADR-004：不建立第二套 SLAM 状态机
+状态：已接受。
+
+决定：建图、返航、存图、定位和导航只由 `SessionOrchestratorNode` 编排；控制权
+节点只负责授权、取消和 STOP，不复制阶段 FSM。
+
+理由：两个 FSM 同时拥有阶段生命周期会产生竞态。现有 strict unknown-world
+状态机已有地图、定位和规划质量门禁，应扩展其窄接口而非重写。
+
+## ADR-005：持久 base 与可替换 stage 分开拥有进程
+
+状态：已接受，已通过重型门禁验证。
+
+决定：
+
+- base 只启动一次，持有 Gazebo、机器人/RSP、RViz、Agent、Nav2 common、
+  typed bridge 和速度安全管线。
+- mapping stage 持有 SLAM provider/executor；navigation stage 持有本次地图的
+  map server、AMCL、Nav2 executor 和动态 tracker。
+- 会话根持有唯一 authority manager；stage 不得隐式重建它。
+
+理由：阶段脚本若拥有整个世界，会重置 odom、Agent 会话、RViz 和控制权；明确
+所有权后，stage 故障可局部清理，base 故障则整场 fail-closed。
+
+## ADR-006：Persistent 会话只保留一个 Lifecycle 所有者
+
+状态：已接受，已通过重型门禁验证。
+
+决定：
+
+- persistent 模式把 typed bridge 与 `simulation_control` 的 `autostart` 关闭，并
+  关闭 stage 内部的 lifecycle manager。
+- `SessionOrchestratorNode` 是唯一 Lifecycle 所有者：它读取真实状态，再按
+  `configure -> activate` 收敛到 ACTIVE。
+- service 返回未知时不立即判失败，也不假装成功；编排器重新读取节点状态。只有
+  状态真的前进才继续，否则在期限内重试，超时后 fail-closed。
+- 每次等待都同时检查 base/stage 进程是否已退出。
+- readiness 超时或进程退出会拒绝新 goal、完成排队 goal 为失败并关闭会话。
+
+理由：Lifecycle 节点自启动、stage lifecycle manager 和会话编排器同时发状态
+变更，会形成三个所有者。冷启动时 service response 或 volatile transition event
+可能丢失，“请求已发出”也不等于 ACTIVE。单一所有者加最终状态观察，使阶段切换
+成为可重试、可验证的事务。
+
+## ADR-007：AMCL 初始化是带代际的事务
+
+状态：已接受，已实现。
+
+决定：
+
+1. 等待 map server 与 AMCL ACTIVE。
+2. 等待 `/initialpose` 至少一个匹配订阅者。
+3. 使用本次返航终点（兼容手工流程时才回退到显式地图原点）重复发布初始位姿。
+4. 只接受当前 navigation generation、发布时间晚于切换边界的 `/amcl_pose`。
+5. `/initialpose` 使用 RELIABLE + VOLATILE，不依赖旧 transient-local 样本。
+
+理由：后台脚本在 AMCL 启动前盲发一次并退出 0，会把“消息已写出”冒充“定位已
+建立”；旧 `/map`、`/amcl_pose` 缓存也会造成假 readiness。
+
+## ADR-008：进程清理按 owned process tree，而非只杀 launch wrapper
+
+状态：已接受，已实现。
+
+决定：
+
+- `StageProcessManager` 在进程存活期间持续记录 descendant 的 PID 与 starttime。
+- 清理前校验 starttime、PGID 和所有者，随后按 explorer→stage→base 顺序终止。
+- wrapper 已退出也要回收其留下的 detached child；PID 已复用时禁止误杀。
+
+理由：ROS launch/Gazebo wrapper 可提前退出或派生独立进程组。只杀根 PID 会留下
+AMCL/Gazebo 孤儿；只按进程名清理又可能杀死其他会话。
+
+## ADR-009：会话参数只有一个不可变快照
+
+状态：已接受，已实现。
+
+决定：base 启动前原子生成一次 Nav2 参数文件，base、mapping、navigation 只读
+同一快照；动态障碍参数可预置，但 tracker 只在 navigation stage 启动。
+
+理由：常驻 planner/controller 不会因环境变量改变而重新读取参数；阶段间替换
+文件会造成配置漂移，也可能让建图阶段的动态数据污染静态地图。
+
+## ADR-010：运行时连续性必须绑定真实进程身份
+
+状态：已接受，已通过重型门禁验证。
+
+决定：
+
+- mapping/navigation checkpoint 记录 schema、role、label 和严格递增 wall time。
+- Gazebo、RSP、实际 `offline_agent`/`online_agent`（启用时含 RViz）通过
+  PID、`/proc` start ticks、boot ID、executable 和 argv SHA-256 识别。
+- 使用 `ROS_DOMAIN_ID`/`GZ_PARTITION` 唯一筛选本次会话；报告不保存原始 argv。
+- verifier 从原始 checkpoint 重新计算，不接受缓存的 `passed=true`。
+
+理由：PID 可复用，launch parent 可退出，缓存 PASS 可与原始数据矛盾；这些情况
+都不能证明 mapping→navigation 期间同一机器人和 Agent 未重启。
+
+## ADR-011：strict evaluator 复用，persistent 只增加连续性门
+
+状态：已接受。
+
+决定：`showcase-gazebo-e2e` 复用 strict unknown-world 的地图质量、返航、定位、
+采样目标、动态重规划和最终停车判断，只在其上附加 runtime continuity。
+
+理由：另建宽松 evaluator 会让主演示轻易 PASS 却丢失发布级质量。持久化是新增
+不变量，不应降低既有不变量。
+
+## ADR-012：停车证据必须位于本次 STOP 之后
+
+状态：已接受，已实现。
+
+决定：
+
+- 不使用历史零速或“机器人看起来没动”作为停车证据。
+- persistent base 延长 Collision Monitor 的零速心跳窗口，但仍由它唯一发布
+  `/cmd_vel`，不绕过碰撞裁决。
+- verifier 要求 STOP 边界之后收到新鲜最终零速。
+
+理由：Collision Monitor 默认在停车约 2 秒后停止重复零速；长会话末尾若没有
+因果边界后的样本，就无法证明本次 STOP 已穿过最终执行边界。
+
+## ADR-013：首次自动任务取消后不承诺断点续跑
+
+状态：已接受。
+
+决定：人工接管或急停取消当前 Explore/Nav2 事务；恢复后发起新任务，不自动恢复
+旧 goal。
+
+理由：真正暂停需要冻结 deadline、goal generation、阶段状态和恢复点，不能混入
+控制平面最小安全闭环。
+
+## ADR-014：快速演示、严格仿真和真人语音证据分离
 
 状态：已接受。
 
 决定：
 
-- `SessionOrchestratorNode` 继续唯一拥有建图→返航→存图→定位→导航流程。
-- 控制权节点只发取消/STOP 和 typed authority state。
+- `quick` profile 服务 15 分钟现场演示。
+- strict unknown-world/persistent heavy 服务发布门禁。
+- live offline/online 才证明麦克风、endpoint、ASR 与 Agent 体验。
+- 预验证地图降级必须记录 `degraded=true`、`same_session=false`。
 
-原因：
+理由：mock ASR 可稳定验证编排，但不能证明真实识别；旧地图可演示导航，但不能
+冒充本次未知环境建图。证据必须与它实际覆盖的边界一致。
 
-- 两个 FSM 同时拥有阶段生命周期会产生竞态和难以复现的恢复错误。
-- 现有 unknown-world 严格验收已经证明原状态机可用，应在其边界上扩展。
+## ADR-015：探索接近饱和时只允许一次有界最终确认
 
-## ADR-005：现场快速证据与严格发布证据分离
+状态：已接受，已通过重型门禁验证。
 
-状态：已接受。
+决定：探索已触达硬时间预算、但最近 epoch 仍有实质地图增益时，允许一次最多
+`240 s` 的最终确认。确认结束后必须依据连续低收益 epoch、剩余 frontier、最终
+probe、地图质量和 typed STOP 共同裁决，不能无限延长。
 
-决定：
-
-- 现场使用 `showcase_quick`。
-- 发布使用 `unknown_world_strict`。
-- 预生成地图降级必须显式标记。
-
-原因：
-
-- 当前严格 E2E 约 18 分钟，仅机器运行就超过部分现场预算。
-- 为赶时间降低门槛会破坏证据可信度。
-
-## ADR-006：第一轮取消旧自动事务，不实现断点续跑
-
-状态：已接受，第二轮复审。
-
-决定：
-
-- 人工接管或急停取消当前 Explore/Nav2 事务。
-- 恢复后允许发起新任务，不自动续跑旧 goal。
-
-原因：
-
-- 安全取消可以复用已有 Scheduler、typed STOP 和会话 cleanup。
-- 真正暂停需要冻结 deadline、goal generation、地图阶段和恢复点，不能混入控制平面最小迭代。
-
-## ADR-007：权限通过不等于速度合法
-
-状态：已接受。
-
-决定：
-
-- `VelocityAuthorityGate` 同时执行来源授权与 TurtleBot3 速度包络校验。
-- 只允许 `linear.x` 和 `angular.z`；其余四个轴出现非零值时拒绝整条消息并归零。
-- 默认限制为 `|linear.x| <= 0.26 m/s`、`|angular.z| <= 1.82 rad/s`，
-  可通过 ROS 参数缩小。
-- manager 使用 heartbeat lease 与 `manager_epoch`；进程重启只能先以
-  `seq=0/HOLD/initialized` 建立新 epoch。
-- 同一 epoch 一旦越过 lease 即保持 fail-closed；迟到 heartbeat 不能重新授权，
-  必须由新 manager epoch 从 HOLD 恢复。
-
-原因：
-
-- 上游坐标系或消息类型错误不能靠单轴截断“修成”另一条合法运动。
-- 权限状态仍正常时，越界或非平面速度也必须 fail-closed。
-- 单独的 epoch 能区分重启后的序号归零和旧进程迟到消息。
-
-## ADR-008：控制权 manager 必须跨阶段持久
-
-状态：已接受。
-
-决定：
-
-- `control_authority` 由统一 showcase session 启动，全程只有一个实例。
-- mapping/navigation 子阶段不得自行启动 manager。
-- 阶段切换后必须保持相同 `manager_epoch`；manager 异常退出时整场会话
-  fail-closed，不在原地隐式重建自治权限。
-
-原因：
-
-- 子阶段重启 manager 会把 HOLD 重置成新的初始状态，使旧 Explore/Nav2 速度
-  有机会在阶段切换后重新获得权限。
-- 控制权属于整场人机交互会话，不属于任一 SLAM 或 Nav2 子进程。
-
-## ADR-009：恢复自治需要同代聚合终止确认
-
-状态：已接受。
-
-决定：
-
-- 离开 AUTONOMY 时生成 `autonomy_revocation_sequence`。
-- 编排层聚合 Explore/Nav2 terminal、priority STOP result 和停止请求后的
-  新鲜零速证据。
-- 只有 `manager_epoch + autonomy_revocation_sequence` 完全匹配的 typed ACK
-  才允许执行 `RESUME_AUTONOMY`。
-
-原因：
-
-- 固定 sleep、进程退出或某一时刻观察到零速，都不能证明旧 Action 已进入
-  terminal 状态。
-- 同代 ACK 将“旧任务已终止”和“允许新自治任务”建立因果关系，能阻止
-  late result、旧 heartbeat 或旧速度造成 ghost motion。
-
-## ADR-010：manager 启动默认不等于自治已经静默
-
-状态：已接受。
-
-决定：
-
-- `control_authority` 的运行时参数
-  `bootstrap_quiescence_acknowledged` 默认值为 `false`。
-- manager 无论是首次启动还是单独重启，都先停在 HOLD；必须由会话编排器发送
-  当前 `manager_epoch + revocation_sequence` 的 typed ACK 才可恢复自治。
-- 只有能证明“整个运动栈与 manager 同时冷启动、没有旧 goal 和旧速度”的顶层
-  集成测试，才允许显式覆盖为 `true`。
-- 当前 `voice_slam_nav_showcase.sh auto` 在启动任何运动节点前先运行残留进程检查，
-  拒绝已存在的 authority service，随后才以 `true` 创建本会话唯一 manager；
-  manager 异常退出时不自动 respawn。
-
-原因：
-
-- manager 进程重启不代表旧 Explore/Nav2 Action 已终止。
-- Gate 的零速隔离能阻止旧帧立即复驶，但不能代替 Action terminal 证据。
-- 安全默认值应在节点和共享 launch factory 两层保持一致，避免某个独立入口
-  无意中绕过会话级静默协议。
+理由：立即停止可能把“还有有效增益”误判为完成；不断恢复又会把有界任务变成无界
+等待。一次有上限的确认既保留最后一段有效探索，又保证验收能确定结束。

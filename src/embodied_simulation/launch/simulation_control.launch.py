@@ -20,6 +20,9 @@ def generate_launch_description():
     use_behavior_tree = LaunchConfiguration("use_behavior_tree")
     executor_plugin = LaunchConfiguration("executor_plugin")
     autostart = LaunchConfiguration("autostart")
+    lifecycle_manager_enabled = LaunchConfiguration(
+        "lifecycle_manager_enabled"
+    )
     use_composition = LaunchConfiguration("use_composition")
     namespace = LaunchConfiguration("namespace")
     cmd_vel_topic = LaunchConfiguration("cmd_vel_topic")
@@ -51,6 +54,14 @@ def generate_launch_description():
             default_value="embodied_simulation/GazeboRobotExecutor",
         ),
         DeclareLaunchArgument("autostart", default_value="true"),
+        DeclareLaunchArgument(
+            "lifecycle_manager_enabled",
+            default_value="true",
+            description=(
+                "Disable when an external session orchestrator owns lifecycle "
+                "transitions."
+            ),
+        ),
         DeclareLaunchArgument("action_timeout_s", default_value="12.0"),
         DeclareLaunchArgument("use_composition", default_value="false"),
         DeclareLaunchArgument("namespace", default_value=""),
@@ -108,6 +119,7 @@ def generate_launch_description():
                 "node_names": ["simulation_control"],
                 "bond_timeout": 0.0,
             }],
+            condition=IfCondition(lifecycle_manager_enabled),
         ),
         LifecycleNode(
             package="embodied_agent_cpp",

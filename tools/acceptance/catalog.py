@@ -95,6 +95,7 @@ _MODE_SPECS = (
     ('slam-nav-e2e', 'Known-world deterministic SLAM/Nav2 regression (legacy stable entry)', 'accept_slam_nav_e2e', 'public', True, True, HandlerDomain.SLAM_NAV),
     ('unknown-world-slam-e2e', 'Unknown-world autonomous exploration -> SLAM -> AMCL/Nav2 evidence gate', 'accept_unknown_world_slam_e2e', 'public', True, True, HandlerDomain.SLAM_NAV),
     ('voice-unknown-world-slam-e2e', '{offline|online} Live microphone -> full-evidence unknown-world SLAM/Nav2 gate', 'accept_voice_unknown_world_slam_e2e', 'public', True, True, HandlerDomain.SLAM_NAV),
+    ('showcase-gazebo-e2e', 'Persistent Gazebo/RViz mapping -> localization -> navigation evidence gate', 'accept_showcase_gazebo_e2e', 'internal', False, True, HandlerDomain.SLAM_NAV),
     ('slam-session-orchestrator', 'Heavy one-terminal Gazebo mapping/save/restart/navigation gate', 'accept_slam_session_orchestrator', 'internal', False, True, HandlerDomain.SLAM_NAV),
     ('slam-benchmark', 'Heavy Gazebo run: fixed loop, 5 cm map, and drift metrics report', 'accept_slam_benchmark', 'internal', False, True, HandlerDomain.EVALUATION),
     ('slam-gtsam-benchmark', 'Heavy Gazebo run with the project GTSAM ScanSolver plugin', 'accept_slam_gtsam_benchmark', 'internal', False, True, HandlerDomain.EVALUATION),
