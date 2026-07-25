@@ -95,10 +95,6 @@ def test_complete_requires_all_bounded_saturation_evidence():
 @pytest.mark.parametrize(
     ("overrides", "reason"),
     [
-        (
-            {"residual_available_frontiers": 5},
-            "too_many_residual_frontiers",
-        ),
         ({"active_goal_count": 1}, "action_ledger_not_drained"),
         ({"pending_goal_count": 1}, "action_ledger_not_drained"),
         ({"map_quiet_s": 9.99}, "map_not_quiet"),
@@ -118,6 +114,20 @@ def test_missing_runtime_evidence_cannot_complete(overrides, reason):
 
     assert result.decision is SaturationDecision.CONTINUE
     assert reason in result.unmet_requirements
+
+
+def test_time_budget_residual_count_is_diagnostic_after_final_probe():
+    """最终扫描前的 cluster 数不能否决完整的硬预算饱和证据。"""
+
+    result = assess_bounded_frontier_saturation(
+        replace(
+            _passing_evidence(),
+            residual_available_frontiers=6,
+        )
+    )
+
+    assert result.decision is SaturationDecision.COMPLETE
+    assert result.unmet_requirements == ()
 
 
 def test_unused_recovery_budget_does_not_block_hard_budget_saturation():

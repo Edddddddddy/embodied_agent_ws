@@ -44,7 +44,9 @@ exploration:
     minimum_low_yield_epochs: 2
     minimum_terminal_goals_per_epoch: 3
     minimum_mapping_path_m: 20.0
-    maximum_residual_available_frontiers: 4
+    # residual available cluster 只保留在 typed evidence 中用于诊断。硬预算
+    # 收口依赖跨 epoch/final-probe 信息增益；绝对 cluster 数受地图碎片影响，
+    # 且暂停 Explorer 后不会随最后一次扫描刷新，不能作为单项完成门槛。
     required_map_quiet_s: 15.0
     maximum_final_stop_age_s: 5.0
 

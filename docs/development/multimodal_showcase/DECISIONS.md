@@ -191,8 +191,10 @@ AMCL/Gazebo 孤儿；只按进程名清理又可能杀死其他会话。
 状态：已接受，已通过重型门禁验证。
 
 决定：探索已触达硬时间预算、但最近 epoch 仍有实质地图增益时，允许一次最多
-`240 s` 的最终确认。确认结束后必须依据连续低收益 epoch、剩余 frontier、最终
-probe、地图质量和 typed STOP 共同裁决，不能无限延长。
+`240 s` 的最终确认。确认结束后必须依据连续低收益 epoch、最终 probe、地图质量
+和 typed STOP 共同裁决，不能无限延长。hard-budget 的 residual frontier 是暂停
+Explorer 时的 pre-probe typed 诊断快照，不用绝对 cluster 数作为完成门槛；
+`repeated_reachable_stall` 触发仍必须由 producer 和 evaluator 双重确认 residual 为零。
 
 理由：立即停止可能把“还有有效增益”误判为完成；不断恢复又会把有界任务变成无界
 等待。一次有上限的确认既保留最后一段有效探索，又保证验收能确定结束。
@@ -264,3 +266,29 @@ probe、地图质量和 typed STOP 共同裁决，不能无限延长。
 当前代码迁移、接口测试、包测试、repository contracts、`acceptance_test.sh core`
 和 typed Gazebo 门禁均已通过。clean commit `bc65b8f` 的 unknown-world E2E 也已
 验证建图、返航、定位、三点导航、动态重规划与最终新鲜零速，ADR-016 至此完成验证。
+
+## ADR-017：长时 SLAM 门禁默认只保留一个图形客户端
+
+状态：已接受，已通过 RViz 可视化重型门禁验证。
+
+决定：
+
+- 长时 unknown-world 门禁的推荐模式是 `HEADLESS=true USE_RVIZ=true`：Gazebo server、
+  物理和传感器继续运行，只关闭 Gazebo 3D client。
+- 若用户请求 `HEADLESS=false USE_RVIZ=true`，启动前检查 renderer、WSL 总内存和可用
+  内存；软件渲染、总内存 `<12 GiB` 或可用内存 `<6 GiB` 时自动降级为 RViz-only。
+- WSLg 的 D3D12 探针成功时，只在本 AcceptanceSession 子树注入
+  `GALLIUM_DRIVER=d3d12`，不修改用户 shell。
+- `SLAM_NAV_ALLOW_DUAL_GUI=true` 允许高配机器显式 override；requested/effective
+  mode、renderer、驱动和原因都写入 manifest。
+- 每 5 秒流式记录全局内存、Swap 和会话 RSS；连续资源压力触发统一停车/清理。
+
+理由：失败会话已由上一 boot 的 kernel 日志证明发生 Xwayland page-allocation
+failure、2 GiB Swap 耗尽和 Nav2 heartbeat 丢失；地图和证据列表的规模不足以解释
+GB 级增长。RViz 已覆盖地图、激光、TF、路径和机器人位姿，Gazebo 3D client 对严格
+PASS 没有新增证据价值。增加 Swap 或放宽 bond timeout 只会延后 executor 饥饿，
+不能消除双渲染根因。
+
+验证：session `20260725T120302Z-145519-3ec3df78` 运行 990 秒并完整 PASS，
+会话 RSS 峰值 `2056.5 MiB`、Swap 基本为零、`resources.failure=null`、
+`cleanup_complete=true`。

@@ -19,9 +19,10 @@
 - SLAM/Nav2：frontier 探索、SLAM Toolbox、地图保存、AMCL、Nav2 目标导航与动态障碍重规划。
 - 算法证据：Ceres/GTSAM 后端、LiDAR 回环 shadow pipeline、动态障碍关联/预测/costmap 消融。
 
-当前 schema v4 session `20260721T072342Z-2344751-5452a492` 已完成 unknown-world 探索、动态起点返航、
-本次地图定位、3 个运行时目标、动态重规划与停车：覆盖 `99.81%`、区域最低 `98.76%`、AMCL P95
-`0.120m`，全部 checks 为 true。机器人运行时不读取真值；truth 只供验收结束后的 evaluator 复核。
+当前 schema v4 session `20260725T120302Z-145519-3ec3df78` 已完成 unknown-world 探索、动态起点返航、
+本次地图定位、3 个运行时目标、动态重规划与停车：覆盖率 `0.998`、区域最低覆盖率 `0.983`、建图轨迹
+`153.403m`、AMCL P95 `0.154m`，运行时目标 `3/3` 成功且全部 checks 为 true。机器人运行时不读取
+真值；truth 只供验收结束后的 evaluator 复核。
 
 ## 核心架构
 
@@ -117,7 +118,7 @@ Git 主工作区的 llama/GGUF/VAD/校准资产；自定义位置用 `EMBODIED_R
 ### 1. Unknown-world 正式自主闭环
 
 ```bash
-HEADLESS=false USE_RVIZ=true \
+HEADLESS=true USE_RVIZ=true \
   bash scripts/acceptance_test.sh unknown-world-slam-e2e
 ```
 
@@ -127,11 +128,16 @@ HEADLESS=false USE_RVIZ=true \
 为 true。探索收口、typed STOP、地图质量门槛和失败链见 [TESTING.md](docs/TESTING.md) 与
 [Navigation 证据索引](docs/evidence/navigation/README.md)。
 
+长时 WSL 验收推荐只打开 RViz。即使仍传入 `HEADLESS=false USE_RVIZ=true`，验收器也会在内存不足或
+检测到软件渲染时优先启用硬件 D3D12，并自动选择 RViz-only，避免 Gazebo GUI 与 RViz 争抢 WSL
+统一内存。资源 watchdog 持续写入同一 session 目录下的 `resource_samples.jsonl`，便于区分算法停滞
+与系统资源耗尽。
+
 ### 2. 真人语音 + unknown-world 联合验收（待现场）
 
 ```bash
 bash scripts/acceptance_test.sh wsl-microphone-preflight
-HEADLESS=false USE_RVIZ=true \
+HEADLESS=true USE_RVIZ=true \
   bash scripts/acceptance_test.sh voice-unknown-world-slam-e2e offline
 # 将 offline 换成 online 可补跑在线 Agent
 ```

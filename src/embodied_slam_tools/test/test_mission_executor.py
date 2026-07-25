@@ -453,9 +453,11 @@ def test_time_budget_saturation_quiesces_returns_home_then_saves_map():
             self.evidence.record_frontier_telemetry(
                 FrontierTelemetry(
                     status="exploration_paused",
-                    detected_frontier_count=8,
-                    available_frontier_count=4,
-                    blacklisted_frontier_count=1,
+                    detected_frontier_count=11,
+                    # 复现真实现场：这是 final 360° probe 之前暂停
+                    # Explorer 得到的旧 cluster 快照，只能用于诊断。
+                    available_frontier_count=6,
+                    blacklisted_frontier_count=0,
                     accepted_goal_count=3,
                     succeeded_goal_count=3,
                 )
