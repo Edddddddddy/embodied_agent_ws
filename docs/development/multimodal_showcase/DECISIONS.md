@@ -196,3 +196,71 @@ probe、地图质量和 typed STOP 共同裁决，不能无限延长。
 
 理由：立即停止可能把“还有有效增益”误判为完成；不断恢复又会把有界任务变成无界
 等待。一次有上限的确认既保留最后一段有效探索，又保证验收能确定结束。
+
+## ADR-016：先提取 Nav2 运动事务，长期收口默认演示会话
+
+状态：已接受、已实现，并已通过 clean commit 重型门禁。
+
+比较：
+
+1. **`Nav2MotionTransaction`**：把一个 Nav2 goal 从发送、响应、接受、取消、
+   priority STOP 到 terminal 的完整安全事务藏在一个小 Interface 后面。改动集中，
+   能直接消除当前最危险的重复清理路径。
+2. **`DefaultDemoSession`**：让一个深会话模块拥有默认演示的启动、命令准入、提交、
+   状态和关闭。它能给语音、typed Action 和未来统一 shell 一个共同 caller
+   Interface，但迁移范围大于一笔 Nav2 事务。
+3. **`MissionProgram`/phase DSL**：通过 phase registry、artifact 和 effect 组合
+   mapping、navigation 和未来 demo，扩展上限最高；但当前还没有第三个具有独立
+   不变量、恢复和证据语义的深 phase。
+
+决定：
+
+- 当前分支已实现 `nav2_motion_transaction.py:Nav2MotionTransaction`，并由
+  `nav2_motion_ros.py:RosNav2MotionAdapter` 适配到 rclpy ActionClient、ROS clock、
+  priority STOP、stage fail-safe、quiescence ledger 与 evidence callback。
+  接口级测试位于 `test_nav2_motion_transaction.py`，ROS Adapter 测试位于
+  `test_nav2_motion_ros.py`。
+- 该模块只拥有单次 Nav2 运动事务，不拥有整场 mission、语音解析、地图采样策略或
+  ROS wire Interface。候选 preflight、ROS `/plan` 采集和 occupancy 评分仍由
+  Node 拥有；事务读取 ledger 并强制执行运行期路径安全门。
+- 唯一行为 Interface 是
+  `execute(intent: SampledNavigate | MappingReturn | RecoveryBackup, *,`
+  `is_cancelled, deadline_monotonic) -> None`。成功返回 `None`；拒绝、运动失败、安全
+  失败和并发分别使用 `Nav2GoalRejected`、`Nav2MotionFailed`、
+  `Nav2SafetyFailure`、`Nav2TransactionBusy`；server/业务 deadline 使用
+  `TimeoutError`，用户取消继续使用 `AutomaticMissionCancelled`。
+- `DefaultDemoSession` 是长期方向，预期锚点是
+  `src/embodied_slam_tools/embodied_slam_tools/default_demo_session.py`。目标
+  Interface 是 `start()`、`admission()`、`submit()`、`snapshot()`、`close()`；
+  异步操作只暴露完成、进度、取消和有界等待。
+- 暂缓 `MissionProgram`/phase DSL。等出现至少第三个有实质行为的 phase，且两个
+  现有 phase 的共同需求已经由代码事实证明，再重新设计其 seam。
+
+`Nav2MotionTransaction` 的 Interface 不变量：
+
+- 每次执行最多拥有一个 Nav2 goal；并发进入明确抛出
+  `Nav2TransactionBusy`。
+- 正常执行共享调用者给出的绝对 deadline；进入故障清理后只创建一次独立
+  cleanup deadline，late accept、cancel、STOP 与 terminal 共用这份预算且不得续期。
+- pending goal 在取消或 response timeout 后也必须同步收口迟到的 accepted handle。
+- accepted goal 的故障严格执行
+  `cancel -> 独立 priority STOP -> readable terminal`；用户取消不能短路 STOP。
+- terminal 不可证明时停止 navigation stage 并以 `Nav2SafetyFailure` fail-closed。
+- primary error 保持为主错误，清理错误只附加诊断。
+- quiescence 只在明确拒绝或可读 terminal 后结算；sampled ledger terminal 恰好
+  一次且晚于安全收口。
+- ROS topic、Action、Service、QoS、`SlamSessionState` 和 typed evidence schema
+  全部保持不变。
+
+采用门槛：
+
+1. 成功、拒绝、执行异常、取消、response timeout、late accept、STOP 失败和
+   terminal 缺失均有接口级测试。
+2. 现有 Node 白盒测试只有在等价接口测试建立后才删除，避免只叠加一层转发模块。
+3. 包测试、repository contracts、`acceptance_test.sh core` 通过。
+4. 合入或发布前，在 clean commit 上完成 unknown-world 重型 E2E；若长期
+   `DefaultDemoSession` 落地，还必须新增显式 STOP 到 STOPPED 的证据。
+
+当前代码迁移、接口测试、包测试、repository contracts、`acceptance_test.sh core`
+和 typed Gazebo 门禁均已通过。clean commit `bc65b8f` 的 unknown-world E2E 也已
+验证建图、返航、定位、三点导航、动态重规划与最终新鲜零速，ADR-016 至此完成验证。

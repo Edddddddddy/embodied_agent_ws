@@ -124,6 +124,9 @@ def generate_launch_description():
     nav2_progress_timeout = LaunchConfiguration("nav2_progress_timeout")
     params_file = LaunchConfiguration("params_file")
     velocity_mux_config = LaunchConfiguration("velocity_mux_config")
+    persistent_zero_heartbeat_timeout_s = LaunchConfiguration(
+        "persistent_zero_heartbeat_timeout_s"
+    )
     control_authority_enabled = LaunchConfiguration("control_authority_enabled")
     control_authority_manager_enabled = LaunchConfiguration(
         "control_authority_manager_enabled"
@@ -202,6 +205,10 @@ def generate_launch_description():
             # 再由 Collision Monitor 对选中速度执行最后一道雷达安全约束。
             "cmd_vel_in_topic": "/control/selected/cmd_vel",
             "cmd_vel_out_topic": "/cmd_vel",
+            # 官方默认仅在停车后的 2 秒内继续转发零速。SLAM 探索可能静止
+            # 数十秒后才触发恢复 STOP，因此必须覆盖整场会话，确保本次 STOP
+            # 能在最终 /cmd_vel 边界留下新鲜、可验证的零速帧。
+            "stop_pub_timeout": persistent_zero_heartbeat_timeout_s,
         },
         convert_types=True,
     )
@@ -252,6 +259,14 @@ def generate_launch_description():
             "velocity_mux_config",
             default_value=default_velocity_mux_config,
             description="twist_mux priorities/timeouts for Nav2 and voice autonomy",
+        ),
+        DeclareLaunchArgument(
+            "persistent_zero_heartbeat_timeout_s",
+            default_value="86400.0",
+            description=(
+                "How long Collision Monitor may forward repeated zero "
+                "commands so late typed STOP remains observable."
+            ),
         ),
         # 默认 false 保持既有验收入口兼容；统一演示入口显式开启 typed 控制权。
         DeclareLaunchArgument("control_authority_enabled", default_value="false"),
@@ -307,6 +322,13 @@ def generate_launch_description():
                 SetRemap(
                     src="cmd_vel_smoothed",
                     dst="/control/nav2/cmd_vel",
+                ),
+                # 官方 TurtleBot3 bringup 同时启动 docking_server；未使用的泊车
+                # 速度必须移出底盘 topic，确保 /cmd_vel 只有 Collision Monitor
+                # 一个安全裁决后的 writer。
+                SetRemap(
+                    src="docking_server:/cmd_vel",
+                    dst="/control/docking/cmd_vel",
                 ),
                 # 复用 Nav2 官方 TurtleBot3 bringup 的成熟导航栈；默认 map/world/RViz
                 # 指向本项目资产，让演示脚本、审计报告和简历讲解都有稳定的项目内入口。

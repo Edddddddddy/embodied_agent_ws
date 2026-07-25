@@ -310,6 +310,29 @@ def test_persistent_base_owns_velocity_safety_and_typed_action_bridge():
     assert "persistent_zero_heartbeat_timeout_s" in source
 
 
+def test_monolithic_voice_nav_keeps_typed_stop_evidence_fresh():
+    """长任务静止后再次 STOP，最终速度边界仍必须发布本次零速证据。"""
+
+    description = _load_description("voice_nav2_turtlebot3.launch.py")
+    source = (
+        LAUNCH_ROOT / "voice_nav2_turtlebot3.launch.py"
+    ).read_text(encoding="utf-8")
+
+    # Collision Monitor 官方默认仅转发停车后 2 秒内的零速。未知环境建图会
+    # 远长于该窗口；若不覆盖，typed STOP 虽成功，/cmd_vel 却不会产生新帧。
+    assert float(
+        _argument_default(
+            description, "persistent_zero_heartbeat_timeout_s"
+        )
+    ) >= 3600.0
+    assert (
+        '"stop_pub_timeout": persistent_zero_heartbeat_timeout_s'
+        in source
+    )
+    assert 'src="docking_server:/cmd_vel"' in source
+    assert 'dst="/control/docking/cmd_vel"' in source
+
+
 def test_typed_bridge_lifecycle_is_owned_by_session_orchestrator():
     description = _load_description("persistent_voice_nav_base.launch.py")
     entities = list(_contract_entities(description))

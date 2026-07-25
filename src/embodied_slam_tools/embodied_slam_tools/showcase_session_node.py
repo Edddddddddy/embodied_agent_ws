@@ -100,6 +100,13 @@ from .mission_executor import (
     UnknownWorldMissionExecutor,
     UnknownWorldMissionSpec,
 )
+from .nav2_motion_ros import RosNav2MotionAdapter
+from .nav2_motion_transaction import (
+    MappingReturn,
+    Nav2MotionTransaction,
+    RecoveryBackup,
+    SampledNavigate,
+)
 from .stage_process_manager import StageProcessManager
 from .showcase_session import (
     SessionCommand,
@@ -130,13 +137,6 @@ _ACTION_TYPES = {
 }
 _PLAN_GOAL_TOLERANCE_M = 0.75
 _NAV2_SAFETY_STOP_TIMEOUT_S = 10.0
-_NAV2_TERMINAL_STATUSES = frozenset(
-    {
-        GoalStatus.STATUS_SUCCEEDED,
-        GoalStatus.STATUS_ABORTED,
-        GoalStatus.STATUS_CANCELED,
-    }
-)
 _SKIPPABLE_PLANNER_ERROR_CODES = frozenset(
     {
         ComputePathToPose.Result.GOAL_OUTSIDE_MAP,
@@ -153,10 +153,6 @@ def _yaw_from_quaternion(quaternion) -> float:
         2.0 * (quaternion.w * quaternion.z + quaternion.x * quaternion.y),
         1.0 - 2.0 * (quaternion.y * quaternion.y + quaternion.z * quaternion.z),
     )
-
-
-class _NavigationGoalRejected(RuntimeError):
-    """Nav2 在执行前拒绝目标；与执行中 ABORTED 分开记录。"""
 
 
 class _PersistentStageSwitchInterrupted(RuntimeError):
@@ -190,91 +186,6 @@ def _navigation_safety_stop_request() -> CommandRequest:
         command=SessionCommand.STOP_SESSION,
         source="navigation_safety_stop",
     )
-
-
-def _raise_navigation_cleanup_failure(
-    manager: StageProcessManager,
-    *,
-    reason: str,
-    cleanup_errors: list[str],
-) -> None:
-    """最后防线：无法证明 goal 终态时停止整个导航 stage 并显式失败。"""
-
-    try:
-        manager.stop()
-        shutdown_detail = "navigation stage stopped by fail-safe"
-    except Exception as exc:  # manager.stop 本身失败也必须进入最终错误证据。
-        shutdown_detail = f"navigation stage stop failed: {exc}"
-    raise RuntimeError(
-        f"{reason}; navigation safety cleanup failed: "
-        + "; ".join((*cleanup_errors, shutdown_detail))
-    )
-
-
-def _read_nav2_terminal_wrapper(result_future) -> tuple[Any | None, str | None]:
-    """读取可审计的 Nav2 Action 终态；返回 wrapper 或明确错误。"""
-
-    if result_future is None:
-        return None, "Nav2 result future unavailable"
-    try:
-        if not result_future.done():
-            return None, "Nav2 goal did not reach terminal after cancel"
-    except Exception as exc:
-        return None, f"Nav2 result readiness check failed: {exc}"
-    try:
-        wrapped = result_future.result()
-    except Exception as exc:
-        return None, f"Nav2 result read failed: {exc}"
-    if wrapped is None:
-        return None, "Nav2 result future returned no wrapper"
-    try:
-        status = int(wrapped.status)
-    except Exception as exc:
-        return None, f"Nav2 terminal status is unreadable: {exc}"
-    if status not in _NAV2_TERMINAL_STATUSES:
-        return None, f"Nav2 wrapper has non-terminal status: {status}"
-    try:
-        result = wrapped.result
-    except Exception as exc:
-        return None, f"Nav2 terminal result payload is unreadable: {exc}"
-    if result is None:
-        return None, "Nav2 terminal result payload is missing"
-    return wrapped, None
-
-
-def _begin_nav2_quiescence_transaction(
-    owner: Any,
-    kind: str,
-) -> str | None:
-    """登记可能产生速度的 Nav2 事务；source-only fake 无屏障时保持兼容。"""
-
-    barrier = getattr(owner, "_autonomy_quiescence", None)
-    if barrier is None:
-        return None
-    state_lock = getattr(owner, "_state_lock", None)
-    if state_lock is None:
-        sequence = int(
-            getattr(owner, "_nav2_quiescence_sequence", 0)
-        ) + 1
-        owner._nav2_quiescence_sequence = sequence
-    else:
-        with state_lock:
-            sequence = owner._nav2_quiescence_sequence + 1
-            owner._nav2_quiescence_sequence = sequence
-    token = f"{kind}:{sequence}"
-    barrier.nav2_goal_started(token)
-    return token
-
-
-def _finish_nav2_quiescence_transaction(
-    owner: Any,
-    token: str | None,
-) -> None:
-    if token is None:
-        return
-    barrier = getattr(owner, "_autonomy_quiescence", None)
-    if barrier is not None:
-        barrier.nav2_goal_terminal(token)
 
 
 def _admit_goal_candidates(
@@ -722,7 +633,6 @@ class SessionOrchestratorNode(Node):
         self._autonomy_quiescence = AutonomyQuiescenceBarrier()
         self._quiescence_worker_lock = threading.Lock()
         self._quiescence_worker: threading.Thread | None = None
-        self._nav2_quiescence_sequence = 0
         self._map_pose_condition = threading.Condition()
         self._latest_occupancy: OccupancySnapshot | None = None
         self._latest_map_pose_xy: tuple[float, float] | None = None
@@ -919,6 +829,25 @@ class SessionOrchestratorNode(Node):
             BackUp,
             "/backup",
             callback_group=callback_group,
+        )
+        nav2_runtime = RosNav2MotionAdapter(
+            navigate_to_pose_client=self._navigate_to_pose_client,
+            backup_client=self._backup_client,
+            force_priority_stop=self._force_navigation_priority_stop,
+            stop_navigation_stage=self._manager.stop_stage,
+            nav2_goal_started=self._autonomy_quiescence.nav2_goal_started,
+            nav2_goal_terminal=self._autonomy_quiescence.nav2_goal_terminal,
+            evidence_timestamp_ns=(
+                lambda: self.get_clock().now().nanoseconds
+            ),
+            navigation_evidence_changed=self._publish_state,
+        )
+        # 三类 Nav2 运动共享同一个事务实例和互斥锁；这样 recovery、返航与
+        # sampled navigation 不会在竞态中同时取得底盘控制权。
+        self._nav2_motion = Nav2MotionTransaction(
+            nav2_runtime,
+            self._navigation_goal_ledger,
+            safety_timeout_s=_NAV2_SAFETY_STOP_TIMEOUT_S,
         )
         self._bt_navigator_state_client = self.create_client(
             GetState,
@@ -1396,6 +1325,16 @@ class SessionOrchestratorNode(Node):
                     )
                 cmd_vel_condition.wait(timeout=min(0.1, remaining))
 
+    def _force_navigation_priority_stop(self, timeout_s: float) -> None:
+        """供 Nav2 事务使用独立 request 发布 priority typed STOP。"""
+
+        # 原任务进入 canceled/timeout 后不可再复用它，否则 Gateway 会在发出
+        # STOP 前提前退出。即使 timeout=0，也必须先发布命令再做即时终态检查。
+        self.stop_motion_and_wait(
+            _navigation_safety_stop_request(),
+            timeout_s=max(0.0, float(timeout_s)),
+        )
+
     def run_recovery_backup(
         self,
         request: CommandRequest,
@@ -1414,11 +1353,13 @@ class SessionOrchestratorNode(Node):
             after_generation=-1,
             deadline_monotonic=deadline,
         )
-        self._execute_nav2_backup(
-            request,
-            distance_m=distance_m,
-            speed_mps=speed_mps,
-            time_allowance_s=timeout_s,
+        self._nav2_motion.execute(
+            RecoveryBackup(
+                distance_m=distance_m,
+                speed_mps=speed_mps,
+                time_allowance_s=timeout_s,
+            ),
+            is_cancelled=lambda: bool(request.canceled),
             deadline_monotonic=deadline,
         )
         end = self._wait_for_recovery_odom(
@@ -1467,141 +1408,6 @@ class SessionOrchestratorNode(Node):
                 self._mapping_evidence.condition.wait(
                     timeout=min(0.1, remaining)
                 )
-
-    def _execute_nav2_backup(
-        self,
-        request: CommandRequest,
-        *,
-        distance_m: float,
-        speed_mps: float,
-        time_allowance_s: float,
-        deadline_monotonic: float,
-    ) -> None:
-        """执行 Nav2 BackUp Action；失败分支必须形成停车终态。"""
-
-        values = (distance_m, speed_mps, time_allowance_s)
-        if not all(math.isfinite(value) and value > 0.0 for value in values):
-            raise ValueError("Nav2 backup values must be finite and positive")
-        remaining = deadline_monotonic - time.monotonic()
-        if remaining <= 0.0 or not self._backup_client.wait_for_server(
-            timeout_sec=min(5.0, max(0.0, remaining))
-        ):
-            raise TimeoutError("Nav2 BackUp Action server unavailable")
-
-        goal = BackUp.Goal()
-        # Jazzy BackUp 客户端传正的距离/速度幅值；Behavior Server 内部转换
-        # 为机器人负 X 运动，并使用 local costmap 在每个周期预测碰撞。
-        goal.target.x = float(distance_m)
-        goal.target.y = 0.0
-        goal.target.z = 0.0
-        goal.speed = float(speed_mps)
-        whole_seconds = int(time_allowance_s)
-        nanoseconds = int(round((time_allowance_s - whole_seconds) * 1e9))
-        if nanoseconds >= 1_000_000_000:
-            whole_seconds += 1
-            nanoseconds -= 1_000_000_000
-        goal.time_allowance.sec = whole_seconds
-        goal.time_allowance.nanosec = nanoseconds
-
-        quiescence_token = _begin_nav2_quiescence_transaction(
-            self, "backup"
-        )
-        try:
-            response = self._backup_client.send_goal_async(goal)
-        except Exception:
-            _finish_nav2_quiescence_transaction(
-                self, quiescence_token
-            )
-            raise
-        while not response.done():
-            if request.canceled or time.monotonic() >= deadline_monotonic:
-                reason = (
-                    "automatic mission canceled during recovery backup"
-                    if request.canceled
-                    else "Nav2 BackUp goal response timeout"
-                )
-                self._resolve_pending_nav2_goal_safely(
-                    request,
-                    response=response,
-                    reason=reason,
-                    quiescence_token=quiescence_token,
-                )
-                if getattr(request, "canceled", False):
-                    raise AutomaticMissionCancelled(reason)
-                raise TimeoutError(reason)
-            time.sleep(0.05)
-        handle = response.result()
-        if handle is None or not handle.accepted:
-            _finish_nav2_quiescence_transaction(
-                self, quiescence_token
-            )
-            raise RuntimeError("Nav2 BackUp goal rejected")
-        try:
-            result_future = handle.get_result_async()
-        except Exception as exc:
-            reason = f"cannot get Nav2 BackUp result future: {exc}"
-            self._cancel_nav2_goal_and_force_stop(
-                request,
-                handle=handle,
-                result_future=None,
-                reason=reason,
-                quiescence_token=quiescence_token,
-            )
-            raise RuntimeError(reason)
-        while not result_future.done():
-            if request.canceled or time.monotonic() >= deadline_monotonic:
-                reason = (
-                    "automatic mission canceled during recovery backup"
-                    if request.canceled
-                    else "Nav2 BackUp result timeout"
-                )
-                self._cancel_nav2_goal_and_force_stop(
-                    request,
-                    handle=handle,
-                    result_future=result_future,
-                    reason=reason,
-                    quiescence_token=quiescence_token,
-                )
-                if request.canceled:
-                    raise AutomaticMissionCancelled(reason)
-                raise TimeoutError(reason)
-            time.sleep(0.05)
-        wrapped, terminal_error = _read_nav2_terminal_wrapper(result_future)
-        if terminal_error is not None:
-            self._cancel_nav2_goal_and_force_stop(
-                request,
-                handle=handle,
-                result_future=result_future,
-                reason=(
-                    "invalid Nav2 BackUp terminal result: "
-                    + terminal_error
-                ),
-                quiescence_token=quiescence_token,
-            )
-            raise RuntimeError(f"invalid Nav2 BackUp terminal result: {terminal_error}")
-        _finish_nav2_quiescence_transaction(
-            self, quiescence_token
-        )
-        assert wrapped is not None
-        error_code = int(getattr(wrapped.result, "error_code", BackUp.Result.UNKNOWN))
-        if (
-            int(wrapped.status) != GoalStatus.STATUS_SUCCEEDED
-            or error_code != BackUp.Result.NONE
-        ):
-            # BackUp behavior 已终止，但仍补一个 typed priority STOP，避免插件
-            # 异常终态后最后一帧速度残留；失败不会回退到裸负速度控制。
-            self.stop_motion_and_wait(
-                _navigation_safety_stop_request(),
-                timeout_s=_NAV2_SAFETY_STOP_TIMEOUT_S,
-            )
-            error_message = str(
-                getattr(wrapped.result, "error_msg", "")
-            ).strip()
-            raise RuntimeError(
-                "Nav2 BackUp failed: "
-                f"status={wrapped.status} error={error_code} "
-                f"message={error_message or 'unknown'}"
-            )
 
     def capture_mapping_start_pose(
         self,
@@ -1860,85 +1666,13 @@ class SessionOrchestratorNode(Node):
                 detail=str(exc),
             )
             raise
-        try:
-            wrapped = self._execute_sampled_nav2_goal(
-                request,
-                sequence=sequence,
-                goal_xy=goal_xy,
-                deadline=deadline,
-            )
-            nav2_result = getattr(wrapped, "result", None)
-            error_code = int(
-                getattr(
-                    nav2_result,
-                    "error_code",
-                    NavigateToPose.Result.NONE,
-                )
-            )
-            # ROS Action wrapper 的 SUCCEEDED 只说明协议正常结束；Nav2 仍可在
-            # result.error_code 中报告业务失败。两者必须同时成功，typed 证据
-            # 才能进入 SUCCEEDED，避免 evaluator 被协议层假阳性误导。
-            succeeded = (
-                wrapped.status == GoalStatus.STATUS_SUCCEEDED
-                and nav2_result is not None
-                and error_code == NavigateToPose.Result.NONE
-            )
-            terminal_status = (
-                NavigationGoalStatus.SUCCEEDED
-                if succeeded
-                else NavigationGoalStatus.CANCELED
-                if wrapped.status == GoalStatus.STATUS_CANCELED
-                else NavigationGoalStatus.ABORTED
-            )
-            self._set_navigation_goal_status(
-                sequence,
-                terminal_status,
-                nav2_status=int(wrapped.status),
-                nav2_error_code=error_code,
-                detail=(
-                    "NavigateToPose succeeded"
-                    if succeeded
-                    else (
-                        "NavigateToPose failed "
-                        f"status={wrapped.status} error={error_code}"
-                    )
-                ),
-            )
-            if not succeeded:
-                raise RuntimeError(
-                    "navigation goal failed: "
-                    f"goal={goal_xy} status={wrapped.status} error={error_code}"
-                )
-        except AutomaticMissionCancelled:
-            self._set_navigation_goal_status_if_open(
-                sequence,
-                NavigationGoalStatus.CANCELED,
-                nav2_status=GoalStatus.STATUS_CANCELED,
-                detail="mission canceled during navigation",
-            )
-            raise
-        except _NavigationGoalRejected as exc:
-            self._set_navigation_goal_status_if_open(
-                sequence,
-                NavigationGoalStatus.REJECTED,
-                detail=str(exc),
-            )
-            raise
-        except TimeoutError as exc:
-            self._set_navigation_goal_status_if_open(
-                sequence,
-                NavigationGoalStatus.TIMED_OUT,
-                detail=str(exc),
-            )
-            raise
-        except Exception as exc:
-            self._set_navigation_goal_status_if_open(
-                sequence,
-                NavigationGoalStatus.ABORTED,
-                nav2_status=GoalStatus.STATUS_ABORTED,
-                detail=str(exc),
-            )
-            raise
+        # 从 accepted 到 terminal 的状态、取消、STOP 与 ledger 收口全部由
+        # 深 Module 负责；Node 不再维护第二套并行状态机。
+        self._nav2_motion.execute(
+            SampledNavigate(sequence=sequence, goal_xy=goal_xy),
+            is_cancelled=lambda: bool(request.canceled),
+            deadline_monotonic=deadline,
+        )
 
     def run_mapping_return_goal(
         self,
@@ -1979,28 +1713,11 @@ class SessionOrchestratorNode(Node):
             goal_xy=(start_pose.x, start_pose.y),
             deadline=deadline,
         )
-        wrapped = self._execute_untracked_nav2_goal(
-            request,
-            goal_pose=start_pose,
-            deadline=deadline,
+        self._nav2_motion.execute(
+            MappingReturn(goal_pose=start_pose),
+            is_cancelled=lambda: bool(request.canceled),
+            deadline_monotonic=deadline,
         )
-        result = getattr(wrapped, "result", None)
-        error_code = int(
-            getattr(
-                result,
-                "error_code",
-                getattr(NavigateToPose.Result, "UNKNOWN", -1),
-            )
-        )
-        if (
-            int(wrapped.status) != GoalStatus.STATUS_SUCCEEDED
-            or result is None
-            or error_code != NavigateToPose.Result.NONE
-        ):
-            raise RuntimeError(
-                "mapping return NavigateToPose failed: "
-                f"status={wrapped.status} error={error_code}"
-            )
         finished_at_ns = self.get_clock().now().nanoseconds
 
         final_pose: PlanarPose | None = None
@@ -2064,96 +1781,6 @@ class SessionOrchestratorNode(Node):
             evaluated_at_ns=evaluated_at_ns,
         )
 
-    def _execute_untracked_nav2_goal(
-        self,
-        request: CommandRequest,
-        *,
-        goal_pose: PlanarPose,
-        deadline: float,
-    ):
-        """执行不进入 sampled-goal 账本的返航目标，复用统一故障收口。"""
-
-        remaining = max(0.0, deadline - time.monotonic())
-        if not self._navigate_to_pose_client.wait_for_server(
-            timeout_sec=min(10.0, remaining)
-        ):
-            raise TimeoutError("NavigateToPose Action server unavailable for return")
-        goal = NavigateToPose.Goal()
-        goal.pose.header.frame_id = goal_pose.frame_id
-        goal.pose.pose.position.x = goal_pose.x
-        goal.pose.pose.position.y = goal_pose.y
-        goal.pose.pose.orientation.z = math.sin(goal_pose.yaw * 0.5)
-        goal.pose.pose.orientation.w = math.cos(goal_pose.yaw * 0.5)
-        quiescence_token = _begin_nav2_quiescence_transaction(
-            self, "mapping-return"
-        )
-        try:
-            response = self._navigate_to_pose_client.send_goal_async(goal)
-        except Exception:
-            _finish_nav2_quiescence_transaction(
-                self, quiescence_token
-            )
-            raise
-        while not response.done():
-            if request.canceled or time.monotonic() >= deadline:
-                reason = (
-                    "automatic mission canceled before return goal response"
-                    if request.canceled
-                    else "mapping return goal response timeout"
-                )
-                self._resolve_pending_nav2_goal_safely(
-                    request,
-                    response=response,
-                    reason=reason,
-                    quiescence_token=quiescence_token,
-                )
-                if getattr(request, "canceled", False):
-                    raise AutomaticMissionCancelled(reason)
-                raise TimeoutError(reason)
-            time.sleep(0.05)
-        handle = response.result()
-        if handle is None or not handle.accepted:
-            _finish_nav2_quiescence_transaction(
-                self, quiescence_token
-            )
-            raise _NavigationGoalRejected("mapping return goal rejected")
-        result_future = handle.get_result_async()
-        while not result_future.done():
-            if request.canceled or time.monotonic() >= deadline:
-                reason = (
-                    "automatic mission canceled during mapping return"
-                    if request.canceled
-                    else "mapping return goal result timeout"
-                )
-                self._cancel_nav2_goal_and_force_stop(
-                    request,
-                    handle=handle,
-                    result_future=result_future,
-                    reason=reason,
-                    quiescence_token=quiescence_token,
-                )
-                if request.canceled:
-                    raise AutomaticMissionCancelled(reason)
-                raise TimeoutError(reason)
-            time.sleep(0.05)
-        wrapped, terminal_error = _read_nav2_terminal_wrapper(result_future)
-        if terminal_error is not None:
-            self._cancel_nav2_goal_and_force_stop(
-                request,
-                handle=handle,
-                result_future=result_future,
-                reason="invalid mapping return terminal: " + terminal_error,
-                quiescence_token=quiescence_token,
-            )
-            raise RuntimeError(
-                "invalid mapping return terminal: " + terminal_error
-            )
-        assert wrapped is not None
-        _finish_nav2_quiescence_transaction(
-            self, quiescence_token
-        )
-        return wrapped
-
     def record_mapping_completion(
         self,
         *,
@@ -2176,300 +1803,6 @@ class SessionOrchestratorNode(Node):
         self._mapping_saturation_evidence = None
         self._mapping_saturation_assessment = None
         self._return_to_start_evidence = None
-
-    def _execute_sampled_nav2_goal(
-        self,
-        request: CommandRequest,
-        *,
-        sequence: int,
-        goal_xy: tuple[float, float],
-        deadline: float,
-    ):
-        """执行一个 Nav2 goal；所有异常由外层统一收口成 typed terminal。"""
-
-        remaining = max(0.0, deadline - time.monotonic())
-        if not self._navigate_to_pose_client.wait_for_server(
-            timeout_sec=min(10.0, remaining)
-        ):
-            raise TimeoutError("NavigateToPose Action server unavailable")
-        goal = NavigateToPose.Goal()
-        goal.pose.header.frame_id = "map"
-        # map-frame 目标使用 zero/latest TF，避免 Gazebo 低实时率下目标 stamp
-        # 短暂领先 map->odom 而被 Nav2 拒绝。
-        goal.pose.pose.position.x = float(goal_xy[0])
-        goal.pose.pose.position.y = float(goal_xy[1])
-        goal.pose.pose.orientation.w = 1.0
-        quiescence_token = _begin_nav2_quiescence_transaction(
-            self, f"sampled-{sequence}"
-        )
-        try:
-            response = self._navigate_to_pose_client.send_goal_async(goal)
-        except Exception:
-            _finish_nav2_quiescence_transaction(
-                self, quiescence_token
-            )
-            raise
-        while not response.done():
-            if request.canceled:
-                reason = "automatic mission canceled before goal response"
-                # 不能只注册 late callback 后释放任务锁：回调与下一个任务会竞态。
-                # 在独立安全预算内同步取得迟到 handle，并完成 cancel/STOP/终态。
-                self._resolve_pending_nav2_goal_safely(
-                    request,
-                    response=response,
-                    reason=reason,
-                    quiescence_token=quiescence_token,
-                )
-                raise AutomaticMissionCancelled("automatic mission canceled")
-            if time.monotonic() >= deadline:
-                reason = f"navigation goal response timeout: {goal_xy}"
-                self._resolve_pending_nav2_goal_safely(
-                    request,
-                    response=response,
-                    reason=reason,
-                    quiescence_token=quiescence_token,
-                )
-                raise TimeoutError(reason)
-            time.sleep(0.05)
-        try:
-            handle = response.result()
-        except Exception as exc:
-            # response 标记 done 仍不代表能判断 goal 是否 accepted。此时没有
-            # handle 可供定点取消，只能停止整个 stage 作为最终安全边界。
-            _raise_navigation_cleanup_failure(
-                self._manager,
-                reason=f"cannot read navigation goal response for {goal_xy}",
-                cleanup_errors=[f"Nav2 goal response failed: {exc}"],
-            )
-        if handle is None or not handle.accepted:
-            _finish_nav2_quiescence_transaction(
-                self, quiescence_token
-            )
-            raise _NavigationGoalRejected(f"navigation goal rejected: {goal_xy}")
-        self._set_navigation_goal_status(
-            sequence,
-            NavigationGoalStatus.ACCEPTED,
-            nav2_status=GoalStatus.STATUS_ACCEPTED,
-            detail="NavigateToPose accepted",
-        )
-        self._set_navigation_goal_status(
-            sequence,
-            NavigationGoalStatus.EXECUTING,
-            nav2_status=GoalStatus.STATUS_EXECUTING,
-            detail="NavigateToPose executing",
-        )
-        try:
-            result_future = handle.get_result_async()
-        except Exception as exc:
-            reason = f"cannot get Nav2 result future for goal {goal_xy}: {exc}"
-            # handle 已 accepted，必须先 cancel + typed STOP；由于没有 future
-            # 可证明终态，统一 helper 随后会停止 stage 并显式失败。
-            self._cancel_nav2_goal_and_force_stop(
-                request,
-                handle=handle,
-                result_future=None,
-                reason=reason,
-                quiescence_token=quiescence_token,
-            )
-            raise RuntimeError(reason)
-        while not result_future.done():
-            if request.canceled:
-                reason = "automatic mission canceled during navigation"
-                self._cancel_nav2_goal_and_force_stop(
-                    request,
-                    handle=handle,
-                    result_future=result_future,
-                    reason=reason,
-                    quiescence_token=quiescence_token,
-                )
-                raise AutomaticMissionCancelled("automatic mission canceled")
-            record = self._navigation_goal_ledger.get(sequence)
-            if record.plan_count > 0 and not record.all_plans_known_free:
-                reason = (
-                    f"unsafe runtime navigation plan for goal {sequence}"
-                )
-                self._cancel_nav2_goal_and_force_stop(
-                    request,
-                    handle=handle,
-                    result_future=result_future,
-                    reason=reason,
-                    quiescence_token=quiescence_token,
-                )
-                raise RuntimeError(reason)
-            if time.monotonic() >= deadline:
-                reason = f"navigation goal result timeout: {goal_xy}"
-                self._cancel_nav2_goal_and_force_stop(
-                    request,
-                    handle=handle,
-                    result_future=result_future,
-                    reason=reason,
-                    quiescence_token=quiescence_token,
-                )
-                raise TimeoutError(reason)
-            time.sleep(0.05)
-        wrapped, terminal_error = _read_nav2_terminal_wrapper(result_future)
-        if terminal_error is not None:
-            reason = f"invalid NavigateToPose terminal result: {terminal_error}"
-            self._cancel_nav2_goal_and_force_stop(
-                request,
-                handle=handle,
-                result_future=result_future,
-                reason=reason,
-                quiescence_token=quiescence_token,
-            )
-            raise RuntimeError(reason)
-        # `/plan` 与 Action result 属于不同 ROS topic，回调没有全局顺序；
-        # 在 handle 仍可用于安全收口时排空迟到 replan。若路径证据变坏，仍要
-        # 发 cancel + typed STOP，不能把异常抛给外层后直接释放任务互斥锁。
-        time.sleep(0.3)
-        record = self._navigation_goal_ledger.get(sequence)
-        if record.plan_count == 0 or not record.all_plans_known_free:
-            reason = f"unsafe or missing runtime plan for goal {sequence}"
-            self._cancel_nav2_goal_and_force_stop(
-                request,
-                handle=handle,
-                result_future=result_future,
-                reason=reason,
-                quiescence_token=quiescence_token,
-            )
-            raise RuntimeError(reason)
-        _finish_nav2_quiescence_transaction(
-            self, quiescence_token
-        )
-        return wrapped
-
-    def _resolve_pending_nav2_goal_safely(
-        self,
-        request: CommandRequest,
-        *,
-        response,
-        reason: str,
-        timeout_s: float = _NAV2_SAFETY_STOP_TIMEOUT_S,
-        quiescence_token: str | None = None,
-    ) -> None:
-        """等待 pending response，并关闭可能迟到 accepted 的 Nav2 事务。"""
-
-        if timeout_s <= 0.0:
-            raise ValueError("navigation safety stop timeout must be positive")
-        response_deadline = time.monotonic() + timeout_s
-        while not response.done() and time.monotonic() < response_deadline:
-            time.sleep(0.05)
-        if not response.done():
-            _raise_navigation_cleanup_failure(
-                self._manager,
-                reason=reason,
-                cleanup_errors=[
-                    "Nav2 goal response did not arrive within safety budget"
-                ],
-            )
-        try:
-            handle = response.result()
-        except Exception as exc:
-            _raise_navigation_cleanup_failure(
-                self._manager,
-                reason=reason,
-                cleanup_errors=[f"Nav2 goal response failed: {exc}"],
-            )
-        if handle is None or not handle.accepted:
-            _finish_nav2_quiescence_transaction(
-                self, quiescence_token
-            )
-            return
-        try:
-            result_future = handle.get_result_async()
-        except Exception as exc:
-            # handle 已 accepted 却拿不到 result future，无法证明终态；仍先尝试
-            # cancel + typed STOP，再由统一 helper 触发 stage fail-safe。
-            result_future = None
-            reason = f"{reason}; cannot get Nav2 result future: {exc}"
-        self._cancel_nav2_goal_and_force_stop(
-            request,
-            handle=handle,
-            result_future=result_future,
-            reason=reason,
-            timeout_s=timeout_s,
-            quiescence_token=quiescence_token,
-        )
-
-    def _cancel_nav2_goal_and_force_stop(
-        self,
-        request: CommandRequest,
-        *,
-        handle,
-        result_future,
-        reason: str,
-        timeout_s: float = _NAV2_SAFETY_STOP_TIMEOUT_S,
-        quiescence_token: str | None = None,
-    ) -> None:
-        """取消直接 Nav2 goal，并用 typed STOP 形成可等待的安全终态。"""
-
-        # 仅保留参数用于统一所有调用分支；实际停车绝不复用可能 canceled 的
-        # 用户 request，而在下方创建独立内部事务。
-        del request
-        if timeout_s <= 0.0:
-            raise ValueError("navigation safety stop timeout must be positive")
-        cleanup_errors: list[str] = []
-        try:
-            # 先发 cancel、随后立即发 priority STOP；不能先等 cancel timeout，
-            # 否则控制器在故障路径上仍可能继续输出速度。
-            handle.cancel_goal_async()
-        except Exception as exc:
-            cleanup_errors.append(f"cancel request failed: {exc}")
-        try:
-            # 使用独立安全预算，不能复用已经耗尽的导航 deadline。该调用会
-            # 等待 typed stop Action result，保证任务锁在停车事实前不释放。
-            # 即使调用方 request 已 canceled，也必须发出 priority STOP。
-            self.stop_motion_and_wait(
-                _navigation_safety_stop_request(),
-                timeout_s=timeout_s,
-            )
-        except Exception as exc:
-            cleanup_errors.append(f"typed stop failed: {exc}")
-
-        if result_future is not None:
-            terminal_deadline = time.monotonic() + timeout_s
-            while time.monotonic() < terminal_deadline:
-                try:
-                    if result_future.done():
-                        break
-                except Exception:
-                    # 具体错误由统一终态读取器生成，避免在安全分支重复协议判断。
-                    break
-                time.sleep(0.05)
-        # future.done 只表示 Future 容器结束；还必须读取 wrapper，并验证 ROS
-        # Action status 已进入 SUCCEEDED/ABORTED/CANCELED 且 payload 可读取。
-        _, terminal_error = _read_nav2_terminal_wrapper(result_future)
-        if terminal_error is not None:
-            cleanup_errors.append(terminal_error)
-        else:
-            _finish_nav2_quiescence_transaction(
-                self, quiescence_token
-            )
-        if cleanup_errors:
-            _raise_navigation_cleanup_failure(
-                self._manager,
-                reason=reason,
-                cleanup_errors=cleanup_errors,
-            )
-
-    def _set_navigation_goal_status_if_open(
-        self,
-        sequence: int,
-        status: NavigationGoalStatus,
-        *,
-        nav2_status: int = 0,
-        nav2_error_code: int = 0,
-        detail: str,
-    ) -> None:
-        if self._navigation_goal_ledger.is_terminal(sequence):
-            return
-        self._set_navigation_goal_status(
-            sequence,
-            status,
-            nav2_status=nav2_status,
-            nav2_error_code=nav2_error_code,
-            detail=detail,
-        )
 
     def _set_navigation_goal_status(
         self,

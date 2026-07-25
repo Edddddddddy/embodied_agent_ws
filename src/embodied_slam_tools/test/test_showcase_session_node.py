@@ -16,7 +16,6 @@ from embodied_agent_interfaces.msg import (
 )
 from lifecycle_msgs.msg import State, Transition
 from lifecycle_msgs.srv import ChangeState, GetState
-from nav2_msgs.action import BackUp, NavigateToPose
 import pytest
 from std_msgs.msg import String
 
@@ -36,6 +35,11 @@ from embodied_slam_tools.mission_executor import (
     AutomaticMissionCancelled,
     CommandRequest,
     wait_for_required_event,
+)
+from embodied_slam_tools.nav2_motion_transaction import (
+    MappingReturn,
+    RecoveryBackup,
+    SampledNavigate,
 )
 from embodied_slam_tools.showcase_session_node import (
     SessionOrchestratorNode,
@@ -2902,175 +2906,26 @@ class _DoneFuture:
         return self._value
 
 
-class _RaisingResultFuture:
-    @staticmethod
-    def done():
-        return True
-
-    @staticmethod
-    def result():
-        raise RuntimeError("synthetic result read failure")
-
-
-class _CancelableNavigationResult:
-    def __init__(self, *, polls_after_cancel=3):
-        self.terminal = False
-        self.cancel_requested = False
-        self.polls_after_cancel = polls_after_cancel
-        self.cancel_poll_count = 0
-
-    def done(self):
-        if self.cancel_requested and not self.terminal:
-            self.cancel_poll_count += 1
-            if self.cancel_poll_count >= self.polls_after_cancel:
-                self.terminal = True
-        return self.terminal
-
-    def result(self):
-        return SimpleNamespace(
-            status=GoalStatus.STATUS_CANCELED,
-            result=SimpleNamespace(error_code=0),
-        )
-
-
-class _AcceptedNavigationHandle:
-    def __init__(self, result_future):
-        self.accepted = True
-        self.result_future = result_future
-        self.cancel_count = 0
-
-    def get_result_async(self):
-        return self.result_future
-
-    def cancel_goal_async(self):
-        self.cancel_count += 1
-        self.result_future.cancel_requested = True
-        return _DoneFuture(SimpleNamespace())
-
-
-class _AcceptedHandleWithoutResultFuture:
-    def __init__(self):
-        self.accepted = True
-        self.cancel_count = 0
-
-    @staticmethod
-    def get_result_async():
-        raise RuntimeError("synthetic get_result_async failure")
-
-    def cancel_goal_async(self):
-        self.cancel_count += 1
-        return _DoneFuture(SimpleNamespace())
-
-
-class _DelayedGoalResponse:
-    def __init__(self, handle, *, pending_polls=2):
-        self.handle = handle
-        self.pending_polls = pending_polls
-        self.poll_count = 0
-
-    def done(self):
-        self.poll_count += 1
-        return self.poll_count > self.pending_polls
-
-    def result(self):
-        return self.handle
-
-
-class _NeverGoalResponse:
-    @staticmethod
-    def done():
-        return False
-
-
-def test_nav2_backup_goal_uses_positive_local_magnitudes_and_strong_success():
-    captured = []
-    result = BackUp.Result()
-    result.error_code = BackUp.Result.NONE
-    handle = SimpleNamespace(
-        accepted=True,
-        get_result_async=lambda: _DoneFuture(
-            SimpleNamespace(
-                status=GoalStatus.STATUS_SUCCEEDED,
-                result=result,
-            )
-        ),
-    )
-    fake = SimpleNamespace(
-        _backup_client=SimpleNamespace(
-            wait_for_server=lambda timeout_sec: True,
-            send_goal_async=lambda goal: captured.append(goal)
-            or _DoneFuture(handle),
-        )
-    )
-
-    SessionOrchestratorNode._execute_nav2_backup(
-        fake,
-        SimpleNamespace(canceled=False),
-        distance_m=0.30,
-        speed_mps=0.08,
-        time_allowance_s=10.0,
-        deadline_monotonic=10**12,
-    )
-
-    assert len(captured) == 1
-    goal = captured[0]
-    # Nav2 BackUp 的客户端契约使用正幅值，Behavior Server 内部负责负向运动。
-    assert goal.target.x == pytest.approx(0.30)
-    assert goal.target.y == 0.0
-    assert goal.target.z == 0.0
-    assert goal.speed == pytest.approx(0.08)
-    assert goal.time_allowance.sec == 10
-    assert goal.time_allowance.nanosec == 0
-
-
-def test_nav2_backup_collision_is_failure_and_forces_typed_stop():
-    result = BackUp.Result()
-    result.error_code = BackUp.Result.COLLISION_AHEAD
-    result.error_msg = "collision ahead"
-    handle = SimpleNamespace(
-        accepted=True,
-        get_result_async=lambda: _DoneFuture(
-            SimpleNamespace(
-                status=GoalStatus.STATUS_ABORTED,
-                result=result,
-            )
-        ),
-    )
-    stop_calls = []
-    fake = SimpleNamespace(
-        _backup_client=SimpleNamespace(
-            wait_for_server=lambda timeout_sec: True,
-            send_goal_async=lambda _goal: _DoneFuture(handle),
-        ),
-        stop_motion_and_wait=lambda request, *, timeout_s: stop_calls.append(
-            (request, timeout_s)
-        ),
-    )
-
-    with pytest.raises(RuntimeError, match="collision ahead"):
-        SessionOrchestratorNode._execute_nav2_backup(
-            fake,
-            SimpleNamespace(canceled=False),
-            distance_m=0.30,
-            speed_mps=0.08,
-            time_allowance_s=10.0,
-            deadline_monotonic=10**12,
-        )
-
-    assert len(stop_calls) == 1
-    assert stop_calls[0][0].source == "navigation_safety_stop"
-    assert stop_calls[0][0].canceled is False
-
-
-def test_recovery_backup_returns_independent_odom_displacement():
-    from embodied_slam_tools.mapping_evidence import MappingEvidenceTracker
+def test_recovery_backup_delegates_transaction_and_measures_fresh_odom():
+    """Node 只负责恢复动作前后的里程计取证，Action 生命周期归事务模块。"""
 
     evidence = MappingEvidenceTracker(1)
     evidence.record_odom(1.0, 2.0)
+    transaction_calls = []
+
+    class _Motion:
+        @staticmethod
+        def execute(intent, *, is_cancelled, deadline_monotonic):
+            transaction_calls.append(
+                (intent, is_cancelled(), deadline_monotonic)
+            )
+            # 模拟事务成功后到达的新一代 odom；不污染 mapping path 统计。
+            evidence.record_odom(0.76, 2.0)
 
     class _Runtime:
         _dry_run = False
         _mapping_evidence = evidence
+        _nav2_motion = _Motion()
 
         def _wait_for_recovery_odom(self, *args, **kwargs):
             return SessionOrchestratorNode._wait_for_recovery_odom(
@@ -3078,16 +2933,13 @@ def test_recovery_backup_returns_independent_odom_displacement():
             )
 
         @staticmethod
-        def _execute_nav2_backup(*_args, **_kwargs):
-            evidence.record_odom(0.76, 2.0)
-
-        @staticmethod
         def get_logger():
             return SimpleNamespace(info=lambda _message: None)
 
+    request = SimpleNamespace(canceled=False)
     displacement = SessionOrchestratorNode.run_recovery_backup(
         _Runtime(),
-        SimpleNamespace(canceled=False),
+        request,
         distance_m=0.30,
         speed_mps=0.08,
         timeout_s=10.0,
@@ -3095,390 +2947,154 @@ def test_recovery_backup_returns_independent_odom_displacement():
 
     assert displacement == pytest.approx(0.24)
     assert evidence.mapping_path_m == 0.0
-
-
-def _navigation_execution_fake(*, unsafe_runtime_path):
-    result_future = _CancelableNavigationResult()
-    handle = _AcceptedNavigationHandle(result_future)
-    stop_calls = []
-    status_calls = []
-    stage_shutdowns = []
-
-    class _Fake:
-        _navigate_to_pose_client = SimpleNamespace(
-            wait_for_server=lambda timeout_sec: True,
-            send_goal_async=lambda _goal: _DoneFuture(handle),
-        )
-        _navigation_goal_ledger = SimpleNamespace(
-            get=lambda _sequence: SimpleNamespace(
-                plan_count=1,
-                all_plans_known_free=not unsafe_runtime_path,
-            )
-        )
-
-        def _set_navigation_goal_status(self, sequence, status, **kwargs):
-            status_calls.append((sequence, status, kwargs))
-
-        def _cancel_nav2_goal(self, goal_handle, future, wait_s=3.0):
-            return SessionOrchestratorNode._cancel_nav2_goal(
-                goal_handle,
-                future,
-                wait_s=min(wait_s, 0.01),
-            )
-
-        def _cancel_nav2_goal_and_force_stop(self, *args, **kwargs):
-            return SessionOrchestratorNode._cancel_nav2_goal_and_force_stop(
-                self, *args, **kwargs
-            )
-
-        def _resolve_pending_nav2_goal_safely(self, *args, **kwargs):
-            # 测试预算刻意缩短；生产默认仍使用独立 10s 安全预算。
-            kwargs.setdefault("timeout_s", 0.001)
-            return SessionOrchestratorNode._resolve_pending_nav2_goal_safely(
-                self, *args, **kwargs
-            )
-
-        def stop_motion_and_wait(self, request, *, timeout_s):
-            stop_calls.append((request, timeout_s, result_future.done()))
-
-        _manager = SimpleNamespace(
-            stop=lambda: stage_shutdowns.append("stop")
-        )
-
-        @staticmethod
-        def _cancel_automatic_motion():
-            raise AssertionError("fault cleanup must use the typed forced stop")
-
-    return (
-        _Fake(),
-        handle,
-        result_future,
-        stop_calls,
-        status_calls,
-        stage_shutdowns,
+    assert len(transaction_calls) == 1
+    intent, canceled, deadline = transaction_calls[0]
+    assert intent == RecoveryBackup(
+        distance_m=0.30,
+        speed_mps=0.08,
+        time_allowance_s=10.0,
     )
+    assert canceled is False
+    assert deadline > time.monotonic()
 
 
-def test_nav2_succeeded_wrapper_with_result_error_is_typed_failure(monkeypatch):
-    """Action 协议成功不能覆盖 NavigateToPose 业务错误。"""
-
-    monkeypatch.setattr(showcase_session_node_module.time, "sleep", lambda _s: None)
-    calls = []
-    terminal = set()
-
-    def set_status(sequence, status, **kwargs):
-        calls.append((sequence, status, kwargs))
-        if status in {
-            NavigationGoalStatus.SUCCEEDED,
-            NavigationGoalStatus.REJECTED,
-            NavigationGoalStatus.ABORTED,
-            NavigationGoalStatus.CANCELED,
-            NavigationGoalStatus.TIMED_OUT,
-        }:
-            terminal.add(sequence)
-
-    def set_if_open(sequence, status, **kwargs):
-        if sequence not in terminal:
-            set_status(sequence, status, **kwargs)
-
-    error_code = NavigateToPose.Result.NONE + 42
-    fake = SimpleNamespace(
-        _dry_run=False,
-        _navigation_goal_ledger=SimpleNamespace(
-            get=lambda _sequence: SimpleNamespace(
-                plan_count=2,
-                all_plans_known_free=True,
-            )
-        ),
-        _request_preflight_path=lambda *_args, **_kwargs: object(),
-        _record_navigation_plan=lambda _sequence, _path: True,
-        _execute_sampled_nav2_goal=lambda *_args, **_kwargs: SimpleNamespace(
-            status=GoalStatus.STATUS_SUCCEEDED,
-            result=SimpleNamespace(error_code=error_code),
-        ),
-        _set_navigation_goal_status=set_status,
-        _set_navigation_goal_status_if_open=set_if_open,
-    )
-
-    with pytest.raises(RuntimeError, match=f"error={error_code}"):
-        SessionOrchestratorNode.run_navigation_goal(
-            fake,
-            SimpleNamespace(canceled=False),
-            sequence=1,
-            goal_xy=(1.0, 2.0),
-            timeout_s=1.0,
-        )
-
-    final = calls[-1]
-    assert final[1] == NavigationGoalStatus.ABORTED
-    assert final[2]["nav2_status"] == GoalStatus.STATUS_SUCCEEDED
-    assert final[2]["nav2_error_code"] == error_code
-
-
-@pytest.mark.parametrize(
-    ("unsafe_runtime_path", "deadline", "error_type", "message"),
-    [
-        (True, 10**12, RuntimeError, "unsafe runtime navigation plan"),
-        (False, 0.0, TimeoutError, "navigation goal result timeout"),
-    ],
-)
-def test_runtime_navigation_fault_cancels_forces_stop_and_waits_terminal(
-    unsafe_runtime_path,
-    deadline,
-    error_type,
-    message,
+def test_navigation_goal_preflights_records_then_delegates_transaction(
+    monkeypatch,
 ):
-    fake, handle, result_future, stop_calls, _statuses, stage_shutdowns = (
-        _navigation_execution_fake(
-            unsafe_runtime_path=unsafe_runtime_path,
-        )
+    """Node 保留安全准入 seam，accepted 到 terminal 不再维护第二套状态机。"""
+
+    monkeypatch.setattr(
+        showcase_session_node_module.time,
+        "monotonic",
+        lambda: 100.0,
     )
+    events = []
+    preflight_path = object()
     request = SimpleNamespace(canceled=False)
 
-    with pytest.raises(error_type, match=message):
-        SessionOrchestratorNode._execute_sampled_nav2_goal(
-            fake,
-            request,
-            sequence=1,
-            goal_xy=(1.0, 2.0),
-            deadline=deadline,
-        )
+    class _Motion:
+        @staticmethod
+        def execute(intent, *, is_cancelled, deadline_monotonic):
+            events.append(
+                ("execute", intent, is_cancelled(), deadline_monotonic)
+            )
 
-    assert handle.cancel_count == 1
-    assert result_future.done() is True
-    assert len(stop_calls) == 1
-    # 安全 STOP 必须使用未被上层取消的内部 request，否则 gateway 会直接拒绝。
-    assert stop_calls[0][0] is not request
-    assert stop_calls[0][0].canceled is False
-    assert stop_calls[0][0].source == "navigation_safety_stop"
-    assert stop_calls[0][1] > 0.0
-    # typed STOP 可以先于 Nav2 terminal 返回；helper 必须继续等待迟到终态。
-    assert stop_calls[0][2] is False
-    assert result_future.cancel_poll_count >= 3
-    assert stage_shutdowns == []
-
-
-def test_accepted_goal_cancel_uses_same_stop_and_terminal_transaction(
-    monkeypatch,
-):
-    """用户取消已 accepted goal 时，也不能绕过 typed STOP 与终态等待。"""
-
-    monkeypatch.setattr(showcase_session_node_module.time, "sleep", lambda _s: None)
-    fake, handle, result_future, stop_calls, _statuses, stage_shutdowns = (
-        _navigation_execution_fake(unsafe_runtime_path=False)
-    )
-    request = SimpleNamespace(
-        canceled=True,
-        command=SessionCommand.RUN_AUTOMATIC_MISSION,
-    )
-
-    with pytest.raises(AutomaticMissionCancelled):
-        SessionOrchestratorNode._execute_sampled_nav2_goal(
-            fake,
-            request,
-            sequence=1,
-            goal_xy=(1.0, 2.0),
-            deadline=10**12,
-        )
-
-    assert handle.cancel_count == 1
-    assert result_future.done() is True
-    assert len(stop_calls) == 1
-    assert stop_calls[0][0] is not request
-    assert stop_calls[0][0].canceled is False
-    assert stage_shutdowns == []
-
-
-@pytest.mark.parametrize(
-    ("request_canceled", "deadline", "expected_error"),
-    [
-        (True, 10**12, AutomaticMissionCancelled),
-        (False, 0.0, TimeoutError),
-    ],
-)
-def test_pending_late_accepted_goal_waits_and_closes_transaction(
-    monkeypatch,
-    request_canceled,
-    deadline,
-    expected_error,
-):
-    """取消或超时遇到迟到 accepted 时，都必须等停车事实后再释放锁。"""
-
-    monkeypatch.setattr(showcase_session_node_module.time, "sleep", lambda _s: None)
-    fake, handle, result_future, stop_calls, _statuses, stage_shutdowns = (
-        _navigation_execution_fake(unsafe_runtime_path=False)
-    )
-    response = _DelayedGoalResponse(handle, pending_polls=2)
-    fake._navigate_to_pose_client = SimpleNamespace(
-        wait_for_server=lambda timeout_sec: True,
-        send_goal_async=lambda _goal: response,
-    )
-    request = SimpleNamespace(
-        canceled=request_canceled,
-        command=SessionCommand.RUN_AUTOMATIC_MISSION,
-    )
-
-    with pytest.raises(expected_error):
-        SessionOrchestratorNode._execute_sampled_nav2_goal(
-            fake,
-            request,
-            sequence=1,
-            goal_xy=(1.0, 2.0),
-            deadline=deadline,
-        )
-
-    assert response.poll_count >= 3
-    assert handle.cancel_count == 1
-    assert result_future.done() is True
-    assert len(stop_calls) == 1
-    assert stop_calls[0][0] is not request
-    assert stop_calls[0][0].canceled is False
-    assert stage_shutdowns == []
-
-
-def test_pending_goal_response_timeout_stops_navigation_stage(monkeypatch):
-    """response 永不到达时只能停止 stage，不能假装 cleanup 已完成。"""
-
-    monkeypatch.setattr(showcase_session_node_module.time, "sleep", lambda _s: None)
-    fake, _handle, _result, stop_calls, _statuses, stage_shutdowns = (
-        _navigation_execution_fake(unsafe_runtime_path=False)
-    )
-    fake._navigate_to_pose_client = SimpleNamespace(
-        wait_for_server=lambda timeout_sec: True,
-        send_goal_async=lambda _goal: _NeverGoalResponse(),
-    )
-    request = SimpleNamespace(
-        canceled=True,
-        command=SessionCommand.RUN_AUTOMATIC_MISSION,
-    )
-
-    with pytest.raises(
-        RuntimeError,
-        match="goal response did not arrive within safety budget",
-    ) as raised:
-        SessionOrchestratorNode._execute_sampled_nav2_goal(
-            fake,
-            request,
-            sequence=1,
-            goal_xy=(1.0, 2.0),
-            deadline=10**12,
-        )
-
-    assert stop_calls == []
-    assert stage_shutdowns == ["stop"]
-    assert "navigation stage stopped by fail-safe" in str(raised.value)
-
-
-def test_completed_goal_response_result_error_stops_navigation_stage():
-    """done response 读取失败时无法证明 goal 未 accepted，必须停整个 stage。"""
-
-    fake, _handle, _result, stop_calls, _statuses, stage_shutdowns = (
-        _navigation_execution_fake(unsafe_runtime_path=False)
-    )
-    fake._navigate_to_pose_client = SimpleNamespace(
-        wait_for_server=lambda timeout_sec: True,
-        send_goal_async=lambda _goal: _RaisingResultFuture(),
-    )
-
-    with pytest.raises(RuntimeError, match="navigation safety cleanup failed"):
-        SessionOrchestratorNode._execute_sampled_nav2_goal(
-            fake,
-            SimpleNamespace(canceled=False),
-            sequence=1,
-            goal_xy=(1.0, 2.0),
-            deadline=10**12,
-        )
-
-    assert stop_calls == []
-    assert stage_shutdowns == ["stop"]
-
-
-def test_accepted_handle_result_future_error_cancels_stops_and_shuts_stage():
-    """accepted handle 丢失 result future 时，仍先停车再按不可证终态失败。"""
-
-    fake, _handle, _result, stop_calls, _statuses, stage_shutdowns = (
-        _navigation_execution_fake(unsafe_runtime_path=False)
-    )
-    handle = _AcceptedHandleWithoutResultFuture()
-    fake._navigate_to_pose_client = SimpleNamespace(
-        wait_for_server=lambda timeout_sec: True,
-        send_goal_async=lambda _goal: _DoneFuture(handle),
-    )
-
-    with pytest.raises(RuntimeError, match="navigation safety cleanup failed"):
-        SessionOrchestratorNode._execute_sampled_nav2_goal(
-            fake,
-            SimpleNamespace(canceled=False),
-            sequence=1,
-            goal_xy=(1.0, 2.0),
-            deadline=10**12,
-        )
-
-    assert handle.cancel_count == 1
-    assert len(stop_calls) == 1
-    assert stop_calls[0][0].canceled is False
-    assert stop_calls[0][0].source == "navigation_safety_stop"
-    assert stage_shutdowns == ["stop"]
-
-
-@pytest.mark.parametrize(
-    ("result_future", "expected_detail"),
-    [
-        (_RaisingResultFuture(), "result read failed"),
-        (_DoneFuture(None), "returned no wrapper"),
-        (
-            _DoneFuture(
-                SimpleNamespace(
-                    status=GoalStatus.STATUS_EXECUTING,
-                    result=SimpleNamespace(error_code=0),
-                )
-            ),
-            "non-terminal status",
-        ),
-        (
-            _DoneFuture(
-                SimpleNamespace(
-                    status=GoalStatus.STATUS_SUCCEEDED,
-                    result=None,
-                )
-            ),
-            "result payload is missing",
-        ),
-    ],
-)
-def test_navigation_cleanup_requires_readable_terminal_wrapper(
-    result_future,
-    expected_detail,
-):
-    """future.done 不是终态证据；wrapper status 与 payload 也必须可验证。"""
-
-    cancel_calls = []
-    stop_calls = []
-    stage_shutdowns = []
     fake = SimpleNamespace(
-        stop_motion_and_wait=lambda request, *, timeout_s: stop_calls.append(
-            (request, timeout_s)
+        _dry_run=False,
+        _nav2_motion=_Motion(),
+        _set_navigation_goal_status=lambda sequence, status, **kwargs: (
+            events.append(("status", sequence, status, kwargs))
         ),
-        _manager=SimpleNamespace(stop=lambda: stage_shutdowns.append("stop")),
-    )
-    handle = SimpleNamespace(
-        cancel_goal_async=lambda: cancel_calls.append(True),
+        _request_preflight_path=lambda actual_request, *, goal_xy, deadline: (
+            events.append(
+                ("preflight", actual_request, goal_xy, deadline)
+            )
+            or preflight_path
+        ),
+        _record_navigation_plan=lambda sequence, path: (
+            events.append(("record_plan", sequence, path)) or True
+        ),
     )
 
-    with pytest.raises(RuntimeError, match=expected_detail):
-        SessionOrchestratorNode._cancel_nav2_goal_and_force_stop(
-            fake,
-            SimpleNamespace(canceled=True),
-            handle=handle,
-            result_future=result_future,
-            reason="invalid Nav2 terminal evidence",
-            timeout_s=0.001,
-        )
+    SessionOrchestratorNode.run_navigation_goal(
+        fake,
+        request,
+        sequence=3,
+        goal_xy=(1.25, -0.75),
+        timeout_s=5.0,
+    )
 
-    assert cancel_calls == [True]
-    assert len(stop_calls) == 1
-    assert stop_calls[0][0].canceled is False
-    assert stage_shutdowns == ["stop"]
+    assert events == [
+        (
+            "status",
+            3,
+            NavigationGoalStatus.REQUESTED,
+            {"detail": "preflight path requested"},
+        ),
+        ("preflight", request, (1.25, -0.75), 105.0),
+        ("record_plan", 3, preflight_path),
+        (
+            "execute",
+            SampledNavigate(sequence=3, goal_xy=(1.25, -0.75)),
+            False,
+            105.0,
+        ),
+    ]
+
+
+def test_mapping_return_preflights_then_delegates_and_verifies_pose(
+    monkeypatch,
+):
+    """返航的 ROS 取证留在 Node，NavigateToPose 生命周期委托给事务模块。"""
+
+    monkeypatch.setattr(
+        showcase_session_node_module.time,
+        "monotonic",
+        lambda: 100.0,
+    )
+    monkeypatch.setattr(
+        showcase_session_node_module.time,
+        "sleep",
+        lambda _seconds: None,
+    )
+    start_pose = PlanarPose(1.0, -0.5, 0.25, "map", 10)
+    final_pose = PlanarPose(1.01, -0.49, 0.24, "map", 20)
+    request = SimpleNamespace(canceled=False)
+    events = []
+
+    class _Motion:
+        @staticmethod
+        def execute(intent, *, is_cancelled, deadline_monotonic):
+            events.append(
+                ("execute", intent, is_cancelled(), deadline_monotonic)
+            )
+
+    fake = SimpleNamespace(
+        _dry_run=False,
+        _mission_sequence=4,
+        _nav2_motion=_Motion(),
+        _request_preflight_path=(
+            lambda actual_request, *, goal_xy, deadline: events.append(
+                ("preflight", actual_request, goal_xy, deadline)
+            )
+        ),
+        _lookup_mapping_pose=(
+            lambda actual_request, *, timeout_s: final_pose
+        ),
+        stop_motion_and_wait=(
+            lambda actual_request, *, timeout_s: events.append(
+                ("stop", actual_request.source, timeout_s)
+            )
+        ),
+        _cmd_vel_condition=threading.Condition(),
+        _last_cmd_vel=(0.0, 0.0),
+        _last_cmd_vel_observed_at_ns=30,
+        get_clock=lambda: SimpleNamespace(
+            now=lambda: SimpleNamespace(nanoseconds=25)
+        ),
+    )
+
+    evidence = SessionOrchestratorNode.run_mapping_return_goal(
+        fake,
+        request,
+        start_pose=start_pose,
+        spec=ReturnToStartSpec(),
+        timeout_s=5.0,
+    )
+
+    assert events[0] == ("preflight", request, (1.0, -0.5), 105.0)
+    assert events[1] == (
+        "execute",
+        MappingReturn(goal_pose=start_pose),
+        False,
+        105.0,
+    )
+    assert events[-1][0:2] == ("stop", "navigation_safety_stop")
+    assert evidence.start_pose == start_pose
+    assert evidence.final_pose == final_pose
+    assert evidence.action_status is ReturnActionStatus.SUCCEEDED
+    assert evidence.cmd_vel_linear_x == 0.0
+    assert evidence.cmd_vel_angular_z == 0.0
 
 
 def test_navigation_safety_request_publishes_priority_typed_stop():
@@ -3647,46 +3263,6 @@ def test_save_map_fails_closed_without_post_save_fresh_zero_velocity():
     assert len(stop_calls) == 1
     assert fake._return_to_start_evidence is draft
     assert all(phase != SessionPhase.MAP_SAVED for phase, _ in transitions)
-
-
-def test_navigation_safety_cleanup_refuses_missing_nav2_terminal(monkeypatch):
-    """停车调用返回也不能掩盖仍处于活动态的直接 Nav2 goal。"""
-
-    monkeypatch.setattr(showcase_session_node_module.time, "sleep", lambda _s: None)
-    result_future = SimpleNamespace(done=lambda: False)
-    cancel_calls = []
-    stop_calls = []
-    handle = SimpleNamespace(
-        cancel_goal_async=lambda: cancel_calls.append(True),
-    )
-    stage_shutdowns = []
-    fake = SimpleNamespace(
-        stop_motion_and_wait=lambda request, *, timeout_s: stop_calls.append(
-            (request, timeout_s)
-        ),
-        _manager=SimpleNamespace(stop=lambda: stage_shutdowns.append("stop")),
-    )
-    request = SimpleNamespace(
-        canceled=False,
-        command=SessionCommand.RUN_AUTOMATIC_MISSION,
-    )
-
-    with pytest.raises(RuntimeError, match="did not reach terminal"):
-        SessionOrchestratorNode._cancel_nav2_goal_and_force_stop(
-            fake,
-            request,
-            handle=handle,
-            result_future=result_future,
-            reason="unsafe runtime path",
-            timeout_s=0.001,
-        )
-
-    assert cancel_calls == [True]
-    assert len(stop_calls) == 1
-    assert stop_calls[0][0] is not request
-    assert stop_calls[0][0].canceled is False
-    assert stop_calls[0][1] == 0.001
-    assert stage_shutdowns == ["stop"]
 
 
 def test_path_adapter_requires_map_frame_and_matching_goal_endpoint():
