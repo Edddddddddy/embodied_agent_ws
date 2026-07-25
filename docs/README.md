@@ -20,6 +20,7 @@ README 中寻找所有答案。
 随后按兴趣选择一份学习笔记：
 
 - [语音 Agent](learning/VOICE_AGENT.md)：音频前端、VAD/ASR、连续会话、NLU、在线与离线 provider。
+- [语音运行时部署](deployment/VOICE_RUNTIME.md)：在线/离线 profile、全栈 preflight、RAG 与降级边界。
 - [ROS 2/C++ 控制](learning/ROS2_CPP_CONTROL.md)：typed Action、ActionGuard、调度、Lifecycle、BT 和 pluginlib。
 - [SLAM/Nav2](learning/SLAM_NAV2.md)：frontier 探索、地图保存、AMCL、规划、动态障碍、回环与后端优化。
 
@@ -45,7 +46,8 @@ README 中寻找所有答案。
 
 [15 分钟汇报稿](PRESENTATION_15MIN.md) 给出演示节奏和代码讲解顺序。它从听众视角组织内容，不作为
 架构或测试事实源。简历表述可参考 [ROS 2/C++ 项目经历](interview/04-ros2-cpp-resume.md)，最终描述
-仍应以自己实际跑过的证据为边界。
+仍应以自己实际跑过的证据为边界。语音模块的论文、部署取舍与代码追问集中在
+[语音部署与 RAG 深挖](interview/resume-deep-dive/11-voice-deployment-rag.md)。
 
 ## 想继续开发
 

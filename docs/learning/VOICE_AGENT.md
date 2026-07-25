@@ -356,3 +356,63 @@ pytest -q src/embodied_agent_core/test/test_user_context_runtime.py \
   src/embodied_agent_core/test/test_user_memory.py \
   src/embodied_voice_frontend/test/test_speaker_identity_node.py
 ```
+
+## 6. Prompt 上下文、RAG 与部署 profile
+
+### 【功能】
+
+把在线/离线 Prompt 构造收口为一个深模块，并把控制快通道与知识问答通道隔离。控制命令零检索；
+知识问题从只读文档检索有 source_id 的有限片段。部署 preflight 用同一份 profile 检查
+VAD/ASR/LLM/RAG/TTS 的依赖、资产、fallback 和可选 health。
+
+### 【关键文件/类/函数】
+
+- `src/embodied_agent_core/embodied_agent_core/prompt_context.py`
+  - `RagQueryRouter.route()`
+  - `SparseKnowledgeRetriever.retrieve()`
+  - `PromptContextAssembler.build()`
+- `src/embodied_agent_core/embodied_agent_core/voice_runtime_deployment.py`
+  - `VoiceRuntimeDeploymentChecker.check()`
+- `config/voice_runtime_profiles.yaml`：`offline-edge`、`online-cloud`。
+- `scripts/voice_runtime_preflight.py`：只读组合 CLI。
+
+### 【上游 → 处理 → 下游】
+
+```text
+ASR final
+→ CommandNLU 可解释？是：control_bypass
+→ 否：知识问题？是：BM25 retrieve + context budget + source_id
+→ PromptContextAssembler
+→ online/offline LLM
+→ response/TTS
+```
+
+### 【为什么这样设计】
+
+小型项目手册使用中文字符 unigram/bigram + ASCII token 的 BM25，避免与 Gazebo、llama.cpp 同时常驻
+embedding 模型或向量数据库。检索算法被隐藏在稳定接口后，后续能用同一 QA 集替换为 BGE-small
+ONNX + RRF。RAG 证据只存在于当前模型请求；短期记忆持久化干净用户原文和纯 `<speech>`，
+不保存知识正文或被拦截的 action 标签。这里主动牺牲部分跨轮 KV 前缀复用，换取更小上下文和
+跨轮提示注入隔离。
+
+### 【失败/安全边界】
+
+知识文档是不可信数据，只能用于回答，不能生成或授权动作；普通聊天也不能授权动作。Prompt 预算
+按 context window 扣除生成 token 和安全余量，先删旧历史再裁 RAG，仍超窗则拒绝调用模型。日志与
+短期记忆都不保存知识正文。在线默认只允许包内公开手册进入云端 Prompt，自定义文档必须显式
+`allow_custom`。preflight 的 `contract_valid` 只证明配置结构有效，不能证明模型、麦克风和
+endpoint 已可服务。
+
+### 【对应测试】
+
+```bash
+pytest -q src/embodied_agent_core/test/test_prompt_context.py \
+  src/embodied_agent_core/test/test_voice_runtime_deployment.py \
+  tests/integration/voice/test_voice_runtime_preflight.py \
+  tests/integration/voice/test_rag_turn_integration.py
+bash scripts/acceptance_test.sh voice-runtime-preflight offline-edge --contract-only
+bash scripts/acceptance_test.sh voice-runtime-preflight online-cloud --contract-only
+```
+
+论文到部署取舍的完整对照见
+[`docs/interview/resume-deep-dive/11-voice-deployment-rag.md`](../interview/resume-deep-dive/11-voice-deployment-rag.md)。

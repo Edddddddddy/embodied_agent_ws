@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+
 from embodied_offline_agent.offline_agent_node import OfflineAgentNode
 
 
@@ -62,3 +64,28 @@ def test_legacy_silence_remains_the_fallback_when_speech_endpoints_are_disabled(
     node._on_silence(None)
 
     assert endpoint.requests == ["silence_timeout"]
+
+
+def test_runtime_warmup_fails_before_provider_call_when_prompt_exceeds_budget():
+    class _WarmupPrompt:
+        messages = ({"role": "system", "content": "安全约束"},)
+
+        @staticmethod
+        def require_budget():
+            raise RuntimeError("prompt budget exceeded")
+
+    llm_calls = []
+    node = object.__new__(OfflineAgentNode)
+    node._prompt_context = SimpleNamespace(
+        build=lambda _text, _context: _WarmupPrompt()
+    )
+    node._user_context = SimpleNamespace(snapshot=lambda: {})
+    node._llm = SimpleNamespace(
+        warmup=lambda messages: llm_calls.append(messages)
+    )
+    node._tts = SimpleNamespace(synthesize=lambda _text: b"")
+
+    with pytest.raises(RuntimeError, match="prompt budget exceeded"):
+        node._warmup_runtime()
+
+    assert llm_calls == []

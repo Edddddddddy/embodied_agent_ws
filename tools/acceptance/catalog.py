@@ -149,6 +149,7 @@ _MODE_SPECS = (
     ('kws-calibration', 'Dependency-free KWS score calibration smoke test', 'accept_kws_calibration', 'internal', False, True, HandlerDomain.VOICE),
     ('voice-readiness', 'Dependency-free voice readiness smoke test', 'accept_voice_readiness', 'internal', False, True, HandlerDomain.VOICE),
     ('provider-preflight', 'Optional VAD/KWS provider unit tests plus current-env preflight', 'accept_provider_preflight', 'internal', False, True, HandlerDomain.VOICE),
+    ('voice-runtime-preflight', '{offline-edge|online-cloud} Validate VAD/ASR/LLM/RAG/TTS deployment profile', 'accept_voice_runtime_preflight', 'internal', False, False, HandlerDomain.VOICE),
     ('voice-stability-preflight', 'Strict preflight requiring Silero/WebRTC mature VAD', 'accept_voice_stability_preflight', 'internal', False, True, HandlerDomain.VOICE),
     ('voice-vad-runtime-dry-run', 'Show optional WebRTC/Silero VAD install commands without installing', 'accept_voice_vad_runtime_dry_run', 'internal', False, True, HandlerDomain.VOICE),
     ('voice-kws-runtime-dry-run', 'Show optional openWakeWord/sherpa KWS install commands without installing', 'accept_voice_kws_runtime_dry_run', 'internal', False, True, HandlerDomain.VOICE),
