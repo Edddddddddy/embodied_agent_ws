@@ -143,6 +143,10 @@ RobotCommand candidate
 - [agent_application_runtime.py](../../../src/embodied_agent_core/embodied_agent_core/agent_application_runtime.py)
 - [user_context_runtime.py](../../../src/embodied_agent_core/embodied_agent_core/user_context_runtime.py)
 
+边界：默认演示使用 mock 身份来确定性验证这条上下文链。Sherpa embedding provider 已有模型加载、
+注册样本、阈值和 margin seam，但没有完成真实多人、多噪声条件的准确率验收；因此不能把 mock 身份
+快照写成“已实现生产级声纹识别”。
+
 ### Q10. 任务 ID 是怎样生成和关联的？
 
 口述：
@@ -356,12 +360,18 @@ VAD 判断当前帧像不像语音，端点状态机再要求连续语音达到�
 
 口述：
 
-自动任务先等待首帧 LaserScan，再通过正常 typed action 链执行一段 move/turn，让机器人离开狭窄起点。随后启动 Explore Lite，由它选择 frontier 并交给 Nav2；监控器持续检查地图覆盖、占用栅格、行驶里程、探索器状态和平台期。达到条件后停止 explorer，进入存图阶段。
+unknown-world 自动任务先等待 scan/TF 并动态捕获首次运动前的起点，再通过 typed action 做初始
+扫描，随后由 Explore Lite 选择 frontier 并交给 Nav2。优先使用 `strict_frontier` 强类型原因收口；硬预算
+或反复可达停滞时，必须再用多轮低收益、final probe、地图静默、Action 总账排空和 typed STOP 证明
+`bounded_saturation`。两条路径都先在 mapping stage 回到首次运动前动态捕获的起点，确认 Action、位姿
+和新鲜零速度，再保存图并切换定位导航；不能把 timeout、平台期或“地图看起来差不多”直接写成完成。
 
 源码：
 
 - [mission_executor.py](../../../src/embodied_slam_tools/embodied_slam_tools/mission_executor.py)
 - [frontier_monitor.py](../../../src/embodied_slam_tools/embodied_slam_tools/frontier_monitor.py)
+- [exploration_saturation.py](../../../src/embodied_slam_tools/embodied_slam_tools/exploration_saturation.py)
+- [mapping_return.py](../../../src/embodied_slam_tools/embodied_slam_tools/mapping_return.py)
 
 ### Q29. 地图保存怎样避免假成功？
 
@@ -485,16 +495,23 @@ pytest 验证连续会话、队列满和过期、ASR endpoint 取消、provider 
 
 口述：
 
-纯单元测试之后，smoke test 启动真实节点检查 Lifecycle、Topic、Service 和 Action 接线；Gazebo E2E 再运行传感器、SLAM、AMCL 和 Nav2，记录地图、TF、路径、Action 结果和最终速度。验收会话为每次运行分配独立 ROS domain 和证据目录，并清理全部进程组，避免旧环境造成假通过。
+纯单元测试之后，smoke test 启动真实节点检查 Lifecycle、Topic、Service 和 Action 接线；Gazebo E2E
+再运行传感器、SLAM、AMCL 和 Nav2，记录地图、TF、路径、Action 结果和最终速度。正式
+unknown-world E2E 只给机器人在线 scan/odom/TF/map，本次地图以外的真值只给 evaluator；known-world
+真人语音演示验证交互链，但不能替代这份自主证据。验收会话为每次运行分配独立 ROS domain 和证据目录，
+并清理全部进程组，避免旧环境造成假通过。
 
 入口：
 
 - [TESTING.md](../../TESTING.md)
-- [slam_nav_e2e.py](../../../tools/acceptance/scenarios/slam_nav_e2e.py)
+- [unknown_world_slam_e2e.py](../../../tools/acceptance/scenarios/unknown_world_slam_e2e.py)
 - [process_supervisor.py](../../../tools/acceptance/process_supervisor.py)
 
 ### Q41. 这条项目经历最需要主动说明的边界是什么？
 
 口述：
 
-主要运行环境是 Gazebo，不等同于真实底盘交付；音频实现的是 NLMS 回声抵消、VAD 和端点，不是完整通用降噪；动态障碍使用确定性仿真输入；新增 LiDAR 回环默认谨慎观察；在线离线模型接入不等于完成 LoRA 训练或生产准确率。主动说明这些边界不会削弱项目，反而能说明我知道证据能证明到哪里。
+主要运行环境是 Gazebo，不等同于真实底盘交付；音频实现的是 NLMS 回声抵消、VAD 和端点，不是完整
+通用降噪；默认声纹证据是 mock，Sherpa mode 尚未完成真实多人准确率验收；动态障碍使用确定性仿真
+输入；新增 LiDAR 回环默认谨慎观察；在线离线模型接入不等于完成 LoRA 训练或生产准确率。主动说明这些
+边界不会削弱项目，反而能说明我知道证据能证明到哪里。

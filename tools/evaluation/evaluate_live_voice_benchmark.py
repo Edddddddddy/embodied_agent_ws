@@ -23,29 +23,116 @@ def _normalize(text: str) -> str:
 def _monotonic_text_matches(
     expected: list[str], observed: list[str], threshold: float
 ) -> list[dict[str, Any]]:
-    matches = []
-    cursor = 0
-    for wanted in expected:
-        best_index = -1
-        best_score = 0.0
-        for index in range(cursor, len(observed)):
-            score = difflib.SequenceMatcher(
-                None, _normalize(wanted), _normalize(observed[index])
-            ).ratio()
-            if score > best_score:
-                best_index, best_score = index, score
-        matched = best_index >= 0 and best_score >= threshold
+    """按时间顺序为期望话术与 ASR final 建立全局一对一对齐。
+
+    现场可能先产生截断 final，随后又给出完整 final。局部贪心会让前一条命令
+    抢走后一条唯一证据，因此这里用动态规划先最大化匹配条数，再最大化相似度。
+    """
+
+    normalized_expected = [_normalize(item) for item in expected]
+    normalized_observed = [_normalize(item) for item in observed]
+    scores = [
+        [
+            difflib.SequenceMatcher(None, wanted, actual).ratio()
+            for actual in normalized_observed
+        ]
+        for wanted in normalized_expected
+    ]
+    expected_count = len(expected)
+    observed_count = len(observed)
+
+    # 每个状态保存“匹配条数、相似度总和”，确保匹配保持单调且一对一。
+    dp = [
+        [(0, 0.0) for _ in range(observed_count + 1)]
+        for _ in range(expected_count + 1)
+    ]
+    choice = [
+        ["done" for _ in range(observed_count + 1)]
+        for _ in range(expected_count + 1)
+    ]
+
+    def rank(value: tuple[int, float], priority: int) -> tuple[int, float, int]:
+        return value[0], round(value[1], 12), priority
+
+    for expected_index in range(expected_count, -1, -1):
+        for observed_index in range(observed_count, -1, -1):
+            if expected_index == expected_count and observed_index == observed_count:
+                continue
+            options: list[tuple[tuple[int, float], int, str]] = []
+            if expected_index < expected_count:
+                options.append(
+                    (dp[expected_index + 1][observed_index], 0, "skip_expected")
+                )
+            if observed_index < observed_count:
+                options.append(
+                    (dp[expected_index][observed_index + 1], 1, "skip_observed")
+                )
+            if expected_index < expected_count and observed_index < observed_count:
+                score = scores[expected_index][observed_index]
+                if score >= threshold and not _has_unsafe_control_slot_mismatch(
+                    normalized_expected[expected_index],
+                    normalized_observed[observed_index],
+                ):
+                    tail = dp[expected_index + 1][observed_index + 1]
+                    options.append(((tail[0] + 1, tail[1] + score), 2, "match"))
+            best_value, _, best_choice = max(
+                options, key=lambda item: rank(item[0], item[1])
+            )
+            dp[expected_index][observed_index] = best_value
+            choice[expected_index][observed_index] = best_choice
+
+    assignments: dict[int, int] = {}
+    expected_index = 0
+    observed_index = 0
+    while expected_index < expected_count or observed_index < observed_count:
+        decision = choice[expected_index][observed_index]
+        if decision == "match":
+            assignments[expected_index] = observed_index
+            expected_index += 1
+            observed_index += 1
+        elif decision == "skip_expected":
+            expected_index += 1
+        elif decision == "skip_observed":
+            observed_index += 1
+        else:
+            break
+
+    matches: list[dict[str, Any]] = []
+    for index, wanted in enumerate(expected):
+        assigned = assignments.get(index)
+        best_score = max(scores[index], default=0.0)
         matches.append(
             {
                 "expected": wanted,
-                "observed": observed[best_index] if matched else "",
-                "similarity": round(best_score, 3),
-                "matched": matched,
+                "observed": observed[assigned] if assigned is not None else "",
+                # 未匹配项保留最高文本相似度，便于区分阈值问题与槽位安全拒绝。
+                "similarity": round(
+                    scores[index][assigned] if assigned is not None else best_score,
+                    3,
+                ),
+                "matched": assigned is not None,
             }
         )
-        if matched:
-            cursor = best_index + 1
     return matches
+
+
+def _has_unsafe_control_slot_mismatch(expected: str, observed: str) -> bool:
+    """拒绝方向/颜色相反，或 ASR 漏掉期望关键槽位的伪高相似匹配。"""
+
+    mutually_exclusive_slots = (
+        ("左", "右"),
+        ("前", "后"),
+        ("蓝", "红", "绿", "黄"),
+    )
+    for slots in mutually_exclusive_slots:
+        expected_values = {slot for slot in slots if slot in expected}
+        if not expected_values:
+            continue
+        observed_values = {slot for slot in slots if slot in observed}
+        # 编辑距离无法保证控制安全：缺失、替换或混入相反槽位都不能作为通过证据。
+        if observed_values != expected_values:
+            return True
+    return False
 
 
 def _percentile(values: list[float], percentile: float) -> float | None:

@@ -207,11 +207,19 @@ test。真实模型、麦克风和完整 Gazebo 门禁留在本地，因为云�
 
 口述：
 
-功能开发使用独立分支和小范围提交，PR 中同时说明接口变化、测试命令和事实边界；CI 对目标分支重新构建全部相关包。源码、Launch、配置和测试进入版本库，`build`、`install`、`log`、模型权重、设备数据和密钥不提交。修改自定义消息或公共接口时要检查所有下游包，并让同一提交包含实现与测试，避免中间版本无法构建。
+一个仓库可以通过 `git worktree` 同时检出多条分支，它们共享对象库和 refs，但各自拥有工作目录与
+index；所以“有几个目录”不等于“有几个项目”。功能从 `dev` 拉 `feature/*` 或 `fix/*`，经 PR/CI
+回到 `dev`；发布候选再合入 `main`，并创建 annotated Tag 和 GitHub Release。PR 中同时说明接口变化、
+测试命令和事实边界，完整功能收口后再推送，避免每个微小编辑都触发 CI。
+
+源码、Launch、配置和测试进入版本库；`build`、`install`、`log`、模型权重、设备数据和密钥不提交。
+每个 worktree 要在自己的源码目录构建，随后 source 自己的 `install/setup.bash`；混用另一个 worktree
+的 install 会让“看到的源码”和“实际加载的节点”不一致，产生最难定位的假回归。
 
 项目证据：
 
 - CI：[ros2-ci.yml](../../../.github/workflows/ros2-ci.yml)
 - 忽略规则：[.gitignore](../../../.gitignore)
+- 完整流程：[12-git-worktree-release-governance.md](12-git-worktree-release-governance.md)
 
 追问：大模型或 bag 如何管理？模型可使用独立制品仓库或下载脚本并记录版本与哈希；大体积测试数据可使用对象存储或 Git LFS，但不能把未脱敏设备数据直接提交到普通仓库。

@@ -127,25 +127,33 @@ SLAM Toolbox 消费 LaserScan、里程和 TF，维护位姿图并发布地图以
 
 运行：机器人移动产生 scan 与 odom，SLAM Toolbox 更新图和 OccupancyGrid；任务层观察地图已知栅格、占用栅格和行驶里程；结束后调用 map saver 保存本轮地图。
 
-## Q7. Frontier 探索是怎样实现的？为什么不能只等“没有 frontier”？
+## Q7. 不知道场地总面积时，Frontier 探索怎样判断“可以收口”？
 
 口述：
 
-Frontier 是已知自由区域与未知区域的边界，Explore Lite 选择目标并通过 Nav2 到达。项目的监控器不只相信探索器的一条完成状态，还同时检查最短运行时间、已知栅格、占用栅格、建图里程和地图是否进入平台期。这样可以防止传感器尚未稳定、探索器提前退出却被误判为建图完成。
+Frontier 是已知自由区域与未知区域的边界，Explore Lite 选择目标并通过 Nav2 到达。运行时不知道真值
+总面积，所以不能自行计算“完成 85%”。系统优先等待 strict frontier 终结；如果达到硬预算，或可达
+frontier 反复停滞且恢复预算用完，才评估 bounded saturation。后者必须用多轮低收益、最终探测、地图
+静默、Action 总账排空和 typed STOP 共同证明收益已经递减，不能把 timeout 或一次平台期当成功。
 
 源码：
 
 - 探索监控：[frontier_monitor.py](../../../src/embodied_slam_tools/embodied_slam_tools/frontier_monitor.py)
-- 完成策略：[showcase_session.py](../../../src/embodied_slam_tools/embodied_slam_tools/showcase_session.py)
-- 证据累计：[mapping_evidence.py](../../../src/embodied_slam_tools/embodied_slam_tools/mapping_evidence.py)
+- 有界饱和：[exploration_saturation.py](../../../src/embodied_slam_tools/embodied_slam_tools/exploration_saturation.py)
+- 任务事务：[mission_executor.py](../../../src/embodied_slam_tools/embodied_slam_tools/mission_executor.py)
+- 独立验收：[unknown_world_evidence.py](../../../tools/acceptance/unknown_world_evidence.py)
 
-完成原因只有三类：
+两条路径的区别：
 
-1. `no_frontiers`：探索器完成，并且覆盖和里程门槛达标。
-2. `coverage_plateau`：地图在一段时间内不再增长，并且门槛达标。
-3. `time_budget_coverage`：时间预算到达，但当前地图已经满足验收门槛。
+1. `strict_frontier` 只接受三组强类型 provider/mission 原因，要求 available/active 为零且 accepted
+   goal 全部 terminal。
+2. `bounded_saturation` 至少需要连续 2 个低收益 epoch、每轮至少 3 个 terminal goal、累计路径
+   20 m、final probe 低收益、地图静默 15 s、账本排空和新的 STOP/零速证据。
+3. `time_budget_exhausted` 只是中性触发原因；是否 PASS 仍由 evaluator 用真值地图独立检查原有
+   `90/85/10` 地图质量、返航、定位、路径安全和最终停车门槛。
 
-取消时先发布停止动作并停止 explorer，再把取消异常交给任务状态机。
+两条路径都要先安全静默 Explorer，在建图 stage 中回到首次运动前动态捕获的起点，再保存地图。取消也
+必须排空 goal、发布停止并给任务状态机明确终态。
 
 ## Q8. 为什么建图结束后要先存图，再启动 AMCL 和 Nav2？
 
@@ -262,3 +270,14 @@ success =
 - 测试说明：[TESTING.md](../../TESTING.md)
 
 回答重点：发布命令是输入证据，Action result 是协议证据，地图、位姿、路径和零速度才是运行效果证据。
+
+## Q15. 真人语音导航演示和 unknown-world 正式验收是一回事吗？
+
+口述：
+
+不是。known-world 真人演示验证麦克风、VAD、ASR、会话、语义地点和 Nav2 接线，允许使用配置中的
+地点名称；正式 unknown-world E2E 验证机器人在不知道场景尺寸、区域和固定路线时自主探索、返航、
+存图、定位和运行时采样导航目标。两者可以复用控制栈，但不能拼成同一个 session 或用前者证明后者。
+
+正式 unknown-world 的唯一成功事实是本次 schema v4 报告 `passed=true` 且所有硬检查通过；真人演示
+日志只证明交互链路可用。
