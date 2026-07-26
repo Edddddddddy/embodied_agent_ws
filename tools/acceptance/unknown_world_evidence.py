@@ -1097,6 +1097,14 @@ def evaluate_approximate_completion(
         "residual_frontier_count_consistent": (
             residual >= 0 and residual == available
         ),
+        # hard-budget 的 residual 是 pre-probe 诊断快照，可以非零；而
+        # repeated-stall 的生产契约声明“连续恢复后没有可达 frontier”，
+        # evaluator 必须独立复核为 0，不能只相信 producer 的 valid 位。
+        "residual_frontier_trigger_contract": (
+            trigger_reason
+            != "reachable_frontiers_stalled_bounded_saturation"
+            or residual == 0
+        ),
         "final_probe_recorded": (
             final_gain_cells >= 0
             and math.isfinite(final_gain_ratio)

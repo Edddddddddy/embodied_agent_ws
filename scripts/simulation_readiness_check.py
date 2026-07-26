@@ -103,14 +103,35 @@ class SimulationReadinessNode:
         deadline = time.monotonic() + max(0.1, timeout_s)
         while time.monotonic() < deadline:
             self._rclpy.spin_once(self.node, timeout_sec=0.1)
-            if (
-                self.odom_count >= min_odom_samples
-                and self.scan_count >= min_scan_samples
-                and self.clock_count >= min_clock_samples
-                and self._clock_span_s() >= min_clock_advance_s
-                and _recent_odom_drift(self.odom_positions, stable_window)
-                <= stable_epsilon_m
-            ):
+            odom_recent_drift = _recent_odom_drift(
+                self.odom_positions, stable_window
+            )
+            # Gazebo 传感器通常比 Lifecycle configure 更早可见。必须用完整
+            # readiness 契约决定退出；否则慢 WSL 会在 Action server 和
+            # /cmd_vel publisher 出现前返回，与真正的控制栈故障表现相同。
+            blockers = readiness_blockers(
+                odom_count=self.odom_count,
+                scan_count=self.scan_count,
+                odom_stable=(
+                    self.odom_count >= min_odom_samples
+                    and odom_recent_drift <= stable_epsilon_m
+                ),
+                cmd_vel_publishers=self.node.count_publishers("/cmd_vel"),
+                cmd_vel_subscribers=self.node.count_subscribers("/cmd_vel"),
+                action_server_seen=(
+                    self.node.count_services(
+                        "/robot/execute_command/_action/send_goal"
+                    )
+                    > 0
+                ),
+                clock_count=self.clock_count,
+                clock_span_s=self._clock_span_s(),
+                min_odom_samples=min_odom_samples,
+                min_scan_samples=min_scan_samples,
+                min_clock_samples=min_clock_samples,
+                min_clock_advance_s=min_clock_advance_s,
+            )
+            if not blockers:
                 break
 
         cmd_vel_publishers = self.node.count_publishers("/cmd_vel")

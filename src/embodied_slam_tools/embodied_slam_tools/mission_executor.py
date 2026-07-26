@@ -1303,6 +1303,9 @@ class UnknownWorldMissionExecutor:
             history=tracker.snapshot(),
             trigger=trigger,
             recovery_attempts_remaining=recovery_attempts_remaining,
+            # TIME_BUDGET 下这是 Explorer quiesce 时的 pre-probe cluster
+            # 快照；它仍写入 typed evidence 供诊断和 evaluator 一致性复核，
+            # 但不冒充 final probe 后的剩余信息量。
             residual_available_frontiers=(
                 telemetry.available_frontier_count
             ),

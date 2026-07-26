@@ -95,7 +95,7 @@ run_offline() {
 }
 
 run_gazebo() {
-  bash scripts/smoke_test_gazebo_typed_action.sh
+  python3 -m tools.acceptance.scenarios.gazebo_typed_action
 }
 
 run_slam_evaluation_stage() {

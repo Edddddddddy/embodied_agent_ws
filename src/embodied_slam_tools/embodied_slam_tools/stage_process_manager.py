@@ -392,6 +392,7 @@ class StageProcessManager:
         def observe() -> None:
             # wrapper 运行期间持续合并而不是覆盖快照：setsid 子进程一旦被 init
             # 接管，就无法再从 /proc/<wrapper>/children 反向发现。
+            fast_scan_deadline = time.monotonic() + 1.0
             while not ownership.stop_watcher.is_set():
                 if (
                     self._process_start_ticks(process.pid)
@@ -409,7 +410,15 @@ class StageProcessManager:
                         ownership.descendants.update(descendants)
                 if process.poll() is not None:
                     break
-                ownership.stop_watcher.wait(0.01)
+                # 启动首秒高频扫描用于捕获很快脱组的 wrapper 子进程；稳定期
+                # 降到 4 Hz，避免十几分钟 GUI/SLAM 验收反复递归扫描 /proc，
+                # 抢占 Nav2 controller 与 WSLg 软件渲染的 CPU 时间。
+                interval_s = (
+                    0.02
+                    if time.monotonic() < fast_scan_deadline
+                    else 0.25
+                )
+                ownership.stop_watcher.wait(interval_s)
 
         watcher = threading.Thread(
             target=observe,

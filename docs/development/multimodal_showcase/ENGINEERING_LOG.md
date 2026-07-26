@@ -164,6 +164,9 @@ session：`20260721T072342Z-2344751-5452a492`
   增加一次最多 `240 s` 的最终确认机会；仅当近期历史仍有实质增益时触发，
   确认后仍必须通过连续低收益、剩余 frontier、最终 probe、地图质量、返航和
   typed STOP。
+- 后续语义修订：hard-budget 的“剩余 frontier”只保留 pre-probe typed 诊断，
+  不再使用 raw cluster 绝对上限；repeated-stall 仍要求 residual 为零。详见本日志
+  `2026-07-25：未知环境 hard-budget 残余 frontier 假阴性`。
 - 验证：最终 fresh session 的确认 probe 增益为 0，系统按
   `bounded_saturation` 正常收口，没有降低 coverage 阈值。
 
@@ -435,13 +438,116 @@ STOP 后 fresh final zero: PASS
 未来实现 `DefaultDemoSession` 时，再增加
 `RUN_DEFAULT -> MISSION_COMPLETED -> STOP -> STOPPED` 的会话级证据。
 
+## 2026-07-25：公开 Gazebo 门禁隔离宿主 Nav2 ABI
+
+`acceptance_test.sh gazebo` 曾能看到 `/clock`、`/odom` 和 `/scan`，却同时缺少
+`/cmd_vel` publisher 与 `/robot/execute_command` Action server。launch 日志证明
+三个 Lifecycle Manager 都错误地来自宿主 `/home/ubuntu/nav2_ws/install`，其
+`libnav2_lifecycle_manager_core.so` 与当前 Jazzy `diagnostic_updater` ABI 不一致，
+因此在 configure 前以 exit 127 退出。两个 readiness blocker 实际属于同一条
+Lifecycle 配置链断裂。
+
+修复让公开 Gazebo smoke 进入独立 `AcceptanceSession`，复用 unknown-world 门禁已经
+验证的 `RosEnvironmentIsolation`：只保留当前 worktree、系统 ROS 和白名单 Frontier；
+同一外部 workspace 的 `install` 与 `build` 路径会在 C++/Python 环境变量中一起清除。
+readiness 失败时还会打印 launch 日志，避免以后只看到表层图谱 blocker。
+
+本地连续两次运行原公开命令均通过，Action progress 约 `0.98`，结果为
+`succeeded`，最终 ACK 为 `gazebo:velocity_zero`；session manifest 证明
+`nav2_lifecycle_manager=/opt/ros/jazzy` 且 cleanup 无残留进程。
+
+## 2026-07-25：未知环境 hard-budget 残余 frontier 假阴性
+
+现场会话 `20260725T071407Z-72290-630add20` 在探索约 900 秒后被
+`too_many_residual_frontiers` 单项否决：暂停 Explorer 时 `available=6`，旧配置绝对上限为 `4`。失败地图
+经项目自己的 evaluator 复评，实际已达到 `99.78%` 可达覆盖、`98.55%` 最低分区覆盖，障碍召回和
+false-free 也全部通过；路径为 `139.58m`，34 个 Frontier Action 均已终态。
+
+根因不是“把 4 调得不够大”，而是证据语义错误：任务先暂停并停止 Explorer，再执行 final 360° probe。
+final probe 会更新地图，但停止的 provider 不会重算 cluster，因此 residual 永远是 probe 之前的快照；
+raw cluster 数本身也受墙角碎片影响，不等价于剩余信息量。
+
+修复只调整 hard time-budget 的 bounded-saturation 语义：
+
+- residual 继续写入 typed evidence，供诊断和 producer/evaluator 一致性复核；
+- hard-budget 不再用陈旧绝对 cluster 数单项否决；
+- repeated reachable stall 仍严格要求 residual 为零，evaluator 也按 trigger
+  独立复核，不能只相信 producer 的 `valid` 位；
+- 连续低收益 epoch、单位 terminal-goal 增益、建图里程、final probe、地图静默、Action 账本、新鲜 STOP、
+  返航以及独立 `90/85/10` 地图质量门禁全部保留。
+
+新增领域层和 MissionExecutor 调用层回归测试，精确覆盖 `pre-probe available=6` 的现场模式。修复后的
+dirty-worktree 开发证据 `20260725T075144Z-136143-407995d3` 又完成一次无界面全链路：
+
+```text
+elapsed: 1022 s
+completion: frontier_attempts_exhausted_below_material_gain
+reachable coverage: 0.998
+minimum region coverage: 0.984
+mapping path: 167.963 m
+frontier goals: 34
+AMCL P95: 0.138 m
+sampled Nav2 goals: 3 / 3
+dynamic obstacle replan + final fresh zero: PASS
+```
+
+该次自然走 strict low-gain 路径，证明完整链路没有回归；hard-budget `available=6` 分支由上述两个确定性
+红→绿测试覆盖。由于 `source_dirty=true`，它是提交前开发证据，不冒充 clean release evidence。
+
+当前 typed schema 记录 final probe 的实际增益，但没有同时携带本次生效的 cells/ratio 阈值；因此
+evaluator 能复核数值存在、trigger/residual、地图质量、返航和停车，细粒度收益阈值仍由 producer 的纯函数
+assessment 保证。后续若扩展证据 schema，应把阈值及配置 provenance 一并传输，再由 evaluator 独立比较；
+本轮不复制硬编码常量，避免生产与验收两套阈值漂移。
+
+## 2026-07-25：GUI 长时建图资源耗尽与安全降级
+
+用户使用 `HEADLESS=false USE_RVIZ=true` 时，地图扫描到后期出现“机器人不再移动、终端长期等待”，最终
+WSL 非正常退出。失败 session `20260725T082402Z-200546-b46208ea` 的业务日志与上一 boot kernel journal
+对齐后确认：
+
+- 默认 OpenGL renderer 是 llvmpipe，Gazebo GUI 与 RViz 同时走 WSLg/Xwayland 软件渲染；
+- 约 535 秒时 Xwayland 首次 page allocation failure；
+- WSL 匿名内存约 7 GiB、可用内存约 80–100 MiB、2 GiB Swap 全部耗尽；
+- 一秒后 `collision_monitor` 4 秒 bond 心跳丢失，Lifecycle Manager 关闭 Nav2；
+- Explorer/探针没有感知该终态，manifest 留在 `running`，表现为“卡死”。
+
+地图只有约 3.1 万栅格；观察器的轨迹列表在成功会话中也只有数万 tuple，数量级为 MiB。当前证据能确认
+资源耗尽，但不能证明某一个 ROS 节点存在严格堆内存泄漏。
+
+修复：
+
+1. `visual_runtime.py` 检测 renderer；D3D12 可用时为本次子树注入驱动。长时双 GUI 在 8 GiB WSL 中
+   自动降级为 Gazebo server + RViz。
+2. `resource_watchdog.py` 每 5 秒流式写 JSONL，只在内存保留 latest/peak；连续低资源触发
+   `resource_exhaustion` 并复用 AcceptanceSession 的停车/清理。
+3. `runtime_log_health.py` 增量识别 Lifecycle `CRITICAL FAILURE`，立即报告
+   `nav2_runtime_unhealthy`，不再等待 3690 秒 mission deadline。
+4. StageProcessManager 的 `/proc` 子树观察从稳定期 100 Hz 降到 4 Hz；启动首秒仍高频捕获脱组进程。
+
+用户原命令随后自动选择 D3D12 RViz-only，并生成 fresh 证据
+`20260725T120302Z-145519-3ec3df78`：
+
+```text
+elapsed: 990 s
+reachable / minimum-region coverage: 0.998 / 0.983
+mapping path / frontier accepted-terminal: 153.403 m / 34-34
+AMCL P95 / sampled goals: 0.154 m / 3-3
+dynamic replan + final fresh zero: PASS
+peak session RSS: 2056.5 MiB
+final swap used: about 0.01%
+resource failure / cleanup: null / complete
+```
+
+该次在旧故障时点之后仍无 Nav2 heartbeat failure，mapping stage 完成后 RSS 下降，支持“图形资源组合”
+而非“地图持续泄漏”的根因结论。
+
 ## 下一轮安排
 
 persistent 功能和 repository surface 已进入 `dev`，接下来顺序开发：
 
-1. 为已完成本地闭环的 `refactor/showcase-session-runtime` 创建 PR 并等待 CI。
-2. 在该 Interface 合入 `dev` 后重新评估 `DefaultDemoSession`，不提前建立 phase DSL。
-3. `feature/showcase-unified-entry`：统一 run/status/keyboard/stop 入口。
-4. `feature/showcase-multimodal-handoff`：语音、键盘、自治任务接管与恢复。
-5. `feature/showcase-demo-profiles`：quick/strict profile、统一报告和 15 分钟讲稿。
-6. 集成完成后由 `dev -> main` 发布 `v0.6-multimodal-showcase`。
+1. 将 `fix/gui-slam-runtime-stability` 通过 PR 合入 `dev`，由 CI 复核轻量门禁。
+2. 在 clean commit 上按发布需要重跑一次 strict E2E；本地 dirty run 只作为开发证据。
+3. 重新评估 `DefaultDemoSession`，不提前建立 phase DSL。
+4. `feature/showcase-unified-entry`：统一 run/status/keyboard/stop 入口。
+5. `feature/showcase-multimodal-handoff`：语音、键盘、自治任务接管与恢复。
+6. 集成完成后由 `dev -> main` 发布下一阶段展示版本。

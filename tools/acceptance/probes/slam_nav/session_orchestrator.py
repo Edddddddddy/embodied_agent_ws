@@ -55,6 +55,7 @@ from tools.acceptance.probes.slam_nav.unknown_world_report_adapter import (
     build_session_report as build_unknown_world_session_report,
 )
 from tools.acceptance.progress import AcceptanceProgress
+from tools.acceptance.runtime_log_health import RuntimeLogHealthMonitor
 from tools.acceptance.slam_nav_evidence import (
     AutomaticMissionObservation,
     AutomaticMissionThresholds,
@@ -99,6 +100,7 @@ def main() -> None:
         else None
     )
     progress_outcome = "FAIL"
+    runtime_health = RuntimeLogHealthMonitor(args.runtime_log or args.output)
     rclpy.init()
     state_observer = (
         (lambda message: publish_state_progress(progress, message))
@@ -178,8 +180,8 @@ def main() -> None:
                 SlamSessionState.MISSION_FAILED,
                 SlamSessionState.MISSION_CANCELED,
             }
-            wait_until(
-                lambda: (
+            runtime_health.wait_until(
+                predicate=lambda: (
                     node.has_phase(SlamSessionState.MISSION_COMPLETED)
                     or any(
                         state.phase == SlamSessionState.FAILED
@@ -187,8 +189,9 @@ def main() -> None:
                         for state in node.states[state_start:]
                     )
                 ),
-                args.transition_timeout,
-                "automatic mission did not reach a terminal state",
+                waiter=wait_until,
+                timeout_s=args.transition_timeout,
+                description="automatic mission did not reach a terminal state",
             )
             failed_state = next(
                 (

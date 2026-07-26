@@ -1,8 +1,8 @@
 # 未知场地 SLAM 收敛、返航与导航 Goal
 
-> 状态：**已完成现场验收；session `20260721T072342Z-2344751-5452a492` 全部 checks 通过**
-> 稳定基线：`dev@68a4513`
-> 稳定性修复：`fix/frontier-saturation-completion`
+> 状态：**已完成 RViz 可视化稳定性验收；session `20260725T120302Z-145519-3ec3df78` 全部 checks 通过**
+> 稳定基线：`dev@90e77b5`
+> 稳定性修复：`fix/gui-slam-runtime-stability`
 > 正式入口：`unknown-world-slam-e2e`
 > 真人入口：`voice-unknown-world-slam-e2e {offline|online}`
 
@@ -54,7 +54,8 @@
 
 - 最近至少 `2` 个连续低收益 epoch，每个 epoch 至少 `3` 个 terminal frontier goal；
 - 建图阶段累计路径至少 `20 m`；恢复次数余量只记录诊断信息，不要求为耗尽预算制造动作；
-- 残余 available frontier 不多于 `4`；
+- 残余 available frontier 作为 typed 诊断快照保留；hard-budget 不以其绝对 cluster 数单项否决，
+  `reachable_frontiers_stalled` 路径仍要求 residual 为零；
 - epoch 的单位终态目标增益没有同时达到 `40 cells` 与 `0.2%`；
 - 有界触发后只做一次 360° final probe；其增益低于上述门槛；
 - 地图连续静默至少 `15 s`；
@@ -116,6 +117,9 @@ STOP 获取真实的新零速，才允许重启为 AMCL/Nav2。双确认避免�
 | `showcase_session_node.py:run_mapping_return_goal()` | mapping stage 内返航、TF 复核与安全停车 |
 | `SlamMappingCompletionEvidence.msg` | 饱和与返航的强类型生产证据 |
 | `tools/acceptance/unknown_world_evidence.py` | 严格/近似完成与 evaluator-only 地图质量裁决 |
+| `tools/acceptance/visual_runtime.py` | renderer/内存预检、D3D12 注入与双 GUI 安全降级 |
+| `tools/acceptance/resource_watchdog.py` | 有界 JSONL 资源采样、低内存滞回与安全失败 |
+| `tools/acceptance/runtime_log_health.py` | Nav2 Lifecycle 已关闭时快速终止外层等待 |
 
 中文注释只解释真值隔离、Action 所有权、时间线和 fail-closed 风险，不逐行翻译代码。
 
@@ -126,10 +130,14 @@ STOP 获取真实的新零速，才允许重启为 AMCL/Nav2。双确认避免�
 ```bash
 CLEANUP_CONFIRM=true bash scripts/cleanup_simulation_processes.sh
 
-HEADLESS=false USE_RVIZ=true \
+HEADLESS=true USE_RVIZ=true \
   SLAM_NAV_PROGRESS_HEARTBEAT_S=10 \
   bash scripts/acceptance_test.sh unknown-world-slam-e2e
 ```
+
+旧命令 `HEADLESS=false USE_RVIZ=true` 仍可运行；资源策略会在 8 GiB WSL 或软件渲染环境自动关闭
+Gazebo 3D client，只保留 RViz。Gazebo server、物理、传感器和机器人运动不受影响。双 GUI 只用于短时
+调试，并需显式设置 `SLAM_NAV_ALLOW_DUAL_GUI=true`。
 
 现场观察必须同时满足：
 
@@ -150,13 +158,15 @@ logs/acceptance/unknown_world_slam_nav/<session_id>/
 ├── unknown_world_map.yaml
 ├── unknown_world_map.pgm
 ├── runtime.log
+├── resource_samples.jsonl
 └── acceptance_session.json
 ```
 
-本轮现场 session `20260721T072342Z-2344751-5452a492` 正常运行 `1092 s` 后自行结束：可达自由区覆盖
-`99.81%`、最低区域覆盖 `98.76%`、AMCL P95 `0.120 m`，返航、3 个动态采样目标、动态重规划和最终
-新鲜零速全部 PASS。该次使用 strict frontier 完成路径；残余前沿长期存在时的 bounded saturation
-路径仍由同一 typed 返航门槛和确定性测试覆盖。
+本轮现场 session `20260725T120302Z-145519-3ec3df78` 正常运行 `990 s` 后自行结束：可达自由区覆盖
+`99.75%`、最低区域覆盖 `98.34%`、AMCL P95 `0.154 m`，返航、3 个动态采样目标、动态重规划和最终
+新鲜零速全部 PASS。资源 watchdog 共记录 199 个样本，会话 RSS 峰值 `2056.5 MiB`，最终 Swap 使用率
+约 `0.01%`，无 `collision_monitor` 心跳故障。该次使用 strict final-confirmation 路径；残余前沿长期
+存在时的 bounded saturation 路径仍由同一 typed 返航门槛和确定性测试覆盖。
 
 真人语音联合入口在相同核心事务外再验证真实音频、VAD endpoint、WakeEvent 和 ASR；它不能替代上述
 SLAM/Nav2 可视化验收。完整字段、阈值和故障定位见 [测试手册](../TESTING.md)。
@@ -168,4 +178,4 @@ SLAM/Nav2 可视化验收。完整字段、阈值和故障定位见 [测试手�
 - 新的可视化 `unknown-world-slam-e2e` 现场报告全部 checks/sections 为 true。
 - 现场确认机器人先返航再存图，并继续完成 AMCL/Nav2/动态重规划。
 - README、测试手册和学习笔记与实际实现一致。
-- session `20260721T072342Z-2344751-5452a492` 已满足上述现场条件；其后才能 commit/push/PR。
+- session `20260725T120302Z-145519-3ec3df78` 已满足上述现场条件；提交后仍需由 CI 复核轻量门禁。

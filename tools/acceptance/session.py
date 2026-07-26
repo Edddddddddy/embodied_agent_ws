@@ -23,6 +23,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Protocol, Sequence, TextIO
 
+from tools.acceptance.resource_watchdog import (
+    ResourceWatchdog,
+    ResourceWatchdogConfig,
+)
+
 
 class AcceptanceSessionError(RuntimeError):
     """验收会话无法安全继续。"""
@@ -38,6 +43,10 @@ class ArtifactLeaseUnavailable(AcceptanceSessionError):
 
 class AcceptanceCommandError(AcceptanceSessionError):
     """会话内命令失败或超过截止时间。"""
+
+
+class AcceptanceResourceExhaustion(AcceptanceSessionError):
+    """WSL 资源持续低于安全线；会话必须先停车再释放进程。"""
 
 
 class AcceptanceSignalError(AcceptanceSessionError):
@@ -571,6 +580,7 @@ class AcceptanceSessionConfig:
     unset_environment_keys: tuple[str, ...] = ()
     manifest_environment_keys: tuple[str, ...] = ()
     ros_environment_isolation: RosEnvironmentIsolation | None = None
+    resource_watchdog: ResourceWatchdogConfig | None = None
     lock_root: Path = Path("/tmp/embodied-agent-acceptance")
 
 
@@ -658,8 +668,9 @@ def _isolate_ros_environment(
     original_ament = _path_entries(isolated.get("AMENT_PREFIX_PATH"))
     retained_ament: list[str] = []
     allowed_external_prefixes: list[Path] = []
+    allowed_external_build_roots: list[Path] = []
     removed_prefixes: list[str] = []
-    excluded_install_roots: set[Path] = set()
+    excluded_overlay_roots: set[Path] = set()
 
     for rendered in original_ament:
         prefix = _normalized_path(rendered)
@@ -672,6 +683,12 @@ def _isolate_ros_environment(
         if packages and packages.issubset(allowed_package_names):
             retained_ament.append(rendered)
             allowed_external_prefixes.append(prefix)
+            install_root = _external_install_root(prefix)
+            if install_root.name == "install":
+                allowed_external_build_roots.extend(
+                    install_root.parent / "build" / package
+                    for package in packages
+                )
             continue
         if packages & allowed_package_names:
             unsafe = ", ".join(sorted(packages - allowed_package_names))
@@ -680,7 +697,13 @@ def _isolate_ros_environment(
                 f"packages: {rendered} ({unsafe})"
             )
         removed_prefixes.append(rendered)
-        excluded_install_roots.add(_external_install_root(prefix))
+        install_root = _external_install_root(prefix)
+        excluded_overlay_roots.add(install_root)
+        if install_root.name == "install":
+            # ament 索引只能定位 install；ament_python 的 editable/symlink
+            # 产物还可能把同一外部工作区的 build/* 写进 PYTHONPATH。两者必须
+            # 作为一个 overlay 一起剔除，否则 C++ ABI 已隔离、Python 仍会串包。
+            excluded_overlay_roots.add(install_root.parent / "build")
 
     isolated["AMENT_PREFIX_PATH"] = os.pathsep.join(retained_ament)
 
@@ -693,9 +716,14 @@ def _isolate_ros_environment(
             for prefix in allowed_external_prefixes
         ):
             return True
+        if any(
+            _path_is_within(candidate, root)
+            for root in allowed_external_build_roots
+        ):
+            return True
         return not any(
             _path_is_within(candidate, root) or candidate == root
-            for root in excluded_install_roots
+            for root in excluded_overlay_roots
         )
 
     for key in _ROS_PATH_ENVIRONMENT_KEYS:
@@ -793,8 +821,11 @@ class AcceptanceSession:
         self._started_monotonic = 0.0
         self._started_ns = 0
         self._closed = False
+        self._closing = False
         self._outcome = "running"
         self._error: str | None = None
+        self._resource_watchdog: ResourceWatchdog | None = None
+        self._resource_failure: str | None = None
 
     @property
     def started_ns(self) -> int:
@@ -807,6 +838,15 @@ class AcceptanceSession:
         return self._lease.domain_id
 
     def __enter__(self) -> "AcceptanceSession":
+        if (
+            self.config.resource_watchdog is not None
+            and threading.current_thread() is not threading.main_thread()
+        ):
+            # watchdog 通过 SIGTERM 把后台失败交给 Python 主线程。非主线程
+            # 无法安装 signal handler，继续启动会让默认 SIGTERM 直接杀进程。
+            raise AcceptanceSessionError(
+                "resource watchdog requires AcceptanceSession on main thread"
+            )
         artifact_pool = ArtifactDirectoryLeasePool(
             self.config.lock_root / "artifacts"
         )
@@ -870,7 +910,19 @@ class AcceptanceSession:
             self._adapter.begin_session()
             self._process_session_started = True
             self._write_manifest()
+            if self.config.resource_watchdog is not None:
+                self._resource_watchdog = ResourceWatchdog(
+                    config=self.config.resource_watchdog,
+                    session_id=self.session_id,
+                    output_path=self.artifact_dir
+                    / "resource_samples.jsonl",
+                    on_failure=self._on_resource_failure,
+                )
+                self._resource_watchdog.start()
         except BaseException:
+            if self._resource_watchdog is not None:
+                self._resource_watchdog.stop()
+                self._resource_watchdog = None
             self._restore_signal_handlers()
             if self._process_session_started:
                 try:
@@ -903,10 +955,21 @@ class AcceptanceSession:
             )
             signal.signal(signal_number, self._raise_signal)
 
-    @staticmethod
-    def _raise_signal(signal_number: int, _frame) -> None:
+    def _raise_signal(self, signal_number: int, _frame) -> None:
         # signal handler 只改变控制流；真正的 TERM→KILL 清理由 __exit__ 统一执行。
+        if (
+            signal_number == signal.SIGTERM
+            and self._resource_failure is not None
+        ):
+            raise AcceptanceResourceExhaustion(self._resource_failure)
         raise AcceptanceSignalError(signal_number)
+
+    def _on_resource_failure(self, detail: str) -> None:
+        """从 watchdog 线程把失败交还主线程，复用统一停车/清理事务。"""
+
+        self._resource_failure = detail
+        if not self._closed and not self._closing:
+            os.kill(os.getpid(), signal.SIGTERM)
 
     def _ignore_managed_signals_during_cleanup(self) -> None:
         for signal_number in self._previous_signal_handlers:
@@ -1031,6 +1094,7 @@ class AcceptanceSession:
                 )
             },
             "ros_environment": self._ros_environment_provenance,
+            "resources": self._resource_manifest(),
             "cleanup_complete": self._closed
             and self._session_cleanup is not None
             and not self._session_cleanup.remaining_pids
@@ -1085,10 +1149,59 @@ class AcceptanceSession:
         )
         os.replace(temporary, self.manifest_path)
 
+    def _resource_manifest(self) -> dict[str, Any] | None:
+        watchdog = self._resource_watchdog
+        if watchdog is None:
+            return None
+        summary = watchdog.summary
+        latest = summary.latest_memory
+        return {
+            "samples_path": str(watchdog.output_path),
+            "sample_count": summary.sample_count,
+            "latest": (
+                {
+                    "mem_total_mib": round(latest.total_kib / 1024, 1),
+                    "mem_available_mib": round(
+                        latest.available_kib / 1024, 1
+                    ),
+                    "swap_total_mib": round(
+                        latest.swap_total_kib / 1024, 1
+                    ),
+                    "swap_free_mib": round(
+                        latest.swap_free_kib / 1024, 1
+                    ),
+                    "swap_used_ratio": round(
+                        latest.swap_used_ratio, 4
+                    ),
+                }
+                if latest is not None
+                else None
+            ),
+            "peak_session_rss_mib": round(
+                summary.peak_session_rss_kib / 1024, 1
+            ),
+            "latest_session_process_count": (
+                summary.latest_session_process_count
+            ),
+            "failure": summary.failure,
+        }
+
     def close(self, *, error: BaseException | None = None) -> None:
         if self._closed:
             return
+        self._closing = True
+        # 先阻止 watchdog 的迟到 SIGTERM，再 join 后台线程；否则信号可能在
+        # close() 等待线程时打断清理，反而留下 Gazebo/Nav2 进程和 domain lease。
         self._ignore_managed_signals_during_cleanup()
+        late_resource_error: AcceptanceResourceExhaustion | None = None
+        if self._resource_watchdog is not None:
+            self._resource_watchdog.stop()
+            resource_failure = self._resource_watchdog.summary.failure
+            if resource_failure is not None and error is None:
+                late_resource_error = AcceptanceResourceExhaustion(
+                    resource_failure
+                )
+                error = late_resource_error
         cleanup_errors: list[str] = []
         for child in reversed(self._children):
             try:
@@ -1141,6 +1254,8 @@ class AcceptanceSession:
             self._tail_failure_logs()
         if cleanup_errors and error is None:
             raise AcceptanceSessionError(f"acceptance cleanup failed: {joined}")
+        if late_resource_error is not None:
+            raise late_resource_error
 
     def __exit__(self, exc_type, exc, traceback) -> bool:
         self.close(error=exc)

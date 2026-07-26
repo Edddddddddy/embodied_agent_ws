@@ -141,6 +141,56 @@ ASR。探针订阅 ASR 只为证据观察，不驱动生产任务。
 
 截至本笔记更新，联合入口已实现但真人现场 PASS 尚未生成；历史 v4 不能外推为真人联合结果。
 
+### 1.2 为什么“GUI 卡死”不一定是 SLAM 算法或内存泄漏
+
+#### 现场证据怎样指向资源耗尽
+
+失败 session 中，地图只有约 3.1 万栅格，远不足以解释 GB 级增长；真正的时间线是：
+
+```text
+HEADLESS=false + USE_RVIZ=true
+→ Gazebo GUI 与 RViz 同时进入 WSLg/Xwayland
+→ 默认 llvmpipe 软件渲染，内存和 CPU 压力持续放大
+→ MemAvailable 约 80 MiB、2 GiB Swap 用尽
+→ Xwayland page allocation failure
+→ collision_monitor 4 秒 bond 心跳丢失
+→ Nav2 Lifecycle Manager 关闭导航栈
+→ Explorer 仍等待，表现为“扫到后期卡死”
+```
+
+同一版本的 headless session 可完整通过；修复后的 RViz-only session 运行 990 秒，RSS 峰值约
+2056.5 MiB、Swap 基本为零并完整 PASS。因此现有证据能确认**资源耗尽**，但不能声称某一个 ROS 节点有
+严格堆内存泄漏。诊断性能问题时必须先建立时间对齐的系统证据，不能只看终端最后一条 frontier 日志。
+
+#### 关键代码在哪里
+
+- `tools/acceptance/visual_runtime.py`
+  - `probe_graphics()`：检查 OpenGL renderer；WSLg 的 D3D12 可用时只为本次子进程注入
+    `GALLIUM_DRIVER=d3d12`。
+  - `decide_visual_runtime()`：把用户请求和有效模式分开；低内存/软件渲染的双 GUI 自动收敛为
+    Gazebo server + RViz。
+- `tools/acceptance/resource_watchdog.py`
+  - `ResourcePressureTracker.observe()`：连续样本滞回，避免一次 map-save 峰值误杀任务。
+  - `ResourceWatchdog.sample_once()`：流式写 `resource_samples.jsonl`，内存只保留 latest/peak。
+  - `session_process_memory()`：用 `ACCEPTANCE_SESSION_ID` 聚合跨 `setsid` 的整个会话 RSS。
+- `tools/acceptance/session.py:AcceptanceSession`：watchdog 触发后把失败交回主线程，复用已有的停车、
+  进程树回收和 manifest 事务。
+- `tools/acceptance/runtime_log_health.py:RuntimeLogHealthMonitor`：增量读取日志；Lifecycle Manager 已明确
+  关闭服务器时立即报 `nav2_runtime_unhealthy`。
+- `stage_process_manager.py:_register_process_tree()`：启动首秒快速捕获脱组子进程，稳定期降到 4 Hz，
+  避免十几分钟持续以 100 Hz 递归扫描 `/proc`。
+
+#### 为什么这样设计、与替代方案有什么区别
+
+长期门禁真正需要的是地图、LaserScan、TF、规划路径和机器人位姿，这些都能在 RViz 看见；Gazebo 3D
+client 只负责额外的场景渲染，关闭它不会关闭 Gazebo server 的物理与传感器。因而 RViz-only 是功能不
+降级的资源隔离，不是把仿真改成 mock。
+
+单纯增加 Swap 或 WSL 内存上限只会延后 thrash，而且宿主 Windows 当时也接近低内存；单纯放宽 Nav2
+bond timeout 会掩盖 executor 饥饿。当前方案在启动前消除高风险组合、运行中保留有界资源曲线，并在
+资源或 Nav2 已明确失败时尽快停车清理。高配机器仍可显式
+`SLAM_NAV_ALLOW_DUAL_GUI=true`，但 override 会写入 manifest，不能悄悄改变正式验收条件。
+
 ## 2. 运行时采样导航目标准入：从地图候选到 NavigateToPose
 
 ### 代码在哪里
@@ -275,8 +325,13 @@ hard deadline 到达则失败，因此 timeout 不会被伪装成收敛。
 随后只执行一次 final probe。`SaturationEvidenceTracker` 使用峰值 known cells，避免回环导致当前已知
 栅格变少时伪造负收益；同时用 terminal goal 数归一化 epoch 增益，避免“epoch 跑得久”天然看起来收益更高。
 默认必须满足最近 `2` 个连续低收益 epoch、每轮 `3` 个 terminal goal、累计路径 `20m`、残余 available
-frontier `<=4`、final probe 低增益、地图静默 `15s`、账本排空和 probe 后新鲜 typed STOP。恢复次数余量仅用于
-诊断；provider 未请求恢复时，不会为了把计数降到零而制造额外运动。
+frontier 的 typed 诊断快照、final probe 低增益、地图静默 `15s`、账本排空和 probe 后新鲜 typed STOP。
+恢复次数余量仅用于诊断；provider 未请求恢复时，不会为了把计数降到零而制造额外运动。
+
+这里不能用一个绝对 residual cluster 上限作为 hard-budget 门槛：这个值在暂停 Explorer 时采集，随后的
+final probe 虽然更新 SLAM 图，已停止的 provider 却不会重算 frontier；而且同一段墙角边界会因栅格噪声
+分裂成不同数量的 cluster。它仍被保存，用来证明 producer/evaluator 看到同一帧遥测。硬预算收口依靠跨轮
+单位目标增益和 final probe 的实际地图增益；`repeated_reachable_stall` 则仍严格要求 residual 为零。
 
 生产侧只记录 `time_budget_exhausted + bounded_saturation evidence`。evaluator 再使用 truth map 独立验证
 原有 `90/85/10` 地图质量与障碍质量；因此这是“运行时收益递减 + 离线质量门禁”的双层证据，不是把
@@ -352,8 +407,8 @@ frontier_attempts_exhausted_recoverable + frontier_attempts_exhausted_after_fina
 `no_frontiers` 必须 blacklisted=0；typed attempts exhaustion 允许 residual
 `blacklisted<=detected`，但最终地图覆盖、分区覆盖、unknown 和障碍质量仍可独立否决。
 
-bounded saturation 不要求 available=0，但 residual 必须在配置上限内，且同时满足跨 epoch、final probe、
-账本、返航和 evaluator 地图质量证据；它不会改变 `evaluate_frontier_completion()` 的 strict 语义。
+bounded saturation 不要求 hard-budget 的 pre-probe available=0，但必须满足跨 epoch、final probe、账本、
+返航和 evaluator 地图质量证据；它不会改变 `evaluate_frontier_completion()` 的 strict 语义。
 
 ### 与替代方案区别
 

@@ -259,14 +259,18 @@ orchestrator 常驻于 Gazebo stage 外部，typed 目标生命周期使用 `SYS
 
 ## 8. 证据状态
 
-fresh session `20260720T165331Z-1770278-a421b687` 已在当前安全/恢复语义下通过 schema v4 六阶段 E2E：
-reachable coverage `99.75%`，四区域最低覆盖 `98.30%`，reachable unknown `0.25%`，障碍边界召回
-`78.52%`、false-free `0.34%`；38 个 accepted frontier 全部 terminal，结束时 available/active 为 0，
-残余 blacklist `1<=detected 7` 且匹配 typed attempts exhaustion；AMCL 215 个对齐样本 P95 `0.133 m`；
-运行时采样导航 3/3 成功，最小间距 `5.58 m` 且路径 unknown/occupied/map-outside 均为 0；动态路径净空
-由 `0.029 m` 提升到 `0.972 m` 并成功重规划，最后得到 fresh `cmd_vel=0`。
+fresh session `20260725T120302Z-145519-3ec3df78` 已在当前安全/恢复语义下通过 schema v4 六阶段 E2E：
+reachable coverage `99.75%`，四区域最低覆盖 `98.34%`，reachable unknown `0.25%`，障碍边界召回
+`82.03%`、false-free `0.81%`；34 个 accepted frontier 全部 terminal，结束时 available/active 为 0；
+AMCL 217 个对齐样本 P95 `0.154 m`；运行时采样导航 3/3 成功，最小间距 `5.60 m` 且路径
+unknown/occupied/map-outside 均为 0；动态路径净空由 `0.024 m` 提升到 `0.994 m` 并成功重规划，
+最后得到 fresh `cmd_vel=0`。
 
 这次修复没有下调严格 evaluator：总体/分区覆盖、unknown、障碍、定位、3 点间距、全路径安全、动态
 重规划与终态零速门槛保持原值。完整阈值和报告位置仍以 [测试手册](TESTING.md) 为唯一事实源。
+
+长时可视化默认使用 Gazebo server + RViz，并用资源 watchdog 流式记录 WSL 内存、Swap 和 session RSS。
+在 8 GiB WSL 上请求双 GUI 时会自动选择 D3D12 RViz-only；这保留物理、传感器和所有验收逻辑，同时
+避免 WSLg 软件渲染耗尽统一内存。
 
 真人语音 known-world 交互属于另一条现场证据，也不能与 unknown-world session 合并表述。

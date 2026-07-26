@@ -13,6 +13,7 @@ from typing import Sequence
 import yaml
 
 from tools.acceptance.paths import repository_root
+from tools.acceptance.resource_watchdog import ResourceWatchdogConfig
 from tools.acceptance.showcase_evidence import (
     verify_persistent_runtime_report,
 )
@@ -39,6 +40,7 @@ from tools.acceptance.session import (
     AcceptanceSessionConfig,
     RosEnvironmentIsolation,
 )
+from tools.acceptance.visual_runtime import resolve_visual_runtime
 
 
 SCAN_STARTUP_TIMEOUT_S = 20.0
@@ -90,6 +92,17 @@ def _positive_float(name: str, default: float) -> float:
     if value <= 0.0:
         raise ValueError(f"{name} must be positive")
     return value
+
+
+def _environment_bool(name: str, default: bool) -> bool:
+    """严格解析公开验收布尔变量，避免任意非空字符串被当成 True。"""
+
+    rendered = os.environ.get(name, str(default)).strip().lower()
+    if rendered in {"1", "true", "yes", "on"}:
+        return True
+    if rendered in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be true or false")
 
 
 def _try_save_failed_exploration_map(
@@ -434,15 +447,27 @@ def run(
         transition_timeout_s=transition_timeout_s,
         gate_timeout_s=gate_timeout_s,
     )
+    requested_headless = _environment_bool("HEADLESS", True)
+    use_rviz = _environment_bool("USE_RVIZ", False)
+    visual_runtime = resolve_visual_runtime(
+        requested_headless=requested_headless,
+        use_rviz=use_rviz,
+        environment=os.environ,
+        allow_dual_gui=_environment_bool(
+            "SLAM_NAV_ALLOW_DUAL_GUI",
+            False,
+        ),
+    )
     runtime_environment = build_unknown_world_runtime_environment(
         world_path=world_file,
         spawn=scene_document["world"]["spawn"],
-        headless=os.environ.get("HEADLESS", "true"),
-        use_rviz=os.environ.get("USE_RVIZ", "false"),
+        headless=str(visual_runtime.effective_headless).lower(),
+        use_rviz=str(visual_runtime.use_rviz).lower(),
         budget=budget,
         gate_timeout_s=gate_timeout_s,
         transition_timeout_s=transition_timeout_s,
     )
+    runtime_environment.update(visual_runtime.environment())
     runtime_environment["SHOWCASE_DYNAMIC_OBSTACLE_ENABLED"] = "true"
     runtime_environment.update(_resolve_profile_runtime_environment(profile))
     if persistent_runtime_enabled:
@@ -486,6 +511,9 @@ def run(
         # 公开 strict 与真人语音入口必须复用同一套受控 ROS/Nav2 来源；宿主
         # 终端 source 过的 ~/nav2_ws 不能改变现场验收所运行的二进制。
         ros_environment_isolation=RosEnvironmentIsolation(),
+        # 低内存不是普通算法失败：持续越界时先触发 context manager 的统一
+        # 停车与进程树回收，避免 Xwayland/WSL 被拖到无法生成任何报告。
+        resource_watchdog=ResourceWatchdogConfig(),
     )
 
     with AcceptanceSession(config) as session:
@@ -528,6 +556,23 @@ def run(
         )
         print(f"  ROS domain: {session.domain_id}")
         print(f"  Gazebo partition: {session.environment['GZ_PARTITION']}")
+        print(
+            "  visualization: "
+            f"mode={visual_runtime.mode} "
+            f"renderer={visual_runtime.renderer!r} "
+            f"accelerated={visual_runtime.accelerated} "
+            f"reason={visual_runtime.reason}"
+        )
+        if visual_runtime.downgraded:
+            print(
+                "WARN: dual Gazebo+RViz GUI was downgraded to RViz-only "
+                "for this long-running gate; Gazebo physics and sensors "
+                "remain active."
+            )
+            print(
+                "      Set SLAM_NAV_ALLOW_DUAL_GUI=true only after "
+                "confirming hardware acceleration and sufficient memory."
+            )
         print(
             "  timeout budget: "
             f"mission={budget.mission_transition_s:.0f}s "

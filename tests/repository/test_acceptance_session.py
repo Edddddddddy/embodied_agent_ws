@@ -6,11 +6,17 @@ import json
 import os
 from pathlib import Path
 import sys
+import threading
 import time
 
 import pytest
 
 from repository_test_support import ROOT
+import tools.acceptance.session as session_module
+from tools.acceptance.resource_watchdog import (
+    ResourceWatchdogConfig,
+    ResourceWatchdogSummary,
+)
 from tools.acceptance.scenarios import unknown_world_slam_e2e
 from tools.acceptance.scenarios.slam_nav_e2e import verify_report
 from tools.acceptance.scenarios.unknown_world_run_profile import (
@@ -19,6 +25,7 @@ from tools.acceptance.scenarios.unknown_world_run_profile import (
 from tools.acceptance.session import (
     ArtifactLeaseUnavailable,
     AcceptanceCommandError,
+    AcceptanceResourceExhaustion,
     AcceptanceSession,
     AcceptanceSessionConfig,
     AcceptanceSessionError,
@@ -30,6 +37,7 @@ from tools.acceptance.session import (
     StopResult,
     SubprocessProcessAdapter,
 )
+from tools.acceptance.visual_runtime import LinuxMemorySnapshot
 
 
 class FakeProcessAdapter:
@@ -144,6 +152,138 @@ def test_acceptance_session_owns_environment_process_cleanup_and_manifest(tmp_pa
     assert manifest["commands"][0]["returncode"] == 0
 
 
+def test_acceptance_session_streams_resource_evidence_into_manifest(tmp_path):
+    session = AcceptanceSession(
+        _config(
+            tmp_path,
+            resource_watchdog=ResourceWatchdogConfig(interval_s=60.0),
+        ),
+        process_adapter=FakeProcessAdapter(),
+        base_environment={},
+    )
+
+    with session:
+        pass
+
+    manifest = json.loads(session.manifest_path.read_text(encoding="utf-8"))
+    resources = manifest["resources"]
+    assert resources["sample_count"] >= 1
+    assert resources["failure"] is None
+    assert resources["latest"]["mem_available_mib"] > 0
+    assert Path(resources["samples_path"]).is_file()
+
+
+def test_late_watchdog_failure_during_close_does_not_interrupt_cleanup(
+    tmp_path, monkeypatch
+):
+    failure = "resource_exhaustion: late failure during watchdog stop"
+    memory = LinuxMemorySnapshot(
+        total_kib=8 * 1024 * 1024,
+        available_kib=512 * 1024,
+        swap_total_kib=2 * 1024 * 1024,
+        swap_free_kib=128 * 1024,
+    )
+
+    class LateFailureWatchdog:
+        """模拟 stop/join 窗口里才到达的最后一次资源采样。"""
+
+        def __init__(
+            self,
+            *,
+            config,
+            session_id,
+            output_path,
+            on_failure,
+        ):
+            del config, session_id
+            self.output_path = output_path
+            self._on_failure = on_failure
+            self._failure = None
+
+        def start(self):
+            self.output_path.parent.mkdir(parents=True, exist_ok=True)
+            self.output_path.write_text("", encoding="utf-8")
+
+        def stop(self):
+            self._failure = failure
+            self._on_failure(failure)
+
+        @property
+        def summary(self):
+            return ResourceWatchdogSummary(
+                sample_count=1,
+                latest_memory=memory,
+                peak_session_rss_kib=256 * 1024,
+                latest_session_process_count=3,
+                failure=self._failure,
+            )
+
+    kill_calls = []
+    monkeypatch.setattr(session_module, "ResourceWatchdog", LateFailureWatchdog)
+    monkeypatch.setattr(
+        session_module.os,
+        "kill",
+        lambda process_id, signal_number: kill_calls.append(
+            (process_id, signal_number)
+        ),
+    )
+    adapter = FakeProcessAdapter()
+    session = AcceptanceSession(
+        _config(
+            tmp_path,
+            resource_watchdog=ResourceWatchdogConfig(interval_s=60.0),
+        ),
+        process_adapter=adapter,
+        base_environment={},
+    )
+
+    with pytest.raises(AcceptanceResourceExhaustion, match="late failure"):
+        with session as active:
+            handle = active.spawn("orchestrator", ["ros2", "run", "demo"])
+
+    # close() 必须先进入不可中断区，再停止 watchdog；迟到 callback 不能发
+    # SIGTERM，且进程、subreaper、manifest 三项收尾都要完整执行。
+    assert kill_calls == []
+    assert adapter.stopped == [(handle, 0.25)]
+    assert adapter.session_started is False
+    manifest = json.loads(session.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["outcome"] == "failed"
+    assert manifest["cleanup_complete"] is True
+    assert failure in manifest["error"]
+    assert manifest["resources"]["failure"] == failure
+
+
+def test_resource_watchdog_session_is_rejected_outside_main_thread(tmp_path):
+    adapter = FakeProcessAdapter()
+    session = AcceptanceSession(
+        _config(
+            tmp_path,
+            resource_watchdog=ResourceWatchdogConfig(interval_s=60.0),
+        ),
+        process_adapter=adapter,
+        base_environment={},
+    )
+    errors = []
+
+    def open_session():
+        try:
+            with session:
+                pass
+        except BaseException as error:
+            errors.append(error)
+
+    worker = threading.Thread(target=open_session)
+    worker.start()
+    worker.join(timeout=2.0)
+
+    assert worker.is_alive() is False
+    assert len(errors) == 1
+    assert isinstance(errors[0], AcceptanceSessionError)
+    assert "main thread" in str(errors[0])
+    assert adapter.session_started is False
+    assert session.manifest_path.exists() is False
+
+
 def test_session_overrides_ambient_transport_partitions(tmp_path):
     adapter = FakeProcessAdapter()
     session = AcceptanceSession(
@@ -230,10 +370,13 @@ def test_isolated_ros_environment_rejects_ambient_nav2_but_keeps_frontier(
         install_package(external_install / package, package)
         for package in ("nav2_bringup", "nav2_lifecycle_manager", "nav2_util")
     ]
-    frontier_install = tmp_path / "frontier_ws/install"
+    # 模拟同一外部 colcon 工作区里既有不可信 Nav2，也有白名单 Frontier 的
+    # isolated install。剔除 Nav2 时仍必须保留 Frontier 自己的 build 路径。
+    frontier_install = external_install
     frontier_prefix = install_package(
         frontier_install / "explore_lite", "explore_lite"
     )
+    frontier_build = external_install.parent / "build/explore_lite"
     adapter = FakeProcessAdapter()
     session = AcceptanceSession(
         _config(
@@ -265,7 +408,6 @@ def test_isolated_ros_environment_rejects_ambient_nav2_but_keeps_frontier(
                 [
                     str(workspace_install),
                     str(external_install),
-                    str(frontier_install),
                 ]
             ),
             "LD_LIBRARY_PATH": os.pathsep.join(
@@ -282,24 +424,38 @@ def test_isolated_ros_environment_rejects_ambient_nav2_but_keeps_frontier(
                     "/usr/bin",
                 ]
             ),
+            "PYTHONPATH": os.pathsep.join(
+                [
+                    str(external_install.parent / "build/nav2_simple_commander"),
+                    str(frontier_build),
+                    str(project_prefix / "lib/python3.12/site-packages"),
+                    str(system_prefix / "lib/python3.12/site-packages"),
+                ]
+            ),
         },
     )
 
     with session as active:
-        for variable in (
-            "AMENT_PREFIX_PATH",
-            "CMAKE_PREFIX_PATH",
-            "COLCON_PREFIX_PATH",
-            "LD_LIBRARY_PATH",
-            "PATH",
-        ):
-            assert "nav2_ws" not in active.environment[variable]
+        for prefix in external_nav2:
+            assert str(prefix) not in active.environment["AMENT_PREFIX_PATH"]
+            assert str(prefix) not in active.environment["CMAKE_PREFIX_PATH"]
+        assert str(external_install) not in active.environment[
+            "COLCON_PREFIX_PATH"
+        ]
+        assert str(external_nav2[-1] / "lib") not in active.environment[
+            "LD_LIBRARY_PATH"
+        ]
+        assert str(external_nav2[0] / "bin") not in active.environment["PATH"]
+        assert "build/nav2_simple_commander" not in active.environment[
+            "PYTHONPATH"
+        ]
         assert str(project_prefix) in active.environment["AMENT_PREFIX_PATH"]
         assert str(system_prefix) in active.environment["AMENT_PREFIX_PATH"]
         assert str(frontier_prefix) in active.environment["AMENT_PREFIX_PATH"]
         assert str(frontier_prefix / "lib") in active.environment[
             "LD_LIBRARY_PATH"
         ]
+        assert str(frontier_build) in active.environment["PYTHONPATH"]
 
     manifest = json.loads(session.manifest_path.read_text(encoding="utf-8"))
     provenance = manifest["ros_environment"]
@@ -311,11 +467,22 @@ def test_isolated_ros_environment_rejects_ambient_nav2_but_keeps_frontier(
         "nav2_lifecycle_manager": str(system_prefix),
         "nav2_util": str(system_prefix),
     }
-    assert all(
-        "nav2_ws" not in value
+    retained_paths = [
+        value
         for values in provenance["paths"].values()
         for value in values
+    ]
+    assert all(
+        str(prefix) not in value
+        for prefix in external_nav2
+        for value in retained_paths
     )
+    assert all(
+        "build/nav2_simple_commander" not in value
+        for value in retained_paths
+    )
+    assert str(frontier_prefix) in retained_paths
+    assert str(frontier_build) in retained_paths
 
 
 def test_isolated_ros_environment_fails_for_unsafe_merged_frontier_prefix(

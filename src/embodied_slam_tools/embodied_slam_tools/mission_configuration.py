@@ -222,7 +222,6 @@ class MissionConfiguration:
                 "minimum_low_yield_epochs",
                 "minimum_terminal_goals_per_epoch",
                 "minimum_mapping_path_m",
-                "maximum_residual_available_frontiers",
                 "required_map_quiet_s",
                 "maximum_final_stop_age_s",
             },
@@ -357,11 +356,6 @@ class MissionConfiguration:
                 ),
                 minimum_mapping_path_m=float(
                     saturation.get("minimum_mapping_path_m", 20.0)
-                ),
-                maximum_residual_available_frontiers=int(
-                    saturation.get(
-                        "maximum_residual_available_frontiers", 4
-                    )
                 ),
                 # 复用 recovery 的双增益阈值，避免同一 profile 出现两套互相
                 # 冲突的“有效扩图”定义。

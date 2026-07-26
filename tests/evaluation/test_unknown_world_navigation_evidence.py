@@ -436,19 +436,23 @@ def test_time_budget_reason_alone_cannot_claim_approximate_completion():
 
 
 def test_bounded_saturation_is_derived_from_independent_evidence_layers():
+    evidence = _bounded_saturation_evidence()
+    evidence["residual_available_frontiers"] = 6
     report = evaluate_approximate_completion(
         telemetry={
             "valid": True,
             "provider_completion_reason": "",
             "mission_completion_reason": "time_budget_exhausted",
-            "available_frontier_count": 4,
+            # hard-budget 的 pre-probe cluster 数只需与 typed evidence
+            # 一致；是否完整继续由 map_quality 等独立证据裁决。
+            "available_frontier_count": 6,
             "active_goal_count": 0,
             "accepted_goal_count": 5,
             "succeeded_goal_count": 2,
             "aborted_goal_count": 1,
             "canceled_goal_count": 2,
         },
-        evidence=_bounded_saturation_evidence(),
+        evidence=evidence,
         map_quality_passed=True,
         final_cmd_vel_fresh=True,
         final_cmd_vel_zero=True,
@@ -488,6 +492,40 @@ def test_repeated_reachable_stall_uses_the_same_independent_evidence_gate():
 
     assert report["passed"] is True
     assert all(report["checks"].values())
+
+
+def test_repeated_reachable_stall_cannot_leave_residual_frontiers():
+    """evaluator 必须独立复核 stall 终结，不能只相信 producer 的 valid。"""
+
+    evidence = _bounded_saturation_evidence()
+    evidence.update(
+        {
+            "trigger_reason": (
+                "reachable_frontiers_stalled_bounded_saturation"
+            ),
+            "residual_available_frontiers": 1,
+        }
+    )
+    report = evaluate_approximate_completion(
+        telemetry={
+            "valid": True,
+            "provider_completion_reason": "",
+            "mission_completion_reason": (
+                "reachable_frontiers_stalled_bounded_saturation"
+            ),
+            "available_frontier_count": 1,
+            "active_goal_count": 0,
+            "accepted_goal_count": 6,
+            "succeeded_goal_count": 6,
+        },
+        evidence=evidence,
+        map_quality_passed=True,
+        final_cmd_vel_fresh=True,
+        final_cmd_vel_zero=True,
+    )
+
+    assert report["passed"] is False
+    assert report["checks"]["residual_frontier_trigger_contract"] is False
 
 
 def test_bounded_saturation_rejects_mismatched_runtime_and_trigger_reason():

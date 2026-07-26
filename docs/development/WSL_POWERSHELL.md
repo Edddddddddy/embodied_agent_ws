@@ -279,7 +279,7 @@ bash scripts/acceptance_test.sh slam-autonomous-mission-stage
 # known-world 稳定回归：
 bash scripts/acceptance_test.sh slam-nav-e2e
 # unknown-world 正式自主闭环；完整功能收口时再跑，不为零散编辑频繁触发 CI：
-HEADLESS=false USE_RVIZ=true \
+HEADLESS=true USE_RVIZ=true \
   bash scripts/acceptance_test.sh unknown-world-slam-e2e
 ```
 
@@ -287,6 +287,10 @@ HEADLESS=false USE_RVIZ=true \
 `unknown-world-slam-e2e` 才是禁止真值/固定路线进入 robot policy 的正式自主门禁。先用
 `bash scripts/acceptance_test.sh --help` 确认当前分支已注册两个模式；若帮助中没有后者，说明终端仍
 停留在旧分支、旧 worktree 或旧脚本，而不是 ROS 运行时故障。
+
+长时 WSL 会话推荐 RViz-only。若仍请求 `HEADLESS=false USE_RVIZ=true`，验收器会在软件渲染或内存
+余量不足时自动降级，并把判定与资源采样写入 session manifest 和 `resource_samples.jsonl`。
+只有确认硬件加速及内存余量充足后，才临时设置 `SLAM_NAV_ALLOW_DUAL_GUI=true`。
 
 不要在同一终端额外 `source ~/nav2_ws/install/setup.bash`。公开 unknown-world 会在 session 内剔除此外部
 overlay，并把 Nav2 来源写入 manifest；这是为了避免功能分支在不同终端运行到不同版本的 Lifecycle

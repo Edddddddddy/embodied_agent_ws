@@ -9,6 +9,8 @@ uint8 mode
 string trigger_reason
 uint32 low_yield_epoch_count
 uint32 required_low_yield_epoch_count
+# TIME_BUDGET 时为 Explorer 暂停阶段的诊断快照，不代表 final probe 后信息量。
+# REPEATED_REACHABLE_STALL 时仍必须为 0。
 uint32 residual_available_frontiers
 bool ledger_drained
 uint32 final_probe_gain_cells
