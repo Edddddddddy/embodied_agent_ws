@@ -33,6 +33,10 @@ def print_public_help(stream: TextIO = sys.stdout) -> None:
         tuple(MODE_BY_NAME[name] for name in PUBLIC_MODE_NAMES),
         stream,
     )
+    print(
+        "\nExample: bash scripts/acceptance_test.sh verify voice",
+        file=stream,
+    )
     print("\nUse --help-all only when maintaining internal/evaluation workflows.", file=stream)
 
 

@@ -64,6 +64,19 @@
 执行端返回并通过验收，才是任务完成
 ```
 
+对应的代码证据统一从一个入口展开：
+
+```bash
+bash scripts/acceptance_test.sh verify voice
+bash scripts/acceptance_test.sh verify control
+bash scripts/acceptance_test.sh verify gazebo
+HEADLESS=true USE_RVIZ=true bash scripts/acceptance_test.sh verify slam-nav
+```
+
+这四个 profile 分别回答“Agent 是否正确理解和排队”“C++ 安全与调度是否正确”“仿真底盘是否真实运动
+并停稳”“未知地图是否完成建图、定位、导航和动态避障”。真人麦克风是单独的现场体验证据，不混入这些
+可重复门禁。
+
 ## 4. 面试时的回答顺序
 
 遇到任何设计题，按下面五句话组织：

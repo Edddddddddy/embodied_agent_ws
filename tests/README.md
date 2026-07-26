@@ -28,7 +28,7 @@ KWS/声纹等 ROS probe，也包含在线 API、离线 provider 等非 ROS runti
 `tools/acceptance/typed_action_probe_utils.py`；需要构造 typed action 的 probe 通过生产 transport
 复用该 Adapter，不复制第二套测试协议。slam_nav 目录既包含聚焦
 mapping/localization/Nav2/动态障碍能力的 probe，也包含
-canonical `slam-nav-e2e` 的深模块编排：
+canonical `unknown-world-slam-e2e` 的深模块编排：
 
 - `session_orchestrator.py`：唯一可执行入口与顶层会话编排；
 - `cli.py`：被编排器调用的 ROS-free 参数 Interface；
@@ -51,7 +51,7 @@ worktree 和 Git worktree 使用同一定位语义。
 
 ```bash
 bash scripts/acceptance_test.sh --help
-bash scripts/acceptance_test.sh core
+bash scripts/acceptance_test.sh verify core
 ```
 
 局部开发可直接运行：

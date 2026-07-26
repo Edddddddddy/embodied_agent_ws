@@ -24,6 +24,7 @@ def _run_bash(script: str) -> subprocess.CompletedProcess[str]:
     for name in (
         "AMENT_PREFIX_PATH",
         "COLCON_PREFIX_PATH",
+        "EMBODIED_RUNTIME_ROOT",
         "EMBODIED_ROS_SETUP",
         "PYTHONPATH",
         "VIRTUAL_ENV",
@@ -217,6 +218,32 @@ source {shlex.quote(str(workspace / 'scripts' / 'activate.sh'))}
     assert completed.returncode != 0
     assert str(workspace / "install" / "setup.bash") in completed.stderr
     assert "colcon build --symlink-install" in completed.stderr
+
+
+def test_activate_can_reuse_explicit_runtime_venv(tmp_path: Path):
+    """功能 worktree 没有复制 venv 时，应复用明确指定的未跟踪运行时根。"""
+
+    workspace, ros_setup = _make_activation_fixture(tmp_path)
+    runtime_root = tmp_path / "shared-runtime"
+    venv_activate = runtime_root / ".venv" / "bin" / "activate"
+    venv_activate.parent.mkdir(parents=True)
+    venv_activate.write_text(
+        f"export VIRTUAL_ENV={shlex.quote(str(runtime_root / '.venv'))}\n",
+        encoding="utf-8",
+    )
+    script = f"""
+unset WORKSPACE VIRTUAL_ENV
+export EMBODIED_ROS_SETUP={shlex.quote(str(ros_setup))}
+export EMBODIED_RUNTIME_ROOT={shlex.quote(str(runtime_root))}
+source {shlex.quote(str(workspace / 'scripts' / 'activate.sh'))}
+printf 'venv=%s runtime=%s\n' "$VIRTUAL_ENV" "$EMBODIED_RUNTIME_ROOT"
+"""
+
+    completed = _run_bash(script)
+
+    assert completed.returncode == 0, completed.stderr
+    assert f"venv={runtime_root / '.venv'}" in completed.stdout
+    assert f"runtime={runtime_root}" in completed.stdout
 
 
 def test_public_demo_entrypoints_share_workspace_resolver():

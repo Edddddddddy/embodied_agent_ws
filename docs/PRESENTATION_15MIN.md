@@ -1,50 +1,49 @@
 # 15 分钟项目汇报与代码演示
 
 目标：在 15 分钟内讲清“语音 Agent 为什么不能直接控制机器人、unknown-world 如何自主建图导航、
-系统如何用 typed evidence 证明成功”。现场采用双证据，不把两条链路混成一次实验：
+系统如何用 typed evidence 证明成功”。现场采用两组可重复证据，不把真人麦克风波动混入自动门禁：
 
 | 证据 | 展示内容 | 能证明什么 | 本轮状态 |
 | --- | --- | --- | --- |
-| 真人语音 known-world | 麦克风→Agent→typed Action→Gazebo/Nav2 | 真实声学输入与交互控制 | 本轮未重跑，现场前单独验收 |
+| 确定性 voice profile | 合成 PCM→Sherpa/Agent→typed Action→仿真 | 在线/离线 Agent、队列与本地模型链 | `verify voice` PASS |
 | Gazebo unknown-world 报告 | frontier 建图→存图→AMCL→动态三点→动态障碍 | 无场景先验的自主闭环与硬指标 | fresh session `20260725T120302Z-145519-3ec3df78` PASS |
 
-不要说“上面的 PASS session 包含真人语音”；它没有。硬件 UART/SPI 也是 Adapter seam，不属于当前
-Gazebo 交付。
+真人语音只作为可选现场体验，不能说成上述自动 PASS 的组成部分。硬件 UART/SPI 也是 Adapter seam，
+不属于当前 Gazebo 交付。
 
 ## 1. 演示前准备
 
 ```bash
 cd ~/embodied_agent_ws
 source scripts/activate.sh
-bash scripts/cleanup_simulation_processes.sh
-bash scripts/acceptance_test.sh core
-bash scripts/acceptance_test.sh wsl-microphone-preflight
+CLEANUP_CONFIRM=true bash scripts/cleanup_simulation_processes.sh
+bash scripts/acceptance_test.sh verify core
+bash scripts/acceptance_test.sh verify voice
+bash scripts/acceptance_test.sh verify control
 ```
 
-现场真人语音演示：
+本阶段先用 Sherpa-TTS 生成的确定性 PCM 与 mock endpoint 演示 Agent，再启动 Gazebo 物理运动：
+
+```bash
+bash scripts/acceptance_test.sh verify gazebo
+```
+
+真人语音属于后续现场体验，不与本轮可重复门禁混合。正式 unknown-world 入口是：
 
 ```bash
 HEADLESS=true USE_RVIZ=true \
-  bash scripts/acceptance_test.sh voice-slam-workplace-demo offline
-```
-
-说：`小智，开始自动巡检建图`。这是 known-world 稳定交互演示，允许语义地点；它不能用来证明未知
-环境自主探索。正式 unknown-world 入口是：
-
-```bash
-HEADLESS=true USE_RVIZ=true \
-  bash scripts/acceptance_test.sh unknown-world-slam-e2e
+  bash scripts/acceptance_test.sh verify slam-nav
 ```
 
 长时 WSL 演示推荐 RViz-only。即使仍输入 `HEADLESS=false USE_RVIZ=true`，验收器也会在低资源或软件
-渲染环境中优先切换硬件 D3D12，并自动选择 RViz-only；资源 watchdog 会把采样流写入同一 session 的
+渲染环境中在 D3D12 探针可用时启用硬件渲染，并自动选择 RViz-only；资源 watchdog 会把采样流写入同一 session 的
 `resource_samples.jsonl`，可用来判断卡顿来自算法还是系统资源。
 
 完整自主任务耗时较长，15 分钟汇报应预先运行并展示报告、地图、轨迹与 `runtime.log`，不在台上等待
 整场探索。当前基线报告：
 
 ```text
-logs/acceptance/unknown_world_slam_nav/
+~/embodied_agent_ws_artifacts/acceptance/unknown_world_slam_nav/
 └── 20260725T120302Z-145519-3ec3df78/
     ├── unknown_world_map.yaml / .pgm
     ├── unknown_world_slam_e2e_report.json
@@ -187,7 +186,8 @@ Nav2 status/error 和最小间距；这是“防危险”和“防自证”两�
 加边。当前新回环默认 shadow，不能把证据完整说成真实场地精度发布。动态障碍先关联 track，再估计
 速度，把未来占用写进 costmap；Nav2 产生新路径，退出事务还必须清 track/cost 和验证零速。
 
-这里要区分两类验收证据：`slam-nav-e2e` 的确定性动态障碍阶段会注入 `crossing_cart`，用于稳定复现
+这里要区分两类验收证据：`verify slam-nav` 调用的 `unknown-world-slam-e2e` 会在动态障碍阶段注入
+`crossing_cart`，用于稳定复现
 重规划；真人语音演示不自动注入该障碍，因此不能用现场看到一次绕行替代确定性门禁，也不能把门禁
 结果说成真人语音 session。
 

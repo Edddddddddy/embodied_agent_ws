@@ -123,35 +123,43 @@ accept_offline_sherpa_typed() {
 }
 
 accept_continuous_mock() {
-  bash scripts/smoke_test_continuous_voice.sh online; bash scripts/smoke_test_continuous_voice.sh offline
+  bash tools/acceptance/run_mock_agent_probe.sh continuous online
+  bash tools/acceptance/run_mock_agent_probe.sh continuous offline
 }
 
 accept_continuous_soak() {
-  bash scripts/smoke_test_continuous_voice_soak.sh online; bash scripts/smoke_test_continuous_voice_soak.sh offline
+  bash tools/acceptance/run_mock_agent_probe.sh soak online
+  bash tools/acceptance/run_mock_agent_probe.sh soak offline
 }
 
 accept_continuous_endpoint() {
-  bash scripts/smoke_test_continuous_endpoint_asr.sh online; bash scripts/smoke_test_continuous_endpoint_asr.sh offline
+  bash tools/acceptance/run_mock_agent_probe.sh endpoint online
+  bash tools/acceptance/run_mock_agent_probe.sh endpoint offline
 }
 
 accept_continuous_multi_command() {
-  bash scripts/smoke_test_continuous_multi_command.sh online; bash scripts/smoke_test_continuous_multi_command.sh offline
+  bash tools/acceptance/run_mock_agent_probe.sh multi-command online
+  bash tools/acceptance/run_mock_agent_probe.sh multi-command offline
 }
 
 accept_continuous_queue_full() {
-  bash scripts/smoke_test_continuous_queue_full.sh online; bash scripts/smoke_test_continuous_queue_full.sh offline
+  bash tools/acceptance/run_mock_agent_probe.sh queue-full online
+  bash tools/acceptance/run_mock_agent_probe.sh queue-full offline
 }
 
 accept_continuous_ttl() {
-  bash scripts/smoke_test_continuous_command_ttl.sh online; bash scripts/smoke_test_continuous_command_ttl.sh offline
+  bash tools/acceptance/run_mock_agent_probe.sh ttl online
+  bash tools/acceptance/run_mock_agent_probe.sh ttl offline
 }
 
 accept_continuous_timeout() {
-  bash scripts/smoke_test_continuous_session_timeout.sh online; bash scripts/smoke_test_continuous_session_timeout.sh offline
+  bash tools/acceptance/run_mock_agent_probe.sh timeout online
+  bash tools/acceptance/run_mock_agent_probe.sh timeout offline
 }
 
 accept_continuous_kws_mock() {
-  bash scripts/smoke_test_continuous_kws_sidecar.sh online; bash scripts/smoke_test_continuous_kws_sidecar.sh offline
+  bash tools/acceptance/run_mock_agent_probe.sh kws online
+  bash tools/acceptance/run_mock_agent_probe.sh kws offline
 }
 
 accept_speaker_memory_mock() {

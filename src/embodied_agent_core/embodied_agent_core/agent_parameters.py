@@ -8,6 +8,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Callable, Mapping
 
@@ -16,6 +18,14 @@ from rcl_interfaces.msg import FloatingPointRange, IntegerRange, ParameterDescri
 
 Profile = str
 Validator = Callable[[Any], bool]
+
+
+def _runtime_asset_path(*parts: str) -> str:
+    """模型默认值跟随共享 runtime root，而不是绑定某个用户名或仓库路径。"""
+
+    default_root = Path.home() / "embodied_agent_ws"
+    root = Path(os.environ.get("EMBODIED_RUNTIME_ROOT", default_root)).expanduser()
+    return str(root.joinpath(*parts))
 
 
 class AgentParameterError(ValueError):
@@ -310,8 +320,10 @@ OFFLINE_PARAMETER_SPECS = (
     ParameterSpec("mode", "mock", "offline Agent 运行模式。", choices=("mock", "offline")),
     ParameterSpec(
         "asr_model_dir",
-        "/home/ubuntu/embodied_agent_ws/models/"
-        "sherpa-onnx-streaming-zipformer-small-bilingual-zh-en-2023-02-16",
+        _runtime_asset_path(
+            "models",
+            "sherpa-onnx-streaming-zipformer-small-bilingual-zh-en-2023-02-16",
+        ),
         "Sherpa ZipFormer 模型目录。",
         validator=_positive_text,
     ),
@@ -360,7 +372,7 @@ OFFLINE_PARAMETER_SPECS = (
     ParameterSpec("runtime_warmup_enabled", True, "ready 前是否预热 llama.cpp/TTS。"),
     ParameterSpec(
         "tts_model_dir",
-        "/home/ubuntu/embodied_agent_ws/models/vits-melo-tts-zh_en",
+        _runtime_asset_path("models", "vits-melo-tts-zh_en"),
         "Sherpa-TTS 模型目录。",
         validator=_positive_text,
     ),
@@ -378,14 +390,20 @@ OFFLINE_PARAMETER_SPECS = (
     ParameterSpec("tts_pcm_chunk_ms", 80, "PCM 发布块时长。", 5, 2000),
     ParameterSpec(
         "summer_tts_binary",
-        "/home/ubuntu/embodied_agent_ws/third_party/SummerTTS/build/tts_test",
+        _runtime_asset_path(
+            "third_party", "SummerTTS", "build", "tts_test"
+        ),
         "SummerTTS 可执行文件。",
         validator=_positive_text,
     ),
     ParameterSpec(
         "summer_tts_model",
-        "/home/ubuntu/embodied_agent_ws/third_party/SummerTTS/"
-        "models/single_speaker_fast.bin",
+        _runtime_asset_path(
+            "third_party",
+            "SummerTTS",
+            "models",
+            "single_speaker_fast.bin",
+        ),
         "SummerTTS 模型文件。",
         validator=_positive_text,
     ),

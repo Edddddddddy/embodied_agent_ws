@@ -20,10 +20,10 @@ accept_nav2_assets() {
 accept_nav2_stage() {
   run_isolated_ros_smoke 181 bash scripts/smoke_test_navigation_sequence.sh online
   run_isolated_ros_smoke 182 bash scripts/smoke_test_navigation_sequence.sh offline
-  run_isolated_ros_smoke 183 bash scripts/smoke_test_continuous_navigation_queue.sh online
-  run_isolated_ros_smoke 184 bash scripts/smoke_test_continuous_navigation_queue.sh offline
-  run_isolated_ros_smoke 185 bash scripts/smoke_test_continuous_navigation_natural.sh online
-  run_isolated_ros_smoke 186 bash scripts/smoke_test_continuous_navigation_natural.sh offline
+  run_isolated_ros_smoke 183 bash tools/acceptance/run_mock_agent_probe.sh navigation online
+  run_isolated_ros_smoke 184 bash tools/acceptance/run_mock_agent_probe.sh navigation offline
+  run_isolated_ros_smoke 185 bash tools/acceptance/run_mock_agent_probe.sh navigation-natural online
+  run_isolated_ros_smoke 186 bash tools/acceptance/run_mock_agent_probe.sh navigation-natural offline
   run_isolated_ros_smoke 187 bash scripts/smoke_test_nav2_bridge.sh
   bash scripts/smoke_test_nav2_preflight.sh
 }
@@ -148,11 +148,13 @@ accept_dynamic_obstacle_navigation() {
 }
 
 accept_continuous_navigation() {
-  bash scripts/smoke_test_continuous_navigation_queue.sh online; bash scripts/smoke_test_continuous_navigation_queue.sh offline
+  bash tools/acceptance/run_mock_agent_probe.sh navigation online
+  bash tools/acceptance/run_mock_agent_probe.sh navigation offline
 }
 
 accept_continuous_navigation_natural() {
-  bash scripts/smoke_test_continuous_navigation_natural.sh online; bash scripts/smoke_test_continuous_navigation_natural.sh offline
+  bash tools/acceptance/run_mock_agent_probe.sh navigation-natural online
+  bash tools/acceptance/run_mock_agent_probe.sh navigation-natural offline
 }
 
 accept_continuous_nav2_offline() {

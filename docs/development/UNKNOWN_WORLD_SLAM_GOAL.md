@@ -132,7 +132,7 @@ CLEANUP_CONFIRM=true bash scripts/cleanup_simulation_processes.sh
 
 HEADLESS=true USE_RVIZ=true \
   SLAM_NAV_PROGRESS_HEARTBEAT_S=10 \
-  bash scripts/acceptance_test.sh unknown-world-slam-e2e
+  bash scripts/acceptance_test.sh verify slam-nav
 ```
 
 旧命令 `HEADLESS=false USE_RVIZ=true` 仍可运行；资源策略会在 8 GiB WSL 或软件渲染环境自动关闭

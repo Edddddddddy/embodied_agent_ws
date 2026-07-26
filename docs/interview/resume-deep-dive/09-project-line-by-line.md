@@ -495,15 +495,18 @@ pytest 验证连续会话、队列满和过期、ASR endpoint 取消、provider 
 
 口述：
 
-纯单元测试之后，smoke test 启动真实节点检查 Lifecycle、Topic、Service 和 Action 接线；Gazebo E2E
+纯单元测试之后，参数化 probe runner 启动真实节点检查 Lifecycle、Topic、Service 和 Action 接线；Gazebo E2E
 再运行传感器、SLAM、AMCL 和 Nav2，记录地图、TF、路径、Action 结果和最终速度。正式
 unknown-world E2E 只给机器人在线 scan/odom/TF/map，本次地图以外的真值只给 evaluator；known-world
 真人语音演示验证交互链，但不能替代这份自主证据。验收会话为每次运行分配独立 ROS domain 和证据目录，
-并清理全部进程组，避免旧环境造成假通过。
+并清理全部进程组，避免旧环境造成假通过。面试演示时只需要记住统一入口：
+`verify voice` 讲 Agent、`verify control` 讲 C++ Action/安全、`verify gazebo` 讲物理执行、
+`verify slam-nav` 讲未知地图闭环；`verify all` 生成一份汇总报告。
 
 入口：
 
 - [TESTING.md](../../TESTING.md)
+- [project_verification.py](../../../tools/acceptance/scenarios/project_verification.py)
 - [unknown_world_slam_e2e.py](../../../tools/acceptance/scenarios/unknown_world_slam_e2e.py)
 - [process_supervisor.py](../../../tools/acceptance/process_supervisor.py)
 

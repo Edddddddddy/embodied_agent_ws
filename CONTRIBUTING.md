@@ -39,14 +39,16 @@ source scripts/activate.sh
 
 ```bash
 # 最低门槛：仓库契约、Python/C++ 单测与无外部模型 smoke
-bash scripts/acceptance_test.sh core
+bash scripts/acceptance_test.sh verify core
 
-# 按改动范围增加真实依赖验收
-bash scripts/acceptance_test.sh gazebo
-bash scripts/acceptance_test.sh continuous-offline
-bash scripts/acceptance_test.sh continuous-online
-bash scripts/acceptance_test.sh slam-nav-e2e
+# 按改动范围增加确定性关键功能验收
+bash scripts/acceptance_test.sh verify voice
+bash scripts/acceptance_test.sh verify control
+bash scripts/acceptance_test.sh verify gazebo
+bash scripts/acceptance_test.sh verify slam-nav
 ```
+
+`continuous-offline/online` 是可选真人交互验收，仅在 `--help-all` 中展示，不属于合并前自动门禁。
 
 pytest 断言和 fixture 放在 `tests/`，可执行 ROS graph probe 放在
 `tools/acceptance/probes/<domain>/`，用户稳定入口放在 `scripts/`，包内纯逻辑测试放在对应

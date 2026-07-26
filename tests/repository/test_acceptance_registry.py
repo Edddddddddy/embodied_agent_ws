@@ -36,17 +36,7 @@ class RecordingRunner:
 
 
 def test_public_surface_is_small_stable_and_ordered():
-    assert PUBLIC_MODE_NAMES == (
-        "core",
-        "continuous-offline",
-        "continuous-online",
-        "gazebo",
-        "nav2-stage",
-        "slam-nav-e2e",
-        "unknown-world-slam-e2e",
-        "voice-unknown-world-slam-e2e",
-        "robotics-gate",
-    )
+    assert PUBLIC_MODE_NAMES == ("verify",)
     assert {mode.name for mode in MODES if mode.public} == set(PUBLIC_MODE_NAMES)
 
 
@@ -108,15 +98,15 @@ def test_voice_runtime_preflight_is_internal_and_owned_by_voice_domain():
     assert mode.handler == "accept_voice_runtime_preflight"
 
 
-def test_unknown_world_slam_entry_has_distinct_public_evidence_semantics():
-    """新旧两个入口必须在帮助中明确区分，避免把已知场景回归当成自主探索证据。"""
+def test_unknown_world_slam_entry_keeps_distinct_internal_evidence_semantics():
+    """兼容入口仍可运行，但不再挤占面向使用者的主验收接口。"""
     known_world = MODE_BY_NAME["slam-nav-e2e"]
     unknown_world = MODE_BY_NAME["unknown-world-slam-e2e"]
 
-    assert known_world.public is True
+    assert known_world.public is False
     assert known_world.handler == "accept_slam_nav_e2e"
     assert "Known-world deterministic" in known_world.description
-    assert unknown_world.public is True
+    assert unknown_world.public is False
     assert unknown_world.handler == "accept_unknown_world_slam_e2e"
     assert "Unknown-world autonomous exploration" in unknown_world.description
     assert unknown_world.domain is HandlerDomain.SLAM_NAV
@@ -133,10 +123,11 @@ def test_unknown_world_slam_entry_has_distinct_public_evidence_semantics():
 
 
 def test_live_voice_unknown_world_entry_preserves_agent_mode_argument():
-    """真人语音联合门禁必须是公开的一键入口，并显式选择在线或离线 Agent。"""
+    """真人语音入口保留为交互工具，但不属于默认自动验收。"""
 
     mode = MODE_BY_NAME["voice-unknown-world-slam-e2e"]
-    assert mode.public is True
+    assert mode.public is False
+    assert mode.category == "interactive"
     assert mode.handler == "accept_voice_unknown_world_slam_e2e"
     assert "Live microphone" in mode.description
     assert "full-evidence unknown-world" in mode.description
@@ -152,6 +143,40 @@ def test_live_voice_unknown_world_entry_preserves_agent_mode_argument():
 
     assert status == 0
     assert runner.calls == [("voice-unknown-world-slam-e2e", ["offline"])]
+
+
+def test_verify_is_the_single_public_entry_and_preserves_profile_argument():
+    mode = MODE_BY_NAME["verify"]
+
+    assert mode.public is True
+    assert mode.handler == "accept_verify"
+    runner = RecordingRunner(result=0)
+    status = main(
+        ["verify", "voice"],
+        runner=runner,
+        stdout=io.StringIO(),
+        stderr=io.StringIO(),
+    )
+
+    assert status == 0
+    assert runner.calls == [("verify", ["voice"])]
+
+
+def test_verify_preserves_optional_profile_flags():
+    """CLI 只负责路由，模型跳过策略必须原样交给统一验收器。"""
+
+    runner = RecordingRunner(result=0)
+    status = main(
+        ["verify", "voice", "--skip-local-models"],
+        runner=runner,
+        stdout=io.StringIO(),
+        stderr=io.StringIO(),
+    )
+
+    assert status == 0
+    assert runner.calls == [
+        ("verify", ["voice", "--skip-local-models"])
+    ]
 
 
 def test_acceptance_probe_runner_is_owned_by_tools_and_is_valid_shell():

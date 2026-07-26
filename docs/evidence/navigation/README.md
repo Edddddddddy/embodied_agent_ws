@@ -7,7 +7,7 @@
 正式“自主建图 → 定位 → 规划 → 避障”证据必须来自一次：
 
 ```bash
-bash scripts/acceptance_test.sh unknown-world-slam-e2e
+bash scripts/acceptance_test.sh verify slam-nav
 ```
 
 ```text

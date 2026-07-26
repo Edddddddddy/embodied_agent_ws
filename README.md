@@ -76,7 +76,8 @@ bash scripts/bootstrap.sh
 source scripts/activate.sh
 ```
 
-离线模型和固定版本 Explore Lite：
+先安装离线运行时与固定版本 Explore Lite，再用内部诊断入口核对版本。该诊断 mode 只在
+`--help-all` 展示，不属于面向使用者的公开验收接口：
 
 ```bash
 bash scripts/setup_offline_runtime.sh
@@ -86,7 +87,7 @@ bash scripts/acceptance_test.sh offline-runtime-versions
 
 在线模式在 `.env` 配置 `DASHSCOPE_API_KEY`。密钥、模型、`build/install/log` 不提交 Git。
 
-部署 preflight 默认不下载模型、不推理、不调用付费 API；资产清单与 VAD 降级边界见
+部署 preflight 同样是内部诊断入口；默认不下载模型、不推理、不调用付费 API。资产清单与 VAD 降级边界见
 [语音运行时部署](docs/deployment/VOICE_RUNTIME.md)：
 
 ```bash
@@ -109,7 +110,8 @@ type hash 已变化。切换分支后须全量重建依赖包，旧 overlay 或�
 
 ```bash
 # 重新配置全部自有包；不在文档里提供可能误删其他 worktree 的递归删除命令。
-colcon build --symlink-install --cmake-clean-cache --executor sequential
+MAKEFLAGS="-j2 -l2" colcon build \
+  --symlink-install --cmake-clean-cache --executor sequential
 source install/setup.bash
 embodied_workspace_doctor true
 ```
@@ -117,92 +119,56 @@ embodied_workspace_doctor true
 重型验收会隔离外部 Nav2 overlay，并在 manifest 记录包来源。linked worktree 可复用 Git 主工作区的
 llama/GGUF/VAD/校准资产；自定义位置用 `EMBODIED_RUNTIME_ROOT` 覆盖。
 
-## 推荐演示
+## 推荐验收
 
-### 1. Unknown-world 正式自主闭环
-
-```bash
-HEADLESS=true USE_RVIZ=true \
-  bash scripts/acceptance_test.sh unknown-world-slam-e2e
-```
-
-机器人运行时不读取真值地图、bootstrap 路线或预生成语义坐标；truth 只由验收结束后的 evaluator 使用。
-任务需完成可达空间探索、动态起点返航、本次地图定位、至少 3 个运行时采样目标、动态重规划和最终零速。
-证据保存在 `logs/acceptance/unknown_world_slam_nav/<session_id>`；报告必须为 schema v4 且全部 checks
-为 true。探索收口、typed STOP、地图质量门槛和失败链见 [TESTING.md](docs/TESTING.md) 与
-[Navigation 证据索引](docs/evidence/navigation/README.md)。
-
-长时 WSL 验收推荐 RViz-only；验收器会在内存不足或软件渲染时选择更安全的可视化策略。
-资源 watchdog 将 `resource_samples.jsonl` 写入 session 目录，用于区分算法停滞和资源耗尽。
-
-### 2. 真人语音 + unknown-world 联合验收（待现场）
+面向使用者只保留一个稳定入口。它按 profile 调用底层测试并生成统一 JSON 报告：
 
 ```bash
-bash scripts/acceptance_test.sh wsl-microphone-preflight
-HEADLESS=true USE_RVIZ=true \
-  bash scripts/acceptance_test.sh voice-unknown-world-slam-e2e offline
-# 将 offline 换成 online 可补跑在线 Agent
-```
-
-看到提示后说“**小智，开始自动巡检建图**”。真人编排器只消费通过唤醒门的 WakeEvent；synthetic 核心
-入口才使用 raw ASR。报告写入
-`logs/acceptance/voice_unknown_world_slam_nav/<session_id>/voice_unknown_world_slam_e2e_report.json`；
-schema v1 的五个语音 checks 与内嵌同 session strict v4 必须全部为 true。当前尚无真人现场 PASS；完整
-契约和故障定位见 [TESTING.md §5.5](docs/TESTING.md)。
-
-正常冷启动时，离线模型 warmup 可能持续十几秒；终端会每 5 秒打印一次 `WAIT: system readiness` 及缺失
-组件。若阶段子进程失败，入口会立即输出原始原因并生成失败报告，不再留下“界面已开但车不动”的静默等待。
-
-### 3. Known-world 稳定回归与语音交互
-
-```bash
-bash scripts/acceptance_test.sh slam-nav-e2e
-bash scripts/acceptance_test.sh voice-slam-workplace-demo offline
-# 或 online
-```
-
-`slam-nav-e2e` 保留已知场景的确定性集成回归，语音 demo 验证真人触发和阶段交互。它们可能使用场景
-bootstrap/语义地点，不能作为“机器人面对未知环境自主完成探索”的证据。
-
-### 4. 连续语音控制
-
-```bash
-bash scripts/acceptance_test.sh continuous-offline
-bash scripts/acceptance_test.sh continuous-online
-```
-
-推荐序列：`小智` → `向前走一秒` → `左转九十度` → `向右转，然后向前走一秒` → `停下` →
-`退出控制`。该入口验证语音、队列和基础仿真控制，不代替 SLAM/Nav2 E2E。
-
-## 测试与验收
-
-公开入口共 9 个，实际列表以脚本帮助和注册表为准：
-
-```bash
+# 查看入口
 bash scripts/acceptance_test.sh --help
-bash scripts/acceptance_test.sh core
-bash scripts/acceptance_test.sh continuous-offline
-bash scripts/acceptance_test.sh continuous-online
-bash scripts/acceptance_test.sh gazebo
-bash scripts/acceptance_test.sh nav2-stage
-bash scripts/acceptance_test.sh slam-nav-e2e
-bash scripts/acceptance_test.sh unknown-world-slam-e2e
-bash scripts/acceptance_test.sh voice-unknown-world-slam-e2e offline
-bash scripts/acceptance_test.sh robotics-gate
+
+# 分模块验收；均不要求真人麦克风
+bash scripts/acceptance_test.sh verify core
+bash scripts/acceptance_test.sh verify voice
+bash scripts/acceptance_test.sh verify control
+bash scripts/acceptance_test.sh verify gazebo
 ```
 
-`--help-all` 仅用于维护内部回归和实验模式。分层测试、严格阈值和故障排查见
+`voice` 使用 mock endpoint 和 Sherpa-TTS 生成的确定性 PCM，覆盖在线/离线 Agent、多命令队列以及
+Sherpa ASR → llama.cpp → typed Action → TTS；不会持续监听真人语音，也不会调用在线付费 API。
+缺少本地模型时可先运行：
+
+```bash
+bash scripts/acceptance_test.sh verify voice --skip-local-models
+```
+
+### Unknown-world SLAM/Nav2 可视闭环
+
+```bash
+CLEANUP_CONFIRM=true bash scripts/cleanup_simulation_processes.sh
+
+HEADLESS=true USE_RVIZ=true \
+SLAM_NAV_PROGRESS_HEARTBEAT_S=10 \
+  bash scripts/acceptance_test.sh verify slam-nav
+```
+
+该 profile 验证未知世界探索、动态起点返航、本次地图保存、AMCL、运行时目标、Nav2 动态重规划和最终
+零速。WSL 内存不足时会自动采用 RViz-only；Gazebo server、雷达和物理仍在后台运行。正式 PASS 以
+`unknown_world_slam_e2e_report.json` 的 schema v4 checks 为准，GUI 只作为补充观察。
+
+需要一次跑完全部模块：
+
+```bash
+HEADLESS=true USE_RVIZ=true \
+  bash scripts/acceptance_test.sh verify all
+```
+
+这会包含完整 SLAM/Nav2 长时验收，通常需要二十分钟以上。统一报告保存在
+`logs/acceptance/project_verification/<session_id>/report.json`。
+
+旧 mode 仍可在 `--help-all` 中找到，供定位单个 probe 和兼容既有命令；它们不再作为 README 主路径。
+真人语音 `continuous-offline/online` 属于可选交互验收，本阶段不纳入自动关键门禁。完整阈值和排障见
 [TESTING.md](docs/TESTING.md)。
-
-常用补充入口：`offline-latency`、`offline-voice-e2e-report`、`release-gate`。
-
-`offline-latency` 的组件目标为 LLM 首 token `≤ 1000ms`、短句完整 TTS 合成 `≤ 600ms`，不等于
-真人语音整链路。release/demo gate 产物分别为 `logs/acceptance_report.json`、
-`logs/demo_acceptance_report.json`。麦克风异常先运行 `wsl-microphone-preflight` 和
-`voice-calibration-report`，再用
-`APPLY_VOICE_CALIBRATION=true bash scripts/acceptance_test.sh continuous-offline` 应用建议；产物为
-`logs/audio_calibration.json`、`logs/voice_calibration_report.json` 与 `logs/voice_calibration.env`。
-需要留存连续识别样本时设置 `CONTINUOUS_SAMPLE_LOG=<path>`。
 
 ## 文档
 

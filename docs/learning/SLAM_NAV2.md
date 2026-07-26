@@ -629,7 +629,7 @@ STOP 失败、terminal 缺失、callback 异常和并发边界；ROS Adapter 测
 转换、时间戳、result wrapper 与零预算 STOP。Node 旧 Future 白盒测试已由这些接口
 测试替代，而不是叠加保留。
 
-包级测试、repository contracts 和 `acceptance_test.sh core` 证明代码与 ROS
+包级测试、repository contracts 和 `acceptance_test.sh verify core` 证明代码与 ROS
 契约；未知地图重型 E2E 才能证明真实 Gazebo/Nav2 中的运动、取消、终态和最终零速。
 未来 `DefaultDemoSession` 落地时还需增加
 `RUN_DEFAULT -> MISSION_COMPLETED -> STOP -> STOPPED` 的会话级证据。

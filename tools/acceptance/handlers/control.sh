@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Registered control acceptance handlers; sourced by the Python runner.
 
+accept_verify() {
+  python3 -m tools.acceptance.scenarios.project_verification "$@"
+}
+
 accept_core() {
   bash scripts/run_core_tests.sh
 }

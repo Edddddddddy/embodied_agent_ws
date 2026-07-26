@@ -38,6 +38,19 @@ def test_gazebo_smoke_surfaces_launch_log_when_readiness_fails():
     assert "readiness failed; launch log follows" in smoke
 
 
+def test_gazebo_probe_requires_fresh_stable_zero_velocity_after_stop():
+    """stop ACK 只代表指令被接收，正式验收还必须证明底盘控制量已经归零。"""
+
+    probe = (
+        ROOT / "tools/acceptance/probes/control/gazebo_motion.py"
+    ).read_text(encoding="utf-8")
+
+    assert 'self.create_subscription(Twist, "/cmd_vel"' in probe
+    assert "final_velocity_is_zero(after=stop_requested_at)" in probe
+    assert '"fresh_after_stop"' in probe
+    assert '"stable_zero": True' in probe
+
+
 def test_gazebo_scenario_runs_smoke_inside_isolated_session(
     monkeypatch,
     tmp_path,

@@ -170,8 +170,6 @@ def test_voice_navigation_acceptance_entrypoints_remain_available():
 
     for script in (
         "smoke_test_navigation_sequence.sh",
-        "smoke_test_continuous_navigation_queue.sh",
-        "smoke_test_continuous_navigation_natural.sh",
         "smoke_test_nav2_bridge.sh",
         "smoke_test_nav2_preflight.sh",
         "smoke_test_nav2_turtlebot3_voice.sh",
@@ -181,6 +179,7 @@ def test_voice_navigation_acceptance_entrypoints_remain_available():
         "publish_nav2_initial_pose.py",
     ):
         assert (ROOT / "scripts" / script).is_file()
+    assert (ROOT / "tools/acceptance/run_mock_agent_probe.sh").is_file()
 
     assert (
         ROOT / "src" / "embodied_simulation" / "launch" / "voice_nav2_turtlebot3.launch.py"
@@ -480,7 +479,7 @@ def test_offline_latency_gate_remains_available_and_documented():
 
     latency_probe = ROOT / "scripts" / "offline_latency_targets.py"
     latency_smoke = ROOT / "scripts" / "smoke_test_offline_latency.sh"
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    testing = (ROOT / "docs" / "TESTING.md").read_text(encoding="utf-8")
 
     assert_acceptance_modes("offline-latency", "offline-voice-e2e-report")
     assert "smoke_test_offline_latency.sh" in acceptance_handler_source(
@@ -493,10 +492,10 @@ def test_offline_latency_gate_remains_available_and_documented():
     assert "TTS_SYNTHESIS_TARGET_MS = 600.0" in probe_text
     assert '"measurement_kind": "full_utterance_synthesis"' in probe_text
     assert "--tts-provider" in probe_text
-    assert "offline-latency" in readme
-    assert "≤ 1000ms" in readme
-    assert "≤ 600ms" in readme
-    assert "offline-voice-e2e-report" in readme
+    assert "offline-latency" in testing
+    assert "≤ 1000ms" in testing
+    assert "≤ 600ms" in testing
+    assert "offline-voice-e2e-report" in testing
 
 def test_job_presentation_doc_remains_discoverable():
     """阅读地图、汇报入口与三册学习笔记构成连续的知识入口。"""
@@ -583,8 +582,10 @@ def test_showcase_hardening_artifacts_remain_discoverable():
     audit_handler = acceptance_handler_source("offline-evidence-audit")
     assert "OFFLINE_SHOWCASE_RUN_INSTRUCTION_FOLLOWING" in showcase_handler
     assert "OFFLINE_EVIDENCE_REQUIRE_INSTRUCTION_FOLLOWING" in audit_handler
-    assert "logs/acceptance_report.json" in readme
-    assert "logs/demo_acceptance_report.json" in readme
+    assert "logs/acceptance/project_verification" in readme
+    assert (
+        ROOT / "tools/acceptance/scenarios/project_verification.py"
+    ).is_file()
     assert "## 事实边界" in readme
     offline_report_text = offline_showcase_report.read_text(encoding="utf-8")
     assert "offline_deployment_showcase" in offline_report_text
@@ -677,7 +678,7 @@ def test_entry_documents_stay_concise_and_point_to_authoritative_guides():
         "PRESENTATION_15MIN.md",
     }
     for required in (
-        "## 核心架构", "## 推荐演示", "## 测试与验收",
+        "## 核心架构", "## 推荐验收",
         "docs/README.md",
     ):
         assert required in readme

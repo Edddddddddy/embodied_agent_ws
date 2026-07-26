@@ -1,19 +1,11 @@
 {
   "acceptance_cli": {
-    "advanced_help_mode_count": 135,
-    "public_mode_count": 9,
+    "advanced_help_mode_count": 136,
+    "public_mode_count": 1,
     "public_modes": [
-      "continuous-offline",
-      "continuous-online",
-      "core",
-      "gazebo",
-      "nav2-stage",
-      "robotics-gate",
-      "slam-nav-e2e",
-      "unknown-world-slam-e2e",
-      "voice-unknown-world-slam-e2e"
+      "verify"
     ],
-    "router_mode_count": 135,
+    "router_mode_count": 136,
     "undocumented_router_modes": []
   },
   "ci": {
@@ -32,7 +24,7 @@
     "advanced_modes_are_routable": true,
     "ci_matrix_matches_ros_packages": true,
     "ci_push_and_pr_only_dev_main": true,
-    "public_mode_count_is_9": true,
+    "public_mode_count_is_1": true,
     "public_modes_are_routable": true,
     "release_gates_use_current_workspace": true,
     "robotics_profile_covers_required_gates": true,
@@ -169,8 +161,8 @@
   "repository_scale": {
     "offline_agent_node_lines": 694,
     "online_agent_node_lines": 550,
-    "scripts_recursive_file_count": 131,
-    "scripts_top_level_file_count": 131
+    "scripts_recursive_file_count": 121,
+    "scripts_top_level_file_count": 121
   },
   "ros_packages": {
     "ci_count": 12,
