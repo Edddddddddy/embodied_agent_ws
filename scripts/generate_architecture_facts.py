@@ -148,6 +148,7 @@ def build_facts(root: Path) -> dict[str, Any]:
             )
         ),
         "continuous_multi_command": "continuous-multi-command" in robotics_text,
+        "control_authority": "control-authority-stage" in robotics_text,
         "nav2_stage": "nav2-stage" in robotics_text,
         "slam_evaluation": "slam-evaluation-stage" in robotics_text,
         "openloris_fixture": "openloris-replay-stage" in robotics_text,

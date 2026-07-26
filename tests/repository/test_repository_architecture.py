@@ -193,7 +193,12 @@ def test_robot_action_transport_is_fully_typed_without_legacy_json_adapter():
     )
     sequencer = (CORE_ROOT / "action_sequence.py").read_text(encoding="utf-8")
 
-    assert "Subscription<\n    embodied_agent_interfaces::msg::RobotCommand>" in guard
+    # 允许节点为 typed 消息声明局部别名；契约关注的是消息类型和 ROS
+    # Subscription，而不是某一种换行/模板拼写格式。
+    assert '#include "embodied_agent_interfaces/msg/robot_command.hpp"' in guard
+    assert "using RobotCommand = embodied_agent_interfaces::msg::RobotCommand;" in guard
+    assert "rclcpp::Subscription<" in guard
+    assert "RobotCommand>::SharedPtr candidate_subscription_" in guard
     assert "RobotCommandFeedback" in bridge
     assert "RobotCommandResult" in bridge
     assert "ActionScheduler" in bridge
@@ -366,7 +371,11 @@ def test_nav2_executor_failure_details_are_preserved():
         "server_unavailable",
         "goal_rejected",
         "goal_response_timeout_or_rejected",
-        "nav2:cancel_requested",
+        # cancel ACK 只能证明 Nav2 接受了取消请求；必须继续等待 goal result
+        # 进入 terminal 状态，才能向控制权管理器证明底盘已经静默。
+        "nav2:stop:waiting_terminal",
+        "nav2:stop:terminal_timeout",
+        "nav2:stop:cancel_request_rejected",
     ):
         assert detail_token in executor_plugin
     # Nav2 通信留在 executor，协议终态到业务终态的映射集中在纯策略模块，

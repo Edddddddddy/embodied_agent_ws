@@ -110,6 +110,13 @@ accept_voice_unknown_world_slam_e2e() {
   python3 -u -m tools.acceptance.scenarios.voice_unknown_world_slam_e2e "$check_mode"
 }
 
+accept_showcase_gazebo_e2e() {
+  embodied_workspace_doctor true
+  # 与 strict unknown-world 共享地图/定位/导航判定；这里只开启持久底座及
+  # PID+starttime 连续性证据，避免维护一套更宽松的演示真相源。
+  python3 -u -m tools.acceptance.scenarios.showcase_gazebo_e2e
+}
+
 accept_slam_session_orchestrator() {
   bash scripts/smoke_test_voice_slam_session_orchestrator_gazebo.sh
 }

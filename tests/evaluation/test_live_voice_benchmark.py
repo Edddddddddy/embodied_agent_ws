@@ -118,6 +118,76 @@ def test_action_alignment_does_not_cascade_after_one_missing_repeated_action() -
     assert MODULE._monotonic_action_match_count(expected, observed) == 7
 
 
+def test_text_alignment_uses_global_optimum_when_operator_repeats_command() -> None:
+    """补说产生相似 ASR 时，前一条命令不能贪心吞掉后一条唯一证据。"""
+    expected = ["启动建图", "开始建图"]
+    observed = ["启动", "开始建图"]
+
+    matches = MODULE._monotonic_text_matches(expected, observed, threshold=0.65)
+
+    assert [item["observed"] for item in matches] == ["启动", "开始建图"]
+    assert all(item["matched"] for item in matches)
+
+
+def test_text_alignment_rejects_opposite_turn_direction_despite_high_similarity() -> None:
+    """左/右只有一字不同，但控制语义相反，不能互相计分。"""
+    matches = MODULE._monotonic_text_matches(
+        ["左转九十度", "右转九十度"],
+        ["左转九十度", "左转九十度"],
+        threshold=0.65,
+    )
+
+    assert matches[0]["matched"] is True
+    assert matches[1]["matched"] is False
+    assert matches[1]["observed"] == ""
+
+
+def test_text_alignment_rejects_ambiguous_opposite_direction_slot() -> None:
+    matches = MODULE._monotonic_text_matches(
+        ["左转九十度"],
+        ["左右转九十度"],
+        threshold=0.65,
+    )
+
+    assert matches[0]["similarity"] > 0.65
+    assert matches[0]["matched"] is False
+
+
+def test_text_alignment_rejects_missing_required_direction_slot() -> None:
+    matches = MODULE._monotonic_text_matches(
+        ["左转九十度"],
+        ["转九十度"],
+        threshold=0.65,
+    )
+
+    assert matches[0]["similarity"] > 0.65
+    assert matches[0]["matched"] is False
+    assert matches[0]["observed"] == ""
+
+
+def test_text_alignment_rejects_missing_required_color_slot() -> None:
+    matches = MODULE._monotonic_text_matches(
+        ["把灯设成蓝色"],
+        ["把灯设成颜色"],
+        threshold=0.65,
+    )
+
+    assert matches[0]["similarity"] > 0.65
+    assert matches[0]["matched"] is False
+    assert matches[0]["observed"] == ""
+
+
+def test_text_alignment_ignores_fillers_without_relaxing_similarity_threshold() -> None:
+    matches = MODULE._monotonic_text_matches(
+        ["向前走一秒", "停下"],
+        ["嗯", "向前走", "那个", "停下"],
+        threshold=0.65,
+    )
+
+    assert [item["observed"] for item in matches] == ["向前走", "停下"]
+    assert [item["similarity"] for item in matches] == [0.75, 1.0]
+
+
 def test_offline_hotwords_cover_all_live_benchmark_domains() -> None:
     hotwords = (
         ROOT / "src" / "embodied_offline_agent" / "config" / "hotwords_zh.txt"

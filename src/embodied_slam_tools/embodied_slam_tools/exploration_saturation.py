@@ -206,7 +206,6 @@ class SaturationPolicy:
     minimum_low_yield_epochs: int = 2
     minimum_terminal_goals_per_epoch: int = 3
     minimum_mapping_path_m: float = 20.0
-    maximum_residual_available_frontiers: int = 4
     maximum_low_yield_gain_cells: int = 40
     maximum_low_yield_gain_ratio: float = 0.002
     required_map_quiet_s: float = 10.0
@@ -216,7 +215,6 @@ class SaturationPolicy:
         integer_values = (
             self.minimum_low_yield_epochs,
             self.minimum_terminal_goals_per_epoch,
-            self.maximum_residual_available_frontiers,
             self.maximum_low_yield_gain_cells,
         )
         if any(value < 0 for value in integer_values):
@@ -346,14 +344,14 @@ def assess_bounded_frontier_saturation(
 
     if evidence.history.counters.mapping_path_m < policy.minimum_mapping_path_m:
         unmet.append("insufficient_mapping_path")
+    # TIME_BUDGET 的 residual 来自暂停 Explorer 时的 pre-probe 快照：
+    # 随后的 360° 扫描会更新地图，但已停止的 provider 不会重算 cluster。
+    # raw cluster 数也不表示剩余信息量，受墙角碎片和栅格噪声影响，因此只
+    # 保留为诊断证据。硬预算是否近似收敛由跨 epoch 单位目标增益、
+    # final probe、地图静默和独立 evaluator 共同决定。
     if evidence.trigger is SaturationTrigger.REPEATED_REACHABLE_STALL:
         if evidence.residual_available_frontiers != 0:
             unmet.append("reachable_frontiers_remain_after_stall")
-    elif (
-        evidence.residual_available_frontiers
-        > policy.maximum_residual_available_frontiers
-    ):
-        unmet.append("too_many_residual_frontiers")
     if evidence.active_goal_count or evidence.pending_goal_count:
         unmet.append("action_ledger_not_drained")
 

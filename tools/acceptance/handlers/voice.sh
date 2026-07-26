@@ -222,6 +222,17 @@ accept_provider_preflight() {
     --livekit-wakeword-models "${LIVEKIT_WAKEWORD_MODELS:-}"
 }
 
+accept_voice_runtime_preflight() {
+  local profile="${1:-}"
+  if [[ "$profile" != "offline-edge" && "$profile" != "online-cloud" ]]; then
+    echo "Usage: ${ACCEPTANCE_PROGRAM:-acceptance_test.sh} voice-runtime-preflight {offline-edge|online-cloud} [--contract-only|--probe-endpoints|--json]" >&2
+    return 2
+  fi
+  shift
+  # 组合入口只做只读部署检查，不触发模型下载、推理或付费在线请求。
+  python3 scripts/voice_runtime_preflight.py --profile "$profile" "$@"
+}
+
 accept_voice_stability_preflight() {
   set +e
   STABILITY_OUTPUT="$(python3 scripts/voice_provider_preflight.py \
@@ -298,14 +309,6 @@ accept_asr_nlu_candidate_eval() {
     --input "$ASR_NLU_CANDIDATE_INPUT" \
     --output "${ASR_NLU_CANDIDATE_REPORT:-logs/asr_nlu_candidate_eval_report.json}" \
     --minimum "${ASR_NLU_CANDIDATE_MINIMUM:-1.0}"
-}
-
-accept_microphone_offline() {
-  bash scripts/accept_voice_simulation_microphone.sh offline
-}
-
-accept_microphone_online() {
-  bash scripts/accept_voice_simulation_microphone.sh online
 }
 
 accept_continuous_offline() {

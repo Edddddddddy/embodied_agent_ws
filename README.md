@@ -11,17 +11,16 @@
 
 ## 能力概览
 
-- 在线/离线 Agent：云端 provider，以及 Sherpa-ONNX ZipFormer、llama.cpp、Sherpa-TTS；SummerTTS
-  是可选 ROS 服务组件。
+- 在线/离线 Agent：云端 provider，以及 Sherpa-ONNX ZipFormer、llama.cpp、Sherpa-TTS；SummerTTS 是可选 ROS 服务组件。
+- 部署型 RAG：控制命令零检索，知识问答使用有界本地稀疏检索、source_id 引用和统一 Prompt seam。
 - 连续语音：一次唤醒后持续接收，多命令 NLU、FIFO、TTL、重复/filler 过滤和急停抢占。
 - ROS 2/C++ 控制：自定义 msg/action、Lifecycle、ActionGuard、ActionScheduler、反馈/取消/超时。
 - 仿真执行：BehaviorTree.CPP 编排、pluginlib executor、Gazebo 运动和最终零速度保护。
 - SLAM/Nav2：frontier 探索、SLAM Toolbox、地图保存、AMCL、Nav2 目标导航与动态障碍重规划。
 - 算法证据：Ceres/GTSAM 后端、LiDAR 回环 shadow pipeline、动态障碍关联/预测/costmap 消融。
 
-当前 schema v4 session `20260721T072342Z-2344751-5452a492` 已完成 unknown-world 探索、动态起点返航、
-本次地图定位、3 个运行时目标、动态重规划与停车：覆盖 `99.81%`、区域最低 `98.76%`、AMCL P95
-`0.120m`，全部 checks 为 true。机器人运行时不读取真值；truth 只供验收结束后的 evaluator 复核。
+当前 schema v4 session `20260725T120302Z-145519-3ec3df78` 已完成 unknown-world 探索、动态起点返航、本次地图定位、
+3 个运行时目标与动态重规划；关键指标及 truth 仅供验收后 evaluator 复核，详见证据索引。
 
 ## 核心架构
 
@@ -46,10 +45,8 @@ flowchart LR
     AMCL --> NAV2
 ```
 
-关键原则：Agent 负责意图，ActionGuard 负责 primitive 动作安全，executor 负责副作用。初始/恢复扫描
-与安全 STOP 复用 Agent → Guard → BT；Unknown-world 的运行时采样目标则由任务编排器完成 known-free
-预筛和 `ComputePathToPose` 准入后，直接调用 typed Nav2 Action，避免把地图坐标重新翻译成自然语言。
-探索与采样策略只能读取在线 scan/odom/TF/map；静态真值和场地区域只允许进入评分器。
+关键原则：Agent 负责意图，ActionGuard 负责 primitive 动作安全，executor 负责副作用；Unknown-world 目标经
+known-free 预筛和 `ComputePathToPose` 准入。在线策略只读 scan/odom/TF/map，静态真值只允许进入评分器。
 
 ## 目录
 
@@ -89,6 +86,14 @@ bash scripts/acceptance_test.sh offline-runtime-versions
 
 在线模式在 `.env` 配置 `DASHSCOPE_API_KEY`。密钥、模型、`build/install/log` 不提交 Git。
 
+部署 preflight 默认不下载模型、不推理、不调用付费 API；资产清单与 VAD 降级边界见
+[语音运行时部署](docs/deployment/VOICE_RUNTIME.md)：
+
+```bash
+bash scripts/acceptance_test.sh voice-runtime-preflight offline-edge --contract-only
+bash scripts/acceptance_test.sh voice-runtime-preflight offline-edge
+```
+
 ### Docker 构建与可追溯交付
 
 ```bash
@@ -96,8 +101,8 @@ docker compose build test && docker compose run --rm test
 docker compose build runtime-smoke && docker compose run --rm runtime-smoke
 ```
 
-PR 和 `dev/main` push 执行相同容器门禁；合入 `main` 后的稳定 SemVer 标签才允许发布 GHCR 运行镜像，
-并保存 digest、Git revision、OCI labels 和发布 manifest。详见 [Docker 与交付流程](docs/deployment/CONTAINER_DELIVERY.md)。
+PR 和 `dev/main` push 执行相同容器门禁；稳定 SemVer 标签才允许发布带 digest、Git revision、OCI labels
+和 manifest 的 GHCR 镜像。详见 [Docker 与交付流程](docs/deployment/CONTAINER_DELIVERY.md)。
 
 本阶段扩展了 `SlamSessionState`、`SlamMappingCompletionEvidence` 等 SLAM 证据接口；ROS 2 接口
 type hash 已变化。切换分支后须全量重建依赖包，旧 overlay 或旧 rosbag 不能作为当前证据。
@@ -109,15 +114,15 @@ source install/setup.bash
 embodied_workspace_doctor true
 ```
 
-重型验收会隔离外部 Nav2 overlay，并在 manifest 记录包来源。linked worktree 的真人离线入口自动复用
-Git 主工作区的 llama/GGUF/VAD/校准资产；自定义位置用 `EMBODIED_RUNTIME_ROOT` 覆盖。
+重型验收会隔离外部 Nav2 overlay，并在 manifest 记录包来源。linked worktree 可复用 Git 主工作区的
+llama/GGUF/VAD/校准资产；自定义位置用 `EMBODIED_RUNTIME_ROOT` 覆盖。
 
 ## 推荐演示
 
 ### 1. Unknown-world 正式自主闭环
 
 ```bash
-HEADLESS=false USE_RVIZ=true \
+HEADLESS=true USE_RVIZ=true \
   bash scripts/acceptance_test.sh unknown-world-slam-e2e
 ```
 
@@ -127,11 +132,14 @@ HEADLESS=false USE_RVIZ=true \
 为 true。探索收口、typed STOP、地图质量门槛和失败链见 [TESTING.md](docs/TESTING.md) 与
 [Navigation 证据索引](docs/evidence/navigation/README.md)。
 
+长时 WSL 验收推荐 RViz-only；验收器会在内存不足或软件渲染时选择更安全的可视化策略。
+资源 watchdog 将 `resource_samples.jsonl` 写入 session 目录，用于区分算法停滞和资源耗尽。
+
 ### 2. 真人语音 + unknown-world 联合验收（待现场）
 
 ```bash
 bash scripts/acceptance_test.sh wsl-microphone-preflight
-HEADLESS=false USE_RVIZ=true \
+HEADLESS=true USE_RVIZ=true \
   bash scripts/acceptance_test.sh voice-unknown-world-slam-e2e offline
 # 将 offline 换成 online 可补跑在线 Agent
 ```
@@ -198,14 +206,9 @@ bash scripts/acceptance_test.sh robotics-gate
 
 ## 文档
 
-- [系统架构与调用关系](docs/ARCHITECTURE.md)
-- [测试与验收契约](docs/TESTING.md)
-- [Docker 与交付流程](docs/deployment/CONTAINER_DELIVERY.md)
-- [SLAM/Nav2 学习笔记](docs/learning/SLAM_NAV2.md)
-- [语音 Agent 学习笔记](docs/learning/VOICE_AGENT.md)
-- [ROS 2/C++ 控制学习笔记](docs/learning/ROS2_CPP_CONTROL.md)
-- [Unknown-world 开发 Goal](docs/development/UNKNOWN_WORLD_SLAM_GOAL.md)
-- [15 分钟汇报](docs/PRESENTATION_15MIN.md)
+从 [文档阅读地图](docs/README.md) 开始：先用本页完成项目定位、最短部署和公开入口，再按目标进入
+[系统架构](docs/ARCHITECTURE.md)、[测试手册](docs/TESTING.md)、学习笔记、证据或
+[15 分钟汇报](docs/PRESENTATION_15MIN.md)。开发日志和历史记录不作为当前功能事实。
 
 ## 事实边界
 

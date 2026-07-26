@@ -17,6 +17,7 @@ from .exploration_saturation import (
     SaturationRuntimeEvidence,
     SaturationTrigger,
     assess_bounded_frontier_saturation,
+    consecutive_low_yield_epoch_count,
 )
 from .mapping_evidence import FrontierTelemetry, MappingEvidenceTracker
 from .mapping_return import (
@@ -38,6 +39,11 @@ class CommandRequest:
     success: bool = False
     message: str = ""
     canceled: bool = False
+    # 只对受控自动任务赋值；worker 启动前必须仍与当前 authority generation 一致。
+    authority_generation: int | None = None
+    # 控制权撤销时绑定 exact manager epoch/revocation。任务 worker 必须等这一代
+    # 静默 ACK/FAILED 后才能释放 stage 互斥，不能让 SAVE/START_NAV 抢跑。
+    authority_revocation_identity: tuple[int, int] | None = None
 
 
 class AutomaticMissionCancelled(RuntimeError):
@@ -104,6 +110,13 @@ class MissionRuntimePort(Protocol):
     ) -> None: ...
 
     def wait_for_frontier(self, request: CommandRequest) -> None: ...
+
+    def quiesce_frontier(
+        self,
+        request: CommandRequest,
+        *,
+        timeout_s: float,
+    ) -> FrontierTelemetry: ...
 
     def save_map(self, request: CommandRequest) -> None: ...
 
@@ -519,6 +532,25 @@ class AutomaticMissionExecutor:
         self._manager.start_explorer(self._spec.explorer_config_path)
         try:
             self._runtime.wait_for_frontier(request)
+        except BaseException as primary_error:
+            try:
+                # 旧流程只在 finally 中杀进程，可能丢失 Explore owner Action
+                # 的 terminal callback。先排空账本，失败则把原因附着到主异常。
+                self._runtime.quiesce_frontier(
+                    CommandRequest(
+                        command=SessionCommand.STOP_SESSION,
+                        source="automatic_frontier_quiescence",
+                    ),
+                    timeout_s=self._spec.bootstrap_action_timeout_s,
+                )
+            except BaseException as cleanup_error:
+                add_note = getattr(primary_error, "add_note", None)
+                if callable(add_note):
+                    add_note(
+                        "frontier ledger quiescence failed: "
+                        f"{cleanup_error}"
+                    )
+            raise
         finally:
             # 任何失败或取消都必须停 explorer，否则定位阶段仍会收到旧目标。
             self._manager.stop_explorer()
@@ -733,6 +765,21 @@ class UnknownWorldMissionExecutor:
 
         if stop_explorer:
             try:
+                # 进程退出不是 Explore goal 的 terminal 证据。先通过控制面暂停并
+                # 排空 owner ledger；即使失败也只记录为清理错误，原始异常仍保留。
+                self._runtime.quiesce_frontier(
+                    CommandRequest(
+                        command=SessionCommand.STOP_SESSION,
+                        source="frontier_failure_quiescence",
+                    ),
+                    timeout_s=self._spec.action_timeout_s,
+                )
+            except BaseException as cleanup_error:
+                add_cleanup_note(
+                    "frontier ledger quiescence failed",
+                    cleanup_error,
+                )
+            try:
                 self._manager.stop_explorer()
             except BaseException as cleanup_error:
                 add_cleanup_note("explorer cleanup failed", cleanup_error)
@@ -815,6 +862,61 @@ class UnknownWorldMissionExecutor:
                         stop_explorer=False,
                     )
                     raise
+                recent_low_yield_epochs = consecutive_low_yield_epoch_count(
+                    saturation_tracker.snapshot(),
+                    self._spec.saturation_policy,
+                )
+                if (
+                    not final_confirmation_active
+                    and recent_low_yield_epochs
+                    < self._spec.saturation_policy.minimum_low_yield_epochs
+                ):
+                    # 900 秒硬预算可能刚好截在“第一轮收益很高、第二轮正在
+                    # 收敛”的边界。直接放宽门槛会误报完整，直接失败又会让
+                    # 同一场景因调度抖动偶发失败；因此只追加一次独立时间盒，
+                    # 用第三个 epoch 取得连续低收益证据。
+                    self._runtime.stop_motion_and_wait(
+                        request,
+                        timeout_s=self._spec.action_timeout_s,
+                    )
+                    self._runtime.run_agent_action(
+                        request,
+                        text=self._spec.recovery_scan_text,
+                        expected_action="turn",
+                        timeout_s=self._spec.action_timeout_s,
+                    )
+                    self._wait_for_map_quiet(
+                        request,
+                        deadline_monotonic=(
+                            time.monotonic()
+                            + max(
+                                self._spec.map_settle_s,
+                                self._spec.action_timeout_s,
+                            )
+                        ),
+                    )
+                    self._observe_saturation_tracker(saturation_tracker)
+                    final_confirmation_active = True
+                    final_confirmation_deadline = (
+                        time.monotonic()
+                        + self._spec.final_confirmation_timeout_s
+                    )
+                    self._runtime.transition(
+                        SessionPhase.AUTOMATIC_MAPPING,
+                        detail=(
+                            "time budget reached before consecutive "
+                            "low-yield evidence; starting one bounded "
+                            "confirmation epoch "
+                            f"observed={recent_low_yield_epochs} "
+                            "required="
+                            f"{self._spec.saturation_policy.minimum_low_yield_epochs}"
+                        ),
+                    )
+                    self._evidence.reset_exploration(
+                        preserve_action_totals=True
+                    )
+                    self._evidence.resume_mapping_path()
+                    continue
                 return self._assess_time_budget_saturation(
                     request,
                     tracker=saturation_tracker,
@@ -1201,6 +1303,9 @@ class UnknownWorldMissionExecutor:
             history=tracker.snapshot(),
             trigger=trigger,
             recovery_attempts_remaining=recovery_attempts_remaining,
+            # TIME_BUDGET 下这是 Explorer quiesce 时的 pre-probe cluster
+            # 快照；它仍写入 typed evidence 供诊断和 evaluator 一致性复核，
+            # 但不冒充 final probe 后的剩余信息量。
             residual_available_frontiers=(
                 telemetry.available_frontier_count
             ),

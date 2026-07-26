@@ -173,11 +173,12 @@ def test_showcase_release_gate_robotics_profile_covers_delivery_stack(tmp_path):
     assert completed.returncode == 0, completed.stdout
     report = json.loads(output.read_text(encoding="utf-8"))
     assert report["profile"] == "robotics"
-    assert report["command_count"] == 6
+    assert report["command_count"] == 7
     commands = "\n".join(item["command"] for item in report["commands"])
     for required in (
         "architecture-facts",
         "embodied_agent_bringup",
+        "control-authority-stage",
         "continuous-multi-command",
         "nav2-stage",
         "slam-evaluation-stage",

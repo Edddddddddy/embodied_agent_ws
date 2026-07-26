@@ -47,6 +47,19 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="终端打印验收摘要，完整字段仅写入 --output",
     )
+    parser.add_argument(
+        "--require-runtime-continuity",
+        action="store_true",
+        help=(
+            "要求 Gazebo、robot_state_publisher 与所选 online/offline Agent "
+            "在建图、导航阶段保持同一 Linux 进程身份"
+        ),
+    )
+    parser.add_argument(
+        "--require-rviz-continuity",
+        action="store_true",
+        help="可视化演示同时要求 RViz 在阶段切换时不重启",
+    )
     parser.add_argument("--explore-before-save", action="store_true")
     parser.add_argument(
         "--automatic-mission",

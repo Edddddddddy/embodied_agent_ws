@@ -55,6 +55,7 @@ PUBLIC_MODE_NAMES = (
 _MODE_SPECS = (
     ('core', 'Typical developer gate: repository, Python unit, C++ unit tests', 'accept_core', 'public', True, True, HandlerDomain.CONTROL),
     ('architecture-facts', 'Verify generated package/CI/CLI/release-gate architecture evidence', 'accept_architecture_facts', 'internal', False, False, HandlerDomain.CONTROL),
+    ('control-authority-stage', 'Typed authority and autonomy/keyboard velocity allowlist gate', 'accept_control_authority_stage', 'internal', False, True, HandlerDomain.CONTROL),
     ('agent-lifecycle', 'Online/offline configure -> activate -> deactivate -> reactivate', 'accept_agent_lifecycle', 'internal', False, True, HandlerDomain.CONTROL),
     ('preflight', 'Check offline model/runtime files', 'accept_preflight', 'internal', False, True, HandlerDomain.CONTROL),
     ('mock', 'Build, unit tests, and dependency-free ROS smokes', 'accept_mock', 'internal', False, True, HandlerDomain.CONTROL),
@@ -94,6 +95,7 @@ _MODE_SPECS = (
     ('slam-nav-e2e', 'Known-world deterministic SLAM/Nav2 regression (legacy stable entry)', 'accept_slam_nav_e2e', 'public', True, True, HandlerDomain.SLAM_NAV),
     ('unknown-world-slam-e2e', 'Unknown-world autonomous exploration -> SLAM -> AMCL/Nav2 evidence gate', 'accept_unknown_world_slam_e2e', 'public', True, True, HandlerDomain.SLAM_NAV),
     ('voice-unknown-world-slam-e2e', '{offline|online} Live microphone -> full-evidence unknown-world SLAM/Nav2 gate', 'accept_voice_unknown_world_slam_e2e', 'public', True, True, HandlerDomain.SLAM_NAV),
+    ('showcase-gazebo-e2e', 'Persistent Gazebo/RViz mapping -> localization -> navigation evidence gate', 'accept_showcase_gazebo_e2e', 'internal', False, True, HandlerDomain.SLAM_NAV),
     ('slam-session-orchestrator', 'Heavy one-terminal Gazebo mapping/save/restart/navigation gate', 'accept_slam_session_orchestrator', 'internal', False, True, HandlerDomain.SLAM_NAV),
     ('slam-benchmark', 'Heavy Gazebo run: fixed loop, 5 cm map, and drift metrics report', 'accept_slam_benchmark', 'internal', False, True, HandlerDomain.EVALUATION),
     ('slam-gtsam-benchmark', 'Heavy Gazebo run with the project GTSAM ScanSolver plugin', 'accept_slam_gtsam_benchmark', 'internal', False, True, HandlerDomain.EVALUATION),
@@ -147,6 +149,7 @@ _MODE_SPECS = (
     ('kws-calibration', 'Dependency-free KWS score calibration smoke test', 'accept_kws_calibration', 'internal', False, True, HandlerDomain.VOICE),
     ('voice-readiness', 'Dependency-free voice readiness smoke test', 'accept_voice_readiness', 'internal', False, True, HandlerDomain.VOICE),
     ('provider-preflight', 'Optional VAD/KWS provider unit tests plus current-env preflight', 'accept_provider_preflight', 'internal', False, True, HandlerDomain.VOICE),
+    ('voice-runtime-preflight', '{offline-edge|online-cloud} Validate VAD/ASR/LLM/RAG/TTS deployment profile', 'accept_voice_runtime_preflight', 'internal', False, False, HandlerDomain.VOICE),
     ('voice-stability-preflight', 'Strict preflight requiring Silero/WebRTC mature VAD', 'accept_voice_stability_preflight', 'internal', False, True, HandlerDomain.VOICE),
     ('voice-vad-runtime-dry-run', 'Show optional WebRTC/Silero VAD install commands without installing', 'accept_voice_vad_runtime_dry_run', 'internal', False, True, HandlerDomain.VOICE),
     ('voice-kws-runtime-dry-run', 'Show optional openWakeWord/sherpa KWS install commands without installing', 'accept_voice_kws_runtime_dry_run', 'internal', False, True, HandlerDomain.VOICE),
@@ -171,8 +174,6 @@ _MODE_SPECS = (
     ('cpp-action-bridge-lifecycle', 'Verify inactive reject, cleanup, and reactivate', 'accept_cpp_action_bridge_lifecycle', 'internal', False, True, HandlerDomain.CONTROL),
     ('gazebo-voice', 'Offline synthesized speech through typed Action to Gazebo', 'accept_gazebo_voice', 'internal', False, True, HandlerDomain.CONTROL),
     ('gazebo-voice-online', 'Online voice provider through typed Action to Gazebo', 'accept_gazebo_voice_online', 'internal', False, True, HandlerDomain.CONTROL),
-    ('microphone-offline', 'Speak into the microphone using the offline Agent', 'accept_microphone_offline', 'interactive', False, True, HandlerDomain.VOICE),
-    ('microphone-online', 'Speak into the microphone using the online Agent', 'accept_microphone_online', 'interactive', False, True, HandlerDomain.VOICE),
     ('continuous-offline', 'Long-running microphone control using the offline Agent', 'accept_continuous_offline', 'public', True, True, HandlerDomain.VOICE),
     ('continuous-online', 'Long-running microphone control using the online Agent', 'accept_continuous_online', 'public', True, True, HandlerDomain.VOICE),
     ('continuous-nav2-offline', 'Long-running microphone target navigation with Nav2/TurtleBot3', 'accept_continuous_nav2_offline', 'interactive', False, True, HandlerDomain.SLAM_NAV),
@@ -187,7 +188,6 @@ _MODE_SPECS = (
     ('runtime-evidence-summary', 'Summarize online/offline 5-minute, LLM, and latency evidence', 'accept_runtime_evidence_summary', 'internal', False, True, HandlerDomain.CONTROL),
     ('voice-benchmark-report', 'REPORT_FILE  Evaluate recognition/action/false-trigger/latency metrics', 'accept_voice_benchmark_report', 'interactive', False, True, HandlerDomain.EVALUATION),
     ('continuous-nav2-live-report', 'REPORT_FILE  Re-score a saved Nav2 live-check report', 'accept_continuous_nav2_live_report', 'interactive', False, True, HandlerDomain.SLAM_NAV),
-    ('all', 'Run all automated release gates; excludes interactive microphone', 'accept_all', 'internal', False, True, HandlerDomain.CONTROL),
 )
 
 MODES = tuple(AcceptanceMode(*spec) for spec in _MODE_SPECS)

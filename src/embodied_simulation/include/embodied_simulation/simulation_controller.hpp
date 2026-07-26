@@ -26,6 +26,7 @@ struct ControllerConfig
   double autonomous_linear_speed{0.14};
   double obstacle_turn_speed{0.65};
   double scan_timeout{0.50};
+  double stop_timeout_s{3.0};
   double wall_kp{1.8};
   double wall_ki{0.0};
   double wall_kd{0.15};

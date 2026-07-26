@@ -9,6 +9,10 @@ accept_architecture_facts() {
   python3 scripts/generate_architecture_facts.py --workspace "$WORKSPACE" --check
 }
 
+accept_control_authority_stage() {
+  python3 -m tools.acceptance.scenarios.control_authority_stage
+}
+
 accept_agent_lifecycle() {
   bash scripts/smoke_test_agent_lifecycle.sh online; bash scripts/smoke_test_agent_lifecycle.sh offline
 }
@@ -90,8 +94,4 @@ accept_gazebo_voice_online() {
 
 accept_runtime_evidence_summary() {
   python3 scripts/generate_runtime_evidence_summary.py
-}
-
-accept_all() {
-  run_base; run_online; run_offline; bash scripts/smoke_test_demo_sequence.sh; run_gazebo; bash scripts/smoke_test_gazebo_voice.sh; bash scripts/smoke_test_gazebo_voice_online.sh
 }

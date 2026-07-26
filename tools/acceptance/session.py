@@ -1,71 +1,69 @@
-"""重型验收共用的会话生命周期 Module。
+"""重型验收共用的稳定会话 Interface。
 
-公开验收模式只需要声明要启动的进程与探针；ROS domain、Gazebo partition、
-进程组清理、超时和失败日志统一由本模块实现。这样卡住或 Ctrl-C 时不会把一套
-残留 ROS graph 留给下一次验收。
+场景只声明 spawn/run；lease、环境、进程监管、证据和失败清理由本 facade 编排。
 """
 
 from __future__ import annotations
 
-import ctypes
-import fcntl
-import hashlib
 import json
 import os
 import re
 import signal
-import subprocess
 import sys
 import threading
 import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping, Protocol, Sequence, TextIO
+from typing import Any, Mapping, Sequence
+
+from tools.acceptance.errors import (
+    AcceptanceCommandError,
+    AcceptanceResourceExhaustion,
+    AcceptanceSessionError,
+    AcceptanceSignalError,
+    ArtifactLeaseUnavailable,
+    DomainLeaseUnavailable,
+)
+from tools.acceptance.leases import (
+    ArtifactDirectoryLease,
+    ArtifactDirectoryLeasePool,
+    RosDomainLease,
+    RosDomainLeasePool,
+)
+from tools.acceptance.process_supervisor import (
+    ProcessAdapter,
+    RunResult,
+    SessionCleanupResult,
+    StopResult,
+    SubprocessProcessAdapter,
+)
+from tools.acceptance.resource_watchdog import (
+    ResourceWatchdog,
+    ResourceWatchdogConfig,
+)
 
 
-class AcceptanceSessionError(RuntimeError):
-    """验收会话无法安全继续。"""
-
-
-class DomainLeaseUnavailable(AcceptanceSessionError):
-    """候选 ROS domain 均被其他验收会话占用。"""
-
-
-class ArtifactLeaseUnavailable(AcceptanceSessionError):
-    """证据目录正在被另一验收会话写入。"""
-
-
-class AcceptanceCommandError(AcceptanceSessionError):
-    """会话内命令失败或超过截止时间。"""
-
-
-class AcceptanceSignalError(AcceptanceSessionError):
-    """SIGTERM/SIGHUP 被转换成可穿过 context manager 的异常。"""
-
-    def __init__(self, signal_number: int) -> None:
-        self.signal_number = signal_number
-        super().__init__(f"acceptance interrupted by {signal.Signals(signal_number).name}")
-
-
-@dataclass(frozen=True, slots=True)
-class RunResult:
-    returncode: int
-    timed_out: bool = False
-
-
-@dataclass(frozen=True, slots=True)
-class StopResult:
-    returncode: int | None
-    graceful: bool
-    killed: bool
-
-
-@dataclass(frozen=True, slots=True)
-class SessionCleanupResult:
-    observed_pids: tuple[int, ...] = ()
-    killed: bool = False
-    remaining_pids: tuple[int, ...] = ()
+__all__ = [
+    "AcceptanceCommandError",
+    "AcceptanceResourceExhaustion",
+    "AcceptanceSession",
+    "AcceptanceSessionConfig",
+    "AcceptanceSessionError",
+    "AcceptanceSignalError",
+    "ArtifactDirectoryLease",
+    "ArtifactDirectoryLeasePool",
+    "ArtifactLeaseUnavailable",
+    "DomainLeaseUnavailable",
+    "ProcessAdapter",
+    "RosDomainLease",
+    "RosDomainLeasePool",
+    "RosEnvironmentIsolation",
+    "RunResult",
+    "SessionCleanupResult",
+    "StopResult",
+    "SubprocessProcessAdapter",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,468 +89,6 @@ class RosEnvironmentIsolation:
     )
 
 
-class ProcessAdapter(Protocol):
-    """进程实现 seam；单元测试使用 fake，WSL 使用 subprocess Adapter。"""
-
-    def spawn(
-        self,
-        argv: Sequence[str],
-        *,
-        cwd: Path,
-        env: Mapping[str, str],
-        log_path: Path,
-    ) -> Any: ...
-
-    def run(
-        self,
-        argv: Sequence[str],
-        *,
-        cwd: Path,
-        env: Mapping[str, str],
-        timeout_s: float,
-    ) -> RunResult: ...
-
-    def stop(self, handle: Any, *, grace_s: float) -> StopResult: ...
-
-    def begin_session(self) -> None: ...
-
-    def finish_session(self, *, grace_s: float) -> SessionCleanupResult: ...
-
-
-@dataclass(slots=True)
-class _SubprocessHandle:
-    process: subprocess.Popen[bytes]
-    stream: TextIO | None
-    process_group_id: int
-
-
-@dataclass(frozen=True, slots=True)
-class _ProcessIdentity:
-    pid: int
-    process_group_id: int = field(compare=False)
-    start_ticks: int
-    state: str = field(compare=False)
-
-
-class SubprocessProcessAdapter:
-    """以独立 POSIX 进程组运行命令，退出时回收整棵子进程树。"""
-
-    _PR_SET_CHILD_SUBREAPER = 36
-    _PR_GET_CHILD_SUBREAPER = 37
-
-    def __init__(self) -> None:
-        self._session_active = False
-        self._previous_subreaper = False
-        self._baseline_descendants: set[_ProcessIdentity] = set()
-
-    @staticmethod
-    def _start(
-        argv: Sequence[str],
-        *,
-        cwd: Path,
-        env: Mapping[str, str],
-        stream: TextIO | None,
-    ) -> _SubprocessHandle:
-        process = subprocess.Popen(
-            list(argv),
-            cwd=cwd,
-            env=dict(env),
-            stdout=stream,
-            stderr=subprocess.STDOUT if stream is not None else None,
-            start_new_session=True,
-        )
-        return _SubprocessHandle(process, stream, process.pid)
-
-    def spawn(
-        self,
-        argv: Sequence[str],
-        *,
-        cwd: Path,
-        env: Mapping[str, str],
-        log_path: Path,
-    ) -> _SubprocessHandle:
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        stream = log_path.open("a", encoding="utf-8", buffering=1)
-        try:
-            return self._start(argv, cwd=cwd, env=env, stream=stream)
-        except BaseException:
-            stream.close()
-            raise
-
-    def run(
-        self,
-        argv: Sequence[str],
-        *,
-        cwd: Path,
-        env: Mapping[str, str],
-        timeout_s: float,
-    ) -> RunResult:
-        handle = self._start(argv, cwd=cwd, env=env, stream=None)
-        try:
-            return RunResult(handle.process.wait(timeout=timeout_s))
-        except subprocess.TimeoutExpired:
-            stopped = self.stop(handle, grace_s=2.0)
-            return RunResult(
-                stopped.returncode
-                if stopped.returncode is not None
-                else -signal.SIGKILL,
-                timed_out=True,
-            )
-        except BaseException:
-            # Ctrl-C 也必须回收探针进程组，否则下一轮仍会看到旧 ROS 节点。
-            self.stop(handle, grace_s=2.0)
-            raise
-
-    @staticmethod
-    def _group_exists(process_group_id: int) -> bool:
-        try:
-            os.killpg(process_group_id, 0)
-            return True
-        except ProcessLookupError:
-            return False
-
-    @staticmethod
-    def _child_process_ids(process_id: int) -> set[int]:
-        """汇总所有线程创建的子进程，而不只读取主线程 children。"""
-
-        children: set[int] = set()
-        task_root = Path(f"/proc/{process_id}/task")
-        try:
-            task_directories = tuple(task_root.iterdir())
-        except (FileNotFoundError, ProcessLookupError, PermissionError):
-            return children
-        for task_directory in task_directories:
-            try:
-                children.update(
-                    int(value)
-                    for value in (task_directory / "children").read_text().split()
-                )
-            except (FileNotFoundError, ProcessLookupError, PermissionError):
-                continue
-        return children
-
-    @classmethod
-    def _descendant_process_ids(cls, root_pid: int) -> set[int]:
-        descendants: set[int] = set()
-        pending = [root_pid]
-        while pending:
-            process_id = pending.pop()
-            if process_id in descendants:
-                continue
-            descendants.add(process_id)
-            pending.extend(cls._child_process_ids(process_id))
-        return descendants
-
-    @staticmethod
-    def _process_identity(process_id: int) -> _ProcessIdentity | None:
-        try:
-            raw = Path(f"/proc/{process_id}/stat").read_text()
-            fields = raw[raw.rfind(")") + 2 :].split()
-            return _ProcessIdentity(
-                pid=process_id,
-                process_group_id=int(fields[2]),
-                start_ticks=int(fields[19]),
-                state=fields[0],
-            )
-        except (FileNotFoundError, ProcessLookupError, PermissionError, ValueError):
-            return None
-
-    @classmethod
-    def _process_groups(cls, root_pid: int) -> set[int]:
-        """读取 Linux `/proc` 进程树，包含子进程自行 setsid 后的新组。"""
-
-        groups: set[int] = set()
-        for process_id in cls._descendant_process_ids(root_pid):
-            identity = cls._process_identity(process_id)
-            if identity is not None:
-                groups.add(identity.process_group_id)
-        return groups
-
-    @staticmethod
-    def _signal_groups(process_group_ids: set[int], signal_number: int) -> None:
-        for process_group_id in process_group_ids:
-            try:
-                os.killpg(process_group_id, signal_number)
-            except ProcessLookupError:
-                continue
-
-    @classmethod
-    def _get_subreaper(cls) -> bool:
-        value = ctypes.c_int()
-        libc = ctypes.CDLL(None, use_errno=True)
-        if libc.prctl(
-            cls._PR_GET_CHILD_SUBREAPER, ctypes.byref(value), 0, 0, 0
-        ) != 0:
-            error_number = ctypes.get_errno()
-            raise OSError(error_number, os.strerror(error_number))
-        return bool(value.value)
-
-    @classmethod
-    def _set_subreaper(cls, enabled: bool) -> None:
-        libc = ctypes.CDLL(None, use_errno=True)
-        if libc.prctl(cls._PR_SET_CHILD_SUBREAPER, int(enabled), 0, 0, 0) != 0:
-            error_number = ctypes.get_errno()
-            raise OSError(error_number, os.strerror(error_number))
-
-    def _current_session_descendants(self) -> set[_ProcessIdentity]:
-        identities: set[_ProcessIdentity] = set()
-        for process_id in self._descendant_process_ids(os.getpid()):
-            if process_id == os.getpid():
-                continue
-            identity = self._process_identity(process_id)
-            if identity is not None and identity not in self._baseline_descendants:
-                identities.add(identity)
-        return identities
-
-    @staticmethod
-    def _reap_adopted(identities: set[_ProcessIdentity]) -> None:
-        for identity in identities:
-            try:
-                os.waitpid(identity.pid, os.WNOHANG)
-            except (ChildProcessError, ProcessLookupError):
-                continue
-
-    def begin_session(self) -> None:
-        if self._session_active:
-            raise AcceptanceSessionError("process adapter session is already active")
-        self._previous_subreaper = self._get_subreaper()
-        try:
-            if not self._previous_subreaper:
-                self._set_subreaper(True)
-            self._baseline_descendants = {
-                identity
-                for process_id in self._descendant_process_ids(os.getpid())
-                if process_id != os.getpid()
-                if (identity := self._process_identity(process_id)) is not None
-            }
-            self._session_active = True
-        except BaseException:
-            if not self._previous_subreaper:
-                self._set_subreaper(False)
-            raise
-
-    def finish_session(self, *, grace_s: float) -> SessionCleanupResult:
-        if not self._session_active:
-            return SessionCleanupResult()
-        observed: set[_ProcessIdentity] = set()
-        killed = False
-        own_group = os.getpgrp()
-        try:
-            current = self._current_session_descendants()
-            observed.update(current)
-            self._signal_groups(
-                {
-                    identity.process_group_id
-                    for identity in current
-                    if identity.process_group_id != own_group
-                },
-                signal.SIGTERM,
-            )
-            deadline = time.monotonic() + max(0.0, grace_s)
-            while time.monotonic() < deadline:
-                self._reap_adopted(current)
-                refreshed = self._current_session_descendants()
-                unseen = refreshed - observed
-                if unseen:
-                    self._signal_groups(
-                        {
-                            identity.process_group_id
-                            for identity in unseen
-                            if identity.process_group_id != own_group
-                        },
-                        signal.SIGTERM,
-                    )
-                    observed.update(unseen)
-                current = refreshed
-                if not current:
-                    break
-                time.sleep(0.05)
-
-            self._reap_adopted(current)
-            current = self._current_session_descendants()
-            if current:
-                killed = True
-                self._signal_groups(
-                    {
-                        identity.process_group_id
-                        for identity in current
-                        if identity.process_group_id != own_group
-                    },
-                    signal.SIGKILL,
-                )
-                kill_deadline = time.monotonic() + 2.0
-                while current and time.monotonic() < kill_deadline:
-                    self._reap_adopted(current)
-                    time.sleep(0.05)
-                    current = self._current_session_descendants()
-                    observed.update(current)
-            self._reap_adopted(current)
-            remaining = self._current_session_descendants()
-            return SessionCleanupResult(
-                observed_pids=tuple(sorted(identity.pid for identity in observed)),
-                killed=killed,
-                remaining_pids=tuple(
-                    sorted(identity.pid for identity in remaining)
-                ),
-            )
-        finally:
-            try:
-                if not self._previous_subreaper:
-                    self._set_subreaper(False)
-            finally:
-                self._baseline_descendants.clear()
-                self._session_active = False
-
-    def stop(self, handle: _SubprocessHandle, *, grace_s: float) -> StopResult:
-        killed = False
-        try:
-            process_groups = self._process_groups(handle.process.pid)
-            process_groups.add(handle.process_group_id)
-            if any(self._group_exists(group_id) for group_id in process_groups):
-                # StageProcessManager 可能给 Gazebo/Nav2 再做 setsid；只杀最外层
-                # process group 会留下孤儿 server，因此先记录整棵 /proc 子树的组。
-                self._signal_groups(process_groups, signal.SIGTERM)
-                deadline = time.monotonic() + max(0.0, grace_s)
-                while time.monotonic() < deadline:
-                    # poll() 会回收已退出的组长；否则 zombie 仍会让 killpg(0)
-                    # 看起来“进程组存活”，每次清理都会无谓等待完整 grace period。
-                    handle.process.poll()
-                    new_groups = self._process_groups(handle.process.pid)
-                    unseen_groups = new_groups - process_groups
-                    if unseen_groups:
-                        self._signal_groups(unseen_groups, signal.SIGTERM)
-                        process_groups.update(unseen_groups)
-                    if not any(
-                        self._group_exists(group_id)
-                        for group_id in process_groups
-                    ):
-                        break
-                    time.sleep(0.05)
-                remaining_groups = {
-                    group_id
-                    for group_id in process_groups
-                    if self._group_exists(group_id)
-                }
-                if remaining_groups:
-                    killed = True
-                    self._signal_groups(remaining_groups, signal.SIGKILL)
-            try:
-                returncode = handle.process.wait(timeout=2.0)
-            except subprocess.TimeoutExpired:
-                returncode = handle.process.poll()
-            return StopResult(returncode, graceful=not killed, killed=killed)
-        except ProcessLookupError:
-            return StopResult(handle.process.poll(), graceful=True, killed=False)
-        finally:
-            if handle.stream is not None and not handle.stream.closed:
-                handle.stream.close()
-
-
-@dataclass(slots=True)
-class RosDomainLease:
-    domain_id: int
-    path: Path
-    _descriptor: int
-    _released: bool = False
-
-    def release(self) -> None:
-        if self._released:
-            return
-        fcntl.flock(self._descriptor, fcntl.LOCK_UN)
-        os.close(self._descriptor)
-        self._released = True
-
-
-class RosDomainLeasePool:
-    """用 ``flock`` 分配 ROS domain，避免 PID 取模导致并行碰撞。"""
-
-    def __init__(self, root: Path, first: int = 210, last: int = 227) -> None:
-        if not (0 <= first <= last <= 232):
-            raise ValueError("ROS domain range must be within 0..232")
-        self._root = root
-        self._first = first
-        self._last = last
-
-    def acquire(
-        self, *, session_id: str, preferred: int | None = None
-    ) -> RosDomainLease:
-        if preferred is not None and not 0 <= preferred <= 232:
-            raise ValueError("preferred ROS_DOMAIN_ID must be within 0..232")
-        self._root.mkdir(parents=True, exist_ok=True)
-        candidates = (
-            (preferred,) if preferred is not None else range(self._first, self._last + 1)
-        )
-        for domain_id in candidates:
-            path = self._root / f"ros-domain-{domain_id}.lock"
-            descriptor = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
-            try:
-                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                os.close(descriptor)
-                continue
-            metadata = json.dumps(
-                {"pid": os.getpid(), "session_id": session_id},
-                ensure_ascii=False,
-            ).encode("utf-8")
-            os.ftruncate(descriptor, 0)
-            os.write(descriptor, metadata)
-            os.fsync(descriptor)
-            return RosDomainLease(domain_id, path, descriptor)
-        requested = str(preferred) if preferred is not None else f"{self._first}..{self._last}"
-        raise DomainLeaseUnavailable(
-            f"no free ROS domain lease in {requested}; wait for another acceptance "
-            "session or unset ROS_DOMAIN_ID"
-        )
-
-
-@dataclass(slots=True)
-class ArtifactDirectoryLease:
-    target: Path
-    path: Path
-    _descriptor: int
-    _released: bool = False
-
-    def release(self) -> None:
-        if self._released:
-            return
-        fcntl.flock(self._descriptor, fcntl.LOCK_UN)
-        os.close(self._descriptor)
-        self._released = True
-
-
-class ArtifactDirectoryLeasePool:
-    """串行化同一证据目录，防止并发会话互删 map/report。"""
-
-    def __init__(self, root: Path) -> None:
-        self._root = root
-
-    def acquire(self, *, target: Path, session_id: str) -> ArtifactDirectoryLease:
-        resolved = target.resolve()
-        digest = hashlib.sha256(os.fsencode(str(resolved))).hexdigest()[:24]
-        self._root.mkdir(parents=True, exist_ok=True)
-        path = self._root / f"artifact-{digest}.lock"
-        descriptor = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
-        try:
-            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as error:
-            os.close(descriptor)
-            raise ArtifactLeaseUnavailable(
-                f"acceptance artifact directory is already in use: {resolved}"
-            ) from error
-        metadata = json.dumps(
-            {
-                "pid": os.getpid(),
-                "session_id": session_id,
-                "artifact_dir": str(resolved),
-            },
-            ensure_ascii=False,
-        ).encode("utf-8")
-        os.ftruncate(descriptor, 0)
-        os.write(descriptor, metadata)
-        os.fsync(descriptor)
-        return ArtifactDirectoryLease(resolved, path, descriptor)
-
-
 @dataclass(frozen=True, slots=True)
 class AcceptanceSessionConfig:
     name: str
@@ -571,6 +107,7 @@ class AcceptanceSessionConfig:
     unset_environment_keys: tuple[str, ...] = ()
     manifest_environment_keys: tuple[str, ...] = ()
     ros_environment_isolation: RosEnvironmentIsolation | None = None
+    resource_watchdog: ResourceWatchdogConfig | None = None
     lock_root: Path = Path("/tmp/embodied-agent-acceptance")
 
 
@@ -658,8 +195,9 @@ def _isolate_ros_environment(
     original_ament = _path_entries(isolated.get("AMENT_PREFIX_PATH"))
     retained_ament: list[str] = []
     allowed_external_prefixes: list[Path] = []
+    allowed_external_build_roots: list[Path] = []
     removed_prefixes: list[str] = []
-    excluded_install_roots: set[Path] = set()
+    excluded_overlay_roots: set[Path] = set()
 
     for rendered in original_ament:
         prefix = _normalized_path(rendered)
@@ -672,6 +210,12 @@ def _isolate_ros_environment(
         if packages and packages.issubset(allowed_package_names):
             retained_ament.append(rendered)
             allowed_external_prefixes.append(prefix)
+            install_root = _external_install_root(prefix)
+            if install_root.name == "install":
+                allowed_external_build_roots.extend(
+                    install_root.parent / "build" / package
+                    for package in packages
+                )
             continue
         if packages & allowed_package_names:
             unsafe = ", ".join(sorted(packages - allowed_package_names))
@@ -680,7 +224,13 @@ def _isolate_ros_environment(
                 f"packages: {rendered} ({unsafe})"
             )
         removed_prefixes.append(rendered)
-        excluded_install_roots.add(_external_install_root(prefix))
+        install_root = _external_install_root(prefix)
+        excluded_overlay_roots.add(install_root)
+        if install_root.name == "install":
+            # ament 索引只能定位 install；ament_python 的 editable/symlink
+            # 产物还可能把同一外部工作区的 build/* 写进 PYTHONPATH。两者必须
+            # 作为一个 overlay 一起剔除，否则 C++ ABI 已隔离、Python 仍会串包。
+            excluded_overlay_roots.add(install_root.parent / "build")
 
     isolated["AMENT_PREFIX_PATH"] = os.pathsep.join(retained_ament)
 
@@ -693,9 +243,14 @@ def _isolate_ros_environment(
             for prefix in allowed_external_prefixes
         ):
             return True
+        if any(
+            _path_is_within(candidate, root)
+            for root in allowed_external_build_roots
+        ):
+            return True
         return not any(
             _path_is_within(candidate, root) or candidate == root
-            for root in excluded_install_roots
+            for root in excluded_overlay_roots
         )
 
     for key in _ROS_PATH_ENVIRONMENT_KEYS:
@@ -793,8 +348,11 @@ class AcceptanceSession:
         self._started_monotonic = 0.0
         self._started_ns = 0
         self._closed = False
+        self._closing = False
         self._outcome = "running"
         self._error: str | None = None
+        self._resource_watchdog: ResourceWatchdog | None = None
+        self._resource_failure: str | None = None
 
     @property
     def started_ns(self) -> int:
@@ -807,6 +365,15 @@ class AcceptanceSession:
         return self._lease.domain_id
 
     def __enter__(self) -> "AcceptanceSession":
+        if (
+            self.config.resource_watchdog is not None
+            and threading.current_thread() is not threading.main_thread()
+        ):
+            # watchdog 通过 SIGTERM 把后台失败交给 Python 主线程。非主线程
+            # 无法安装 signal handler，继续启动会让默认 SIGTERM 直接杀进程。
+            raise AcceptanceSessionError(
+                "resource watchdog requires AcceptanceSession on main thread"
+            )
         artifact_pool = ArtifactDirectoryLeasePool(
             self.config.lock_root / "artifacts"
         )
@@ -870,7 +437,19 @@ class AcceptanceSession:
             self._adapter.begin_session()
             self._process_session_started = True
             self._write_manifest()
+            if self.config.resource_watchdog is not None:
+                self._resource_watchdog = ResourceWatchdog(
+                    config=self.config.resource_watchdog,
+                    session_id=self.session_id,
+                    output_path=self.artifact_dir
+                    / "resource_samples.jsonl",
+                    on_failure=self._on_resource_failure,
+                )
+                self._resource_watchdog.start()
         except BaseException:
+            if self._resource_watchdog is not None:
+                self._resource_watchdog.stop()
+                self._resource_watchdog = None
             self._restore_signal_handlers()
             if self._process_session_started:
                 try:
@@ -903,10 +482,21 @@ class AcceptanceSession:
             )
             signal.signal(signal_number, self._raise_signal)
 
-    @staticmethod
-    def _raise_signal(signal_number: int, _frame) -> None:
+    def _raise_signal(self, signal_number: int, _frame) -> None:
         # signal handler 只改变控制流；真正的 TERM→KILL 清理由 __exit__ 统一执行。
+        if (
+            signal_number == signal.SIGTERM
+            and self._resource_failure is not None
+        ):
+            raise AcceptanceResourceExhaustion(self._resource_failure)
         raise AcceptanceSignalError(signal_number)
+
+    def _on_resource_failure(self, detail: str) -> None:
+        """从 watchdog 线程把失败交还主线程，复用统一停车/清理事务。"""
+
+        self._resource_failure = detail
+        if not self._closed and not self._closing:
+            os.kill(os.getpid(), signal.SIGTERM)
 
     def _ignore_managed_signals_during_cleanup(self) -> None:
         for signal_number in self._previous_signal_handlers:
@@ -1031,6 +621,7 @@ class AcceptanceSession:
                 )
             },
             "ros_environment": self._ros_environment_provenance,
+            "resources": self._resource_manifest(),
             "cleanup_complete": self._closed
             and self._session_cleanup is not None
             and not self._session_cleanup.remaining_pids
@@ -1085,10 +676,59 @@ class AcceptanceSession:
         )
         os.replace(temporary, self.manifest_path)
 
+    def _resource_manifest(self) -> dict[str, Any] | None:
+        watchdog = self._resource_watchdog
+        if watchdog is None:
+            return None
+        summary = watchdog.summary
+        latest = summary.latest_memory
+        return {
+            "samples_path": str(watchdog.output_path),
+            "sample_count": summary.sample_count,
+            "latest": (
+                {
+                    "mem_total_mib": round(latest.total_kib / 1024, 1),
+                    "mem_available_mib": round(
+                        latest.available_kib / 1024, 1
+                    ),
+                    "swap_total_mib": round(
+                        latest.swap_total_kib / 1024, 1
+                    ),
+                    "swap_free_mib": round(
+                        latest.swap_free_kib / 1024, 1
+                    ),
+                    "swap_used_ratio": round(
+                        latest.swap_used_ratio, 4
+                    ),
+                }
+                if latest is not None
+                else None
+            ),
+            "peak_session_rss_mib": round(
+                summary.peak_session_rss_kib / 1024, 1
+            ),
+            "latest_session_process_count": (
+                summary.latest_session_process_count
+            ),
+            "failure": summary.failure,
+        }
+
     def close(self, *, error: BaseException | None = None) -> None:
         if self._closed:
             return
+        self._closing = True
+        # 先阻止 watchdog 的迟到 SIGTERM，再 join 后台线程；否则信号可能在
+        # close() 等待线程时打断清理，反而留下 Gazebo/Nav2 进程和 domain lease。
         self._ignore_managed_signals_during_cleanup()
+        late_resource_error: AcceptanceResourceExhaustion | None = None
+        if self._resource_watchdog is not None:
+            self._resource_watchdog.stop()
+            resource_failure = self._resource_watchdog.summary.failure
+            if resource_failure is not None and error is None:
+                late_resource_error = AcceptanceResourceExhaustion(
+                    resource_failure
+                )
+                error = late_resource_error
         cleanup_errors: list[str] = []
         for child in reversed(self._children):
             try:
@@ -1141,6 +781,8 @@ class AcceptanceSession:
             self._tail_failure_logs()
         if cleanup_errors and error is None:
             raise AcceptanceSessionError(f"acceptance cleanup failed: {joined}")
+        if late_resource_error is not None:
+            raise late_resource_error
 
     def __exit__(self, exc_type, exc, traceback) -> bool:
         self.close(error=exc)

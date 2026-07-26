@@ -13,6 +13,7 @@
   <depend>diagnostic_msgs</depend>
   <depend>embodied_agent_interfaces</depend>
   <depend>embodied_agent_middleware</depend>
+  <depend>geometry_msgs</depend>
   <depend>lifecycle_msgs</depend>
   <depend>rclcpp_lifecycle</depend>
   <depend>std_msgs</depend>

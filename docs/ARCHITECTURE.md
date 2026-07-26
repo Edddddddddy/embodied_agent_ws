@@ -1,15 +1,16 @@
 # 系统架构
 
-本文只说明四件事：模块所有权、主数据流、信任边界和可扩展接口。技术原理与方案对比见
-[SLAM/Nav2 学习笔记](learning/SLAM_NAV2.md)，运行和 PASS 口径见 [测试手册](TESTING.md)。易变的
-包数量、验收模式和 CI 契约由 [生成证据索引](evidence/README.md) 统一维护，本文不手工复制计数。
+本文是稳定架构的事实源，只维护模块所有权、主数据流、信任边界和可扩展接口。第一次阅读请先看
+[文档阅读地图](README.md)；需要代码原理与方案对比时进入对应学习笔记，需要命令、PASS 口径和产物
+时进入 [测试手册](TESTING.md)，需要确认某次运行事实时进入 [证据索引](evidence/README.md)。
+易变的包数量、单次指标、开发计划和历史过程不在这里重复。
 
 ## 1. 架构目标与边界
 
 系统提供在线、离线语音 Agent，并把自然语言命令接入 Gazebo、SLAM Toolbox 与 Nav2：
 
 ```text
-麦克风 → VAD/ASR → 会话/NLU/LLM → RobotCommand
+麦克风 → VAD/ASR → 会话 → 控制 NLU 或 RAG/LLM → RobotCommand/语音回复
        → C++ Guard/Scheduler → ROS 2 Action → BT/pluginlib
        → Gazebo / SLAM / AMCL / Nav2 → typed evidence → evaluator
 ```
@@ -17,6 +18,7 @@
 架构遵守以下边界：
 
 - ASR 文本和 LLM 输出只是候选；`ExecuteRobotCommand` result 才是动作完成事实。
+- 本地 NLU 可解释的控制命令绕过 RAG；知识检索是只读回答上下文，不拥有动作授权。
 - unknown-world 机器人策略只能读取在线 scan/odom/TF/map，不能读取静态真值、区域标签、固定路线或
   语义坐标。
 - 保存图、AMCL 定位和 Nav2 导航使用同一 navigation generation，不能把上一阶段的 transient-local
@@ -30,7 +32,7 @@
 | 模块 | 拥有的职责 | 不负责 |
 | --- | --- | --- |
 | `embodied_agent_interfaces` | `RobotCommand`、Action、SLAM session 与 evidence schema | 决策和执行 |
-| `embodied_agent_core` | 会话、连续命令队列、NLU、记忆和共享 Agent runtime | ROS/Gazebo 副作用 |
+| `embodied_agent_core` | 会话、连续命令队列、NLU、记忆、RAG Prompt 与共享 Agent runtime | ROS/Gazebo 副作用 |
 | `embodied_online_agent` / `embodied_offline_agent` | 在线或本地 ASR/LLM/TTS provider Adapter | 动作安全策略 |
 | `embodied_agent_cpp` | 音频前端、ActionGuard、ActionScheduler | SLAM/Nav2 算法 |
 | `embodied_simulation` | BT、pluginlib executor、Gazebo/Nav2 bridge | 语音理解 |
@@ -51,6 +53,9 @@ flowchart LR
   Clean --> ASR["Online ASR / Sherpa ZipFormer"]
   ASR --> Runtime["AgentApplicationRuntime"]
   Runtime --> Control["AgentControlPlane\nsession / NLU / FIFO"]
+  Runtime --> Prompt["PromptContextAssembler\nbounded local RAG"]
+  Prompt --> LLM["Online / llama.cpp LLM"]
+  LLM --> TTS["Online / CPU TTS"]
   Control --> Guard["ActionGuardNode"]
   Guard --> Scheduler["ActionScheduler"]
   Scheduler --> Execute["ExecuteRobotCommand Action"]
@@ -101,6 +106,7 @@ command/result 关联，不拥有语音回调或任务阶段。这样 callback�
 - `agent_application_runtime.py:accept_transcript()`、`agent_control_plane.py:accept_transcript()`：会话、
   去重、NLU 和排队。
 - `command_nlu.py:CommandNLU.parse()`：确定性多命令与槽位；低置信度才交给 LLM。
+- `prompt_context.py:PromptContextAssembler.build()`：控制零检索，知识问题注入有界 source_id 证据。
 - `action_guard_node.cpp:ActionGuardNode::on_candidate()`：白名单、限幅和 TTL。
 - `action_scheduler.cpp:ActionScheduler::enqueue()`：FIFO、command_id 关联和 stop 抢占。
 - `command_behavior_tree.cpp:CommandBehaviorTree::tick()`、`robot_executor.hpp:RobotExecutor`：编排与后端
@@ -146,8 +152,14 @@ Nav2 status/error、目标坐标和最小间距。
 
 ## 5. Frontier 完成契约
 
-Explore Lite 选择 free/unknown 边界，SLAM Toolbox 只负责建图和定位。结束不能靠 timeout、地图平台期或
-“黑名单被隐藏”推断，只接受两组 provider/mission 原因：
+Explore Lite 选择 free/unknown 边界，SLAM Toolbox 只负责建图和定位。unknown-world 有两条互斥的
+生产侧收口路径：优先使用 `strict_frontier`；只有达到探索硬预算，或可达 frontier 反复停滞且恢复预算
+已经消费完，才允许评估 `bounded_saturation`。二者都不读取真值地图，也都不能把“外层等待超时”直接
+改写成成功。
+
+### 5.1 Strict frontier
+
+strict 路径只接受以下三组 provider/mission 原因：
 
 ```text
 no_frontiers + no_reachable_frontiers
@@ -163,6 +175,23 @@ attempts exhaustion 只允许 `blacklisted<=detected`，再由独立地图质量
 `frontier_monitor.py:FrontierExplorationMonitor._unknown_world_reason()`、
 `mission_executor.py:decide_epoch_recovery()` 与
 `unknown_world_evidence.py:evaluate_frontier_completion()`。
+
+### 5.2 Bounded saturation
+
+场地总面积未知时，运行时不能计算“已经扫完 85%”。bounded 路径先暂停 Explorer、等待 active/pending
+为零和 accepted Action 全部 terminal，再执行一次 360° final probe、等待地图静默并取得新的 typed
+STOP/零速度。随后 `exploration_saturation.py:assess_bounded_frontier_saturation()` 必须同时证明：
+
+- 最近至少 2 个连续低收益 epoch，每轮至少 3 个 terminal frontier goal；
+- 建图累计路径至少 20 m，epoch 和 final probe 的栅格增益没有同时达到 `40 cells / 0.2%`；
+- final probe 完成、地图至少静默 15 s、Action 总账排空、typed STOP 成功；
+- hard-budget 路径可保留 residual frontier 作为诊断值；反复可达停滞路径仍要求 residual 为零。
+
+生产侧只发布中性的 `time_budget_exhausted` 或
+`reachable_frontiers_stalled_bounded_saturation`，并用 `SlamMappingCompletionEvidence` 携带逐项
+证据；`time_budget_exhausted` 本身没有成功语义。evaluator 再用真值独立检查原有地图质量、返航、
+AMCL、路径安全和最终零速门槛。缺少任一证据都失败，所以 bounded saturation 是有界的“收益递减证据”，
+不是 timeout、coverage plateau 或残余 frontier 数量的别名。
 
 all-blacklisted 先等待 `20 s` provider goal handoff；它本身不授权移动。只有 provider typed
 `frontier_attempts_exhausted_recoverable`（以及独立 no-clearance typed 原因）、Action 总账排空且仍有预算，
@@ -191,9 +220,10 @@ timeout 计数，但这个失败 approach 仍写入局部失败记忆；只有�
 timeout 才触发恢复。Nav2 自身的 `SimpleProgressChecker` 则使用 `0.10 m / 30 s`，由
 `prepare_frontier_nav2_params.py` 写进本 session 留档 YAML，避免只改 launch 临时参数而让运行证据失真。
 
-地图稳定使用“soft quiet + hard budget”双时钟：连续无地图增长达到 `map_settle_s` 才算安静；同时调用方
-持有从进入等待起计算、不会被新增长重置的绝对 deadline。前者避免尾部更新未落盘，后者避免持续噪声或
-增长让任务无限续期。超过 hard budget 必须失败，不能把 timeout 当成收敛。
+单次“等待地图静默”使用 soft quiet + hard deadline 双时钟：连续无地图增长达到 `map_settle_s` 才算
+安静；同时调用方持有从进入等待起计算、不会被新增长重置的绝对 deadline。前者避免尾部更新未落盘，
+后者避免持续噪声或增长让等待无限续期。这个等待 deadline 超时必须失败；它不同于探索任务硬预算，
+不能用等待超时补造 bounded saturation 证据。
 
 ## 6. 信任边界与证据流
 
@@ -253,14 +283,18 @@ orchestrator 常驻于 Gazebo stage 外部，typed 目标生命周期使用 `SYS
 
 ## 8. 证据状态
 
-fresh session `20260720T165331Z-1770278-a421b687` 已在当前安全/恢复语义下通过 schema v4 六阶段 E2E：
-reachable coverage `99.75%`，四区域最低覆盖 `98.30%`，reachable unknown `0.25%`，障碍边界召回
-`78.52%`、false-free `0.34%`；38 个 accepted frontier 全部 terminal，结束时 available/active 为 0，
-残余 blacklist `1<=detected 7` 且匹配 typed attempts exhaustion；AMCL 215 个对齐样本 P95 `0.133 m`；
-运行时采样导航 3/3 成功，最小间距 `5.58 m` 且路径 unknown/occupied/map-outside 均为 0；动态路径净空
-由 `0.029 m` 提升到 `0.972 m` 并成功重规划，最后得到 fresh `cmd_vel=0`。
+fresh session `20260725T120302Z-145519-3ec3df78` 已在当前安全/恢复语义下通过 schema v4 六阶段 E2E：
+reachable coverage `99.75%`，四区域最低覆盖 `98.34%`，reachable unknown `0.25%`，障碍边界召回
+`82.03%`、false-free `0.81%`；34 个 accepted frontier 全部 terminal，结束时 available/active 为 0；
+AMCL 217 个对齐样本 P95 `0.154 m`；运行时采样导航 3/3 成功，最小间距 `5.60 m` 且路径
+unknown/occupied/map-outside 均为 0；动态路径净空由 `0.024 m` 提升到 `0.994 m` 并成功重规划，
+最后得到 fresh `cmd_vel=0`。
 
 这次修复没有下调严格 evaluator：总体/分区覆盖、unknown、障碍、定位、3 点间距、全路径安全、动态
 重规划与终态零速门槛保持原值。完整阈值和报告位置仍以 [测试手册](TESTING.md) 为唯一事实源。
+
+长时可视化默认使用 Gazebo server + RViz，并用资源 watchdog 流式记录 WSL 内存、Swap 和 session RSS。
+在 8 GiB WSL 上请求双 GUI 时会自动选择 D3D12 RViz-only；这保留物理、传感器和所有验收逻辑，同时
+避免 WSLg 软件渲染耗尽统一内存。
 
 真人语音 known-world 交互属于另一条现场证据，也不能与 unknown-world session 合并表述。

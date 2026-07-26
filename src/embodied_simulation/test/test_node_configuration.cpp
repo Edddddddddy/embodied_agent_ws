@@ -26,6 +26,11 @@ TEST(NodeConfigurationTest, RejectsInvalidTimingPluginAndSafetyThresholds)
   unsafe.obstacle_distance = 0.5;
   EXPECT_FALSE(validate_node_configuration(
     unsafe, 20.0, 12.0, "plugin").valid);
+
+  ControllerConfig invalid_stop_timeout;
+  invalid_stop_timeout.stop_timeout_s = 0.0;
+  EXPECT_FALSE(validate_node_configuration(
+    invalid_stop_timeout, 20.0, 12.0, "plugin").valid);
 }
 
 }  // namespace embodied_simulation

@@ -172,6 +172,38 @@ source {shlex.quote(str(workspace / 'scripts' / 'activate.sh'))}
     assert "bootstrap.sh" in completed.stderr
 
 
+def test_activate_is_idempotent_for_the_same_verified_workspace(tmp_path: Path):
+    """同一 worktree 的子进程重复激活时，不得把已移除的旧 underlay 加回最前面。"""
+
+    workspace, ros_setup = _make_activation_fixture(tmp_path)
+    install_setup = workspace / "install" / "setup.bash"
+    install_setup.write_text(
+        "\n".join(
+            (
+                'FAKE_INSTALL_SOURCE_COUNT=$(( ${FAKE_INSTALL_SOURCE_COUNT:-0} + 1 ))',
+                "export FAKE_INSTALL_SOURCE_COUNT",
+                f"export COLCON_PREFIX_PATH={shlex.quote(str(workspace / 'install'))}",
+                "export FAKE_INSTALL_SOURCED=1",
+                "",
+            )
+        ),
+        encoding="utf-8",
+    )
+    script = f"""
+unset WORKSPACE VIRTUAL_ENV EMBODIED_ACTIVE_WORKSPACE
+export EMBODIED_ROS_SETUP={shlex.quote(str(ros_setup))}
+source {shlex.quote(str(workspace / 'scripts' / 'activate.sh'))}
+source {shlex.quote(str(workspace / 'scripts' / 'activate.sh'))}
+printf 'count=%s marker=%s\n' "$FAKE_INSTALL_SOURCE_COUNT" "$EMBODIED_ACTIVE_WORKSPACE"
+"""
+
+    completed = _run_bash(script)
+
+    assert completed.returncode == 0, completed.stderr
+    assert "count=1" in completed.stdout
+    assert f"marker={workspace.resolve()}" in completed.stdout
+
+
 def test_activate_reports_actionable_missing_install_error(tmp_path: Path):
     workspace, ros_setup = _make_activation_fixture(tmp_path, with_install=False)
     script = f"""
@@ -215,6 +247,17 @@ def test_autonomous_slam_entries_run_workspace_doctor():
     assert "embodied_workspace_doctor()" in helper
     assert "RUN_AUTOMATIC_MISSION" in helper
     assert "ros2 pkg prefix explore_lite" in helper
+    for runtime_package in (
+        "embodied_agent_interfaces",
+        "embodied_agent_cpp",
+        "embodied_agent_bringup",
+        "embodied_online_agent",
+        "embodied_offline_agent",
+        "embodied_voice_frontend",
+        "embodied_simulation",
+        "embodied_slam_tools",
+    ):
+        assert runtime_package in helper
     assert "embodied_workspace_doctor true" in acceptance_handler_source(
         "slam-nav-showcase-stage"
     )

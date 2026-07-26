@@ -1,6 +1,10 @@
 # ROS 2 / C++ 控制学习笔记
 
-覆盖工作区、typed 接口、ActionGuard、ActionScheduler、BehaviorTree.CPP、pluginlib、QoS、Lifecycle、readiness 与测试证据。
+这份笔记从“语音意图怎样安全地变成机器人动作”出发，依次讲工作区、typed 接口、ActionGuard、
+ActionScheduler、BehaviorTree.CPP、pluginlib、QoS、Lifecycle 和 readiness。每节都沿着“功能场景
+→ 关键文件与函数 → 上下游调用链 → 设计原因 → 替代方案 → 故障边界 → 对应测试”展开，方便读者从
+概念落到代码。它用于理解原理，不声明某次运行已经 PASS；命令和判定以 [测试手册](../TESTING.md)
+为准，完整阅读顺序见 [文档阅读地图](../README.md)。
 
 ## 1. WSL 工作区、colcon overlay 与可重复激活
 

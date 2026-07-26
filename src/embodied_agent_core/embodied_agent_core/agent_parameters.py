@@ -163,6 +163,53 @@ COMMON_PARAMETER_SPECS = (
         1.0,
     ),
     ParameterSpec("system_prompt_path", "", "自定义系统提示词路径；留空使用包内默认值。"),
+    ParameterSpec(
+        "llm_context_window_tokens",
+        {"online": 32768, "offline": 2048},
+        "模型上下文窗口；Prompt 会扣除生成上限与安全余量后再装入历史/RAG。",
+        256,
+        1048576,
+    ),
+    ParameterSpec(
+        "prompt_safety_reserve_tokens",
+        {"online": 512, "offline": 256},
+        "为 ChatML 模板差异和 token 估算误差保留的上下文安全余量。",
+        0,
+        65536,
+    ),
+    ParameterSpec(
+        "rag_enabled",
+        True,
+        "是否为知识问答启用本地 RAG；本地控制命令始终绕过检索。",
+    ),
+    ParameterSpec(
+        "rag_cloud_context_policy",
+        {"online": "builtin_only", "offline": "allow_custom"},
+        "知识证据发送边界：在线默认只允许包内公开手册，自定义文档需显式授权。",
+        choices=("builtin_only", "allow_custom", "off"),
+    ),
+    ParameterSpec(
+        "rag_knowledge_paths",
+        [""],
+        "UTF-8 Markdown/文本知识库路径；首项留空时使用包内机器人运行手册。",
+    ),
+    ParameterSpec(
+        "rag_query_policy",
+        "adaptive",
+        "RAG 路由策略。",
+        choices=("adaptive", "always", "off"),
+    ),
+    ParameterSpec("rag_top_k", 3, "单次检索最大片段数。", 0, 20),
+    ParameterSpec(
+        "rag_max_context_chars",
+        {"online": 1800, "offline": 1200},
+        "单轮检索上下文字符预算。",
+        0,
+        20000,
+    ),
+    ParameterSpec("rag_min_score", 0.05, "稀疏检索最低 BM25 分数。", 0.0, 1000.0),
+    ParameterSpec("rag_chunk_chars", 600, "知识文档切片字符数。", 120, 5000),
+    ParameterSpec("rag_chunk_overlap_chars", 80, "相邻知识片段重叠字符数。", 0, 1000),
     ParameterSpec("mock_token_delay_s", 0.0, "mock 模型逐 token 延迟。", 0.0, 60.0),
     ParameterSpec("mock_asr_finals", "", "mock ASR final 脚本，使用竖线分隔。"),
     ParameterSpec("mock_asr_partials", "", "mock ASR partial 脚本，使用竖线分隔。"),
@@ -224,6 +271,7 @@ ONLINE_PARAMETER_SPECS = (
         validator=_positive_text,
     ),
     ParameterSpec("llm_temperature", 0.0, "动作生成温度。", 0.0, 2.0),
+    ParameterSpec("llm_max_tokens", 512, "单轮最大生成 token。", 1, 8192),
     ParameterSpec(
         "asr_model",
         "qwen3-asr-flash-realtime",
@@ -405,6 +453,20 @@ def validate_parameter_values(profile: Profile, values: Mapping[str, Any]) -> No
                 "asr_partial_max_age_s: 必须 >= asr_commit_delay_ms / 1000，"
                 "否则 endpoint 延迟期间 partial 会先过期"
             )
+    if not errors and values["rag_chunk_overlap_chars"] >= values["rag_chunk_chars"]:
+        errors.append(
+            "rag_chunk_overlap_chars: 必须小于 rag_chunk_chars，"
+            "否则切片窗口无法向前推进"
+        )
+    if (
+        not errors
+        and values["llm_context_window_tokens"]
+        <= values["llm_max_tokens"] + values["prompt_safety_reserve_tokens"]
+    ):
+        errors.append(
+            "llm_context_window_tokens: 必须大于 llm_max_tokens + "
+            "prompt_safety_reserve_tokens，确保系统约束和当前问题仍有输入空间"
+        )
     if errors:
         raise AgentParameterError(
             f"{profile} Agent 参数校验失败:\n- " + "\n- ".join(errors)

@@ -16,10 +16,15 @@
   - `SessionOrchestratorNode._on_asr_final()`：只把开始/取消话术转成 mission intent。
   - `start_navigation()`：停止 mapping、递增 navigation generation、清理旧 map/pose，再启动保存图定位栈。
   - `select_mapped_navigation_goals()`：等待同代 `/map` 和 AMCL pose，组织候选与实时准入。
-  - `run_navigation_goal()`：执行前 preflight、NavigateToPose 和运行中路径生产证据。
+  - `run_navigation_goal()`：执行前 preflight、首次计划评分和路径证据采集，再把 Action 生命周期委托给事务。
   - `capture_mapping_start_pose()`、`quiesce_frontier()`、`run_mapping_return_goal()`：动态起点、Explorer
     Action 总账排空和 mapping-stage 返航。
   - `AgentActionGateway`：关联扫描/STOP primitive 的 Action goal/result，不拥有语音 callback 或任务阶段。
+- `src/embodied_slam_tools/embodied_slam_tools/nav2_motion_transaction.py`
+  - `Nav2MotionTransaction.execute()`：统一 NavigateToPose/BackUp 的发送、取消、安全 STOP 和终态证明。
+  - `SampledNavigate`、`MappingReturn`、`RecoveryBackup`：不泄漏 ROS Future 的冻结 intent。
+- `src/embodied_slam_tools/embodied_slam_tools/nav2_motion_ros.py:RosNav2MotionAdapter`：
+  在纯事务端口与 rclpy ActionClient、ROS clock、quiescence ledger 之间转换。
 - `src/embodied_slam_tools/embodied_slam_tools/stage_process_manager.py:StageProcessManager`：launch、
   map saver 与进程树副作用。
 - `src/embodied_slam_tools/embodied_slam_tools/mission_configuration.py:MissionConfiguration.load()`：把
@@ -40,6 +45,8 @@ ManageSlamSession / voice intent
 → wait_navigation_ready()
 → select_mapped_navigation_goals()
 → run_navigation_goal() × 3
+→ Nav2MotionTransaction.execute(SampledNavigate)
+→ RosNav2MotionAdapter → NavigateToPose ActionClient
 → mission_outcome + typed evidence
 ```
 
@@ -133,6 +140,56 @@ ASR。探针订阅 ASR 只为证据观察，不驱动生产任务。
 - 外层 PASS 不得覆盖核心失败；`_verify_profile_report()` 会复核 schema/session/checks/sections。
 
 截至本笔记更新，联合入口已实现但真人现场 PASS 尚未生成；历史 v4 不能外推为真人联合结果。
+
+### 1.2 为什么“GUI 卡死”不一定是 SLAM 算法或内存泄漏
+
+#### 现场证据怎样指向资源耗尽
+
+失败 session 中，地图只有约 3.1 万栅格，远不足以解释 GB 级增长；真正的时间线是：
+
+```text
+HEADLESS=false + USE_RVIZ=true
+→ Gazebo GUI 与 RViz 同时进入 WSLg/Xwayland
+→ 默认 llvmpipe 软件渲染，内存和 CPU 压力持续放大
+→ MemAvailable 约 80 MiB、2 GiB Swap 用尽
+→ Xwayland page allocation failure
+→ collision_monitor 4 秒 bond 心跳丢失
+→ Nav2 Lifecycle Manager 关闭导航栈
+→ Explorer 仍等待，表现为“扫到后期卡死”
+```
+
+同一版本的 headless session 可完整通过；修复后的 RViz-only session 运行 990 秒，RSS 峰值约
+2056.5 MiB、Swap 基本为零并完整 PASS。因此现有证据能确认**资源耗尽**，但不能声称某一个 ROS 节点有
+严格堆内存泄漏。诊断性能问题时必须先建立时间对齐的系统证据，不能只看终端最后一条 frontier 日志。
+
+#### 关键代码在哪里
+
+- `tools/acceptance/visual_runtime.py`
+  - `probe_graphics()`：检查 OpenGL renderer；WSLg 的 D3D12 可用时只为本次子进程注入
+    `GALLIUM_DRIVER=d3d12`。
+  - `decide_visual_runtime()`：把用户请求和有效模式分开；低内存/软件渲染的双 GUI 自动收敛为
+    Gazebo server + RViz。
+- `tools/acceptance/resource_watchdog.py`
+  - `ResourcePressureTracker.observe()`：连续样本滞回，避免一次 map-save 峰值误杀任务。
+  - `ResourceWatchdog.sample_once()`：流式写 `resource_samples.jsonl`，内存只保留 latest/peak。
+  - `session_process_memory()`：用 `ACCEPTANCE_SESSION_ID` 聚合跨 `setsid` 的整个会话 RSS。
+- `tools/acceptance/session.py:AcceptanceSession`：watchdog 触发后把失败交回主线程，复用已有的停车、
+  进程树回收和 manifest 事务。
+- `tools/acceptance/runtime_log_health.py:RuntimeLogHealthMonitor`：增量读取日志；Lifecycle Manager 已明确
+  关闭服务器时立即报 `nav2_runtime_unhealthy`。
+- `stage_process_manager.py:_register_process_tree()`：启动首秒快速捕获脱组子进程，稳定期降到 4 Hz，
+  避免十几分钟持续以 100 Hz 递归扫描 `/proc`。
+
+#### 为什么这样设计、与替代方案有什么区别
+
+长期门禁真正需要的是地图、LaserScan、TF、规划路径和机器人位姿，这些都能在 RViz 看见；Gazebo 3D
+client 只负责额外的场景渲染，关闭它不会关闭 Gazebo server 的物理与传感器。因而 RViz-only 是功能不
+降级的资源隔离，不是把仿真改成 mock。
+
+单纯增加 Swap 或 WSL 内存上限只会延后 thrash，而且宿主 Windows 当时也接近低内存；单纯放宽 Nav2
+bond timeout 会掩盖 executor 饥饿。当前方案在启动前消除高风险组合、运行中保留有界资源曲线，并在
+资源或 Nav2 已明确失败时尽快停车清理。高配机器仍可显式
+`SLAM_NAV_ALLOW_DUAL_GUI=true`，但 override 会写入 manifest，不能悄悄改变正式验收条件。
 
 ## 2. 运行时采样导航目标准入：从地图候选到 NavigateToPose
 
@@ -268,8 +325,13 @@ hard deadline 到达则失败，因此 timeout 不会被伪装成收敛。
 随后只执行一次 final probe。`SaturationEvidenceTracker` 使用峰值 known cells，避免回环导致当前已知
 栅格变少时伪造负收益；同时用 terminal goal 数归一化 epoch 增益，避免“epoch 跑得久”天然看起来收益更高。
 默认必须满足最近 `2` 个连续低收益 epoch、每轮 `3` 个 terminal goal、累计路径 `20m`、残余 available
-frontier `<=4`、final probe 低增益、地图静默 `15s`、账本排空和 probe 后新鲜 typed STOP。恢复次数余量仅用于
-诊断；provider 未请求恢复时，不会为了把计数降到零而制造额外运动。
+frontier 的 typed 诊断快照、final probe 低增益、地图静默 `15s`、账本排空和 probe 后新鲜 typed STOP。
+恢复次数余量仅用于诊断；provider 未请求恢复时，不会为了把计数降到零而制造额外运动。
+
+这里不能用一个绝对 residual cluster 上限作为 hard-budget 门槛：这个值在暂停 Explorer 时采集，随后的
+final probe 虽然更新 SLAM 图，已停止的 provider 却不会重算 frontier；而且同一段墙角边界会因栅格噪声
+分裂成不同数量的 cluster。它仍被保存，用来证明 producer/evaluator 看到同一帧遥测。硬预算收口依靠跨轮
+单位目标增益和 final probe 的实际地图增益；`repeated_reachable_stall` 则仍严格要求 residual 为零。
 
 生产侧只记录 `time_budget_exhausted + bounded_saturation evidence`。evaluator 再使用 truth map 独立验证
 原有 `90/85/10` 地图质量与障碍质量；因此这是“运行时收益递减 + 离线质量门禁”的双层证据，不是把
@@ -345,8 +407,8 @@ frontier_attempts_exhausted_recoverable + frontier_attempts_exhausted_after_fina
 `no_frontiers` 必须 blacklisted=0；typed attempts exhaustion 允许 residual
 `blacklisted<=detected`，但最终地图覆盖、分区覆盖、unknown 和障碍质量仍可独立否决。
 
-bounded saturation 不要求 available=0，但 residual 必须在配置上限内，且同时满足跨 epoch、final probe、
-账本、返航和 evaluator 地图质量证据；它不会改变 `evaluate_frontier_completion()` 的 strict 语义。
+bounded saturation 不要求 hard-budget 的 pre-probe available=0，但必须满足跨 epoch、final probe、账本、
+返航和 evaluator 地图质量证据；它不会改变 `evaluate_frontier_completion()` 的 strict 语义。
 
 ### 与替代方案区别
 
@@ -471,9 +533,111 @@ fresh 零速必须晚于本次动态 Action 的 terminal boundary。mission 取�
 `cancel → fresh typed STOP → Nav2 terminal` 安全事务。场景成功但清理失败时，
 整个 gate 仍失败。
 
-## 7. 证据状态与阅读顺序
+## 7. Nav2 运动事务：把安全复杂度藏在一个深模块里
 
-当前 session `20260721T072342Z-2344751-5452a492` 已证明新契约的 schema v4 六阶段链路：reachable
+### 代码在哪里
+
+- `nav2_motion_transaction.py:Nav2MotionTransaction.execute()`：唯一业务入口。
+- `nav2_motion_transaction.py:_execute_motion()`：统一发送、等待与取消路径。
+- `nav2_motion_transaction.py:_resolve_pending_goal_safely()`：同步收口迟到接受。
+- `nav2_motion_transaction.py:_cancel_stop_and_prove_terminal()`：执行
+  `cancel -> priority STOP -> terminal`。
+- `nav2_motion_ros.py:RosNav2MotionAdapter`：把纯事务端口适配到
+  `NavigateToPose`、`BackUp`、ROS clock 和现有 quiescence ledger。
+- `showcase_session_node.py:run_navigation_goal()`：保留候选 preflight；Node 层采集
+  `/plan`、按 occupancy 评分并写入 ledger，事务再读取 ledger 强制执行运行期路径
+  安全门，随后完成 `SampledNavigate` 的 Action 生命周期。
+- `showcase_session_node.py:run_mapping_return_goal()`：提交 `MappingReturn`，成功后
+  再验证 TF 返航误差及独立停车证据。
+- `showcase_session_node.py:run_recovery_backup()`：把恢复动作提交为
+  `RecoveryBackup`，位移增益判定仍由 Node 负责。
+- `test_nav2_motion_transaction.py`：28 个纯接口级事务测试。
+- `test_nav2_motion_ros.py`：5 个 ROS Adapter 转换与边界测试。
+- `test_showcase_session_node.py`：只验证 Node 的 preflight、证据 owner 和委托 seam，
+  不再伪造内部 Future 状态机。
+
+### 调用链怎样走
+
+```text
+SessionOrchestratorNode
+  -> 候选目标 preflight / 计划证据
+  -> Nav2MotionTransaction.execute(intent, deadline, is_cancelled)
+       -> RosNav2MotionAdapter.wait_for_server()
+       -> RosNav2MotionAdapter.send_goal()
+       -> Nav2 response / result
+       -> 异常时 cancel -> typed priority STOP -> readable terminal
+       -> quiescence ledger terminal
+  -> Node 继续处理地图、TF、采样目标或恢复增益证据
+```
+
+对调用者只有一个行为 Interface：
+
+```text
+execute(
+  intent: SampledNavigate | MappingReturn | RecoveryBackup,
+  *,
+  is_cancelled,
+  deadline_monotonic,
+) -> None
+```
+
+三个冻结 intent 只描述“要执行什么”，不暴露 ROS Future、goal handle 或清理次序。
+成功返回 `None`；拒绝、运动失败、安全失败和并发分别抛出
+`Nav2GoalRejected`、`Nav2MotionFailed`、`Nav2SafetyFailure` 和
+`Nav2TransactionBusy`；server 不可用或业务 deadline 耗尽使用 `TimeoutError`，
+用户取消沿用 `AutomaticMissionCancelled`。
+
+### 为什么不是简单把函数挪到另一个文件
+
+如果 Node 仍要决定何时读 response、怎样处理 late accept、先 cancel 还是先 STOP，
+新文件就只是浅转发层。当前事务自己拥有以下不变量，因此删除它会把复杂度重新泄漏
+给所有调用者：
+
+1. 同时最多一笔运动事务；并发进入显式失败。
+2. 正常执行使用调用者给出的绝对 deadline；安全清理使用一次创建、不可续期的有界
+   cleanup deadline，不能在每个步骤重新获得完整超时。
+3. response timeout 或用户取消后仍等待并收口迟到的 accepted handle。
+4. accepted goal 的异常严格执行
+   `cancel -> 独立 priority STOP -> readable terminal`；即使剩余预算为 0，也会先
+   发出 STOP，再按 fail-closed 报告证据不足。
+5. terminal 无法证明时停止 navigation stage，并抛出 `Nav2SafetyFailure`。
+6. 主错误保持为主诊断，cancel、STOP、terminal 或 stage cleanup 错误作为附加信息。
+7. quiescence 只在明确拒绝或可读 terminal 后结算；sampled ledger terminal 恰好
+   记录一次，并保留真实 Nav2 终态。
+
+`RosNav2MotionAdapter` 是基础设施 seam：事务测试用 scripted Adapter 控制每一种
+竞态，生产才绑定 rclpy ActionClient。这样测试验证的是生产同一 Interface，而不是
+重新写一套“看起来像 ROS”的 Node 白盒流程。
+
+### 与替代方案的区别
+
+- **继续放在 Node**：改动少，但三个动作类型会继续复制安全清理，Future 竞态只能靠
+  大量脆弱白盒测试覆盖。
+- **直接做 `DefaultDemoSession`**：长期 Locality 更好，可统一语音、typed Action 与
+  shell；但会同时触及启动、控制权、证据和关闭语义，当前迁移风险更大。
+- **先做 phase DSL**：扩展上限高，但现在只有 mapping/navigation 两个深 phase，
+  尚没有第三个行为证明 registry、artifact 和 effect 类型值得公开。
+
+因此本轮先落地运动事务；`DefaultDemoSession` 保留为下一层候选，
+`MissionProgram`/phase DSL 暂缓。ROS topic、Action、Service、QoS、
+`SlamSessionState` 与 typed evidence schema 均未改变。
+
+### 失败边界与验证
+
+纯接口测试覆盖成功、拒绝、执行失败、用户取消、response timeout、late accept、
+STOP 失败、terminal 缺失、callback 异常和并发边界；ROS Adapter 测试覆盖 goal
+转换、时间戳、result wrapper 与零预算 STOP。Node 旧 Future 白盒测试已由这些接口
+测试替代，而不是叠加保留。
+
+包级测试、repository contracts 和 `acceptance_test.sh core` 证明代码与 ROS
+契约；未知地图重型 E2E 才能证明真实 Gazebo/Nav2 中的运动、取消、终态和最终零速。
+未来 `DefaultDemoSession` 落地时还需增加
+`RUN_DEFAULT -> MISSION_COMPLETED -> STOP -> STOPPED` 的会话级证据。
+
+## 8. 证据状态与阅读顺序
+
+历史 strict baseline session `20260721T072342Z-2344751-5452a492` 证明了 schema v4 六阶段业务链路，
+但它早于本轮 `Nav2MotionTransaction`，不能替代当前分支的重型回归。该历史 session 的 reachable
 coverage `99.81%`、区域最低 `98.76%`、unknown `0.19%`、障碍召回/false-free `85.21% / 1.69%`，
 AMCL P95 `0.120 m`，返航位置/角度误差 `0.0188 m / 0.1828 rad`，3/3 运行时目标成功，动态净空
 `0.020 m → 0.998 m`，最终 fresh 零速。该次地图自然满足 strict frontier；bounded saturation 是
@@ -481,8 +645,13 @@ AMCL P95 `0.120 m`，返航位置/角度误差 `0.0188 m / 0.1828 rad`，3/3 运
 路径 `unknown/occupied/map-outside` 合同与报告位置只在
 [测试手册](../TESTING.md) 维护。
 
+本轮事务重构已由 clean commit `bc65b8f` 的独立 unknown-world session
+`20260724T143855Z-274112-d0619407` 验证；根因闭环与完整指标见
+[工程日志](../development/multimodal_showcase/ENGINEERING_LOG.md)。
+
 建议阅读顺序：`unknown_world_slam_mission.yaml` → `exploration_saturation.py` / `mapping_return.py` →
-`mission_executor.py` → `showcase_session_node.py` → `mapped_goal_sampler.py` → `sampled_goal_tracker.py` →
+`mission_executor.py` → `showcase_session_node.py` → `nav2_motion_transaction.py` →
+`nav2_motion_ros.py` → `mapped_goal_sampler.py` → `sampled_goal_tracker.py` →
 `unknown_world_evidence.py`。先理解运行时不变量，再
 看 evaluator 阈值；不要从成功 JSON 反推并复制一套策略逻辑。
 

@@ -39,8 +39,10 @@ ActiveActionDecision ActiveActionRuntime::update(const ActiveActionInput & input
 
   // Nav2 这类外部 action 的失败原因不能压平成 blocked；外部 detail 优先透传，
   // 但本地 hard timeout 仍拥有最高优先级，保证失联的 Action Server 最终可收敛。
+  const bool local_hard_timeout =
+    timed.state == ActionExecutionState::kTimedOut;
   const std::string detail =
-    effective.state == ActionExecutionState::kTimedOut ? "timed_out" :
+    local_hard_timeout ? "timed_out" :
     !input.external_detail.empty() ? input.external_detail :
     effective.state == ActionExecutionState::kSucceeded ? "succeeded" :
     effective.state == ActionExecutionState::kCanceled ? "canceled" :

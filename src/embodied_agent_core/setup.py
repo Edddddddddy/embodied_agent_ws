@@ -17,6 +17,7 @@ setup(
             glob("config/*.yaml") + glob("config/*.json"),
         ),
         ("share/" + package_name + "/prompts", glob("prompts/*.txt")),
+        ("share/" + package_name + "/knowledge", glob("knowledge/*.md")),
     ],
     install_requires=["setuptools"],
     tests_require=["pytest"],

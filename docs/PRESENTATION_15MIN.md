@@ -6,7 +6,7 @@
 | 证据 | 展示内容 | 能证明什么 | 本轮状态 |
 | --- | --- | --- | --- |
 | 真人语音 known-world | 麦克风→Agent→typed Action→Gazebo/Nav2 | 真实声学输入与交互控制 | 本轮未重跑，现场前单独验收 |
-| Gazebo unknown-world 报告 | frontier 建图→存图→AMCL→动态三点→动态障碍 | 无场景先验的自主闭环与硬指标 | fresh session `20260720T165331Z-1770278-a421b687` PASS |
+| Gazebo unknown-world 报告 | frontier 建图→存图→AMCL→动态三点→动态障碍 | 无场景先验的自主闭环与硬指标 | fresh session `20260725T120302Z-145519-3ec3df78` PASS |
 
 不要说“上面的 PASS session 包含真人语音”；它没有。硬件 UART/SPI 也是 Adapter seam，不属于当前
 Gazebo 交付。
@@ -24,7 +24,7 @@ bash scripts/acceptance_test.sh wsl-microphone-preflight
 现场真人语音演示：
 
 ```bash
-HEADLESS=false USE_RVIZ=true \
+HEADLESS=true USE_RVIZ=true \
   bash scripts/acceptance_test.sh voice-slam-workplace-demo offline
 ```
 
@@ -32,17 +32,23 @@ HEADLESS=false USE_RVIZ=true \
 环境自主探索。正式 unknown-world 入口是：
 
 ```bash
-USE_RVIZ=true bash scripts/acceptance_test.sh unknown-world-slam-e2e
+HEADLESS=true USE_RVIZ=true \
+  bash scripts/acceptance_test.sh unknown-world-slam-e2e
 ```
+
+长时 WSL 演示推荐 RViz-only。即使仍输入 `HEADLESS=false USE_RVIZ=true`，验收器也会在低资源或软件
+渲染环境中优先切换硬件 D3D12，并自动选择 RViz-only；资源 watchdog 会把采样流写入同一 session 的
+`resource_samples.jsonl`，可用来判断卡顿来自算法还是系统资源。
 
 完整自主任务耗时较长，15 分钟汇报应预先运行并展示报告、地图、轨迹与 `runtime.log`，不在台上等待
 整场探索。当前基线报告：
 
 ```text
 logs/acceptance/unknown_world_slam_nav/
-└── 20260720T165331Z-1770278-a421b687/
+└── 20260725T120302Z-145519-3ec3df78/
     ├── unknown_world_map.yaml / .pgm
     ├── unknown_world_slam_e2e_report.json
+    ├── resource_samples.jsonl
     └── runtime.log
 ```
 
@@ -187,17 +193,18 @@ Nav2 status/error 和最小间距；这是“防危险”和“防自证”两�
 
 ## 4. 展示 PASS 报告（13:30–14:30）
 
-打开 fresh session `20260720T165331Z-1770278-a421b687` 的 schema v4 JSON，按以下顺序展示：
+打开 fresh session `20260725T120302Z-145519-3ec3df78` 的 schema v4 JSON，按以下顺序展示：
 
 | 项目 | 实测 | 门槛 |
 | --- | ---: | ---: |
-| reachable free coverage | `99.75%` | `≥90%` |
-| 四区域 coverage | 最低 office `98.30%` | 各 `≥85%` |
+| reachable free coverage | `99.8%`（`0.998`） | `≥90%` |
+| 四区域 coverage | 最低 office `98.3%`（`0.983`） | 各 `≥85%` |
 | reachable unknown | `0.25%` | `≤10%` |
-| obstacle boundary recall / false-free | `78.52% / 0.34%` | `≥60% / ≤5%` |
-| frontier Action | `38 accepted / 38 terminal`；available/active=`0/0` | 完整终态 |
-| AMCL/Gazebo position error P95 | `0.133 m`（215 对齐样本） | `≤0.25 m`；至少 20 样本 |
-| 动态采样导航 | `3/3` 成功；最小间距 `5.584 m` | `3/3`；`≥1.50 m` |
+| obstacle boundary recall / false-free | `82.03% / 0.81%` | `≥60% / ≤5%` |
+| 建图轨迹 / frontier 目标 | `153.403 m / 31` | 本次会话在线生成 |
+| frontier Action | `34 accepted / 34 terminal`；available/active=`0/0` | 完整终态 |
+| AMCL/Gazebo position error P95 | `0.154 m`（217 对齐样本） | `≤0.25 m`；至少 20 样本 |
+| 动态采样导航 | `3/3` 成功；最小间距 `5.604 m` | `3/3`；`≥1.50 m` |
 | 路径栅格 | producer/evaluator unknown、occupied、outside 均 0 | 全为 0 |
 | 动态避障 | 净空 `0.029→0.972 m`，28 个 unique plan | 必须 replan |
 | 最终速度 | fresh `/cmd_vel=0` | 必须为 0 |

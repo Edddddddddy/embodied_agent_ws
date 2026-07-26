@@ -410,6 +410,12 @@ class FrontierExplorationMonitor:
                     f"accepted={telemetry.accepted_goal_count} "
                     f"terminal={terminal_count}"
                 )
+            if time_budget_reached:
+                # 整轮硬预算已经耗尽时不能继续等待本 epoch 的地图静默窗；
+                # 否则刚到达的 SLAM 尾帧会让这里返回 None，monitor 随后抛通用
+                # TimeoutError，使上层永远无法执行 final probe 与有界饱和评估。
+                # Action 账本已在上方排空，任务层还会再次 typed STOP 后才扫描。
+                return "assessment_required:time_budget"
             map_quiet_s = max(
                 0.0, self._clock() - snapshot.last_map_growth_at
             )
@@ -446,10 +452,9 @@ class FrontierExplorationMonitor:
             # 先 typed STOP、再旋转扫描并用地图增益决定是否开启新 epoch。
             return "recovery_required:frontier_progress_stalled"
         if time_budget_reached:
-            # 硬预算只触发“是否边际收益耗尽”的收口评估，不能在这里自证地图
-            # 完整，也不能带着 active Nav2 UUID 直接失败并杀掉仿真。任务层会
-            # 先暂停 Explorer、排空 Action 账本、停车并做最后一次传感器扫描；
-            # 任何证据不足仍会 fail-close。
+            # 普通探索态的硬预算只触发“是否边际收益耗尽”的收口评估，不能
+            # 在这里自证地图完整。任务层会先暂停 Explorer、排空 Action 账本、
+            # typed STOP 并做最终扫描；任何证据不足仍然 fail-close。
             return "assessment_required:time_budget"
         observation = ExplorationObservation(
             native_completion_reported=(

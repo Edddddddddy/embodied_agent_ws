@@ -11,6 +11,7 @@ find_package(ament_cmake REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(embodied_agent_interfaces REQUIRED)
 find_package(embodied_agent_middleware REQUIRED)
+find_package(geometry_msgs REQUIRED)
 find_package(lifecycle_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
@@ -26,6 +27,7 @@ add_library(embodied_agent_control_core
   src/action_scheduler.cpp
   src/action_validator.cpp
   src/guarded_command_outbox.cpp
+  src/keyboard_input.cpp
   src/typed_action_client_contract.cpp
 )
 target_include_directories(embodied_agent_control_core PUBLIC
@@ -35,6 +37,17 @@ target_include_directories(embodied_agent_control_core PUBLIC
 target_link_libraries(embodied_agent_control_core PUBLIC nlohmann_json::nlohmann_json)
 ament_target_dependencies(
   embodied_agent_control_core PUBLIC embodied_agent_interfaces embodied_agent_middleware)
+
+add_library(embodied_control_authority_core
+  src/action_authority.cpp
+  src/control_authority.cpp
+  src/control_authority_tracker.cpp
+  src/velocity_authority_gate.cpp
+)
+target_include_directories(embodied_control_authority_core PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
 
 add_library(embodied_audio_core src/audio_processing.cpp)
 target_include_directories(embodied_audio_core PUBLIC
@@ -65,9 +78,29 @@ ament_target_dependencies(
   audio_frontend embodied_agent_interfaces embodied_agent_middleware rclcpp std_msgs)
 
 add_executable(action_guard src/action_guard_node.cpp)
-target_link_libraries(action_guard embodied_agent_control_core)
+target_link_libraries(
+  action_guard embodied_agent_control_core embodied_control_authority_core)
 ament_target_dependencies(
   action_guard embodied_agent_interfaces lifecycle_msgs rclcpp rclcpp_lifecycle std_msgs)
+
+add_executable(control_authority src/control_authority_node.cpp)
+target_link_libraries(control_authority embodied_control_authority_core)
+ament_target_dependencies(
+  control_authority
+  embodied_agent_interfaces embodied_agent_middleware rclcpp std_msgs)
+
+add_executable(velocity_authority_gate src/velocity_authority_gate_node.cpp)
+target_link_libraries(velocity_authority_gate embodied_control_authority_core)
+ament_target_dependencies(
+  velocity_authority_gate
+  embodied_agent_interfaces embodied_agent_middleware geometry_msgs rclcpp)
+
+add_executable(keyboard_teleop src/keyboard_teleop_node.cpp)
+target_link_libraries(
+  keyboard_teleop embodied_agent_control_core embodied_control_authority_core)
+ament_target_dependencies(
+  keyboard_teleop
+  embodied_agent_interfaces embodied_agent_middleware geometry_msgs rclcpp)
 
 add_library(typed_action_bridge_component SHARED src/typed_action_bridge_node.cpp)
 target_link_libraries(typed_action_bridge_component embodied_agent_control_core)
@@ -205,11 +238,15 @@ endif()
 
 install(TARGETS
   embodied_agent_control_core
+  embodied_control_authority_core
   embodied_audio_core
   embodied_hardware_core
   typed_action_bridge_component
   audio_frontend
   action_guard
+  control_authority
+  velocity_authority_gate
+  keyboard_teleop
   typed_action_bridge
   typed_action_demo_client
   robot_action_stub
@@ -246,6 +283,20 @@ if(BUILD_TESTING)
   target_link_libraries(test_action_validator embodied_agent_control_core)
   ament_add_gtest(test_action_scheduler test/test_action_scheduler.cpp)
   target_link_libraries(test_action_scheduler embodied_agent_control_core)
+  ament_add_gtest(test_control_authority test/test_control_authority.cpp)
+  target_link_libraries(test_control_authority embodied_control_authority_core)
+  ament_add_gtest(test_action_authority test/test_action_authority.cpp)
+  target_link_libraries(test_action_authority embodied_control_authority_core)
+  ament_add_gtest(
+    test_control_authority_tracker test/test_control_authority_tracker.cpp)
+  target_link_libraries(
+    test_control_authority_tracker embodied_control_authority_core)
+  ament_add_gtest(
+    test_velocity_authority_gate test/test_velocity_authority_gate.cpp)
+  target_link_libraries(
+    test_velocity_authority_gate embodied_control_authority_core)
+  ament_add_gtest(test_keyboard_input test/test_keyboard_input.cpp)
+  target_link_libraries(test_keyboard_input embodied_agent_control_core)
   ament_add_gtest(test_guarded_command_outbox test/test_guarded_command_outbox.cpp)
   target_link_libraries(test_guarded_command_outbox embodied_agent_control_core)
   ament_add_gtest(test_hardware_protocol test/test_hardware_protocol.cpp)
@@ -259,7 +310,8 @@ endif()
 
 ament_export_include_directories(include)
 ament_export_libraries(
-  embodied_agent_control_core embodied_audio_core embodied_hardware_core)
+  embodied_agent_control_core embodied_control_authority_core
+  embodied_audio_core embodied_hardware_core)
 ament_export_dependencies(
   embodied_agent_interfaces embodied_agent_middleware rclcpp rclcpp_lifecycle)
 ament_package()

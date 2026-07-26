@@ -34,10 +34,14 @@ public:
   using FollowWaypoints = nav2_msgs::action::FollowWaypoints;
   using NavigateGoalHandle = rclcpp_action::ClientGoalHandle<NavigateToPose>;
   using FollowGoalHandle = rclcpp_action::ClientGoalHandle<FollowWaypoints>;
+  using NavigateCancelResponse =
+    rclcpp_action::Client<NavigateToPose>::CancelResponse;
+  using FollowCancelResponse =
+    rclcpp_action::Client<FollowWaypoints>::CancelResponse;
 
   ~Nav2RobotExecutor() override
   {
-    stop();
+    request_stop(StopClock::now());
     if (executor_) {
       executor_->cancel();
     }
@@ -46,8 +50,10 @@ public:
     }
   }
 
-  void configure(const ControllerConfig &) override
+  void configure(const ControllerConfig & config) override
   {
+    stop_timeout_ = std::chrono::duration_cast<StopClock::duration>(
+      std::chrono::duration<double>(config.stop_timeout_s));
     const char * configured_path = std::getenv("EMBODIED_NAV2_PLACES_FILE");
     const std::string places_path = configured_path && configured_path[0] != '\0' ?
       std::string(configured_path) :
@@ -78,40 +84,68 @@ public:
     if (command.action_type == RobotCommand::CANCEL_NAVIGATION ||
       command.action_type == RobotCommand::STOP)
     {
-      stop();
+      request_stop(StopClock::now());
       return true;
     }
     return false;
   }
 
-  void stop() override
+  void request_stop(StopTimePoint requested_at) override
   {
     NavigateGoalHandle::SharedPtr navigate_handle;
     FollowGoalHandle::SharedPtr follow_handle;
+    std::uint64_t navigate_generation = 0;
+    std::uint64_t follow_generation = 0;
     {
       std::lock_guard<std::mutex> lock(goal_mutex_);
+      if (stop_state_ == StopExecutionState::kStopping ||
+        ((stop_state_ == StopExecutionState::kFailed ||
+        stop_state_ == StopExecutionState::kTimedOut) &&
+        has_unsettled_goal_locked()))
+      {
+        // STOP 是幂等操作；等待同一个底层 goal 的 terminal，不能重复发取消并
+        // 用新的 deadline 掩盖第一次超时。
+        return;
+      }
       navigate_handle = navigate_goal_handle_;
       follow_handle = follow_goal_handle_;
-      navigate_goal_handle_.reset();
-      follow_goal_handle_.reset();
-      // 递增代次后，晚到的旧 result callback 只能被丢弃，不能覆盖下一条
-      // Nav2 goal 的 active/detail 状态。
-      ++navigate_generation_;
-      ++follow_generation_;
+      navigate_generation = navigate_generation_;
+      follow_generation = follow_generation_;
+      stop_requested_ = true;
+      stop_deadline_ = requested_at + stop_timeout_;
+      if (!has_unsettled_goal_locked()) {
+        mark_quiesced_locked("nav2:stop:no_active_goal");
+        active_.store(false);
+        return;
+      }
+      stop_state_ = StopExecutionState::kStopping;
+      stop_detail_ = "nav2:stop:waiting_terminal";
     }
-    bool canceled = false;
+    set_external_state(ActionExecutionState::kRunning, "nav2:stop:waiting_terminal");
     if (navigate_handle) {
-      navigate_client_->async_cancel_goal(navigate_handle);
-      canceled = true;
+      request_navigate_cancel(navigate_handle, navigate_generation);
     }
     if (follow_handle) {
-      follow_client_->async_cancel_goal(follow_handle);
-      canceled = true;
+      request_follow_cancel(follow_handle, follow_generation);
     }
-    active_.store(false);
-    if (canceled) {
-      set_external_state(ActionExecutionState::kCanceled, "nav2:cancel_requested");
+    // goal response 可能尚未到达；response callback 会在保存 handle 后补发取消。
+  }
+
+  StopExecutionUpdate poll_stop(StopTimePoint now) override
+  {
+    std::lock_guard<std::mutex> lock(goal_mutex_);
+    if (stop_state_ == StopExecutionState::kStopping && now >= stop_deadline_) {
+      stop_state_ = StopExecutionState::kTimedOut;
+      stop_detail_ = "nav2:stop:terminal_timeout";
     }
+    return {stop_state_, stop_detail_};
+  }
+
+  bool is_quiesced() const override
+  {
+    std::lock_guard<std::mutex> lock(goal_mutex_);
+    return !has_unsettled_goal_locked() &&
+           stop_state_ == StopExecutionState::kQuiesced;
   }
 
   void update_scan(
@@ -175,23 +209,39 @@ private:
     std::uint64_t generation = 0;
     {
       std::lock_guard<std::mutex> lock(goal_mutex_);
+      if (has_unsettled_goal_locked()) {
+        set_external_state(
+          ActionExecutionState::kBlocked,
+          "nav2:navigate_to_pose:previous_goal_not_quiesced target=" + target);
+        return false;
+      }
       generation = ++navigate_generation_;
       navigate_goal_handle_.reset();
+      navigate_goal_pending_ = true;
+      stop_requested_ = false;
+      stop_state_ = StopExecutionState::kQuiesced;
+      stop_detail_ = "nav2:goal_active";
     }
     rclcpp_action::Client<NavigateToPose>::SendGoalOptions options;
     options.goal_response_callback =
       [this, target, generation](const NavigateGoalHandle::SharedPtr & handle) {
         bool stale = false;
+        bool stop_requested = false;
         {
           std::lock_guard<std::mutex> lock(goal_mutex_);
           stale = generation != navigate_generation_;
           if (!stale) {
+            navigate_goal_pending_ = false;
             navigate_goal_handle_ = handle;
+            stop_requested = stop_requested_;
+            if (!handle && stop_requested_ && !has_unsettled_goal_locked()) {
+              mark_quiesced_locked("nav2:stop:goal_rejected_before_execution");
+            }
           }
         }
         if (stale) {
-          // stop() 可能发生在 goal response 到达之前；此时仍要取消刚被 Nav2
-          // 接受的旧 goal，不能只忽略回调而留下后台“幽灵导航”。
+          // goal response 晚到时仍要取消对应 goal，不能只忽略回调而留下
+          // 后台“幽灵导航”。这里不把 cancel ACK 当作 terminal。
           if (handle) {
             navigate_client_->async_cancel_goal(handle);
           }
@@ -199,9 +249,13 @@ private:
         }
         active_.store(handle != nullptr);
         if (handle) {
-          set_external_state(
-            ActionExecutionState::kRunning,
-            "nav2:navigate_to_pose:accepted target=" + target);
+          if (stop_requested) {
+            request_navigate_cancel(handle, generation);
+          } else {
+            set_external_state(
+              ActionExecutionState::kRunning,
+              "nav2:navigate_to_pose:accepted target=" + target);
+          }
         } else {
           set_external_state(
             ActionExecutionState::kBlocked,
@@ -210,27 +264,42 @@ private:
       };
     options.result_callback =
       [this, target, generation](const NavigateGoalHandle::WrappedResult & result) {
+        const auto detail = navigate_result_detail(target, result);
         {
           std::lock_guard<std::mutex> lock(goal_mutex_);
           if (generation != navigate_generation_) {
             return;
           }
+          navigate_goal_pending_ = false;
           navigate_goal_handle_.reset();
+          if (stop_requested_ && !has_unsettled_goal_locked()) {
+            // 取消响应仅表示 server 收到了请求；只有 result callback 才证明
+            // NavigateToPose 已进入 CANCELED/ABORTED/SUCCEEDED terminal。
+            mark_quiesced_locked("nav2:stop:terminal " + detail);
+          }
         }
         active_.store(false);
-        set_external_state(
-          state_from_result_code(result.code),
-          navigate_result_detail(target, result));
+        set_external_state(state_from_result_code(result.code), detail);
       };
     auto future = navigate_client_->async_send_goal(goal, options);
+    const auto response_status = future.wait_for(std::chrono::seconds(1));
     const bool accepted =
-      future.wait_for(std::chrono::seconds(1)) == std::future_status::ready &&
-      future.get() != nullptr;
+      response_status == std::future_status::ready && future.get() != nullptr;
     if (!accepted) {
       set_external_state(
         ActionExecutionState::kBlocked,
         "nav2:navigate_to_pose:goal_response_timeout_or_rejected target=" + target);
       active_.store(false);
+      if (response_status != std::future_status::ready) {
+        // 请求可能已经被 server 接收，只是 response 超时；保持 pending 并进入
+        // fail-closed 停止流程，晚到的 response callback 会补发取消。
+        request_stop(StopClock::now());
+      } else {
+        std::lock_guard<std::mutex> lock(goal_mutex_);
+        if (generation == navigate_generation_) {
+          navigate_goal_pending_ = false;
+        }
+      }
     }
     return accepted;
   }
@@ -268,18 +337,35 @@ private:
     std::uint64_t generation = 0;
     {
       std::lock_guard<std::mutex> lock(goal_mutex_);
+      if (has_unsettled_goal_locked()) {
+        set_external_state(
+          ActionExecutionState::kBlocked,
+          "nav2:follow_waypoints:previous_goal_not_quiesced waypoints=" +
+          join(waypoints, ","));
+        return false;
+      }
       generation = ++follow_generation_;
       follow_goal_handle_.reset();
+      follow_goal_pending_ = true;
+      stop_requested_ = false;
+      stop_state_ = StopExecutionState::kQuiesced;
+      stop_detail_ = "nav2:goal_active";
     }
     rclcpp_action::Client<FollowWaypoints>::SendGoalOptions options;
     options.goal_response_callback =
       [this, waypoints, generation](const FollowGoalHandle::SharedPtr & handle) {
         bool stale = false;
+        bool stop_requested = false;
         {
           std::lock_guard<std::mutex> lock(goal_mutex_);
           stale = generation != follow_generation_;
           if (!stale) {
+            follow_goal_pending_ = false;
             follow_goal_handle_ = handle;
+            stop_requested = stop_requested_;
+            if (!handle && stop_requested_ && !has_unsettled_goal_locked()) {
+              mark_quiesced_locked("nav2:stop:goal_rejected_before_execution");
+            }
           }
         }
         if (stale) {
@@ -290,9 +376,13 @@ private:
         }
         active_.store(handle != nullptr);
         if (handle) {
-          set_external_state(
-            ActionExecutionState::kRunning,
-            "nav2:follow_waypoints:accepted waypoints=" + join(waypoints, ","));
+          if (stop_requested) {
+            request_follow_cancel(handle, generation);
+          } else {
+            set_external_state(
+              ActionExecutionState::kRunning,
+              "nav2:follow_waypoints:accepted waypoints=" + join(waypoints, ","));
+          }
         } else {
           set_external_state(
             ActionExecutionState::kBlocked,
@@ -301,30 +391,121 @@ private:
       };
     options.result_callback =
       [this, waypoints, generation](const FollowGoalHandle::WrappedResult & result) {
+        const auto outcome = evaluate_follow_waypoints_result(
+          waypoints, result.code, result.result.get());
         {
           std::lock_guard<std::mutex> lock(goal_mutex_);
           if (generation != follow_generation_) {
             return;
           }
+          follow_goal_pending_ = false;
           follow_goal_handle_.reset();
+          if (stop_requested_ && !has_unsettled_goal_locked()) {
+            mark_quiesced_locked("nav2:stop:terminal " + outcome.detail);
+          }
         }
         active_.store(false);
-        const auto outcome = evaluate_follow_waypoints_result(
-          waypoints, result.code, result.result.get());
         set_external_state(outcome.state, outcome.detail);
       };
     auto future = follow_client_->async_send_goal(goal, options);
+    const auto response_status = future.wait_for(std::chrono::seconds(1));
     const bool accepted =
-      future.wait_for(std::chrono::seconds(1)) == std::future_status::ready &&
-      future.get() != nullptr;
+      response_status == std::future_status::ready && future.get() != nullptr;
     if (!accepted) {
       set_external_state(
         ActionExecutionState::kBlocked,
         "nav2:follow_waypoints:goal_response_timeout_or_rejected waypoints=" +
         join(waypoints, ","));
       active_.store(false);
+      if (response_status != std::future_status::ready) {
+        request_stop(StopClock::now());
+      } else {
+        std::lock_guard<std::mutex> lock(goal_mutex_);
+        if (generation == follow_generation_) {
+          follow_goal_pending_ = false;
+        }
+      }
     }
     return accepted;
+  }
+
+  bool has_unsettled_goal_locked() const
+  {
+    return navigate_goal_pending_ || follow_goal_pending_ ||
+           navigate_goal_handle_ || follow_goal_handle_;
+  }
+
+  void mark_quiesced_locked(const std::string & detail)
+  {
+    stop_requested_ = false;
+    stop_state_ = StopExecutionState::kQuiesced;
+    stop_detail_ = detail;
+  }
+
+  void request_navigate_cancel(
+    const NavigateGoalHandle::SharedPtr & handle,
+    std::uint64_t generation)
+  {
+    try {
+      navigate_client_->async_cancel_goal(
+        handle,
+        [this, generation](const NavigateCancelResponse::SharedPtr & response) {
+          std::lock_guard<std::mutex> lock(goal_mutex_);
+          if (generation != navigate_generation_ || !stop_requested_ ||
+            stop_state_ != StopExecutionState::kStopping)
+          {
+            return;
+          }
+          if (!response ||
+            response->return_code != NavigateCancelResponse::ERROR_NONE ||
+            response->goals_canceling.empty())
+          {
+            // cancel response 只表示请求是否被接受。拒绝时仍保留 goal handle，
+            // 禁止后续动作抢占底盘；只有真正的 result callback 才可解除封锁。
+            stop_state_ = StopExecutionState::kFailed;
+            stop_detail_ = "nav2:stop:cancel_request_rejected";
+          }
+        });
+    } catch (const std::exception & error) {
+      std::lock_guard<std::mutex> lock(goal_mutex_);
+      if (generation == navigate_generation_ && stop_requested_) {
+        stop_state_ = StopExecutionState::kFailed;
+        stop_detail_ = std::string("nav2:stop:cancel_request_failed error=") +
+          error.what();
+      }
+    }
+  }
+
+  void request_follow_cancel(
+    const FollowGoalHandle::SharedPtr & handle,
+    std::uint64_t generation)
+  {
+    try {
+      follow_client_->async_cancel_goal(
+        handle,
+        [this, generation](const FollowCancelResponse::SharedPtr & response) {
+          std::lock_guard<std::mutex> lock(goal_mutex_);
+          if (generation != follow_generation_ || !stop_requested_ ||
+            stop_state_ != StopExecutionState::kStopping)
+          {
+            return;
+          }
+          if (!response ||
+            response->return_code != FollowCancelResponse::ERROR_NONE ||
+            response->goals_canceling.empty())
+          {
+            stop_state_ = StopExecutionState::kFailed;
+            stop_detail_ = "nav2:stop:cancel_request_rejected";
+          }
+        });
+    } catch (const std::exception & error) {
+      std::lock_guard<std::mutex> lock(goal_mutex_);
+      if (generation == follow_generation_ && stop_requested_) {
+        stop_state_ = StopExecutionState::kFailed;
+        stop_detail_ = std::string("nav2:stop:cancel_request_failed error=") +
+          error.what();
+      }
+    }
   }
 
   static ActionExecutionState state_from_result_code(rclcpp_action::ResultCode code)
@@ -393,9 +574,16 @@ private:
   rclcpp_action::Client<FollowWaypoints>::SharedPtr follow_client_;
   NavigateGoalHandle::SharedPtr navigate_goal_handle_;
   FollowGoalHandle::SharedPtr follow_goal_handle_;
-  std::mutex goal_mutex_;
+  mutable std::mutex goal_mutex_;
+  bool navigate_goal_pending_{false};
+  bool follow_goal_pending_{false};
   std::uint64_t navigate_generation_{0};
   std::uint64_t follow_generation_{0};
+  bool stop_requested_{false};
+  StopExecutionState stop_state_{StopExecutionState::kQuiesced};
+  StopTimePoint stop_deadline_{};
+  StopClock::duration stop_timeout_{std::chrono::seconds(3)};
+  std::string stop_detail_{"nav2:idle"};
   std::unique_ptr<rclcpp::executors::SingleThreadedExecutor> executor_;
   std::thread spin_thread_;
   std::atomic_bool active_{false};

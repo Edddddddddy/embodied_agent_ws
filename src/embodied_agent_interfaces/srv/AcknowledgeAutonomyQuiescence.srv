@@ -1,0 +1,11 @@
+# 必须与当前 ControlAuthorityState.manager_epoch 完全一致，拒绝旧 manager 的迟到确认。
+uint64 manager_epoch
+# 必须与 pending_autonomy_revocation_sequence 完全一致。
+uint64 autonomy_revocation_sequence
+string requester
+string detail
+---
+bool accepted
+bool changed
+string message
+embodied_agent_interfaces/ControlAuthorityState state

@@ -1,0 +1,23 @@
+# 键盘取得控制权。若此前是 AUTONOMY，服务端必须同时产生一次停止意图。
+uint8 TAKE_KEYBOARD=1
+# deadman 或主动松权后进入 HOLD，不会自动恢复旧任务。
+uint8 RELEASE_KEYBOARD=2
+# 使任意非急停控制状态进入 HOLD。
+uint8 ENTER_HOLD=3
+# 只有 HOLD 才能显式恢复 AUTONOMY。
+uint8 RESUME_AUTONOMY=4
+# 锁存急停；重复请求不会重复产生停止意图。
+uint8 EMERGENCY_STOP=5
+# 仅解除急停锁存并进入 HOLD，不等于恢复自动控制。
+uint8 RESET_EMERGENCY_STOP=6
+
+uint8 command
+string requester
+string reason
+---
+bool accepted
+bool changed
+# 这是一次性边沿意图，而不是可重放的持续状态。
+bool stop_requested
+string message
+embodied_agent_interfaces/ControlAuthorityState state

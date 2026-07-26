@@ -13,11 +13,24 @@ def _read(relative_path: str) -> str:
 def _local_markdown_targets(document: Path):
     """只校验仓库内链接；网页链接和页内锚点由渲染器负责。"""
     text = document.read_text(encoding="utf-8")
+    # C++ lambda capture 等代码也可能长得像 Markdown 链接；先移除代码区，
+    # 否则 `[this](auto result)` 会被误报成仓库文件。
+    text = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
+    text = re.sub(r"`[^`\n]*`", "", text)
     for raw_target in re.findall(r"!?\[[^]]*\]\(([^)]+)\)", text):
         target = raw_target.strip().strip("<>")
         if target.startswith(("#", "http://", "https://", "mailto:")):
             continue
         yield target.split("#", 1)[0]
+
+
+def _deep_dive_documents() -> tuple[Path, ...]:
+    return tuple(
+        sorted(
+            (ROOT / "docs/interview/resume-deep-dive").rglob("*.md"),
+            key=lambda path: path.as_posix(),
+        )
+    )
 
 
 def test_audio_topic_and_asr_code_anchors_match_runtime_sources():
@@ -127,6 +140,7 @@ def test_history_document_cannot_be_mistaken_for_current_project_truth():
 def test_authoritative_document_local_links_resolve_to_real_files():
     documents = (
         ROOT / "README.md",
+        ROOT / "docs/README.md",
         ROOT / "docs/ARCHITECTURE.md",
         ROOT / "docs/PRESENTATION_15MIN.md",
         ROOT / "docs/TESTING.md",
@@ -144,3 +158,129 @@ def test_authoritative_document_local_links_resolve_to_real_files():
             if not (document.parent / target).resolve().exists():
                 missing.append(f"{document.relative_to(ROOT)} -> {target}")
     assert missing == []
+
+
+def test_resume_deep_dive_local_links_resolve_recursively():
+    """面试笔记会频繁重组；递归检查可防止目录调整后留下失效代码锚点。"""
+    documents = _deep_dive_documents()
+    assert documents
+
+    missing = []
+    for document in documents:
+        for target in _local_markdown_targets(document):
+            if not (document.parent / target).resolve().exists():
+                missing.append(f"{document.relative_to(ROOT)} -> {target}")
+    assert missing == []
+
+
+def test_frontier_notes_describe_strict_and_bounded_completion_paths():
+    architecture = _read("docs/ARCHITECTURE.md")
+    navigation = _read(
+        "docs/interview/resume-deep-dive/02-control-navigation.md"
+    )
+    project_walkthrough = _read(
+        "docs/interview/resume-deep-dive/09-project-line-by-line.md"
+    )
+
+    for document in (architecture, navigation, project_walkthrough):
+        assert "`strict_frontier`" in document
+        assert "`bounded_saturation`" in document
+    assert "`time_budget_exhausted` 本身没有成功语义" in architecture
+    assert "`time_budget_coverage`" not in navigation
+    assert "`coverage_plateau`：地图" not in navigation
+    assert "回到首次运动前动态捕获的起点" in project_walkthrough
+
+
+def test_resume_notes_keep_voice_and_unknown_world_evidence_separate():
+    navigation = _read(
+        "docs/interview/resume-deep-dive/02-control-navigation.md"
+    )
+    reliability = _read(
+        "docs/interview/resume-deep-dive/03-architecture-reliability.md"
+    )
+    project_walkthrough = _read(
+        "docs/interview/resume-deep-dive/09-project-line-by-line.md"
+    )
+
+    assert "known-world 真人演示" in navigation
+    assert "不能拼成同一个 session" in navigation
+    assert "known-world 真人语音演示" in reliability
+    assert "不能替代正式" in reliability
+    assert "known-world\n真人语音演示验证交互链" in project_walkthrough
+
+
+def test_resume_notes_mark_mock_speaker_as_default_and_sherpa_as_seam():
+    voice = _read("docs/interview/resume-deep-dive/05-voice-agent.md")
+    project_walkthrough = _read(
+        "docs/interview/resume-deep-dive/09-project-line-by-line.md"
+    )
+    deployment = _read(
+        "docs/interview/resume-deep-dive/11-voice-deployment-rag.md"
+    )
+
+    for document in (voice, project_walkthrough, deployment):
+        assert "mock" in document
+        assert "Sherpa" in document
+        assert "声纹" in document
+    assert "默认演示 profile 的身份 provider 仍是 `mock`" in voice
+    assert "不构成声纹准确率证据" in deployment
+
+
+def test_typed_interface_notes_do_not_use_legacy_json_migration_story():
+    framework = _read(
+        "docs/interview/resume-deep-dive/01-ros2-framework.md"
+    )
+
+    assert "为什么机器人动作接口使用自定义消息" in framework
+    assert "不直接传 JSON" not in framework
+    assert "JSON 更灵活" not in framework
+    assert "不再保留另一套兼容协议" in framework
+
+
+def test_git_worktree_release_note_preserves_delivery_invariants():
+    index = _read("docs/interview/resume-deep-dive/00-index.md")
+    governance = _read(
+        "docs/interview/resume-deep-dive/12-git-worktree-release-governance.md"
+    )
+
+    assert "12-git-worktree-release-governance.md" in index
+    for term in (
+        "一个 Git 仓库",
+        "`main`",
+        "`dev`",
+        "`feature/*`",
+        "`release/*`",
+        "annotated Tag",
+        "GitHub Release",
+        "worktree remove",
+        'source "$PWD/install/setup.bash"',
+    ):
+        assert term in governance
+    assert "不能 source 另一份 worktree 的 install" in governance
+
+
+def test_reliability_notes_preserve_acceptance_runtime_ownership():
+    reliability = _read(
+        "docs/interview/resume-deep-dive/03-architecture-reliability.md"
+    )
+
+    for anchor in (
+        "AcceptanceSession",
+        "session.py",
+        "leases.py",
+        "process_supervisor.py",
+        "test_acceptance_module_boundaries.py",
+    ):
+        assert anchor in reliability
+    assert "ROS domain 和证据目录" in reliability
+    assert "Popen、独立进程组、subreaper 和退出回收" in reliability
+    assert "低层模块不能反向导入 facade" in reliability
+
+
+def test_live_voice_benchmark_documents_global_alignment_and_required_slots():
+    testing = _read("docs/TESTING.md")
+
+    assert "全局单调一对一对齐" in testing
+    assert "方向和颜色是 required slot" in testing
+    assert "相似度超过阈值也不能计为识别成功" in testing
+    assert "只负责事后证据评分" in testing

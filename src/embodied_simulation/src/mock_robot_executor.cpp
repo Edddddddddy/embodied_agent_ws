@@ -17,7 +17,7 @@ public:
   void configure(const ControllerConfig & config) override
   {
     config_ = config;
-    stop();
+    request_stop(StopClock::now());
   }
 
   bool execute(const RobotCommand & command, double now_s) override
@@ -31,7 +31,7 @@ public:
     if (command.action_type == RobotCommand::STOP ||
       command.action_type == RobotCommand::CANCEL_NAVIGATION)
     {
-      stop();
+      request_stop(StopClock::now());
       return true;
     }
     if (command.action_type == RobotCommand::NAVIGATE_TO) {
@@ -53,12 +53,19 @@ public:
     return false;
   }
 
-  void stop() override
+  void request_stop(StopTimePoint) override
   {
     mode_ = ControlMode::kManual;
     velocity_ = {};
     active_until_s_ = 0.0;
   }
+
+  StopExecutionUpdate poll_stop(StopTimePoint) override
+  {
+    return {StopExecutionState::kQuiesced, "mock:velocity_zero"};
+  }
+
+  bool is_quiesced() const override {return true;}
 
   void update_scan(
     const std::vector<float> &, double, double, double, double, double) override {}

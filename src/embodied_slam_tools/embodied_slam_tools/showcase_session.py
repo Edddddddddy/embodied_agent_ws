@@ -29,6 +29,10 @@ class SessionPhase(IntEnum):
     AUTOMATIC_MAPPING = 10
     AUTOMATIC_NAVIGATING = 11
     MISSION_COMPLETED = 12
+    # 内部安全阶段：控制权已撤销，但 Explore/Nav2/STOP/fresh-zero 尚未全部 ACK。
+    # wire message 的 phase 为 uint8，因此先保持内部兼容；接口常量在整组控制面
+    # 功能获准修改 interfaces 时再同步补齐。
+    QUIESCING = 13
 
 
 @dataclass(frozen=True)
@@ -210,6 +214,7 @@ class ShowcaseSessionStateMachine:
             SessionPhase.STOPPING,
             SessionPhase.AUTOMATIC_MAPPING,
             SessionPhase.AUTOMATIC_NAVIGATING,
+            SessionPhase.QUIESCING,
         }:
             return False, f"session busy in phase={phase.name.lower()}"
         if (

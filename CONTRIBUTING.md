@@ -31,6 +31,12 @@ source scripts/activate.sh
   `refactor/<name>`。
 - 功能分支测试通过后合并回 `dev`；里程碑验收通过后再从 `dev` 合并到 `main`。
 
+`dev` 和 `main` 已启用同一套分支保护：所有变更都通过 PR 合并，并且必须通过
+`repository-layout`、`frontier-patch-replay`、`build-and-test` 和
+`Build and test container` 四项 required checks。两条分支都禁止 force-push 和删除，
+管理员也遵守这些规则。仓库当前采用单人维护流程，因此 required approving reviews 为
+`0`；不要求维护者给自己的 PR 审批，但 PR 和四项检查仍然不可跳过。
+
 ```bash
 # 最低门槛：仓库契约、Python/C++ 单测与无外部模型 smoke
 bash scripts/acceptance_test.sh core

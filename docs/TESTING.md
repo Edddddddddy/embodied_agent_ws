@@ -1,7 +1,9 @@
 # 测试与验收
 
-本文是当前项目的验收契约。命令注册以 `tools/acceptance/catalog.py` 为准；架构边界见
-[ARCHITECTURE.md](ARCHITECTURE.md)，算法和代码走读见 [SLAM/Nav2 学习笔记](learning/SLAM_NAV2.md)。
+本文是测试命令、PASS 条件、产物位置和故障分层的唯一说明。第一次阅读请先看
+[文档阅读地图](README.md)；命令注册以 `tools/acceptance/catalog.py` 为准，稳定模块边界见
+[系统架构](ARCHITECTURE.md)，算法原理和代码走读见对应的 [学习笔记](learning/)；已经产生的运行
+事实见 [证据索引](evidence/README.md)。开发计划或历史记录不能替代本页的当前验收契约。
 
 ## 1. 证据分层
 
@@ -59,18 +61,23 @@ bash scripts/acceptance_test.sh robotics-gate
 
 `--help-all` 展示内部回归和实验模式，不作为 README 主路径。
 
+`gazebo` 会为每次运行租用独立 ROS domain/Gazebo partition，并复用重型门禁的
+ROS overlay 隔离策略。宿主终端即使 source 过其它 `nav2_ws/ros2_ws`，验收仍只允许
+当前 worktree、`/opt/ros/jazzy` 和白名单 Frontier 包参与运行。证据位于
+`logs/acceptance/gazebo_typed_action/<session-id>/acceptance_session.json`；
+readiness 失败时会直接附带 launch 日志，优先查看 Lifecycle Manager 是否完成配置。
+
 ## 4. 合并前门禁
 
 轻量门禁：
 
 ```bash
 bash scripts/acceptance_test.sh core
-pytest -q src/embodied_online_agent/test
 bash scripts/acceptance_test.sh slam-autonomous-mission-stage
 ```
 
-`core` 已聚合仓库/评估、离线 Agent、CLI 与核心 C++ 回归；这里只单独补它未覆盖的在线 Agent，避免同一
-测试被手工重复运行。需要定位失败时再按 `core` 输出执行对应 pytest/colcon 子集。
+`core` 已聚合仓库/评估、在线与离线 Agent、CLI 以及核心 C++ 回归，无需再手工重复执行两类 Agent
+单测。需要定位失败时，再按 `core` 输出运行对应的 pytest/colcon 子集。
 
 ROS 2/C++ 门禁：
 
@@ -84,10 +91,28 @@ colcon test-result --verbose
 
 改变 unknown-world 任务策略、frontier 状态、地图判定、定位对齐或目标抽样时，必须补跑正式重型 E2E。
 
+### 4.1 语音运行时部署门禁
+
+全栈 preflight 是内部部署入口，不加入 `core` 的无模型 CI：
+
+```bash
+# 不访问网络、不要求模型或密钥，验证 profile schema 和 provider 顺序
+bash scripts/acceptance_test.sh voice-runtime-preflight offline-edge --contract-only --json
+bash scripts/acceptance_test.sh voice-runtime-preflight online-cloud --contract-only --json
+
+# 在目标 WSL 上检查真实 Python 依赖、模型、知识库和 API key
+bash scripts/acceptance_test.sh voice-runtime-preflight offline-edge --json
+bash scripts/acceptance_test.sh voice-runtime-preflight online-cloud --json
+```
+
+报告中的 `blocked` 表示必需组件不可部署；`degraded` 表示首选 provider 不可用、已按 profile
+选择 fallback。默认只记录 endpoint 已配置，显式传入 `--probe-endpoints` 才执行只读 health GET，
+且任何模式都不会发送推理或付费请求。
+
 ## 5. Unknown-world 正式 SLAM/Nav2 闭环
 
 ```bash
-HEADLESS=false USE_RVIZ=true \
+HEADLESS=true USE_RVIZ=true \
   bash scripts/acceptance_test.sh unknown-world-slam-e2e
 ```
 
@@ -95,6 +120,12 @@ HEADLESS=false USE_RVIZ=true \
 进程只获得在线 scan/odom/TF/map 和本次 mission；场景真值、区域边界、Gazebo pose 只传给 evaluator。
 前三个导航目标必须由本次地图运行时采样。随后由 acceptance probe 注入的固定 dynamic challenge
 goal/actor 只是可重复的外部测试刺激，不进入探索/采样算法，也不计作自主目标。
+
+长时可视化默认只打开 RViz，Gazebo server、物理、雷达和里程计仍全部运行。即使沿用旧命令
+`HEADLESS=false USE_RVIZ=true`，启动前也会检查 renderer 和内存：双 GUI 在软件渲染、WSL 总内存
+`<12 GiB` 或可用内存 `<6 GiB` 时自动降级为 RViz-only。若 WSLg 的 D3D12 探针可用，只对本次
+AcceptanceSession 注入 `GALLIUM_DRIVER=d3d12`。`SLAM_NAV_ALLOW_DUAL_GUI=true` 是高配机器上的显式
+调试 override，不是长时正式门禁默认值。
 
 硬性 PASS：
 
@@ -142,11 +173,16 @@ exhaustion，任何其他恢复原因均失败。失败报告仍在 `frontier.te
 账本，不能只靠 `detail` 文本诊断。
 
 场地总面积未知时，运行时不能计算“85%”。硬预算后的 bounded saturation 使用与场景大小无关的证据：
-最近至少 `2` 个低收益 epoch、每轮至少 `3` 个 terminal goal、累计建图路径至少 `20m`、残余 available
-frontier `<=4`、final probe 低增益、地图静默 `>=15s`、Action 总账排空以及 final probe
+最近至少 `2` 个低收益 epoch、每轮至少 `3` 个 terminal goal、累计建图路径至少 `20m`、final probe
+低增益、地图静默 `>=15s`、Action 总账排空以及 final probe
 后的新鲜 typed STOP。恢复次数余量只作为诊断字段；若 provider 没有请求恢复，不会为了耗尽计数制造动作。
 epoch 以单位 terminal goal 的地图增益判断；只有 cells 与 ratio 同时显著才继续探索。
 任一条件不满足都失败，不能因外层等待时间到达而保存地图。
+
+`residual_available_frontiers` 仍写入强类型证据，但 hard-budget 路径只把它作为诊断值：该值采自暂停
+Explorer、执行 final probe 之前，provider 停止后不会依据新地图重算；同时 raw cluster 数会随墙角碎片和
+栅格噪声波动，不是剩余信息量。`repeated_reachable_stall` 路径仍严格要求 residual 为零。最终 PASS 继续
+由下述独立地图质量门禁否决不完整地图，不能把“时间到了”直接解释为完成。
 
 生产进程只读取在线 scan/odom/TF/map；truth map、区域边界与场地可达面积只进入 evaluator。近似完成的
 最终 PASS 仍要由 evaluator 独立满足 `90/85/10` 地图质量、障碍质量、返航、AMCL、路径安全、动态重规划
@@ -159,6 +195,7 @@ logs/acceptance/unknown_world_slam_nav/<session_id>/unknown_world_slam_e2e_repor
 logs/acceptance/unknown_world_slam_nav/<session_id>/runtime.log
 logs/acceptance/unknown_world_slam_nav/<session_id>/unknown_world_map.{yaml,pgm}
 logs/acceptance/unknown_world_slam_nav/<session_id>/acceptance_session.json
+logs/acceptance/unknown_world_slam_nav/<session_id>/resource_samples.jsonl
 ```
 
 正式报告必须满足 `schema_version=4`、
@@ -169,7 +206,7 @@ logs/acceptance/unknown_world_slam_nav/<session_id>/acceptance_session.json
 ```bash
 CLEANUP_CONFIRM=true bash scripts/cleanup_simulation_processes.sh
 
-HEADLESS=false USE_RVIZ=true \
+HEADLESS=true USE_RVIZ=true \
   SLAM_NAV_PROGRESS_HEARTBEAT_S=10 \
   bash scripts/acceptance_test.sh unknown-world-slam-e2e
 ```
@@ -185,10 +222,15 @@ HEADLESS=false USE_RVIZ=true \
 5. 程序自行正常结束并输出 PASS；若由外层 timeout、Ctrl+C 或 cleanup 结束，一律不算通过。
 6. 报告的 `return_to_start`、`frontier_complete`、地图/定位/导航/dynamic/final-stop checks 全部为 true，
    `/cmd_vel` 最终为零。
+7. `acceptance_session.json` 的 `resources.failure=null`、`cleanup_complete=true`；长时曲线写入
+   `resource_samples.jsonl`。可用内存持续低于 `768 MiB` 或 Swap 持续超过安全线时，watchdog 会以
+   `resource_exhaustion` 失败并先走统一停车/清理，而不是等待 WSL 卡死。
 
 验收失败时保留整个 session 目录，首先查看 `runtime.log` 最后一条 phase/detail，再对照报告中的
 `approximate_completion`、`frontier.telemetry`、`return_to_start` 和失败 checks。不要只凭 RViz 中
-“看起来覆盖很多”判断通过，也不要删除失败证据后重跑。
+“看起来覆盖很多”判断通过，也不要删除失败证据后重跑。若 Nav2 Lifecycle Manager 已打印
+`CRITICAL FAILURE: SERVER ... IS DOWN`，探针会立即报告 `nav2_runtime_unhealthy`，不会继续等待完整任务
+deadline。
 
 ### 5.2 取消与故障收口
 
@@ -218,31 +260,34 @@ stage 并以 `MISSION_FAILED` 收口；这种情况下不能发布“已安全�
 动态 challenge 按本次 baseline path 搜索具有双侧绕行净空的 anchor，不再依赖固定地图坐标；lethal
 cost 在首次/最大观测时锁存，规划提交时已因 TTL 衰减的即时值只作诊断。事务退出必须取消活动 goal、归位
 Gazebo 实体、清空 detection/tracker/costmap，并在本次动态 Action 的 terminal boundary 后观察新鲜零速。
-这些改动既有确定性测试，也已由 §5.3 的历史 fresh strict 长跑报告覆盖。
+这些改动既有确定性测试，也已由 §5.3 的 fresh 可视化长跑报告覆盖。
 
-### 5.3 历史 strict 基线（不覆盖当前 Goal）
+### 5.3 本轮 GUI 稳定性 fresh 证据
 
-本地 session `20260720T165331Z-1770278-a421b687` 已完成六阶段真实 Gazebo 闭环：启动隔离 →
-frontier 探索建图 → 存图并切换 AMCL → 3 个运行时采样导航目标 → 动态障碍重规划 → 终态停车与报告。
+本地 session `20260725T120302Z-145519-3ec3df78` 使用用户原命令
+`HEADLESS=false USE_RVIZ=true` 启动。策略识别到 D3D12/RTX 3060 Ti 硬件加速，但因 WSL 总内存约
+`7.7 GiB` 自动选择 RViz-only；990 秒内完成 frontier 建图、动态起点返航、存图、AMCL、3 个运行时
+采样目标和动态障碍重规划。
 
 | 证据 | 实测值 | 门槛 |
 | --- | ---: | ---: |
-| 总体/最低区域可达自由覆盖率 | `99.7462% / office 98.2988%` | `>=90% / 各 >=85%` |
-| reachable unknown | `0.2538%` | `<=10%` |
-| 障碍边界召回 / false-free | `78.5169% / 0.3390%` | `>=60% / <=5%` |
-| frontier available/active/blacklisted | `0 / 0 / 1` | 前两项为 0；残余 blacklist 须匹配 typed exhaustion 且 `<= detected` |
-| accepted/terminal frontier goal | `38 / 38` | 全部有终态 |
-| AMCL/Gazebo 对齐样本、位置误差 P95 | `215 / 0.132641m` | `>=20 / <=0.25m` |
-| 运行时采样导航目标、最小间距 | `3/3 成功 / 5.584m` | `>=3 全成功 / >=1.50m` |
+| 总体/最低区域可达自由覆盖率 | `99.7524% / office 98.3402%` | `>=90% / 各 >=85%` |
+| reachable unknown | `0.2476%` | `<=10%` |
+| 障碍边界召回 / false-free | `82.034% / 0.805%` | `>=60% / <=5%` |
+| frontier available/active/blacklisted | `0 / 0 / 0` | 前两项为 0；账本完整 |
+| accepted/terminal frontier goal | `34 / 34` | 全部有终态 |
+| 建图路径 / 动态起点返航误差 | `153.403m / 0.0073m` | `>=20m / <=0.35m` |
+| AMCL/Gazebo 对齐样本、位置误差 P95 | `217 / 0.1541m` | `>=20 / <=0.25m` |
+| 运行时采样导航目标、最小间距 | `3/3 成功 / 5.604m` | `>=3 全成功 / >=1.50m` |
 | producer/evaluator 路径检查 | 全部 known-free | unknown/occupied/map-outside 均为 0 |
 | 动态重规划 / 终态速度 | PASS / 新鲜零速度 | 均须 PASS |
+| 会话 RSS 峰值 / 最终 Swap 使用率 | `2056.5 MiB / 0.01%` | 无资源压力、watchdog 不触发 |
 
-运行产物位于本机 `logs/acceptance/unknown_world_slam_nav/20260720T165331Z-1770278-a421b687/`，
-`logs/` 不提交 Git；当前仍在功能分支等待用户完成 RViz/Gazebo 可视化复验，尚未提交或创建 PR。该结果
-只证明本次无头仿真 session，不外推为实体硬件或真人语音准确率证据。
-
-该 session 早于当前的 bounded saturation、Explorer quiesce 和 mapping-stage 返航契约，只能证明旧 strict
-主链路基线。当前 Goal 必须按 §5.1 生成新的同 session 可视化证据，不能继承这次 PASS。
+Manifest 记录 `requested_headless=false`、`effective_mode=rviz_only`、D3D12 renderer、199 个资源样本、
+`resources.failure=null` 和 `cleanup_complete=true`。此前失败会话在约 535 秒出现 Xwayland page
+allocation failure、2 GiB Swap 耗尽并丢失 `collision_monitor` 心跳；本次越过同一时点后 Swap 仍基本
+为零。现有证据支持“WSLg 双 GUI 资源耗尽”，不支持把问题归因于某一个 ROS 节点的严格堆内存泄漏。
+本地 `logs/` 不提交 Git，且 `source_dirty=true`，因此它是 PR 前开发证据，不冒充 clean release 证据。
 
 ### 5.4 失败样本与安全复核
 
@@ -264,7 +309,7 @@ frontier 探索建图 → 存图并切换 AMCL → 3 个运行时采样导航目
 - 探索 session 实际生效的 Nav2 `SimpleProgressChecker=0.10m/30s` 由
   `prepare_frontier_nav2_params.py` 写入可留档 YAML，不依赖进程结束后丢失的临时参数。
 
-本节列出的四项基线策略及此前恢复边界已通过补丁回放、单元/仓库门禁和 §5.3 历史 E2E 联合验证；
+本节列出的四项基线策略及此前恢复边界已通过补丁回放、单元/仓库门禁和 §5.3 fresh E2E 联合验证；
 该结果仍不替代当前 Goal 或每次发布前的新会话验收。
 
 ### 5.5 真人语音 + unknown-world 联合门禁（待现场）
@@ -275,10 +320,10 @@ frontier 探索建图 → 存图并切换 AMCL → 3 个运行时采样导航目
 ```bash
 bash scripts/acceptance_test.sh wsl-microphone-preflight
 
-HEADLESS=false USE_RVIZ=true \
+HEADLESS=true USE_RVIZ=true \
   bash scripts/acceptance_test.sh voice-unknown-world-slam-e2e offline
 # 在线补充验收：
-HEADLESS=false USE_RVIZ=true \
+HEADLESS=true USE_RVIZ=true \
   bash scripts/acceptance_test.sh voice-unknown-world-slam-e2e online
 ```
 
@@ -310,6 +355,7 @@ publisher 绕过会话门，同时保留原 strict 核心门禁的可重复性�
 logs/acceptance/voice_unknown_world_slam_nav/<session_id>/
 ├── voice_unknown_world_slam_e2e_report.json
 ├── runtime.log
+├── resource_samples.jsonl
 ├── acceptance_session.json
 └── unknown_world_map.{yaml,pgm}
 ```
@@ -345,7 +391,7 @@ logs/acceptance/voice_unknown_world_slam_nav/<session_id>/
 
 ```bash
 bash scripts/acceptance_test.sh slam-nav-e2e
-HEADLESS=false USE_RVIZ=true \
+HEADLESS=true USE_RVIZ=true \
   bash scripts/acceptance_test.sh voice-slam-workplace-demo offline
 ```
 
@@ -386,6 +432,13 @@ PASS：ASR/NLU/queue/execution/result 连续可见；busy 时入 FIFO；急停�
 本阶段已通过 `offline-sherpa-typed`、`continuous-mock` 和 `continuous-multi-command` 自动回归；尚未
 重新运行真人麦克风 `continuous-offline/online`，因此不把自动回归写成现场语音 PASS。在线静音
 filler 导致的无效请求/token 消耗由独立 issue 跟踪，不属于本次 SLAM/Nav2 修复范围。
+
+### 7.1 真人语音 benchmark 的对齐口径
+
+五分钟报告把期望话术与 ASR final 做全局单调一对一对齐：先最大化匹配条数，再最大化相似度，避免补说
+或截断 final 被局部贪心重复占用。方向和颜色是 required slot，缺失、相反或同时出现互斥值时，即使文本
+相似度超过阈值也不能计为识别成功。该规则只负责事后证据评分，不会改写 ASR 文本或放宽运行时 NLU/
+ActionGuard；原始事件报告仍是定位问题的事实源。
 
 ## 8. 故障定位
 

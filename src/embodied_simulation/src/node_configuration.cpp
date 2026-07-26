@@ -37,6 +37,9 @@ ConfigurationValidation validate_node_configuration(
   if (controller.scan_timeout <= 0.0) {
     return {false, "scan_timeout must be positive"};
   }
+  if (!std::isfinite(controller.stop_timeout_s) || controller.stop_timeout_s <= 0.0) {
+    return {false, "stop_timeout_s must be positive"};
+  }
   return {true, ""};
 }
 
