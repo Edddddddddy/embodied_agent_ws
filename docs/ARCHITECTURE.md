@@ -10,7 +10,7 @@
 系统提供在线、离线语音 Agent，并把自然语言命令接入 Gazebo、SLAM Toolbox 与 Nav2：
 
 ```text
-麦克风 → VAD/ASR → 会话/NLU/LLM → RobotCommand
+麦克风 → VAD/ASR → 会话 → 控制 NLU 或 RAG/LLM → RobotCommand/语音回复
        → C++ Guard/Scheduler → ROS 2 Action → BT/pluginlib
        → Gazebo / SLAM / AMCL / Nav2 → typed evidence → evaluator
 ```
@@ -18,6 +18,7 @@
 架构遵守以下边界：
 
 - ASR 文本和 LLM 输出只是候选；`ExecuteRobotCommand` result 才是动作完成事实。
+- 本地 NLU 可解释的控制命令绕过 RAG；知识检索是只读回答上下文，不拥有动作授权。
 - unknown-world 机器人策略只能读取在线 scan/odom/TF/map，不能读取静态真值、区域标签、固定路线或
   语义坐标。
 - 保存图、AMCL 定位和 Nav2 导航使用同一 navigation generation，不能把上一阶段的 transient-local
@@ -31,7 +32,7 @@
 | 模块 | 拥有的职责 | 不负责 |
 | --- | --- | --- |
 | `embodied_agent_interfaces` | `RobotCommand`、Action、SLAM session 与 evidence schema | 决策和执行 |
-| `embodied_agent_core` | 会话、连续命令队列、NLU、记忆和共享 Agent runtime | ROS/Gazebo 副作用 |
+| `embodied_agent_core` | 会话、连续命令队列、NLU、记忆、RAG Prompt 与共享 Agent runtime | ROS/Gazebo 副作用 |
 | `embodied_online_agent` / `embodied_offline_agent` | 在线或本地 ASR/LLM/TTS provider Adapter | 动作安全策略 |
 | `embodied_agent_cpp` | 音频前端、ActionGuard、ActionScheduler | SLAM/Nav2 算法 |
 | `embodied_simulation` | BT、pluginlib executor、Gazebo/Nav2 bridge | 语音理解 |
@@ -52,6 +53,9 @@ flowchart LR
   Clean --> ASR["Online ASR / Sherpa ZipFormer"]
   ASR --> Runtime["AgentApplicationRuntime"]
   Runtime --> Control["AgentControlPlane\nsession / NLU / FIFO"]
+  Runtime --> Prompt["PromptContextAssembler\nbounded local RAG"]
+  Prompt --> LLM["Online / llama.cpp LLM"]
+  LLM --> TTS["Online / CPU TTS"]
   Control --> Guard["ActionGuardNode"]
   Guard --> Scheduler["ActionScheduler"]
   Scheduler --> Execute["ExecuteRobotCommand Action"]
@@ -102,6 +106,7 @@ command/result 关联，不拥有语音回调或任务阶段。这样 callback�
 - `agent_application_runtime.py:accept_transcript()`、`agent_control_plane.py:accept_transcript()`：会话、
   去重、NLU 和排队。
 - `command_nlu.py:CommandNLU.parse()`：确定性多命令与槽位；低置信度才交给 LLM。
+- `prompt_context.py:PromptContextAssembler.build()`：控制零检索，知识问题注入有界 source_id 证据。
 - `action_guard_node.cpp:ActionGuardNode::on_candidate()`：白名单、限幅和 TTL。
 - `action_scheduler.cpp:ActionScheduler::enqueue()`：FIFO、command_id 关联和 stop 抢占。
 - `command_behavior_tree.cpp:CommandBehaviorTree::tick()`、`robot_executor.hpp:RobotExecutor`：编排与后端

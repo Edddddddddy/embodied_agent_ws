@@ -2,7 +2,19 @@ import time
 from dataclasses import asdict, dataclass
 from typing import Callable, Iterable
 
-from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI, OpenAIError
+try:
+    from openai import (
+        APIConnectionError,
+        APIStatusError,
+        APITimeoutError,
+        OpenAI,
+        OpenAIError,
+    )
+except ImportError:
+    # 模块导入必须保持轻量，便于 repository/假 client 测试和部署 preflight。
+    # 真正创建 llama.cpp client 时再给出明确错误，不能让整个 ROS 包在 discovery 阶段崩溃。
+    APIConnectionError = APIStatusError = APITimeoutError = OpenAIError = ()
+    OpenAI = None
 
 
 @dataclass
@@ -44,7 +56,7 @@ class LlamaCppLlm:
         timeout_s: float = 30.0,
         max_retries: int = 1,
         first_token_warn_ms: float = 1000.0,
-        client_factory: Callable[..., object] = OpenAI,
+        client_factory: Callable[..., object] | None = None,
     ):
         self._base_url = base_url.rstrip("/")
         self._model = model
@@ -55,7 +67,13 @@ class LlamaCppLlm:
         self._max_retries = max(0, int(max_retries))
         self._first_token_warn_ms = float(first_token_warn_ms)
         # openai-python 自带 HTTP/SSE 解析；这里把 client factory 注入出来，便于单测构造假流。
-        self._client = client_factory(
+        factory = client_factory or OpenAI
+        if factory is None:
+            raise LlamaCppError(
+                "openai package is required for the llama.cpp provider; "
+                "run voice-runtime-preflight offline-edge"
+            )
+        self._client = factory(
             base_url=self._base_url,
             api_key="local-offline",
             timeout=self._timeout_s,

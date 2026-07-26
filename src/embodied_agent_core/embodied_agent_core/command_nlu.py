@@ -56,6 +56,13 @@ _QUESTION_OR_NEGATION = (
     "什么",
     "为什么",
     "如何",
+    "是否",
+    "能否",
+    "可否",
+    "会不会",
+    "请问",
+    "说明",
+    "原理",
     "觉得",
     "意思",
     "怎么样",
@@ -348,6 +355,8 @@ class CommandNLU:
         normalized = _clean(source)
         if not self.enabled or not normalized:
             return NluResult(source, reason="disabled_or_empty")
+        # 疑问句可能同时包含动作锚点，例如“向前走是否安全”。必须先于锚点抽取
+        # 拦截，否则知识问答会被误路由到 control_bypass 并真实下发动作。
         if any(marker in normalized for marker in _QUESTION_OR_NEGATION):
             return NluResult(source, reason="blocked_semantic")
         if any(marker in normalized for marker in _UNSAFE_SPEED_MARKERS):

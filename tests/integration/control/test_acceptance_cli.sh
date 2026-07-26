@@ -22,6 +22,7 @@ grep -q "Internal regression modes:" <<<"$ALL_HELP"
 grep -q "Evaluation/experiment modes:" <<<"$ALL_HELP"
 grep -q "architecture-facts" <<<"$ALL_HELP"
 grep -q "showcase-gazebo-e2e" <<<"$ALL_HELP"
+grep -q "voice-runtime-preflight" <<<"$ALL_HELP"
 grep -q "openloris-replay-stage" <<<"$ALL_HELP"
 for removed_mode in microphone-offline microphone-online all; do
   if grep -q "^  $removed_mode " <<<"$ALL_HELP"; then

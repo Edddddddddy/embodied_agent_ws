@@ -11,8 +11,8 @@
 
 ## 能力概览
 
-- 在线/离线 Agent：云端 provider，以及 Sherpa-ONNX ZipFormer、llama.cpp、Sherpa-TTS；SummerTTS
-  是可选 ROS 服务组件。
+- 在线/离线 Agent：云端 provider，以及 Sherpa-ONNX ZipFormer、llama.cpp、Sherpa-TTS；SummerTTS 是可选 ROS 服务组件。
+- 部署型 RAG：控制命令零检索，知识问答使用有界本地稀疏检索、source_id 引用和统一 Prompt seam。
 - 连续语音：一次唤醒后持续接收，多命令 NLU、FIFO、TTL、重复/filler 过滤和急停抢占。
 - ROS 2/C++ 控制：自定义 msg/action、Lifecycle、ActionGuard、ActionScheduler、反馈/取消/超时。
 - 仿真执行：BehaviorTree.CPP 编排、pluginlib executor、Gazebo 运动和最终零速度保护。
@@ -89,6 +89,14 @@ bash scripts/acceptance_test.sh offline-runtime-versions
 ```
 
 在线模式在 `.env` 配置 `DASHSCOPE_API_KEY`。密钥、模型、`build/install/log` 不提交 Git。
+
+部署 preflight 默认不下载模型、不推理、不调用付费 API；资产清单与 VAD 降级边界见
+[语音运行时部署](docs/deployment/VOICE_RUNTIME.md)：
+
+```bash
+bash scripts/acceptance_test.sh voice-runtime-preflight offline-edge --contract-only
+bash scripts/acceptance_test.sh voice-runtime-preflight offline-edge
+```
 
 ### Docker 构建与可追溯交付
 

@@ -69,6 +69,19 @@ def test_nlu_prioritizes_stop_and_blocks_unsafe_language():
     assert not CommandNLU().parse("全速冲过去").accepted
 
 
+def test_nlu_never_executes_motion_mentioned_inside_a_question():
+    for text in (
+        "向前走是否安全",
+        "能否向前走",
+        "请说明向前走的原理",
+        "向前走会不会撞到障碍物",
+    ):
+        result = CommandNLU().parse(text)
+
+        assert not result.accepted, text
+        assert result.reason == "blocked_semantic"
+
+
 def test_nlu_extracts_navigation_and_waypoint_patrol():
     nav = CommandNLU().parse("去门口")
     assert nav.accepted

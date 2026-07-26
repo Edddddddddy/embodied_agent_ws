@@ -1,5 +1,6 @@
 """在线 LLM/TTS 全流式 turn 数据面。"""
 
+import json
 import queue
 import threading
 
@@ -17,7 +18,7 @@ class OnlineStreamingTurnRuntime:
         tts,
         memory,
         user_context,
-        system_prompt,
+        prompt_context,
         metrics,
         ros_io,
         events,
@@ -31,7 +32,7 @@ class OnlineStreamingTurnRuntime:
         self._tts = tts
         self._memory = memory
         self._user_context = user_context
-        self._system_prompt = system_prompt
+        self._prompt_context = prompt_context
         self._metrics = metrics
         self._ros_io = ros_io
         self._events = events
@@ -81,18 +82,36 @@ class OnlineStreamingTurnRuntime:
         )
 
         try:
-            messages = self._memory.prompt_messages(
-                user_context.system_prompt(self._system_prompt), user_text
+            prompt = self._prompt_context.build(user_text, user_context)
+            # 只记录 source_id、耗时和字符预算，不把知识正文或用户问题复制进日志。
+            self._logger.info(
+                "prompt context: "
+                + json.dumps(prompt.metrics(), ensure_ascii=False)
             )
+            # 在线模型同样使用显式预算，避免云端隐式截断系统安全约束。
+            prompt.require_budget()
             self._metrics.mark_llm_requested()
-            for token in self._llm.stream(messages):
+            for token in self._llm.stream(prompt.messages):
                 self._lifecycle.execution.raise_if_stopping()
                 turn.feed(token)
 
             self._lifecycle.execution.raise_if_stopping()
-            result = turn.finish(user_text)
+            result = turn.finish(
+                user_text,
+                # 普通聊天同样不能授权动作；只有本地 NLU 判定的控制快通道开放 action。
+                allow_actions=prompt.actions_allowed,
+            )
+            if result.action_source == "context_blocked" and result.model_actions:
+                self._logger.warning(
+                    "non-control turn emitted action tags; all actions were blocked"
+                )
             if result.action_source == "blocked" and result.model_actions:
                 self._logger.warning("model actions blocked by semantic safety policy")
+            citation_report = prompt.citation_metrics(result.assistant_text)
+            if not citation_report["citation_valid"]:
+                self._logger.warning(
+                    "RAG response omitted all valid source_id citations"
+                )
             action_report = self._publish_actions(result.actions, user_context)
             text_queue.put(None)
             tts_thread.join(timeout=35.0)
@@ -105,7 +124,10 @@ class OnlineStreamingTurnRuntime:
             self._memory.append_turn(
                 user_text,
                 result.assistant_text,
-                model_output=result.model_output,
+                model_output=prompt.model_output_for_history(
+                    assistant_text=result.assistant_text,
+                    model_output=result.model_output,
+                ),
             )
             self._user_context.record_interaction(
                 user_context,

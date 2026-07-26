@@ -91,6 +91,24 @@ colcon test-result --verbose
 
 改变 unknown-world 任务策略、frontier 状态、地图判定、定位对齐或目标抽样时，必须补跑正式重型 E2E。
 
+### 4.1 语音运行时部署门禁
+
+全栈 preflight 是内部部署入口，不加入 `core` 的无模型 CI：
+
+```bash
+# 不访问网络、不要求模型或密钥，验证 profile schema 和 provider 顺序
+bash scripts/acceptance_test.sh voice-runtime-preflight offline-edge --contract-only --json
+bash scripts/acceptance_test.sh voice-runtime-preflight online-cloud --contract-only --json
+
+# 在目标 WSL 上检查真实 Python 依赖、模型、知识库和 API key
+bash scripts/acceptance_test.sh voice-runtime-preflight offline-edge --json
+bash scripts/acceptance_test.sh voice-runtime-preflight online-cloud --json
+```
+
+报告中的 `blocked` 表示必需组件不可部署；`degraded` 表示首选 provider 不可用、已按 profile
+选择 fallback。默认只记录 endpoint 已配置，显式传入 `--probe-endpoints` 才执行只读 health GET，
+且任何模式都不会发送推理或付费请求。
+
 ## 5. Unknown-world 正式 SLAM/Nav2 闭环
 
 ```bash
