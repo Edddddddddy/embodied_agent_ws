@@ -433,6 +433,13 @@ PASS：ASR/NLU/queue/execution/result 连续可见；busy 时入 FIFO；急停�
 重新运行真人麦克风 `continuous-offline/online`，因此不把自动回归写成现场语音 PASS。在线静音
 filler 导致的无效请求/token 消耗由独立 issue 跟踪，不属于本次 SLAM/Nav2 修复范围。
 
+### 7.1 真人语音 benchmark 的对齐口径
+
+五分钟报告把期望话术与 ASR final 做全局单调一对一对齐：先最大化匹配条数，再最大化相似度，避免补说
+或截断 final 被局部贪心重复占用。方向和颜色是 required slot，缺失、相反或同时出现互斥值时，即使文本
+相似度超过阈值也不能计为识别成功。该规则只负责事后证据评分，不会改写 ASR 文本或放宽运行时 NLU/
+ActionGuard；原始事件报告仍是定位问题的事实源。
+
 ## 8. 故障定位
 
 | 现象 | 先看 | 处理 |

@@ -148,11 +148,14 @@ state_qos = KeepLast(depth).reliable().transient_local();
 
 追问：为什么命令不用持久重放？因为机器人节点重启后自动执行历史运动命令有安全风险，恢复应由上层重新确认当前任务。
 
-## Q8. 为什么定义自定义消息，不直接传 JSON 字符串？
+## Q8. 为什么机器人动作接口使用自定义消息？
 
 口述：
 
-自定义消息把动作类型、速度、时长、地点、优先级和任务标识变成可检查字段，编译期就能发现接口不匹配。JSON 更灵活，但字段拼写、类型和版本错误只能运行时发现，也不方便 ROS 工具直接查看。项目仍然需要业务校验，因为“字段类型正确”不代表“字段组合合法”。
+自定义消息把动作类型、速度、时长、地点、优先级和任务标识变成可检查字段，生成的 C++/Python 类型和
+ROS introspection 工具使用同一接口定义。接口不匹配可以在构建或反序列化边界暴露，字段也能被
+`ros2 topic echo` 直接观察。项目仍然需要业务校验，因为“字段类型正确”不代表“字段组合合法”：
+例如 STOP 不应携带速度，导航地点也必须在白名单中。
 
 源码：[RobotCommand.msg](../../../src/embodied_agent_interfaces/msg/RobotCommand.msg)
 
@@ -168,7 +171,9 @@ string target
 string[] waypoints
 ```
 
-运行：Python 把 `ActionCommand` 映射为该消息；C++ 再检查无关字段是否为空、数值是否有限、速度是否越界、地点是否在白名单；合法消息才进入执行队列。
+运行：Python 把 `ActionCommand` 映射为该消息；C++ 再检查无关字段是否为空、数值是否有限、速度是否
+越界、地点是否在白名单；合法消息才进入执行队列。当前主链从候选到 Action/result 都使用 typed
+interface，不再保留另一套兼容协议。
 
 ## Q9. `command_id` 和 ROS Action goal UUID 有什么区别？
 

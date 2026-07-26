@@ -152,8 +152,14 @@ Nav2 status/error、目标坐标和最小间距。
 
 ## 5. Frontier 完成契约
 
-Explore Lite 选择 free/unknown 边界，SLAM Toolbox 只负责建图和定位。结束不能靠 timeout、地图平台期或
-“黑名单被隐藏”推断，只接受两组 provider/mission 原因：
+Explore Lite 选择 free/unknown 边界，SLAM Toolbox 只负责建图和定位。unknown-world 有两条互斥的
+生产侧收口路径：优先使用 `strict_frontier`；只有达到探索硬预算，或可达 frontier 反复停滞且恢复预算
+已经消费完，才允许评估 `bounded_saturation`。二者都不读取真值地图，也都不能把“外层等待超时”直接
+改写成成功。
+
+### 5.1 Strict frontier
+
+strict 路径只接受以下三组 provider/mission 原因：
 
 ```text
 no_frontiers + no_reachable_frontiers
@@ -169,6 +175,23 @@ attempts exhaustion 只允许 `blacklisted<=detected`，再由独立地图质量
 `frontier_monitor.py:FrontierExplorationMonitor._unknown_world_reason()`、
 `mission_executor.py:decide_epoch_recovery()` 与
 `unknown_world_evidence.py:evaluate_frontier_completion()`。
+
+### 5.2 Bounded saturation
+
+场地总面积未知时，运行时不能计算“已经扫完 85%”。bounded 路径先暂停 Explorer、等待 active/pending
+为零和 accepted Action 全部 terminal，再执行一次 360° final probe、等待地图静默并取得新的 typed
+STOP/零速度。随后 `exploration_saturation.py:assess_bounded_frontier_saturation()` 必须同时证明：
+
+- 最近至少 2 个连续低收益 epoch，每轮至少 3 个 terminal frontier goal；
+- 建图累计路径至少 20 m，epoch 和 final probe 的栅格增益没有同时达到 `40 cells / 0.2%`；
+- final probe 完成、地图至少静默 15 s、Action 总账排空、typed STOP 成功；
+- hard-budget 路径可保留 residual frontier 作为诊断值；反复可达停滞路径仍要求 residual 为零。
+
+生产侧只发布中性的 `time_budget_exhausted` 或
+`reachable_frontiers_stalled_bounded_saturation`，并用 `SlamMappingCompletionEvidence` 携带逐项
+证据；`time_budget_exhausted` 本身没有成功语义。evaluator 再用真值独立检查原有地图质量、返航、
+AMCL、路径安全和最终零速门槛。缺少任一证据都失败，所以 bounded saturation 是有界的“收益递减证据”，
+不是 timeout、coverage plateau 或残余 frontier 数量的别名。
 
 all-blacklisted 先等待 `20 s` provider goal handoff；它本身不授权移动。只有 provider typed
 `frontier_attempts_exhausted_recoverable`（以及独立 no-clearance typed 原因）、Action 总账排空且仍有预算，
@@ -197,9 +220,10 @@ timeout 计数，但这个失败 approach 仍写入局部失败记忆；只有�
 timeout 才触发恢复。Nav2 自身的 `SimpleProgressChecker` 则使用 `0.10 m / 30 s`，由
 `prepare_frontier_nav2_params.py` 写进本 session 留档 YAML，避免只改 launch 临时参数而让运行证据失真。
 
-地图稳定使用“soft quiet + hard budget”双时钟：连续无地图增长达到 `map_settle_s` 才算安静；同时调用方
-持有从进入等待起计算、不会被新增长重置的绝对 deadline。前者避免尾部更新未落盘，后者避免持续噪声或
-增长让任务无限续期。超过 hard budget 必须失败，不能把 timeout 当成收敛。
+单次“等待地图静默”使用 soft quiet + hard deadline 双时钟：连续无地图增长达到 `map_settle_s` 才算
+安静；同时调用方持有从进入等待起计算、不会被新增长重置的绝对 deadline。前者避免尾部更新未落盘，
+后者避免持续噪声或增长让等待无限续期。这个等待 deadline 超时必须失败；它不同于探索任务硬预算，
+不能用等待超时补造 bounded saturation 证据。
 
 ## 6. 信任边界与证据流
 

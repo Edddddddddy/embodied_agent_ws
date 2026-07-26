@@ -224,3 +224,32 @@ finally:
 - Python 连续执行测试：[test_agent_execution_runtime.py](../../../src/embodied_agent_core/test/test_agent_execution_runtime.py)
 - Action 结果策略测试：[test_nav2_result_policy.cpp](../../../src/embodied_simulation/test/test_nav2_result_policy.cpp)
 - 总体验收说明：[TESTING.md](../../TESTING.md)
+
+unknown-world 的生产进程只读取本次 scan、odom、TF、在线 map 和 Nav2 状态；truth map、区域边界及
+Gazebo 真值只进入独立 evaluator。known-world 真人语音演示用于证明交互接线，不能替代正式
+unknown-world 报告。版本发布时还要保证报告中的 source revision 对应待发布提交且工作区干净；测试
+证据和 Git 证据缺一不可。
+
+分支、worktree、CI、Tag 与 GitHub Release 如何串成发布证据，见
+[12-git-worktree-release-governance.md](12-git-worktree-release-governance.md)。
+
+## Q14. AcceptanceSession 为什么拆成 facade、lease 和进程监管？
+
+口述：
+
+场景脚本只通过 `AcceptanceSession` 声明 `spawn/run/close`，不直接管理文件锁或 Linux 进程树。
+`leases.py` 独占 ROS domain 和证据目录，避免并行验收互相串 Topic 或覆盖报告；
+`process_supervisor.py` 只拥有 Popen、独立进程组、subreaper 和退出回收，不读取场景状态或证据内容。
+`session.py` 作为稳定 facade 编排环境隔离、lease、进程监管、watchdog、manifest 和失败清理，并重新导出
+原有公共类型，减少场景代码迁移。低层模块不能反向导入 facade，因此所有权方向保持单向，也能用 fake
+adapter 和临时锁目录分别单测。
+
+源码与契约：
+
+- 会话 facade：[session.py](../../../tools/acceptance/session.py)
+- 资源独占：[leases.py](../../../tools/acceptance/leases.py)
+- 进程监管：[process_supervisor.py](../../../tools/acceptance/process_supervisor.py)
+- 模块边界测试：[test_acceptance_module_boundaries.py](../../../tests/repository/test_acceptance_module_boundaries.py)
+
+设计收益不是简单“拆文件”，而是让场景层、资源所有权和操作系统副作用各有唯一 owner：更换进程
+Adapter 不会改 ROS domain 分配，lease 失败也不会先启动半套 Gazebo。

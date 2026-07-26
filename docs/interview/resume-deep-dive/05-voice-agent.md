@@ -168,6 +168,25 @@ partial 用于展示当前识别进度和观察稳定性，不直接触发机器
 
 这是异步系统中的快照一致性：命令应携带被接受时的上下文，而不是未来某一时刻的全局状态。
 
+## Q10.1 声纹识别和用户记忆当前完成到什么程度？
+
+口述：
+
+项目已经定义 `SpeakerIdentity`、录入请求/状态、用户画像和 turn 快照，并实现 Sherpa-ONNX speaker
+embedding 的加载、打分、top-1 阈值与 top-2 margin 拒绝。低置信或未注册身份只能得到 unknown，不能
+写个人偏好，避免把 A 的习惯记到 B 名下。但默认演示 profile 的身份 provider 仍是 `mock`，因此当前
+证据主要证明 typed 接口、录入流程、拒写边界和上下文一致性；不能宣称已经完成真实多用户声纹准确率
+与抗噪验收。
+
+源码：
+
+- 身份 sidecar：[speaker_identity_node.py](../../../src/embodied_voice_frontend/embodied_voice_frontend/speaker_identity_node.py)
+- 用户画像：[user_memory.py](../../../src/embodied_agent_core/embodied_agent_core/user_memory.py)
+- turn 快照：[user_context_runtime.py](../../../src/embodied_agent_core/embodied_agent_core/user_context_runtime.py)
+
+Sherpa mode 是可替换的真实推理 seam，目标机仍需提供 embedding 模型、注册样本清单，并用实际麦克风
+建立阈值、margin、误认率和拒识率证据。
+
 ## Q11. LLM 输出如何变成机器人动作？
 
 口述：

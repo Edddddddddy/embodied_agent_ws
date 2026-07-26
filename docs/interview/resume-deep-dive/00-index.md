@@ -8,7 +8,9 @@
 4. 能解释为什么这样设计，以及替代方案的代价。
 5. 能主动说明仿真、实验和真实工程之间的边界。
 
-事实来源是当前仓库代码、`docs/ARCHITECTURE.md` 和 `docs/TESTING.md`。本目录不把个人了解的技术包装成项目成果。
+事实来源是当前检出 revision 的代码、`docs/ARCHITECTURE.md` 和 `docs/TESTING.md`。同一 Git 仓库可以有
+多个 worktree；文件所在目录不是版本身份，回答前应先确认 `git branch --show-current` 和
+`git rev-parse HEAD`。本目录不把个人了解的技术包装成项目成果。
 
 ## 1. 文档对应关系
 
@@ -25,6 +27,7 @@
 | 5 条项目经历逐句追问 | [09-project-line-by-line.md](09-project-line-by-line.md) | 每句话如何展开、如何举代码、哪些说法要收口 |
 | ROS 2 功能设计场景题 | [10-ros2-system-design.md](10-ros2-system-design.md) | 从需求到接口、状态、安全、异常和验证的完整设计 |
 | 语音运行时部署与 RAG | [11-voice-deployment-rag.md](11-voice-deployment-rag.md) | 近年论文、部署 profile、检索安全、指标与取舍 |
+| Git worktree 与发布治理 | [12-git-worktree-release-governance.md](12-git-worktree-release-governance.md) | 一个仓库多工作目录、分支职责、CI、Tag、Release 与安全清理 |
 
 ## 2. 每题怎么使用
 
@@ -48,9 +51,10 @@
 5. NLU 或 LLM 只产生结构化候选动作，不直接控制底盘。
 6. C++ 校验动作字段和参数，调度器维护一个活动任务和等待队列。
 7. ROS 2 Action 把任务交给行为树及执行插件，并返回反馈、取消和终态。
-8. 自动任务先用 frontier 探索建图，满足覆盖和里程条件后保存地图。
-9. 系统切换到 map_server、AMCL 和 Nav2，再执行单点导航与多点巡航。
-10. 测试检查 Action 结果、地图文件、TF、路径、漏点和最终零速度。
+8. unknown-world 自动任务用 frontier 探索；优先严格终结，硬预算或反复可达停滞时才评估有界饱和。
+9. 两条收口路径都先排空 Action、最终探测、typed STOP，并回到动态捕获的起点，再保存本轮地图。
+10. 系统切换到 map_server、AMCL 和 Nav2，执行本次地图运行时采样目标与动态障碍挑战。
+11. 独立验收检查地图质量、Action 结果、TF、路径、定位误差、返航和最终零速度。
 
 记住三个层级：
 
@@ -77,6 +81,7 @@
 | 内容 | 当前可以说 | 不要说成 |
 | --- | --- | --- |
 | 音频 | 实现 PortAudio、有界缓冲、NLMS 回声抵消、VAD 和端点检测 | 已实现完整通用降噪和自动增益 |
+| 声纹与记忆 | 已有 typed 身份/录入接口、Sherpa embedding 接入 seam、低置信拒写和用户画像；默认演示仍用 mock 身份 | 默认链路已完成真实多用户声纹准确率验收 |
 | 导航 | 在 Gazebo 中接入 SLAM Toolbox、AMCL、Nav2、frontier 和多点巡航 | 已完成真实机器人量产导航 |
 | 动态障碍 | 用确定性仿真输入验证跟踪、预测代价层和重规划链路 | 已完成真实视觉或 LiDAR 动态目标感知 |
 | SLAM | 实现回环候选、几何验证和 GTSAM 后端实验 | 新回环约束已在任意现场默认自动入图 |
@@ -93,3 +98,7 @@
 第二轮打开源码，对每题回答三个问题：谁调用这个函数，状态由谁保存，结果交给谁。
 
 第三轮只看 [10-ros2-system-design.md](10-ros2-system-design.md)，在没有项目原题提示的情况下完成接口选型、异常设计和验证方案。
+
+准备讲版本和交付时再读
+[12-git-worktree-release-governance.md](12-git-worktree-release-governance.md)：先说“一个仓库、多份工作目录”，
+再说明 `feature/* → dev → release/* → main` 的证据如何由 PR、CI、Tag 和 GitHub Release 串起来。

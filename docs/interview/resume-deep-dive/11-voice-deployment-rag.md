@@ -87,6 +87,16 @@ KV 公共前缀；RAG/普通聊天只保存干净用户原文和纯 `<speech>`�
 当前 [`UserMemoryStore`](../../../src/embodied_agent_core/embodied_agent_core/user_memory.py) 是用户画像，
 不是 RAG。当前 RAG 知识库是只读公共文档，两者生命周期、权限和清除语义保持分离。
 
+声纹身份也要单独说明事实边界：
+
+- 默认演示 provider 是 `mock`，用于稳定验证 typed identity、录入消息、低置信拒写、偏好应用和 turn
+  快照，不构成声纹准确率证据。
+- [`SpeakerIdentityNode`](../../../src/embodied_voice_frontend/embodied_voice_frontend/speaker_identity_node.py)
+  的 Sherpa mode 已实现 speaker embedding extractor/manager、注册样本聚合、top-1 threshold 与 top-2
+  margin；它是目标机接入 seam，不是默认 profile 的已验收事实。
+- 真实部署仍需固定模型 SHA、注册语料、麦克风距离和噪声条件，报告误认率、拒识率及 unknown 比例；
+  在这些证据完成前，简历只写“声纹与用户记忆接口及 Sherpa 接入 seam”。
+
 ## 4. Prompt 构造为什么是一个深模块
 
 以前在线节点直接调用 `ConversationMemory.prompt_messages()`，离线节点又维护 `_llm_messages()`。
