@@ -99,6 +99,15 @@ def test_removed_acceptance_modes_cannot_reenter_registry():
     assert removed_modes.isdisjoint(MODE_BY_NAME)
 
 
+def test_voice_runtime_preflight_is_internal_and_owned_by_voice_domain():
+    mode = MODE_BY_NAME["voice-runtime-preflight"]
+
+    assert mode.public is False
+    assert mode.category == "internal"
+    assert mode.domain is HandlerDomain.VOICE
+    assert mode.handler == "accept_voice_runtime_preflight"
+
+
 def test_unknown_world_slam_entry_has_distinct_public_evidence_semantics():
     """新旧两个入口必须在帮助中明确区分，避免把已知场景回归当成自主探索证据。"""
     known_world = MODE_BY_NAME["slam-nav-e2e"]

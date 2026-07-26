@@ -32,6 +32,7 @@ from embodied_agent_core.agent_ros_io import AgentRosCallbacks, AgentRosIo
 from embodied_agent_core.asr_endpoint_runtime import AsrEndpointRuntime
 from embodied_agent_core.metrics import LatencyTracker
 from embodied_agent_core.metrics_transport import agent_turn_metrics_to_message
+from embodied_agent_core.prompt_context import prompt_context_from_parameters
 from embodied_agent_core.ros_action_transport import action_command_to_message
 from embodied_agent_core.ros_event_transport import wake_event_message_to_domain
 from embodied_agent_core.speaker_transport import (
@@ -80,7 +81,8 @@ class OnlineAgentNode(LifecycleNode):
                 * 86400.0,
             )
         )
-        self.system_prompt = self._load_system_prompt()
+        # Prompt/RAG 在 Lifecycle configure 中加载，路径错误可以 cleanup 后重试。
+        self._prompt_context = None
 
         self._ros_io = AgentRosIo(
             self,
@@ -142,6 +144,7 @@ class OnlineAgentNode(LifecycleNode):
         if managed != TransitionCallbackReturn.SUCCESS:
             return managed
         try:
+            self._prompt_context = self._create_prompt_context()
             self.asr, self.llm, self.tts = self._create_providers()
             if self.mode == "online" and self._param("online_warmup_enabled"):
                 if hasattr(self.tts, "connect"):
@@ -177,7 +180,7 @@ class OnlineAgentNode(LifecycleNode):
                 tts=self.tts,
                 memory=self.memory,
                 user_context=self._user_context,
-                system_prompt=self.system_prompt,
+                prompt_context=self._prompt_context,
                 metrics=self.metrics,
                 ros_io=self._ros_io,
                 events=self._events,
@@ -206,7 +209,10 @@ class OnlineAgentNode(LifecycleNode):
             self._publish_state("listening")
             self._events.publish_ready(
                 f"provider_mode={self.mode};"
-                f"microphone={self._param('microphone_enabled')}"
+                f"microphone={self._param('microphone_enabled')};"
+                f"rag={self._param('rag_enabled')};"
+                f"rag_policy={self._param('rag_query_policy')};"
+                f"rag_context={self._param('rag_cloud_context_policy')}"
             )
             self.get_logger().info(
                 f"online agent active: mode={self.mode}, "
@@ -273,6 +279,7 @@ class OnlineAgentNode(LifecycleNode):
             return False
         self.asr = None
         self._turn_runner = None
+        self._prompt_context = None
         if self.tts is not None:
             self.tts.close()
             self.tts = None
@@ -295,18 +302,6 @@ class OnlineAgentNode(LifecycleNode):
 
     def _param(self, name):
         return self._agent_parameters.get(name)
-
-    def _load_system_prompt(self) -> str:
-        configured = self._param("system_prompt_path")
-        if configured:
-            path = Path(os.path.expanduser(configured))
-        else:
-            path = (
-                Path(get_package_share_directory("embodied_agent_core"))
-                / "prompts"
-                / "system_prompt_zh.txt"
-            )
-        return path.read_text(encoding="utf-8")
 
     def _command_normalization_path(self) -> Path | str:
         configured = self._param("command_normalization_path")
@@ -345,6 +340,12 @@ class OnlineAgentNode(LifecycleNode):
                 url=self._param("tts_url"),
                 language=self._param("tts_language"),
             ),
+        )
+
+    def _create_prompt_context(self):
+        share = Path(get_package_share_directory("embodied_agent_core"))
+        return prompt_context_from_parameters(
+            memory=self.memory, param=self._param, package_share=share
         )
 
     def _mock_asr_finals(self):

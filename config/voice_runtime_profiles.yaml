@@ -1,0 +1,91 @@
+schema_version: 1
+
+profiles:
+  offline-edge:
+    description: Zipformer + llama.cpp + local sparse RAG + CPU TTS
+    components:
+      vad:
+        required: true
+        candidates:
+          - provider: silero_onnx
+            python_modules: [onnxruntime]
+            paths:
+              - {kind: file, value: "${RUNTIME_ROOT}/models/silero_vad/silero_vad.onnx"}
+          - provider: webrtc
+            python_modules: [webrtcvad]
+          - provider: energy
+      asr:
+        required: true
+        candidates:
+          - provider: sherpa_zipformer
+            python_modules: [sherpa_onnx]
+            paths:
+              - {kind: file, value: "${RUNTIME_ROOT}/models/sherpa-onnx-streaming-zipformer-small-bilingual-zh-en-2023-02-16/tokens.txt"}
+              - {kind: file, value: "${RUNTIME_ROOT}/models/sherpa-onnx-streaming-zipformer-small-bilingual-zh-en-2023-02-16/encoder-epoch-99-avg-1.int8.onnx"}
+              - {kind: file, value: "${RUNTIME_ROOT}/models/sherpa-onnx-streaming-zipformer-small-bilingual-zh-en-2023-02-16/decoder-epoch-99-avg-1.int8.onnx"}
+              - {kind: file, value: "${RUNTIME_ROOT}/models/sherpa-onnx-streaming-zipformer-small-bilingual-zh-en-2023-02-16/joiner-epoch-99-avg-1.int8.onnx"}
+      llm:
+        required: true
+        candidates:
+          - provider: llama_cpp_qwen3
+            python_modules: [openai]
+            paths:
+              - {kind: executable, value: "${RUNTIME_ROOT}/third_party/llama.cpp/build/bin/llama-server"}
+              - {kind: file, value: "${RUNTIME_ROOT}/models/Qwen3-0.6B-Q8_0.gguf"}
+            endpoints: ["http://127.0.0.1:8080/health"]
+      rag:
+        required: true
+        candidates:
+          - provider: local_sparse_bm25
+            paths:
+              - {kind: file, value: "${WORKSPACE}/src/embodied_agent_core/knowledge/robot_runtime_zh.md"}
+      tts:
+        required: true
+        candidates:
+          - provider: sherpa_tts
+            python_modules: [sherpa_onnx]
+            paths:
+              - {kind: file, value: "${RUNTIME_ROOT}/models/vits-melo-tts-zh_en/model.int8.onnx"}
+              - {kind: file, value: "${RUNTIME_ROOT}/models/vits-melo-tts-zh_en/tokens.txt"}
+              - {kind: file, value: "${RUNTIME_ROOT}/models/vits-melo-tts-zh_en/lexicon.txt"}
+
+  online-cloud:
+    description: local VAD/RAG + DashScope realtime ASR/LLM/TTS
+    components:
+      vad:
+        required: true
+        candidates:
+          - provider: silero_onnx
+            python_modules: [onnxruntime]
+            paths:
+              - {kind: file, value: "${RUNTIME_ROOT}/models/silero_vad/silero_vad.onnx"}
+          - provider: webrtc
+            python_modules: [webrtcvad]
+          - provider: energy
+      asr:
+        required: true
+        candidates:
+          - provider: qwen_realtime_asr
+            python_modules: [dashscope]
+            environment: [DASHSCOPE_API_KEY]
+            verification: credential_only
+      llm:
+        required: true
+        candidates:
+          - provider: qwen_openai_compatible
+            python_modules: [openai]
+            environment: [DASHSCOPE_API_KEY]
+            verification: credential_only
+      rag:
+        required: true
+        candidates:
+          - provider: local_sparse_bm25
+            paths:
+              - {kind: file, value: "${WORKSPACE}/src/embodied_agent_core/knowledge/robot_runtime_zh.md"}
+      tts:
+        required: true
+        candidates:
+          - provider: qwen_realtime_tts
+            python_modules: [dashscope]
+            environment: [DASHSCOPE_API_KEY]
+            verification: credential_only

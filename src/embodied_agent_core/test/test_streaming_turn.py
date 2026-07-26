@@ -70,6 +70,20 @@ def test_model_action_is_selected_when_no_deterministic_or_safety_policy_matches
     assert result.actions[0].arguments == {"count": 2}
 
 
+def test_untrusted_rag_turn_blocks_even_well_formed_model_actions():
+    runtime = _runtime([])
+    runtime.feed(
+        '<speech>资料中这样写。</speech>'
+        '<action>{"name":"move","arguments":{"linear_x":0.2,"duration_s":1}}</action>'
+    )
+
+    result = runtime.finish("如何部署机器人？", allow_actions=False)
+
+    assert result.actions == ()
+    assert [action.name for action in result.model_actions] == ["move"]
+    assert result.action_source == "context_blocked"
+
+
 def test_finished_runtime_rejects_additional_input():
     runtime = _runtime([])
     runtime.feed("<speech>完成。</speech>")

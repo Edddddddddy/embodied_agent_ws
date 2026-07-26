@@ -7,11 +7,6 @@ from pathlib import Path
 
 import rclpy
 from ament_index_python.packages import get_package_share_directory
-from embodied_agent_interfaces.msg import (
-    RobotCommandResult,
-    SpeakerIdentity as SpeakerIdentityMessage,
-    WakeEvent as WakeEventMessage,
-)
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
 
 from embodied_agent_core.memory import ConversationMemory
@@ -33,6 +28,7 @@ from embodied_agent_core.agent_parameters import declare_agent_parameters
 from embodied_agent_core.agent_ros_io import AgentRosCallbacks, AgentRosIo
 from embodied_agent_core.asr_endpoint_runtime import AsrEndpointRuntime
 from embodied_agent_core.metrics_transport import agent_turn_metrics_to_message
+from embodied_agent_core.prompt_context import prompt_context_from_parameters
 from embodied_agent_core.ros_action_transport import action_command_to_message
 from embodied_agent_core.ros_event_transport import wake_event_message_to_domain
 from embodied_agent_core.speaker_transport import (
@@ -82,11 +78,9 @@ class OfflineAgentNode(LifecycleNode):
             self._param("action_sequence_wait_timeout_s"),
             self._param("long_action_result_timeout_s"),
         )
-        prompt_path = Path(
-            get_package_share_directory("embodied_agent_core")
-        ) / "prompts" / "system_prompt_zh.txt"
-        configured_prompt = self._param("system_prompt_path")
-        self._system_prompt = Path(os.path.expanduser(configured_prompt)).read_text(encoding="utf-8") if configured_prompt else prompt_path.read_text(encoding="utf-8")
+        # Prompt/RAG 资产属于 Lifecycle 资源，在 configure 中加载；构造节点本身不应
+        # 因自定义知识路径损坏而越过 configure failure/cleanup 语义直接崩溃。
+        self._prompt_context = None
 
         self._ros_io = AgentRosIo(
             self,
@@ -150,6 +144,7 @@ class OfflineAgentNode(LifecycleNode):
         if managed != TransitionCallbackReturn.SUCCESS:
             return managed
         try:
+            self._prompt_context = self._create_prompt_context()
             self._asr, self._llm, self._tts = self._create_providers()
             if self._mode == "offline" and self._param("runtime_warmup_enabled"):
                 self._warmup_runtime()
@@ -187,7 +182,7 @@ class OfflineAgentNode(LifecycleNode):
                 lifecycle_runtime=self._runtime,
                 publish_actions=self._application.publish_actions,
                 publish_metrics=self._publish_offline_metrics,
-                llm_messages=self._llm_messages,
+                prompt_context=self._prompt_context,
                 tts_sample_rate=self._tts_sample_rate,
                 param=self._param,
                 logger=self.get_logger(),
@@ -211,7 +206,10 @@ class OfflineAgentNode(LifecycleNode):
             self._publish_state("listening")
             self._events.publish_ready(
                 f"provider_mode={self._mode};"
-                f"microphone={self._param('microphone_enabled')}"
+                f"microphone={self._param('microphone_enabled')};"
+                f"rag={self._param('rag_enabled')};"
+                f"rag_policy={self._param('rag_query_policy')};"
+                f"rag_context={self._param('rag_cloud_context_policy')}"
             )
             self.get_logger().info(
                 f"offline agent active: mode={self._mode}, "
@@ -298,6 +296,7 @@ class OfflineAgentNode(LifecycleNode):
         if self._tts is not None and hasattr(self._tts, "close"):
             self._tts.close()
         self._turn_runner = None
+        self._prompt_context = None
         self._asr = None
         self._llm = None
         self._tts = None
@@ -335,7 +334,9 @@ class OfflineAgentNode(LifecycleNode):
         if self._mode == "mock":
             return MockOfflineAsr(
                 self._mock_asr_finals(), self._mock_asr_partials()
-            ), MockOfflineLlm(self._param("mock_token_delay_s")), MockOfflineTts(self._param("tts_sample_rate"))
+            ), MockOfflineLlm(self._param("mock_token_delay_s")), MockOfflineTts(
+                self._param("tts_sample_rate")
+            )
         if self._mode != "offline":
             raise ValueError("mode must be 'mock' or 'offline'")
         # Native model wheels are intentionally optional in mock mode.
@@ -363,6 +364,17 @@ class OfflineAgentNode(LifecycleNode):
                 first_token_warn_ms=self._param("llm_first_token_warn_ms"),
             ),
             self._create_tts_provider(),
+        )
+
+    def _create_prompt_context(self):
+        return prompt_context_from_parameters(
+            memory=self._memory,
+            param=self._param,
+            package_share=Path(
+                get_package_share_directory("embodied_agent_core")
+            ),
+            # Qwen3 离线部署关闭 thinking，缩短首 token 并避免把思考文本送入 TTS。
+            system_suffix="\n/no_think",
         )
 
     def _create_tts_provider(self):
@@ -402,9 +414,13 @@ class OfflineAgentNode(LifecycleNode):
     def _warmup_runtime(self):
         """在 ready 前预热真实 system+history 前缀，避免首条语音承担 prefill。"""
         started = time.perf_counter()
-        llm_report = self._llm.warmup(
-            self._llm_messages("只回复：就绪。", self._user_context.snapshot())
+        warmup_prompt = self._prompt_context.build(
+            "只回复：就绪。", self._user_context.snapshot()
         )
+        # warmup 与真实 turn 必须服从同一上下文预算。这里 fail-closed，
+        # 避免 llama-server 在 configure 阶段悄悄截断系统安全提示词。
+        warmup_prompt.require_budget()
+        llm_report = self._llm.warmup(warmup_prompt.messages)
         tts_started = time.perf_counter()
         warmup_pcm = self._tts.synthesize("好。")
         report = {
@@ -416,14 +432,6 @@ class OfflineAgentNode(LifecycleNode):
         self.get_logger().info(
             "offline runtime warmup complete: "
             + json.dumps(report, ensure_ascii=False)
-        )
-
-    def _llm_messages(self, user_text, user_context: UserContextSnapshot):
-        # ConversationMemory 中保存原始模型协议输出，使该列表能与 server slot 的
-        # token 前缀精确对齐；不要在这里只给当前 user 临时追加不同的后缀。
-        return self._memory.prompt_messages(
-            user_context.system_prompt(self._system_prompt) + "\n/no_think",
-            user_text,
         )
 
     def _mock_asr_finals(self):

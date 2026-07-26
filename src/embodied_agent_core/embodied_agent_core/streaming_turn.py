@@ -64,7 +64,9 @@ class StreamingTurnRuntime:
             self._first_token = False
         self._consume_events(self._parser.feed(token))
 
-    def finish(self, user_text: str) -> StreamingTurnResult:
+    def finish(
+        self, user_text: str, *, allow_actions: bool = True
+    ) -> StreamingTurnResult:
         if self._finished:
             raise RuntimeError("streaming turn is already finished")
         self._finished = True
@@ -76,7 +78,9 @@ class StreamingTurnRuntime:
         for sentence in self._chunker.finish():
             self._on_speakable(sentence)
 
-        selected, source = self._select_actions(user_text)
+        selected, source = self._select_actions(
+            user_text, allow_actions=allow_actions
+        )
         assistant_text = "".join(self._speech_parts).strip()
         raw_output = "".join(self._raw_output_parts).strip()
         model_output = (
@@ -109,8 +113,13 @@ class StreamingTurnRuntime:
             self._on_speakable(sentence)
 
     def _select_actions(
-        self, user_text: str
+        self, user_text: str, *, allow_actions: bool
     ) -> tuple[Sequence[ActionCommand], str]:
+        # 只有上游本地 NLU 明确认定为控制意图的 turn 才能授权动作。普通聊天或
+        # RAG 问答即使诱导模型输出合法 action，也在 Python 应用边界 fail-closed；
+        # C++ ActionGuard 是后续的第二道安全线。
+        if not allow_actions:
+            return (), "context_blocked"
         deterministic = parse_fallback_actions(user_text)
         if deterministic:
             return deterministic, "deterministic"

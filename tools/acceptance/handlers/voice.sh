@@ -222,6 +222,17 @@ accept_provider_preflight() {
     --livekit-wakeword-models "${LIVEKIT_WAKEWORD_MODELS:-}"
 }
 
+accept_voice_runtime_preflight() {
+  local profile="${1:-}"
+  if [[ "$profile" != "offline-edge" && "$profile" != "online-cloud" ]]; then
+    echo "Usage: ${ACCEPTANCE_PROGRAM:-acceptance_test.sh} voice-runtime-preflight {offline-edge|online-cloud} [--contract-only|--probe-endpoints|--json]" >&2
+    return 2
+  fi
+  shift
+  # 组合入口只做只读部署检查，不触发模型下载、推理或付费在线请求。
+  python3 scripts/voice_runtime_preflight.py --profile "$profile" "$@"
+}
+
 accept_voice_stability_preflight() {
   set +e
   STABILITY_OUTPUT="$(python3 scripts/voice_provider_preflight.py \

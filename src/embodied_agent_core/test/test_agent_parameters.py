@@ -29,7 +29,14 @@ def test_common_defaults_do_not_drift_between_online_and_offline_profiles():
     online = default_parameter_values("online")
     offline = default_parameter_values("offline")
 
-    profile_specific = {"memory_path", "memory_max_turns"}
+    profile_specific = {
+        "memory_path",
+        "memory_max_turns",
+        "llm_context_window_tokens",
+        "prompt_safety_reserve_tokens",
+        "rag_max_context_chars",
+        "rag_cloud_context_policy",
+    }
     for spec in COMMON_PARAMETER_SPECS:
         if spec.name not in profile_specific:
             assert online[spec.name] == offline[spec.name]
@@ -47,6 +54,17 @@ def test_profile_specific_defaults_remain_explicit():
     assert offline["tts_sample_rate"] == 44100
     assert offline["asr_tail_padding_s"] == 0.66
     assert offline["asr_max_active_paths"] == 16
+    assert online["rag_max_context_chars"] == 1800
+    assert offline["rag_max_context_chars"] == 1200
+    assert offline["rag_query_policy"] == "adaptive"
+    assert online["rag_cloud_context_policy"] == "builtin_only"
+    assert offline["rag_cloud_context_policy"] == "allow_custom"
+    assert online["llm_context_window_tokens"] == 32768
+    assert offline["llm_context_window_tokens"] == 2048
+    assert online["llm_max_tokens"] == 512
+    assert offline["llm_max_tokens"] == 192
+    assert online["prompt_safety_reserve_tokens"] == 512
+    assert offline["prompt_safety_reserve_tokens"] == 256
 
 
 @pytest.mark.parametrize(
@@ -62,6 +80,26 @@ def test_profile_specific_defaults_remain_explicit():
         ("offline", {"asr_num_threads": 0}, "asr_num_threads"),
         ("offline", {"asr_tail_padding_s": -0.01}, "asr_tail_padding_s"),
         ("offline", {"asr_tail_padding_s": 2.01}, "asr_tail_padding_s"),
+        ("online", {"rag_query_policy": "invalid"}, "rag_query_policy"),
+        (
+            "online",
+            {"rag_cloud_context_policy": "invalid"},
+            "rag_cloud_context_policy",
+        ),
+        (
+            "offline",
+            {"rag_chunk_chars": 600, "rag_chunk_overlap_chars": 600},
+            "rag_chunk_overlap_chars",
+        ),
+        (
+            "offline",
+            {
+                "llm_context_window_tokens": 448,
+                "llm_max_tokens": 192,
+                "prompt_safety_reserve_tokens": 256,
+            },
+            "llm_context_window_tokens",
+        ),
     ],
 )
 def test_invalid_parameter_fails_with_field_name(profile, override, field):
