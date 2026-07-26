@@ -216,13 +216,16 @@ finally:
 
 口述：
 
-纯状态和策略使用 gtest、pytest 验证，例如重复 ID、队列满、取消超时、迟到结果、状态机非法转换和漏点结果。ROS smoke test 验证节点、Lifecycle、Topic 和 Action 接线；Gazebo E2E 再验证实际运动、地图、定位和最终零速度。每层测试回答不同问题，mock 单测不能代替完整运行。
+纯状态和策略使用 gtest、pytest 验证，例如重复 ID、队列满、取消超时、迟到结果、状态机非法转换和漏点结果。ROS probe 验证节点、Lifecycle、Topic 和 Action 接线；Gazebo E2E 再验证实际运动、地图、定位和最终零速度。每层测试回答不同问题，mock 单测不能代替完整运行。对外只暴露
+`acceptance_test.sh verify {core|voice|control|gazebo|slam-nav|all}`，内部 mode 留给定位问题；统一
+runner 记录每个步骤的退出码、耗时和日志尾部，避免用户面对上百个测试入口。
 
 源码与入口：
 
 - C++ 调度测试：[test_action_scheduler.cpp](../../../src/embodied_agent_cpp/test/test_action_scheduler.cpp)
 - Python 连续执行测试：[test_agent_execution_runtime.py](../../../src/embodied_agent_core/test/test_agent_execution_runtime.py)
 - Action 结果策略测试：[test_nav2_result_policy.cpp](../../../src/embodied_simulation/test/test_nav2_result_policy.cpp)
+- 统一关键功能验收：[project_verification.py](../../../tools/acceptance/scenarios/project_verification.py)
 - 总体验收说明：[TESTING.md](../../TESTING.md)
 
 unknown-world 的生产进程只读取本次 scan、odom、TF、在线 map 和 Nav2 状态；truth map、区域边界及

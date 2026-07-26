@@ -15,6 +15,7 @@ from embodied_agent_interfaces.msg import (
     RobotCommandFeedback,
     RobotCommandResult,
 )
+from geometry_msgs.msg import Twist
 from embodied_agent_core.runtime_status_transport import (
     action_ack_to_dict,
     behavior_tree_status_to_dict,
@@ -41,8 +42,12 @@ class GazeboProbe(Node):
         self.move_command_id = ""
         self.move_bt_result = None
         self.command_sequence = 0
+        self.last_cmd_vel = None
+        self.last_cmd_vel_at = 0.0
+        self.zero_cmd_vel_since = None
         self.create_subscription(Odometry, "/odom", self._on_odom, 10)
         self.create_subscription(LaserScan, "/scan", self._on_scan, 10)
+        self.create_subscription(Twist, "/cmd_vel", self._on_cmd_vel, 10)
         self.create_subscription(RobotActionAck, "/robot/action_ack", self._on_ack, 10)
         self.create_subscription(
             RobotCommandResult, "/robot/action_result", self._on_result, 10
@@ -63,6 +68,19 @@ class GazeboProbe(Node):
 
     def _on_scan(self, _message):
         self.scan_received = True
+
+    def _on_cmd_vel(self, message):
+        now = time.monotonic()
+        self.last_cmd_vel_at = now
+        self.last_cmd_vel = (
+            float(message.linear.x),
+            float(message.angular.z),
+        )
+        if abs(self.last_cmd_vel[0]) <= 1e-4 and abs(self.last_cmd_vel[1]) <= 1e-4:
+            if self.zero_cmd_vel_since is None:
+                self.zero_cmd_vel_since = now
+        else:
+            self.zero_cmd_vel_since = None
 
     def _on_ack(self, message):
         self.ack = action_ack_to_dict(message)
@@ -96,6 +114,18 @@ class GazeboProbe(Node):
             )
         )
         return command_id
+
+    def final_velocity_is_zero(self, *, after: float) -> bool:
+        """确认 stop 之后收到新零速，且没有随后的非零控制抖动。"""
+
+        return (
+            self.last_cmd_vel is not None
+            and self.last_cmd_vel_at >= after
+            and self.zero_cmd_vel_since is not None
+            and time.monotonic() - self.zero_cmd_vel_since >= 0.25
+            and abs(self.last_cmd_vel[0]) <= 1e-4
+            and abs(self.last_cmd_vel[1]) <= 1e-4
+        )
 
 
 def wait_until(predicate, timeout, description):
@@ -156,11 +186,17 @@ def main():
         )
         if distance > 0.5:
             raise RuntimeError(f"implausible odometry jump: {distance:.3f} m")
+        stop_requested_at = time.monotonic()
         node.action("stop", {}, priority=True)
         wait_until(
             lambda: node.ack is not None and node.ack.get("action") == "stop",
             5.0,
             "simulation produced no stop ACK",
+        )
+        wait_until(
+            lambda: node.final_velocity_is_zero(after=stop_requested_at),
+            5.0,
+            "simulation produced no fresh stable zero /cmd_vel after stop",
         )
         print(json.dumps({
             "scan_received": node.scan_received,
@@ -169,6 +205,12 @@ def main():
             "move_action_result": node.move_result,
             "move_max_progress": round(node.move_max_progress, 3),
             "move_bt_result": node.move_bt_result,
+            "final_cmd_vel": {
+                "linear_x": node.last_cmd_vel[0],
+                "angular_z": node.last_cmd_vel[1],
+                "fresh_after_stop": node.last_cmd_vel_at >= stop_requested_at,
+                "stable_zero": True,
+            },
         }, ensure_ascii=False, indent=2))
     finally:
         executor.shutdown()

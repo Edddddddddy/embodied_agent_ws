@@ -117,6 +117,9 @@ KV 公共前缀；RAG/普通聊天只保存干净用户原文和纯 `<speech>`�
 
 ## 5. 怎样部署和验收
 
+以下 `voice-runtime-preflight` 是部署诊断入口，只在 `--help-all` 中展示；项目对使用者公开的功能
+验收仍统一使用 `verify voice`。
+
 ```bash
 # CI：只验证 profile 契约，不依赖模型/API
 bash scripts/acceptance_test.sh voice-runtime-preflight offline-edge --contract-only --json

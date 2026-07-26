@@ -14,6 +14,8 @@ simulation_control mock executor -> /cmd_vel + /robot/action_result。
 from __future__ import annotations
 
 import json
+import os
+from pathlib import Path
 import threading
 import time
 
@@ -74,6 +76,8 @@ class OfflineSherpaTypedProbe(Node):
         self.metrics: dict | None = None
         self.agent_states: list[str] = []
         self.velocities: list[tuple[float, float]] = []
+        self.tts_audio_chunks = 0
+        self.tts_audio_bytes = 0
         self.create_subscription(
             String, TOPICS.asr_final, self._on_asr, event_qos(depth=10)
         )
@@ -110,6 +114,12 @@ class OfflineSherpaTypedProbe(Node):
         self.create_subscription(
             Twist, "/cmd_vel", self._on_velocity, command_qos(depth=10)
         )
+        self.create_subscription(
+            UInt8MultiArray,
+            TOPICS.tts_pcm,
+            self._on_tts_audio,
+            audio_qos(depth=20),
+        )
 
     def _on_asr(self, message: String) -> None:
         self.asr_text = message.data
@@ -128,6 +138,10 @@ class OfflineSherpaTypedProbe(Node):
 
     def _on_velocity(self, message: Twist) -> None:
         self.velocities.append((message.linear.x, message.angular.z))
+
+    def _on_tts_audio(self, message: UInt8MultiArray) -> None:
+        self.tts_audio_chunks += 1
+        self.tts_audio_bytes += len(message.data)
 
     def candidates_by_name(self, name: str) -> list[dict]:
         return [candidate for candidate in self.candidates if candidate.get("name") == name]
@@ -151,8 +165,11 @@ class OfflineSherpaTypedProbe(Node):
 
 
 def main() -> None:
+    runtime_root = Path(
+        os.environ.get("EMBODIED_RUNTIME_ROOT", "/home/ubuntu/embodied_agent_ws")
+    )
     tts = SherpaVitsTts(
-        "/home/ubuntu/embodied_agent_ws/models/vits-melo-tts-zh_en", 2, 0, 1.0
+        str(runtime_root / "models/vits-melo-tts-zh_en"), 2, 0, 1.0
     )
     # 使用“三秒”给 /cmd_vel 订阅留出更宽的观测窗口；即便 ASR 漏掉时长，
     # CommandCompleter 也会把“向前走”补成安全的默认前进命令。
@@ -178,6 +195,8 @@ def main() -> None:
             "offline ASR, typed action, or simulation topics were not ready",
         )
         time.sleep(0.5)
+        baseline_tts_chunks = node.tts_audio_chunks
+        baseline_tts_bytes = node.tts_audio_bytes
         for offset in range(0, len(pcm), 3200):
             node.audio_pub.publish(UInt8MultiArray(data=list(pcm[offset : offset + 3200])))
             time.sleep(0.02)
@@ -203,10 +222,20 @@ def main() -> None:
         wait_until(
             lambda: node.successful_move_result() is not None
             and node.has_forward_velocity()
-            and node.metrics is not None,
+            and node.metrics is not None
+            and node.tts_audio_chunks > baseline_tts_chunks,
             25.0,
-            "typed action did not finish, cmd_vel did not move, or metrics missing",
+            "typed action, cmd_vel, metrics, or downstream TTS PCM missing",
         )
+        tts_metrics = node.metrics.get("tts_pipeline", {})
+        if (
+            int(tts_metrics.get("synth_calls", 0)) <= 0
+            or int(tts_metrics.get("audio_chunks", 0)) <= 0
+            or node.tts_audio_bytes <= baseline_tts_bytes
+        ):
+            raise RuntimeError(
+                f"offline Agent reported no downstream TTS output: {tts_metrics}"
+            )
         result = node.successful_move_result()
         command_id = result["command_id"]
         candidate = next(
@@ -230,6 +259,12 @@ def main() -> None:
                     },
                     "action_result": result,
                     "forward_cmd_vel_observed": True,
+                    "tts_output": {
+                        "audio_chunks": (
+                            node.tts_audio_chunks - baseline_tts_chunks
+                        ),
+                        "pcm_bytes": node.tts_audio_bytes - baseline_tts_bytes,
+                    },
                     "metrics": node.metrics,
                     "status": "PASS",
                 },

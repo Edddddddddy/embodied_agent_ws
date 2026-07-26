@@ -293,8 +293,11 @@ deactivate/cleanup 必须等待 ASR endpoint、连续 worker、LLM/TTS turn 静�
 ```bash
 pytest -q src/embodied_agent_core/test/test_continuous_voice.py \
   src/embodied_agent_core/test/test_command_nlu.py
-bash scripts/acceptance_test.sh continuous-multi-command
+bash scripts/acceptance_test.sh verify voice
 ```
+
+若统一门禁失败，再用 `--help-all` 中的内部
+`continuous-multi-command` 模式定位单句多命令队列。
 
 ## 5. 声纹身份、用户记忆与行为偏好
 

@@ -26,6 +26,44 @@ def test_core_gate_uses_current_code_but_shared_runtime_venv():
     assert "/home/ubuntu/embodied_agent_ws" not in script
 
 
+def test_offline_typed_gate_uses_current_code_and_shared_model_root():
+    smoke = (
+        ROOT / "scripts/smoke_test_offline_sherpa_typed_simulation.sh"
+    ).read_text(encoding="utf-8")
+    probe = (
+        ROOT
+        / "tools/acceptance/probes/voice/offline_sherpa_typed_simulation.py"
+    ).read_text(encoding="utf-8")
+
+    assert 'embodied_resolve_workspace "${BASH_SOURCE[0]}"' in smoke
+    assert "embodied_resolve_runtime_root" in smoke
+    assert "EMBODIED_RUNTIME_ROOT" in probe
+    assert "/home/ubuntu/embodied_agent_ws/models" not in probe
+
+
+def test_offline_agent_deployment_paths_follow_runtime_root():
+    launch = (
+        ROOT / "src/embodied_offline_agent/launch/offline_agent.launch.py"
+    ).read_text(encoding="utf-8")
+    config = (
+        ROOT / "src/embodied_offline_agent/config/offline_agent.yaml"
+    ).read_text(encoding="utf-8")
+    parameters = (
+        ROOT
+        / "src/embodied_agent_core/embodied_agent_core/agent_parameters.py"
+    ).read_text(encoding="utf-8")
+
+    assert "EMBODIED_RUNTIME_ROOT" in launch
+    assert 'DeclareLaunchArgument("asr_model_dir"' in launch
+    assert 'DeclareLaunchArgument("tts_model_dir"' in launch
+    assert '"asr_model_dir": asr_model_dir' in launch
+    assert '"tts_model_dir": tts_model_dir' in launch
+    assert "EMBODIED_RUNTIME_ROOT" in parameters
+    assert "/home/ubuntu/embodied_agent_ws" not in launch
+    assert "/home/ubuntu/embodied_agent_ws" not in config
+    assert "/home/ubuntu/embodied_agent_ws" not in parameters
+
+
 def _clean_environment() -> dict[str, str]:
     environment = os.environ.copy()
     for name in (

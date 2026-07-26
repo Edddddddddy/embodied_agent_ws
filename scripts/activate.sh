@@ -31,6 +31,8 @@ _embodied_activate_main() {
       status=2
     elif ! embodied_resolve_workspace "${BASH_SOURCE[0]}"; then
       status=2
+    elif ! embodied_resolve_runtime_root; then
+      status=2
     fi
   fi
 
@@ -81,9 +83,16 @@ EOF
       status=2
     }
   fi
-  if [[ $status -eq 0 && -f "$WORKSPACE/.venv/bin/activate" ]]; then
-    source "$WORKSPACE/.venv/bin/activate" || {
-      echo "ERROR: Python 虚拟环境加载失败：$WORKSPACE/.venv" >&2
+  local python_runtime_root="$WORKSPACE"
+  if [[ ! -f "$python_runtime_root/.venv/bin/activate" &&
+        -f "$EMBODIED_RUNTIME_ROOT/.venv/bin/activate" ]]; then
+    python_runtime_root="$EMBODIED_RUNTIME_ROOT"
+  fi
+  if [[ $status -eq 0 && -f "$python_runtime_root/.venv/bin/activate" ]]; then
+    # linked worktree 保留自己的源码/install，但复用主 worktree 的未跟踪 venv；
+    # 否则真实 Sherpa/LLM provider 只会在 main 可运行，功能分支无法独立验收。
+    source "$python_runtime_root/.venv/bin/activate" || {
+      echo "ERROR: Python 虚拟环境加载失败：$python_runtime_root/.venv" >&2
       status=2
     }
   fi

@@ -58,8 +58,8 @@ wsl.exe -d Ubuntu-24.04 --cd /home/ubuntu/embodied_agent_ws bash -lc 'source scr
 例如，下列固定调用比跨 Shell 动态循环更容易审计退出码：
 
 ```powershell
-wsl.exe -d Ubuntu-24.04 --cd /home/ubuntu/embodied_agent_ws bash scripts/acceptance_test.sh continuous-multi-command
-wsl.exe -d Ubuntu-24.04 --cd /home/ubuntu/embodied_agent_ws bash scripts/acceptance_test.sh navigation-demo
+wsl.exe -d Ubuntu-24.04 --cd /home/ubuntu/embodied_agent_ws bash scripts/acceptance_test.sh verify voice
+wsl.exe -d Ubuntu-24.04 --cd /home/ubuntu/embodied_agent_ws bash scripts/acceptance_test.sh verify control
 ```
 
 Gazebo 重型测试重跑前先确认没有孤儿 server；多个默认 partition 的 server 会让 entity 创建、
@@ -145,16 +145,16 @@ export EMBODIED_ALLOW_WORKSPACE_OVERRIDE=true
 
 `colcon build --packages-up-to embodied_slam_tools` 只保证目标包及其依赖进入当前
 `install/`，不会安装与它无依赖关系的 Agent 包。此时 `install/setup.bash` 虽然存在，
-`acceptance_test.sh core` 里的在线/离线 benchmark 仍可能报
+`acceptance_test.sh verify core` 里的在线/离线单测仍可能报
 `ModuleNotFoundError: embodied_agent_core`，随后表现为“报告文件没有生成”。
 
 这不是报告逻辑故障。运行整仓 `core` 前先建立完整安装层：
 
 ```bash
 source /opt/ros/jazzy/setup.bash
-colcon build --symlink-install --executor sequential
+MAKEFLAGS="-j2 -l2" colcon build --symlink-install --executor sequential
 source install/setup.bash
-bash scripts/acceptance_test.sh core
+bash scripts/acceptance_test.sh verify core
 ```
 
 定向开发可以继续使用 `--packages-up-to`，但它的结果只能证明该依赖闭包，不能替代整仓
@@ -262,14 +262,14 @@ bash tests/integration/control/test_acceptance_cli.sh
 pytest -q src/embodied_agent_core/test src/embodied_voice_frontend/test src/embodied_offline_agent/test
 ```
 
-连续语音：
+语音 Agent（确定性音频，不使用真人麦克风）：
 
 ```bash
-bash scripts/acceptance_test.sh continuous-endpoint
-bash scripts/acceptance_test.sh continuous-mock
-bash scripts/acceptance_test.sh continuous-multi-command
-bash scripts/acceptance_test.sh voice-readiness
+bash scripts/acceptance_test.sh verify voice
 ```
+
+需要定位某个内部探针时，再运行
+`bash scripts/acceptance_test.sh --help-all` 查看维护入口。
 
 自动建图导航：
 
@@ -280,12 +280,12 @@ bash scripts/acceptance_test.sh slam-autonomous-mission-stage
 bash scripts/acceptance_test.sh slam-nav-e2e
 # unknown-world 正式自主闭环；完整功能收口时再跑，不为零散编辑频繁触发 CI：
 HEADLESS=true USE_RVIZ=true \
-  bash scripts/acceptance_test.sh unknown-world-slam-e2e
+  bash scripts/acceptance_test.sh verify slam-nav
 ```
 
 `slam-nav-e2e` 是允许 bootstrap/语义地点的 known-world 确定性回归；
-`unknown-world-slam-e2e` 才是禁止真值/固定路线进入 robot policy 的正式自主门禁。先用
-`bash scripts/acceptance_test.sh --help` 确认当前分支已注册两个模式；若帮助中没有后者，说明终端仍
+`verify slam-nav` 内部调用禁止真值/固定路线进入 robot policy 的 unknown-world 正式自主门禁。先用
+`bash scripts/acceptance_test.sh --help` 确认当前分支已注册统一 `verify` 接口；若没有，说明终端仍
 停留在旧分支、旧 worktree 或旧脚本，而不是 ROS 运行时故障。
 
 长时 WSL 会话推荐 RViz-only。若仍请求 `HEADLESS=false USE_RVIZ=true`，验收器会在软件渲染或内存

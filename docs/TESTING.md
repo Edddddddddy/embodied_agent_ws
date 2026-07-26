@@ -45,39 +45,52 @@ embodied_workspace_doctor true
 
 ## 3. 公开入口
 
-当前稳定公开入口共 9 个：
+当前稳定公开接口只有 `verify`，通过 profile 区分关键功能：
 
 ```bash
-bash scripts/acceptance_test.sh core
-bash scripts/acceptance_test.sh continuous-offline
-bash scripts/acceptance_test.sh continuous-online
-bash scripts/acceptance_test.sh gazebo
-bash scripts/acceptance_test.sh nav2-stage
-bash scripts/acceptance_test.sh slam-nav-e2e
-bash scripts/acceptance_test.sh unknown-world-slam-e2e
-bash scripts/acceptance_test.sh voice-unknown-world-slam-e2e offline
-bash scripts/acceptance_test.sh robotics-gate
+bash scripts/acceptance_test.sh verify core
+bash scripts/acceptance_test.sh verify voice
+bash scripts/acceptance_test.sh verify control
+bash scripts/acceptance_test.sh verify gazebo
+bash scripts/acceptance_test.sh verify slam-nav
+bash scripts/acceptance_test.sh verify all
 ```
 
-`--help-all` 展示内部回归和实验模式，不作为 README 主路径。
+| profile | 核心证据 | 真人麦克风 |
+| --- | --- | --- |
+| `core` | 仓库契约、Python 与自有 C++ 单测 | 不使用 |
+| `voice` | readiness、endpoint、在线/离线 mock Agent、多命令队列、确定性合成 PCM 离线模型链 | 不使用 |
+| `control` | typed Action、FIFO/急停、ActionGuard 与控制权租约 | 不使用 |
+| `gazebo` | BT/plugin executor、物理位移、结果反馈、stop 后新鲜稳定零速 | 不使用 |
+| `slam-nav` | unknown-world 探索、返航、存图、AMCL/Nav2、动态重规划、最终零速 | 不使用 |
+| `all` | 以上全部，失败默认立即停止 | 不使用 |
 
-`gazebo` 会为每次运行租用独立 ROS domain/Gazebo partition，并复用重型门禁的
+统一报告位于 `logs/acceptance/project_verification/<session-id>/report.json`。`--help-all` 仍展示
+内部 probe、研究实验和真人交互入口，便于定位失败，但不再作为项目主接口。
+
+`verify gazebo` 会为每次运行租用独立 ROS domain/Gazebo partition，并复用重型门禁的
 ROS overlay 隔离策略。宿主终端即使 source 过其它 `nav2_ws/ros2_ws`，验收仍只允许
 当前 worktree、`/opt/ros/jazzy` 和白名单 Frontier 包参与运行。证据位于
 `logs/acceptance/gazebo_typed_action/<session-id>/acceptance_session.json`；
-readiness 失败时会直接附带 launch 日志，优先查看 Lifecycle Manager 是否完成配置。
+readiness 失败时会直接附带 launch 日志。除了 stop ACK，probe 还要求 stop 请求之后收到新的
+`/cmd_vel=0`，并保持至少 250 ms 无非零抖动。
 
 ## 4. 合并前门禁
 
 轻量门禁：
 
 ```bash
-bash scripts/acceptance_test.sh core
-bash scripts/acceptance_test.sh slam-autonomous-mission-stage
+bash scripts/acceptance_test.sh verify core
 ```
 
 `core` 已聚合仓库/评估、在线与离线 Agent、CLI 以及核心 C++ 回归，无需再手工重复执行两类 Agent
 单测。需要定位失败时，再按 `core` 输出运行对应的 pytest/colcon 子集。
+
+仅当修改自动建图任务状态机时，额外运行内部定向回归：
+
+```bash
+bash scripts/acceptance_test.sh slam-autonomous-mission-stage
+```
 
 ROS 2/C++ 门禁：
 
@@ -113,7 +126,7 @@ bash scripts/acceptance_test.sh voice-runtime-preflight online-cloud --json
 
 ```bash
 HEADLESS=true USE_RVIZ=true \
-  bash scripts/acceptance_test.sh unknown-world-slam-e2e
+  bash scripts/acceptance_test.sh verify slam-nav
 ```
 
 这是“未知场地自主探索 → 本次地图 → AMCL/Nav2 → 运行时采样导航目标 → 动态避障”的正式入口。机器人策略
@@ -208,7 +221,7 @@ CLEANUP_CONFIRM=true bash scripts/cleanup_simulation_processes.sh
 
 HEADLESS=true USE_RVIZ=true \
   SLAM_NAV_PROGRESS_HEARTBEAT_S=10 \
-  bash scripts/acceptance_test.sh unknown-world-slam-e2e
+  bash scripts/acceptance_test.sh verify slam-nav
 ```
 
 可视化通过标准：
@@ -432,6 +445,18 @@ PASS：ASR/NLU/queue/execution/result 连续可见；busy 时入 FIFO；急停�
 本阶段已通过 `offline-sherpa-typed`、`continuous-mock` 和 `continuous-multi-command` 自动回归；尚未
 重新运行真人麦克风 `continuous-offline/online`，因此不把自动回归写成现场语音 PASS。在线静音
 filler 导致的无效请求/token 消耗由独立 issue 跟踪，不属于本次 SLAM/Nav2 修复范围。
+
+需要恢复真人语音时，先运行 `audio_frontend_calibration.py` 和 `voice-calibration-report`；产物为
+`logs/audio_calibration.json`、`logs/voice_calibration_report.json` 和
+`logs/voice_calibration.env`。组件性能单独用内部 `offline-latency` 与
+`offline-voice-e2e-report` 测量；组件目标为 LLM 首 token `≤ 1000ms`、短句完整 TTS 合成
+`≤ 600ms`，不能把它们写成真人语音整链 SLA。需要应用校准或留存样本时使用：
+
+```bash
+APPLY_VOICE_CALIBRATION=true \
+CONTINUOUS_SAMPLE_LOG=logs/continuous_samples.jsonl \
+  bash scripts/acceptance_test.sh continuous-offline
+```
 
 ### 7.1 真人语音 benchmark 的对齐口径
 

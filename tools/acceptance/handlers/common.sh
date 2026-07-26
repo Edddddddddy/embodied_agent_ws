@@ -64,14 +64,14 @@ run_base() {
   bash scripts/smoke_test_mock_executor.sh
   bash scripts/smoke_test_demo_sequence.sh
   bash scripts/smoke_test_navigation_sequence.sh
-  bash scripts/smoke_test_continuous_voice.sh online
-  bash scripts/smoke_test_continuous_voice_soak.sh online
-  bash scripts/smoke_test_continuous_endpoint_asr.sh online
-  bash scripts/smoke_test_continuous_navigation_queue.sh online
-  bash scripts/smoke_test_continuous_queue_full.sh online
-  bash scripts/smoke_test_continuous_command_ttl.sh online
-  bash scripts/smoke_test_continuous_session_timeout.sh online
-  bash scripts/smoke_test_continuous_kws_sidecar.sh online
+  bash tools/acceptance/run_mock_agent_probe.sh continuous online
+  bash tools/acceptance/run_mock_agent_probe.sh soak online
+  bash tools/acceptance/run_mock_agent_probe.sh endpoint online
+  bash tools/acceptance/run_mock_agent_probe.sh navigation online
+  bash tools/acceptance/run_mock_agent_probe.sh queue-full online
+  bash tools/acceptance/run_mock_agent_probe.sh ttl online
+  bash tools/acceptance/run_mock_agent_probe.sh timeout online
+  bash tools/acceptance/run_mock_agent_probe.sh kws online
   bash scripts/smoke_test_composed_executor.sh
   bash scripts/smoke_test_namespaced_executor.sh
   bash scripts/smoke_test_offline.sh
@@ -126,23 +126,30 @@ run_slam_evaluation_stage() {
 }
 
 check_offline_runtime() {
-  require_file models/sherpa-onnx-streaming-zipformer-small-bilingual-zh-en-2023-02-16/encoder-epoch-99-avg-1.int8.onnx
-  require_file models/sherpa-onnx-streaming-zipformer-small-bilingual-zh-en-2023-02-16/decoder-epoch-99-avg-1.int8.onnx
-  require_file models/sherpa-onnx-streaming-zipformer-small-bilingual-zh-en-2023-02-16/joiner-epoch-99-avg-1.int8.onnx
-  require_file models/vits-melo-tts-zh_en/model.onnx
+  embodied_resolve_runtime_root
+  local asr_root="$EMBODIED_RUNTIME_ROOT/models/sherpa-onnx-streaming-zipformer-small-bilingual-zh-en-2023-02-16"
+  require_file "$asr_root/encoder-epoch-99-avg-1.int8.onnx"
+  require_file "$asr_root/decoder-epoch-99-avg-1.int8.onnx"
+  require_file "$asr_root/joiner-epoch-99-avg-1.int8.onnx"
+  require_file "$EMBODIED_RUNTIME_ROOT/models/vits-melo-tts-zh_en/model.onnx"
   check_llama_cpp_runtime
 }
 
 check_llama_cpp_runtime() {
-  require_file models/Qwen3-0.6B-Q8_0.gguf
-  require_file third_party/llama.cpp/build/bin/llama-server
+  embodied_resolve_runtime_root
+  # linked worktree 只隔离源码和 install；数 GB 模型与本地编译 runtime 复用主
+  # worktree。验收若检查相对路径，会把“资源可用”误报为“模型缺失”。
+  require_file "$EMBODIED_RUNTIME_ROOT/models/Qwen3-0.6B-Q8_0.gguf"
+  require_file "$EMBODIED_RUNTIME_ROOT/third_party/llama.cpp/build/bin/llama-server"
 }
 
 check_summer_tts_runtime() {
-  require_file third_party/SummerTTS/README.md
-  require_file third_party/SummerTTS/include/SynthesizerTrn.h
-  require_file third_party/SummerTTS/models/single_speaker_fast.bin
-  require_file third_party/SummerTTS/build/tts_test
+  embodied_resolve_runtime_root
+  local summer_root="$EMBODIED_RUNTIME_ROOT/third_party/SummerTTS"
+  require_file "$summer_root/README.md"
+  require_file "$summer_root/include/SynthesizerTrn.h"
+  require_file "$summer_root/models/single_speaker_fast.bin"
+  require_file "$summer_root/build/tts_test"
 }
 
 run_sherpa_asr_preflight() {

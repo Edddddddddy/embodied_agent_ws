@@ -53,7 +53,7 @@ ROS 2 生成的 Python console script 常使用系统 Python shebang，而模型
 ```bash
 export WORKSPACE="$PWD"
 source scripts/activate.sh
-bash scripts/acceptance_test.sh core
+bash scripts/acceptance_test.sh verify core
 ```
 
 ## 2. C++ ActionGuard 与 ActionScheduler
@@ -104,7 +104,7 @@ Guard 不能修复“左”被识别成“右”这种合法但错误的语义�
 ```bash
 colcon test --packages-select embodied_agent_cpp --event-handlers console_direct+
 bash scripts/acceptance_test.sh cpp-action-client
-bash scripts/acceptance_test.sh gazebo
+bash scripts/acceptance_test.sh verify gazebo
 ```
 
 ## 3. BehaviorTree.CPP、pluginlib 与 Gazebo 执行层
@@ -159,7 +159,7 @@ policy 只防止未经规范化或数值非法的命令进入具体 Executor。
 
 ```bash
 colcon test --packages-select embodied_simulation --event-handlers console_direct+
-bash scripts/acceptance_test.sh gazebo
+bash scripts/acceptance_test.sh verify gazebo
 ```
 
 ## 4. 可观测性、分层测试与事实证据
@@ -216,8 +216,8 @@ mock、fixture、Gazebo、真人麦克风、公开 bag 和实体硬件不能互�
 ### 【对应测试】
 
 ```bash
-bash scripts/acceptance_test.sh core
-bash scripts/acceptance_test.sh robotics-gate
+bash scripts/acceptance_test.sh verify core
+bash scripts/acceptance_test.sh verify control
 bash scripts/acceptance_test.sh slam-nav-showcase-stage
 ```
 
@@ -278,8 +278,8 @@ DDS discovery 有时间窗；ActionGuard readiness 必须同时看到上下游�
 ### 【对应测试】
 
 ```bash
-bash scripts/acceptance_test.sh core
-bash scripts/acceptance_test.sh robotics-gate
+bash scripts/acceptance_test.sh verify core
+bash scripts/acceptance_test.sh verify control
 ```
 
 ## 6. Typed msg/srv/action 作为跨进程契约
@@ -335,7 +335,7 @@ overlay，避免 Python 读取旧生成类型。JSON 只保留在报告、数据
 ```bash
 pytest -q src/embodied_agent_core/test/test_ros_action_transport.py \
   src/embodied_agent_core/test/test_ros_event_transport.py
-bash scripts/acceptance_test.sh core
+bash scripts/acceptance_test.sh verify core
 ```
 
 ## 7. pytest 与可执行 ROS 验收 Probe 的所有权边界
@@ -389,5 +389,5 @@ pytest -q tests/repository/test_repository_delivery.py \
   tests/repository/test_acceptance_registry.py
 bash scripts/smoke_test_mock_executor.sh
 bash scripts/smoke_test_typed_action_server.sh
-bash scripts/acceptance_test.sh core
+bash scripts/acceptance_test.sh verify core
 ```

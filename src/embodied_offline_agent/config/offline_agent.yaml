@@ -2,7 +2,6 @@ offline_agent:
   ros__parameters:
     # 公共会话/队列/记忆参数由 embodied_agent_core/agent_parameters.py 统一管理；
     # 本文件仅保留 ZipFormer、llama.cpp 与离线 TTS provider 的部署配置。
-    asr_model_dir: "/home/ubuntu/embodied_agent_ws/models/sherpa-onnx-streaming-zipformer-small-bilingual-zh-en-2023-02-16"
     asr_num_threads: 2
     # ZipFormer 在 input_finished 前需要尾部静音推出编码器剩余上下文，避免长句末尾漏字。
     asr_tail_padding_s: 0.66
@@ -27,15 +26,12 @@ offline_agent:
     # tts_provider=sherpa 是当前稳定默认值；切到 summer 时会调用
     # third_party/SummerTTS/build/tts_test，适合展示 C++ 离线 TTS runtime 接入。
     tts_provider: sherpa
-    tts_model_dir: "/home/ubuntu/embodied_agent_ws/models/vits-melo-tts-zh_en"
     tts_num_threads: 2
     tts_speaker_id: 0
     tts_speed: 1.0
     tts_sample_rate: 44100
     tts_chunk_max_chars: 24
     tts_pcm_chunk_ms: 80
-    summer_tts_binary: "/home/ubuntu/embodied_agent_ws/third_party/SummerTTS/build/tts_test"
-    summer_tts_model: "/home/ubuntu/embodied_agent_ws/third_party/SummerTTS/models/single_speaker_fast.bin"
     summer_tts_timeout_s: 30.0
     summer_tts_service_name: "/tts/synthesize"
     summer_tts_service_timeout_s: 10.0

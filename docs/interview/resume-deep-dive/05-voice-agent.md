@@ -264,13 +264,18 @@ except Exception:
 
 口述：
 
-单元测试分别验证 endpoint 去重、generation 取消、连续队列、动作 ID 和 provider 错误路径；mock smoke 验证 ROS Topic 与 Action 接线；真人麦克风测试再观察 VAD、ASR final、响应延迟和回声回灌。性能指标包括首 token 时间、总耗时、丢帧和解码速度，但当前机器上的少量样本不能写成生产 SLA。
+单元测试分别验证 endpoint 去重、generation 取消、连续队列、动作 ID 和 provider 错误路径；mock probe
+验证 ROS Topic 与 Action 接线；确定性合成 PCM 再验证 Sherpa ASR、llama.cpp、typed Action 和 TTS 的真实离线
+Adapter。真人麦克风用于后续现场体验测试，不进入当前确定性关键门禁。十个连续控制 shell 已合并为
+`run_mock_agent_probe.sh SCENARIO {online|offline}`，不同风险仍由独立 Python probe 表达，公共启动、
+Lifecycle 和进程清理只维护一份。
 
 测试入口：
 
 - [test_asr_endpoint_runtime.py](../../../src/embodied_agent_core/test/test_asr_endpoint_runtime.py)
 - [test_action_sequence.py](../../../src/embodied_agent_core/test/test_action_sequence.py)
-- [smoke_test_audio_endpoint.sh](../../../scripts/smoke_test_audio_endpoint.sh)
+- [run_mock_agent_probe.sh](../../../tools/acceptance/run_mock_agent_probe.sh)
+- [project_verification.py](../../../tools/acceptance/scenarios/project_verification.py)
 - [VOICE_AGENT.md](../../learning/VOICE_AGENT.md)
 
 ## Q16. RAG 为什么不能进入机器人控制关键路径？

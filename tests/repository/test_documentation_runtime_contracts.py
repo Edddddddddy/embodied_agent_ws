@@ -110,7 +110,8 @@ def test_live_voice_and_deterministic_dynamic_evidence_are_not_conflated():
 
     for document in (testing, presentation):
         assert "crossing_cart" in document
-        assert "slam-nav-e2e" in document
+        assert "verify slam-nav" in document
+        assert "unknown-world-slam-e2e" in document
         assert "不自动注入" in document
     assert "进入 E2E 探针后" in testing
     assert "最后观测速度" in testing
