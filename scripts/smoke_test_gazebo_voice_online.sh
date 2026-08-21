@@ -13,7 +13,8 @@ LAUNCH_LOG="$(mktemp)"
 setsid ros2 launch embodied_simulation voice_turtlebot3.launch.py \
   gui:=false rviz:=false launch_agent:=true agent_type:=online \
   provider_mode:=online microphone_enabled:=true capture_enabled:=false \
-  speaker_enabled:=false wake_word_enabled:=false >"$LAUNCH_LOG" 2>&1 &
+  speaker_enabled:=false wake_word_enabled:=false use_typed_actions:=true \
+  >"$LAUNCH_LOG" 2>&1 &
 LAUNCH_PID=$!
 cleanup() {
   kill -TERM -- "-$LAUNCH_PID" 2>/dev/null || true
@@ -27,7 +28,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if ! python "$WORKSPACE/scripts/test_gazebo_voice.py"; then
+if ! REQUIRE_TYPED_ACTION_RESULT=true \
+  python "$WORKSPACE/tests/integration/test_gazebo_voice.py"; then
   cat "$LAUNCH_LOG" >&2
   exit 1
 fi

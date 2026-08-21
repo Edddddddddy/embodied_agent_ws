@@ -1,0 +1,10 @@
+<root BTCPP_format="4" main_tree_to_execute="CommandExecution">
+  <BehaviorTree ID="CommandExecution">
+    <ReactiveSequence>
+      <ValidateCommand/>
+      <CheckSafety/>
+      <ExecuteCommand/>
+      <ConfirmResult/>
+    </ReactiveSequence>
+  </BehaviorTree>
+</root>

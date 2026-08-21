@@ -12,6 +12,7 @@ namespace embodied_agent_cpp
 class EnergyVad
 {
 public:
+  // 纯计算接口便于脱离声卡做确定性单测；PortAudio 回调只负责搬运 PCM。
   explicit EnergyVad(double threshold = 0.018);
   bool is_speech(const std::vector<int16_t> & samples) const;
 
@@ -22,6 +23,7 @@ private:
 class SilenceDetector
 {
 public:
+  // 只有“先听到语音，再连续静音 0.4 秒”才提交一次，避免纯静音反复触发 ASR。
   explicit SilenceDetector(double timeout_seconds = 0.4);
   bool update(bool speech, double frame_seconds);
   void reset();
@@ -36,6 +38,8 @@ private:
 class NlmsEchoCanceller
 {
 public:
+  // reference 是扬声器播放流，process 输入麦克风流；内部互斥只保护短时 DSP 状态。
+  // 网络请求、日志和模型推理严禁进入音频回调路径。
   NlmsEchoCanceller(
     int microphone_rate = 16000,
     int reference_rate = 24000,
@@ -63,4 +67,3 @@ private:
 };
 
 }  // namespace embodied_agent_cpp
-

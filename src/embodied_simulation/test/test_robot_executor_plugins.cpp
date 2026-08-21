@@ -1,0 +1,66 @@
+#include <algorithm>
+#include <string>
+
+#include <gtest/gtest.h>
+#include <pluginlib/class_loader.hpp>
+
+#include "embodied_simulation/robot_executor.hpp"
+
+namespace embodied_simulation
+{
+namespace
+{
+
+TEST(RobotExecutorPluginsTest, GazeboAndMockAdaptersAreDiscoverable)
+{
+  pluginlib::ClassLoader<RobotExecutor> loader(
+    "embodied_simulation", "embodied_simulation::RobotExecutor");
+  const auto classes = loader.getDeclaredClasses();
+  EXPECT_NE(
+    std::find(
+      classes.begin(), classes.end(),
+      "embodied_simulation/GazeboRobotExecutor"),
+    classes.end());
+  EXPECT_NE(
+    std::find(
+      classes.begin(), classes.end(),
+      "embodied_simulation/MockRobotExecutor"),
+    classes.end());
+}
+
+TEST(RobotExecutorPluginsTest, SameCommandRunsThroughBothAdapters)
+{
+  pluginlib::ClassLoader<RobotExecutor> loader(
+    "embodied_simulation", "embodied_simulation::RobotExecutor");
+  auto gazebo = loader.createSharedInstance(
+    "embodied_simulation/GazeboRobotExecutor");
+  auto mock = loader.createSharedInstance(
+    "embodied_simulation/MockRobotExecutor");
+  gazebo->configure(ControllerConfig{});
+  mock->configure(ControllerConfig{});
+
+  std::vector<float> clear_scan(360, 2.0F);
+  gazebo->update_scan(
+    clear_scan, -3.14159265, 2.0 * 3.14159265 / 360.0,
+    0.05, 10.0, 0.0);
+
+  embodied_agent_interfaces::msg::RobotCommand command;
+  command.action_type = command.MOVE;
+  command.linear_x = 0.15;
+  command.duration_s = 1.0;
+  ASSERT_TRUE(gazebo->execute(command, 0.0));
+  ASSERT_TRUE(mock->execute(command, 0.0));
+
+  EXPECT_GT(gazebo->step(0.05).velocity.linear_x, 0.0);
+  EXPECT_DOUBLE_EQ(mock->step(0.05).velocity.linear_x, 0.15);
+  EXPECT_EQ(gazebo->backend_name(), "simulation");
+  EXPECT_EQ(mock->backend_name(), "mock");
+
+  gazebo->stop();
+  mock->stop();
+  EXPECT_DOUBLE_EQ(gazebo->step(0.10).velocity.linear_x, 0.0);
+  EXPECT_DOUBLE_EQ(mock->step(0.10).velocity.linear_x, 0.0);
+}
+
+}  // namespace
+}  // namespace embodied_simulation

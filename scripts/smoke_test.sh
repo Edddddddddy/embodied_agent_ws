@@ -2,6 +2,7 @@
 set -euo pipefail
 
 WORKSPACE="${WORKSPACE:-/home/ubuntu/embodied_agent_ws}"
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((20 + $$ % 20))}"
 TMP_DIR="$(mktemp -d)"
 LAUNCH_PID=""
 STARTED_DEMO=false
@@ -26,6 +27,8 @@ cleanup() {
     if kill -0 "$LAUNCH_PID" 2>/dev/null; then
       kill -TERM -- "-$LAUNCH_PID" 2>/dev/null || true
     fi
+    sleep 0.2
+    kill -KILL -- "-$LAUNCH_PID" 2>/dev/null || true
     wait "$LAUNCH_PID" 2>/dev/null || true
   fi
   rm -f "$TMP_DIR/action.out" "$TMP_DIR/metrics.out" "$TMP_DIR/launch.log"
@@ -69,7 +72,7 @@ else
   fi
 fi
 
-if ! python "$WORKSPACE/scripts/test_mock_online_pipeline.py"; then
+if ! python "$WORKSPACE/tests/integration/test_mock_online_pipeline.py"; then
   echo "FAIL: mock online Agent pipeline did not complete."
   cat "$TMP_DIR/launch.log"
   exit 1

@@ -27,7 +27,7 @@ ros2 launch embodied_offline_agent offline_agent.launch.py \
 LAUNCH_PID=$!
 sleep 6
 ros2 topic pub --once /agent/clear_memory std_msgs/msg/Empty "{}" >/dev/null
-python "$WORKSPACE/scripts/test_offline_voice_e2e.py" || {
+python "$WORKSPACE/tests/integration/test_offline_voice_e2e.py" || {
   cat "$LAUNCH_LOG"; cat "$SERVER_LOG"; exit 1;
 }
 echo "PASS: real ZipFormer ASR -> llama.cpp -> Sherpa-TTS -> hardware mock"

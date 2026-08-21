@@ -1,6 +1,10 @@
 simulation_control:
   ros__parameters:
     control_rate_hz: 20.0
+    legacy_command_enabled: true
+    action_timeout_s: 12.0
+    use_behavior_tree: true
+    executor_plugin: embodied_simulation/GazeboRobotExecutor
     max_linear_speed: 0.22
     max_angular_speed: 1.0
     linear_acceleration: 0.5

@@ -1,5 +1,5 @@
 from launch import LaunchDescription
-from launch_ros.actions import Node
+from launch_ros.actions import LifecycleNode, Node
 
 
 def generate_launch_description():
@@ -20,11 +20,23 @@ def generate_launch_description():
                 output="screen",
                 parameters=[config],
             ),
-            Node(
+            LifecycleNode(
                 package="embodied_agent_cpp",
                 executable="action_guard",
                 name="action_guard",
+                namespace="",
                 output="screen",
+            ),
+            Node(
+                package="nav2_lifecycle_manager",
+                executable="lifecycle_manager",
+                name="action_guard_lifecycle_manager",
+                output="screen",
+                parameters=[{
+                    "autostart": True,
+                    "node_names": ["action_guard"],
+                    "bond_timeout": 0.0,
+                }],
             ),
             Node(
                 package="embodied_agent_cpp",

@@ -17,6 +17,8 @@ struct ValidationResult
 class ActionValidator
 {
 public:
+  // LLM 输出始终是不可信输入：这里统一完成 JSON schema、白名单和数值限幅。
+  // 调用方只根据 valid/error 决策，不能绕过该 seam 直接控制机器人。
   ValidationResult validate(const std::string & serialized_command) const;
 
 private:
@@ -32,4 +34,3 @@ private:
 };
 
 }  // namespace embodied_agent_cpp
-

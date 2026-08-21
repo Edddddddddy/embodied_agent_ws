@@ -1,264 +1,164 @@
-# ROS 2 具身智能语音 Agent
+# Embodied Voice Agent for ROS 2
 
-这是一个同时支持在线与离线推理的机器人语音交互、动作解析和硬件控制工程。
+[![ROS 2 CI](https://github.com/Edddddddddy/embodied_agent_ws/actions/workflows/ros2-ci.yml/badge.svg)](https://github.com/Edddddddddy/embodied_agent_ws/actions/workflows/ros2-ci.yml)
 
-| 文档 | 内容 |
-|---|---|
-| [`docs/README.md`](docs/README.md) | 文档中心与推荐阅读顺序 |
-| [`docs/CURRENT_DEVELOPMENT_GOAL.md`](docs/CURRENT_DEVELOPMENT_GOAL.md) | 当前目标：语音到基础仿真动作全链路 |
-| [`docs/KNOWLEDGE_NOTES.md`](docs/KNOWLEDGE_NOTES.md) | ROS 2、流式语音、LLM/TTS、并发、量化和硬件协议知识笔记 |
-| [`docs/PROJECT_NOTES.md`](docs/PROJECT_NOTES.md) | 关键代码位置、设计与配置导航 |
-| [`docs/TESTING_GUIDE.md`](docs/TESTING_GUIDE.md) | 单元测试文件、分层验收和实体设备检查清单 |
-| [`docs/COMPLETION_REPORT.md`](docs/COMPLETION_REPORT.md) | 实测完成度、性能数据与尚未完成项 |
-| [`docs/SIMULATION_GUIDE.md`](docs/SIMULATION_GUIDE.md) | 语音控制 TurtleBot3、雷达安全、避障/沿墙和 Gazebo 验收 |
+面向 TurtleBot3 与端侧机器人的在线/离线语音控制系统：从麦克风、流式 ASR、LLM
+动作解析，一直到 C++ 安全仲裁、Gazebo 仿真或 UART/SPI 硬件输出。
 
-目标环境：Ubuntu 24.04 / ROS 2 Jazzy / C++17 / Python 3.12。工程按实时性和生态优势划分语言：音频前端、AEC/VAD、播放和动作安全使用 C++；云模型 SDK、流式文本协议、提示词和记忆使用 Python。两侧只通过 ROS 话题通信。
+> 当前定位是“可复现的工程原型”：优先保证 `move / turn / stop` 的完整链路，
+> 不追求复杂导航行为。目标环境为 Ubuntu 24.04、ROS 2 Jazzy、Python 3.12、C++17。
+
+## 能做什么
+
+- 在线链路：Qwen 实时 ASR、流式 LLM、实时 TTS，支持预热、记忆和延迟指标。
+- 离线链路：sherpa-onnx ZipFormer、Qwen3-0.6B Q8/llama.cpp、Sherpa-TTS。
+- 声学前端：C++ PortAudio、NLMS AEC、VAD、0.4 秒静音断句。
+- 识别恢复：热词偏置、唤醒别名、失败反馈和持续重试。
+- 动作安全：结构化动作、C++ schema 校验、限幅、急停和 watchdog。
+- 生命周期：Guard 与仿真执行器采用 C++ LifecycleNode，由 Nav2 manager 有序激活。
+- 行为编排：BehaviorTree.CPP XML 执行验证、安全检查、异步动作与结果确认。
+- 执行插件：pluginlib 按参数切换 Gazebo 与无仿真的 mock executor。
+- 组件化部署：同一 C++ 控制实现支持独立进程和 ROS 2 component container。
+- 可观测性：标准 diagnostics 报告生命周期、执行后端、动作与安全停车状态。
+- 多机器人隔离：执行链使用相对 ROS 名称，可整体放入 `namespace`。
+- 控制后端：TurtleBot3 Gazebo、UART、SPI 和无硬件 mock。
+- 自动验收：单元测试、ROS 冒烟、云模型、离线模型和 Gazebo 物理位移验证。
 
 ## 数据流
 
-```text
-麦克风 PCM16
-  -> C++ 有界队列（PortAudio 回调不执行网络操作）
-  -> C++ NLMS AEC
-  -> C++ 能量 VAD + 0.4 s 静音断句
-  -> Qwen3-ASR-Realtime
-  -> 唤醒词门控
-  -> Qwen 流式 LLM
-  -> <speech>/<action> 增量解析
-       |-> Qwen3-TTS-Realtime -> C++ 播放队列 + AEC 参考信号
-       `-> 动作候选 -> C++ ActionGuard -> /robot/action_command
+```mermaid
+flowchart LR
+  Mic["麦克风 PCM16"] --> Audio["C++ AEC / VAD / 0.4s 断句"]
+  Audio --> ASR["在线 Qwen ASR<br/>或离线 ZipFormer"]
+  ASR --> Wake["唤醒、热词与重试"]
+  Wake --> LLM["流式 LLM"]
+  LLM --> Parser["speech/action 增量解析"]
+  Parser --> TTS["在线或离线 TTS"]
+  Parser --> Guard["C++ ActionGuard"]
+  Guard --> BT["BehaviorTree.CPP<br/>Validate / Safety / Execute / Confirm"]
+  BT --> Sim["Gazebo /cmd_vel"]
+  Guard --> HW["UART / SPI"]
+  TTS --> Speaker["C++ 播放队列"]
 ```
 
-默认是 `mock` 模式，不需要 API Key、麦克风或扬声器，可以先验证 ROS 话题和动作链路。`online` 模式使用阿里云百炼 DashScope：
+Python 负责模型 SDK、文本协议和对话编排；C++ 负责实时音频、动作安全、仿真控制
+和硬件传输。两侧只通过 ROS 2 话题连接。
 
-- ASR：`qwen3-asr-flash-realtime`，16 kHz PCM，通过本地 VAD 的 commit 实现 0.4 秒静音断句。
-- LLM：OpenAI 兼容流式接口，默认 `qwen-plus`。
-- TTS：`qwen3-tts-flash-realtime`，ServerCommit 双向流式合成，24 kHz PCM。
-
-模型名、地域 URL、音色和所有阈值都在 `src/embodied_online_agent/config/online_agent.yaml` 中配置。
-
-## 首次安装
+## 五分钟运行
 
 ```bash
 cd /home/ubuntu/embodied_agent_ws
 bash scripts/bootstrap.sh
 source scripts/activate.sh
-```
 
-## 无密钥冒烟测试
-
-推荐直接运行自动冒烟脚本。脚本会复用已经运行的 mock Agent；如果没有节点，则临时启动一个。随后发送测试指令并校验动作和延迟指标，脚本只会自动停止自己启动的节点：
-
-```bash
-cd /home/ubuntu/embodied_agent_ws
-source scripts/activate.sh
+# 无密钥、无麦克风验证主链路
 bash scripts/smoke_test.sh
-```
 
-预期看到两条 `PASS`。如果需要手动观察消息，请使用三个终端；`ros2 topic echo` 是持续监听命令，在收到消息前保持等待是正常行为。
-
-终端一（启动节点）：
-
-```bash
-source /home/ubuntu/embodied_agent_ws/scripts/activate.sh
-ros2 launch embodied_online_agent demo.launch.py
-```
-
-终端二（监听动作；运行后保持等待）：
-
-```bash
-source /home/ubuntu/embodied_agent_ws/scripts/activate.sh
-ros2 topic echo /robot/action_command
-```
-
-终端三（触发一轮 mock 对话）：
-
-```bash
-source /home/ubuntu/embodied_agent_ws/scripts/activate.sh
-ros2 topic pub --once /agent/text_input std_msgs/msg/String "{data: '小智，向前走一秒'}"
-```
-
-终端三发布后，终端二应立即显示：
-
-```text
-data: '{"arguments":{"duration_s":1.0,"linear_x":0.2},"name":"move"}'
-```
-
-可观察话题：
-
-- `/agent/asr_partial`、`/agent/asr_final`：识别结果。
-- `/agent/response_delta`、`/agent/response_text`：流式增量和完整答复。
-- `/agent/state`：`listening/thinking/speaking/error`。
-- `/agent/metrics`：LLM 首 token、ASR 到首 token、TTS 首音频包延迟及目标是否达成。
-- `/audio/clean_pcm`、`/audio/silence_timeout`：C++ 音频前端输出。
-- `/agent/action_candidate`：Python 解析出的未校验动作候选。
-- `/robot/action_command`：经过白名单和限幅后的 JSON 动作。
-- `/robot/action_rejected`：C++ ActionGuard 拒绝动作的原因。
-- `/robot/action_ack`：开发用硬件桩节点回执。
-
-清空记忆：
-
-```bash
-ros2 topic pub --once /agent/clear_memory std_msgs/msg/Empty "{}"
-```
-
-## 在线模式
-
-1. 在阿里云百炼创建 API Key。将 Key 和业务空间地址放入工作区根目录的 `.env`（参考 `.env.example`）；该文件已被 Git 忽略，`scripts/activate.sh` 会自动加载。
-2. 业务空间专属地址分别配置为 `DASHSCOPE_BASE_URL` 和 `DASHSCOPE_WS_URL`，不要把 Key 写进 YAML 或提交到 Git。
-3. WSL 设置中允许麦克风，使用 `pactl list short sources` 和 `pactl list short sinks` 确认 WSLg 音频设备。
-4. 启动：
-
-```bash
-source /home/ubuntu/embodied_agent_ws/scripts/activate.sh
-ros2 launch embodied_online_agent online_agent.launch.py \
-  mode:=online microphone_enabled:=true speaker_enabled:=true
-```
-
-若 WSL 没有音频设备，先保持 `microphone_enabled:=false speaker_enabled:=false`，用 `/agent/text_input` 验证在线 LLM/TTS；ASR 必须在有可用输入设备后才能实测。
-
-## 输出协议和动作安全
-
-系统提示词要求模型输出：
-
-```text
-<speech>好的，向前走一秒。</speech>
-<action>{"name":"move","arguments":{"linear_x":0.2,"duration_s":1.0}}</action>
-```
-
-Python 解析器会在 token 到达时增量取出 speech，按标点尽早送入 TTS。动作候选发送给 C++ `action_guard`；它严格检查每种动作的参数 schema，并对速度、角速度、持续时间和次数限幅后才发布 `/robot/action_command`。硬件层仍应保留急停、碰撞和电机限流等独立安全机制。
-
-## 回声消除说明
-
-当前 C++ 音频模块内置 NLMS AEC 基线：TTS PCM 进入播放线程前同时写入参考队列，麦克风帧进入 ASR 前执行自适应回声估计。真实机器人上的扬声器、麦克风距离和系统播放延迟不同，需要调整 `aec_taps/aec_step/aec_delay_ms`。量产环境建议在同一 interface 后替换为硬件 DSP 或 WebRTC AEC，并做双讲测试。
-
-## 测试与性能
-
-```bash
-cd /home/ubuntu/embodied_agent_ws
-source scripts/activate.sh
-colcon test --event-handlers console_direct+
-colcon test-result --verbose
-```
-
-`<1 s` 和 `<300 ms` 是在线运行目标，不是静态代码能够保证的常量。节点逐轮发布真实测量：
-
-- `llm_first_token_ms`：发起 LLM 请求到首 token。
-- `asr_to_first_token_ms`：ASR 最终文本到 LLM 首 token。
-- `tts_first_audio_ms`：首段文本送入 TTS 到首个 PCM 包。
-
-建议在目标网络和机器人硬件上至少采集 100 轮 P50/P95；若不达标，优先检查地域 URL、连接复用、句子首标点、音频设备缓冲和网络 RTT。
-
-## 目录
-
-```text
-src/embodied_agent_cpp/
-  include/embodied_agent_cpp/
-    audio_processing.hpp     # AEC、VAD、静音深模块 interface
-    action_validator.hpp     # 动作安全深模块 interface
-  src/
-    audio_frontend_node.cpp  # PortAudio、工作队列、播放与 ROS seam
-    action_guard_node.cpp    # 动作 schema、限幅与发布
-    robot_action_stub_node.cpp
-  test/                      # C++ GTest
-src/embodied_online_agent/
-  embodied_online_agent/
-    providers/               # mock / Qwen ASR / LLM / Qwen TTS
-    protocol.py              # 增量输出解析和 TTS 分块
-    memory.py                # 有界持久化记忆
-    online_agent_node.py     # Python 云 SDK 与对话编排
-  config/                    # ROS 参数
-  prompts/                   # 系统提示词
-  launch/                    # 在线及 mock demo 启动文件
-  test/                      # 单元测试
-```
-
-## 第二部分：端侧离线 Agent
-
-离线链路复用 C++ 音频前端、AEC/VAD、0.4 秒静音断句及动作安全节点；新增 `embodied_offline_agent`，通过 sherpa-onnx 运行 ZipFormer ASR 和 VITS TTS，通过本机 `llama-server` 流式运行 Qwen3-0.6B Q8_0。LLM 输出按句进入容量为 2 的消息缓冲，TTS PCM 再进入容量为 2 的音频缓冲，模型推理和播放异步进行。
-
-先验证不依赖模型的 ROS 全链路：
-
-```bash
-cd /home/ubuntu/embodied_agent_ws
-source scripts/activate.sh
-colcon build --symlink-install
-bash scripts/smoke_test_offline.sh
-```
-
-安装原生运行时和模型（约需 2 GB 下载空间，编译 llama.cpp）：
-
-```bash
-bash scripts/setup_offline_runtime.sh
-```
-
-真实离线模式使用两个终端。终端一启动本地模型服务：
-
-```bash
-source scripts/activate.sh
-bash scripts/start_llama_server.sh
-```
-
-终端二启动 ROS 链路；先用文字输入验证 LLM/TTS，确认 WSLg 音频设备后再打开麦克风和扬声器：
-
-```bash
-source scripts/activate.sh
-ros2 launch embodied_offline_agent offline_agent.launch.py mode:=offline
-ros2 topic pub --once /agent/text_input std_msgs/msg/String "{data: '小智，向前走一秒'}"
-
-# 实机音频
-ros2 launch embodied_offline_agent offline_agent.launch.py \
-  mode:=offline microphone_enabled:=true speaker_enabled:=true
-```
-
-性能验证：
-
-```bash
-bash scripts/benchmark_offline.sh
-ros2 topic echo /offline_agent/metrics
-```
-
-`benchmark_offline.sh` 分别输出 ASR finalization/实时率、TTS 实时率和 llama.cpp prompt/decode tokens/s；ROS 指标输出静音到 ASR final、LLM 首 token、静音到首音频和整轮耗时。`<0.6 s`、`8.6 tokens/s`、`<3.5 s` 与 `85%` 都是验收目标，只有在目标机器和独立评测集上实测通过后才能写成完成结果。
-
-训练暂不执行。`training/` 包含机器人指令种子数据、LLaMA-Factory 数据注册和 Qwen3-0.6B LoRA 配置。Q8_0 通常将 FP16 权重压缩到约一半，不是四分之一；脚本会保留输入/输出文件大小供实际计算，不能同时把“Q8”与“压缩至 25%”当作天然成立的结论。
-
-## 第四部分：语音控制 TurtleBot3 仿真
-
-项目新增 C++ `embodied_simulation` 包，订阅可信 `/robot/action_command` 和 TurtleBot3 `/scan`，发布标准 `geometry_msgs/Twist` 到 `/cmd_vel`。支持手动定时运动、自动避障、右侧沿墙 PID、速度/加速度限制、雷达超时停车和急停。
-
-快速启动 mock Agent + Gazebo：
-
-```bash
-source scripts/activate.sh
+# mock Agent 驱动 Gazebo（无需麦克风和模型）
 ros2 launch embodied_simulation voice_turtlebot3.launch.py \
   provider_mode:=mock microphone_enabled:=false speaker_enabled:=false
 ```
 
-离线真实语音需要先启动 `scripts/start_llama_server.sh`，再使用：
+真实麦克风控制仿真：
+
+```bash
+# 离线；首次需执行 scripts/setup_offline_runtime.sh
+bash scripts/accept_voice_simulation_microphone.sh offline
+
+# 在线；先按 .env.example 配置 DashScope
+bash scripts/accept_voice_simulation_microphone.sh online
+```
+
+识别失败时终端会显示重试次数并继续监听，不需要重新启动节点。启用唤醒词验收：
+
+```bash
+WAKE_WORD_ENABLED=true \
+  bash scripts/accept_voice_simulation_microphone.sh offline
+```
+
+## 验收入口
+
+```bash
+bash scripts/acceptance_test.sh mock     # 单元/结构测试及无模型全链
+bash scripts/acceptance_test.sh online   # 少量云 API 调用
+bash scripts/acceptance_test.sh offline  # 本地模型、语音和性能
+bash scripts/acceptance_test.sh gazebo   # Gazebo 可信动作与里程计
+bash scripts/acceptance_test.sh gazebo-voice  # 离线语音模型直达 Gazebo
+bash scripts/acceptance_test.sh all      # 全部自动 release gates（不含真人麦克风）
+```
+
+查看所有自动与交互式模式：`bash scripts/acceptance_test.sh --help`。真人麦克风验收也可
+统一使用 `microphone-offline` 或 `microphone-online` 模式。
+
+性能数字是验收目标而不是硬编码承诺。当前实测、限制和复现方法见
+[测试与验收](docs/TESTING_AND_ACCEPTANCE.md)。
+
+仿真 launch 默认使用新的强类型 ROS 2 Action 链：
 
 ```bash
 ros2 launch embodied_simulation voice_turtlebot3.launch.py \
-  agent_type:=offline provider_mode:=offline \
-  microphone_enabled:=true speaker_enabled:=true
+  provider_mode:=mock use_typed_actions:=true
 ```
 
-独立验收：
+排查兼容问题时可临时传入 `use_typed_actions:=false` 回到旧 JSON topic 执行路径。
+launch 默认 `lifecycle_autostart:=true`；调试启动顺序时可设为 `false`，再使用
+`ros2 lifecycle set /<node> configure|activate` 手工转换状态。
+
+不启动 Gazebo 验证同一 Action/BT 链的 executor 插件切换：
 
 ```bash
-bash scripts/acceptance_test.sh gazebo
-bash scripts/acceptance_test.sh gazebo-voice
+bash scripts/smoke_test_mock_executor.sh
+bash scripts/smoke_test_composed_executor.sh
+bash scripts/smoke_test_namespaced_executor.sh
 ```
 
-完整参数、话题、模式和测试说明见 [`docs/SIMULATION_GUIDE.md`](docs/SIMULATION_GUIDE.md)。
+launch 参数 `executor_plugin` 默认为
+`embodied_simulation/GazeboRobotExecutor`，也可选择
+`embodied_simulation/MockRobotExecutor`。
+`simulation_control.launch.py` 可通过 `use_composition:=true` 改为组件容器，通过
+`namespace:=robot1` 隔离整条执行链；两者可同时使用。
 
-当前优先保证 `move/turn/stop` 的语音全链路，不继续扩展复杂机器人行为。最短启动命令：
+## 当前自动验收结论
 
-```bash
-bash scripts/run_voice_simulation.sh offline
+2026-07-02 在当前 WSL 环境完成了 mock、在线、离线、Gazebo，以及在线/离线语音→Gazebo 验收：
+130 项 colcon 测试与 2 项仓库约束测试零失败；在线热启动 LLM 首 token 350–384 ms、
+TTS 首音频 222–242 ms；离线
+Q8 CPU decode 34.10 token/s、语音全链 2.313 s；typed Action/BT 驱动 Gazebo 位移
+0.330 m，在线语音 typed 闭环位移 0.163 m。原始 0.6B 模型动作准确率仅 2/8，fallback 后为 7/8，因此 LoRA 仍明确标记为
+未完成，不能用 fallback 成绩冒充模型成绩。完整证据见[测试与验收](docs/TESTING_AND_ACCEPTANCE.md)。
+
+## 项目结构
+
+```text
+src/
+  embodied_agent_interfaces/ ROS 2 强类型 RobotCommand 与 ExecuteRobotCommand Action
+  embodied_agent_cpp/       C++ 音频、ActionGuard、UART/SPI
+  embodied_online_agent/    在线 ASR/LLM/TTS 与公共对话模块
+  embodied_offline_agent/   ZipFormer、llama.cpp、Sherpa-TTS、双缓冲
+  embodied_simulation/      TurtleBot3 控制、雷达安全和 Gazebo launch
+scripts/                    安装、启动、基准和分层验收入口
+tests/integration/          ROS graph 黑盒探针，由 smoke runner 启动
+tests/repository/           仓库结构与交付约束
+training/                   LoRA 种子数据与 LLaMA-Factory 配置（尚未训练）
+ docs/                       维护文档与面试材料
 ```
 
-首次使用建议直接运行带逐层诊断的真实麦克风验收：
+## 文档
 
-```bash
-bash scripts/accept_voice_simulation_microphone.sh offline
-```
+- [架构与知识笔记](docs/ARCHITECTURE_AND_KNOWLEDGE.md)：模块、关键代码、话题和设计原理。
+- [测试与验收](docs/TESTING_AND_ACCEPTANCE.md)：命令、测试矩阵、指标和故障定位。
+- [版本记录与路线图](docs/CHANGELOG_AND_ROADMAP.md)：迭代历史、完成度、竞品对比和下一步。
+- [面试材料索引](docs/interview/00-interview-index.md)：项目讲述、架构深挖、追问回答和简历表述。
+- [源码深度讲解](docs/code-walkthrough/README.md)：逐层讲解节点交互、音频、模型编排、安全动作、控制、硬件与 Nav2。
+- [测试目录说明](tests/README.md)：单元、集成和仓库约束如何分层。
+- [贡献指南](CONTRIBUTING.md)：修改原则、提交前检查和 executor 扩展要求。
+
+## 当前边界
+
+- LoRA 配置和数据已准备，但尚未训练，不能宣称 85% 模型指令遵循率。
+- Q8 相对 FP16 通常约压缩一半，不能写成“压缩至 25%”而没有实测基线。
+- 合成语音下短唤醒词仍可能误识别；生产环境应接 sherpa-onnx 独立 KWS。
+- AEC、P95 延迟和 UART/SPI 仍需在目标机器人硬件上验收。
+
+项目采用 [Apache License 2.0](LICENSE)，GitHub Actions 运行仓库约束及 ROS 2 Jazzy
+build/test；本地 release gate 继续负责需要模型、云 API、Gazebo 与真人麦克风的链路。

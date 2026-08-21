@@ -13,7 +13,11 @@ class ProtocolEvents:
 
 
 class TaggedStreamParser:
-    """Incrementally parses <speech> and <action> output from token streams."""
+    """增量解析 LLM 的 <speech>/<action> 协议。
+
+    speech 可以边到达边送 TTS；action 必须等完整闭标签和合法 JSON 后才对外暴露，
+    防止半个 token 流形成不完整机器人指令。
+    """
 
     SPEECH_OPEN = "<speech>"
     SPEECH_CLOSE = "</speech>"
@@ -90,7 +94,7 @@ class TaggedStreamParser:
 
 
 class SentenceChunker:
-    """Turns character deltas into low-latency, speakable chunks."""
+    """按中文标点或长度切句，在首音频延迟与 TTS 调用次数之间折中。"""
 
     def __init__(self, max_chars: int = 32):
         self.max_chars = max_chars
@@ -112,4 +116,3 @@ class SentenceChunker:
         value = self.buffer.strip()
         self.buffer = ""
         return [value] if value else []
-

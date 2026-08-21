@@ -12,6 +12,12 @@ offline_agent:
     system_prompt_path: ""
     asr_model_dir: "/home/ubuntu/embodied_agent_ws/models/sherpa-onnx-streaming-zipformer-small-bilingual-zh-en-2023-02-16"
     asr_num_threads: 2
+    asr_decoding_method: modified_beam_search
+    asr_hotwords_file: ""
+    asr_hotwords_score: 2.0
+    asr_max_active_paths: 4
+    asr_modeling_unit: cjkchar
+    recognition_max_retries: 3
     llm_base_url: "http://127.0.0.1:8080/v1"
     llm_model: "Qwen3-0.6B-Q8_0.gguf"
     llm_temperature: 0.7

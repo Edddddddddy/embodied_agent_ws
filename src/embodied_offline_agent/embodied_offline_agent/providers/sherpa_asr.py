@@ -7,7 +7,12 @@ import sherpa_onnx
 class SherpaZipformerAsr:
     """Streaming ZipFormer transducer. All methods must run on one worker thread."""
 
-    def __init__(self, model_dir: str, sample_rate: int, num_threads: int):
+    def __init__(
+        self, model_dir: str, sample_rate: int, num_threads: int,
+        decoding_method: str = "modified_beam_search",
+        hotwords_file: str = "", hotwords_score: float = 2.0,
+        max_active_paths: int = 4, modeling_unit: str = "cjkchar",
+    ):
         root = Path(model_dir).expanduser()
         self._sample_rate = sample_rate
         self._recognizer = sherpa_onnx.OnlineRecognizer.from_transducer(
@@ -18,7 +23,11 @@ class SherpaZipformerAsr:
             num_threads=num_threads,
             sample_rate=sample_rate,
             feature_dim=80,
-            decoding_method="greedy_search",
+            decoding_method=decoding_method,
+            max_active_paths=max_active_paths,
+            hotwords_file=hotwords_file,
+            hotwords_score=hotwords_score,
+            modeling_unit=modeling_unit,
             enable_endpoint_detection=False,
             provider="cpu",
         )

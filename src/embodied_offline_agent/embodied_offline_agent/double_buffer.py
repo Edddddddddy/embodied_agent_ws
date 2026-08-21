@@ -14,7 +14,11 @@ class BufferStats:
 
 
 class DoubleBuffer(Generic[T]):
-    """A bounded two-slot hand-off queue with explicit overflow policy."""
+    """容量固定为 2 的线程交接队列。
+
+    消息队列通常阻塞生产者以保序；音频队列可丢最旧块以优先降低听感延迟。
+    close 用于正常排空，abort 用于异常退出并立刻唤醒消费者。
+    """
 
     def __init__(self, *, drop_oldest: bool):
         self._queue: queue.Queue[object] = queue.Queue(maxsize=2)
@@ -31,6 +35,7 @@ class DoubleBuffer(Generic[T]):
             if self._closed:
                 return False
         if self._drop_oldest:
+            # TTS 追不上播放时保留最新音频，防止延迟无限累积。
             try:
                 self._queue.put_nowait(item)
             except queue.Full:
@@ -81,7 +86,7 @@ class DoubleBuffer(Generic[T]):
                     return
 
     def abort(self) -> None:
-        """Discard queued work and wake a consumer during error shutdown."""
+        """异常关闭：丢弃排队工作，并用 sentinel 唤醒唯一消费者。"""
         with self._lock:
             self._closed = True
         while True:

@@ -3,22 +3,35 @@
   <name>embodied_simulation</name>
   <version>0.1.0</version>
   <description>Voice-driven TurtleBot3 simulation control and lidar safety.</description>
-  <maintainer email="ubuntu@example.com">ubuntu</maintainer>
+  <maintainer email="Edddddddddy@users.noreply.github.com">Edddddddddy</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>ament_index_cpp</depend>
   <depend>rclcpp</depend>
+  <depend>behaviortree_cpp</depend>
+  <depend>rclcpp_action</depend>
+  <depend>rclcpp_components</depend>
+  <depend>embodied_agent_interfaces</depend>
+  <depend>diagnostic_msgs</depend>
   <depend>geometry_msgs</depend>
+  <depend>lifecycle_msgs</depend>
+  <depend>rclcpp_lifecycle</depend>
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
   <depend>nlohmann-json3-dev</depend>
+  <depend>pluginlib</depend>
   <exec_depend>embodied_agent_cpp</exec_depend>
   <exec_depend>embodied_online_agent</exec_depend>
   <exec_depend>embodied_offline_agent</exec_depend>
+  <exec_depend>nav2_lifecycle_manager</exec_depend>
   <exec_depend>ros_gz</exec_depend>
   <exec_depend>rviz2</exec_depend>
   <exec_depend>turtlebot3_gazebo</exec_depend>
   <test_depend>ament_cmake_gtest</test_depend>
+  <test_depend>ament_cmake_cppcheck</test_depend>
+  <test_depend>ament_cmake_lint_cmake</test_depend>
+  <test_depend>ament_cmake_xmllint</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

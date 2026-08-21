@@ -1,0 +1,34 @@
+name: ROS 2 CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  repository-layout:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: python -m pip install --disable-pip-version-check pytest
+      - name: Repository contract tests
+        run: python -m pytest -q tests/repository
+
+  build-and-test:
+    runs-on: ubuntu-latest
+    container:
+      image: rostooling/setup-ros-docker:ubuntu-noble-latest
+    steps:
+      # 官方 action 会执行 rosdep、colcon build 与 colcon test；真实模型/Gazebo 留给本地 gate。
+      - name: Build and test ROS 2 packages
+        uses: ros-tooling/action-ros-ci@v0.4
+        with:
+          target-ros2-distro: jazzy
+          package-name: >-
+            embodied_agent_interfaces
+            embodied_agent_cpp
+            embodied_online_agent
+            embodied_offline_agent
+            embodied_simulation

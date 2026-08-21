@@ -15,6 +15,7 @@ from .memory import ConversationMemory
 from .command_fallback import parse_fallback_action, should_block_model_actions
 from .metrics import LatencyTracker
 from .protocol import SentenceChunker, TaggedStreamParser
+from .recognition_retry import RecognitionRetryTracker
 from .providers.mock import MockAsr, MockLlm, MockTts
 from .providers.openai_compatible_llm import OpenAiCompatibleLlm
 from .providers.qwen_asr import QwenRealtimeAsr
@@ -37,6 +38,9 @@ class OnlineAgentNode(Node):
             enabled=self._param("wake_word_enabled"),
             active_timeout_s=self._param("wake_active_timeout_s"),
         )
+        self.retry_tracker = RecognitionRetryTracker(
+            self._param("recognition_max_retries")
+        )
         self.memory = ConversationMemory(
             self._param("memory_path"),
             max_turns=self._param("memory_max_turns"),
@@ -51,6 +55,9 @@ class OnlineAgentNode(Node):
             String, "/agent/action_candidate", 10
         )
         self.state_pub = self.create_publisher(String, "/agent/state", 10)
+        self.recognition_feedback_pub = self.create_publisher(
+            String, "/agent/recognition_feedback", 10
+        )
         self.metrics_pub = self.create_publisher(String, "/agent/metrics", 10)
         self.create_subscription(String, "/agent/text_input", self._on_text_input, 10)
         self.create_subscription(Empty, "/agent/clear_memory", self._on_clear_memory, 10)
@@ -102,6 +109,7 @@ class OnlineAgentNode(Node):
             "wake_words": ["小智", "你好小智"],
             "wake_word_aliases": ["小志", "小治", "晓智", "晓志"],
             "wake_active_timeout_s": 10.0,
+            "recognition_max_retries": 3,
             "memory_path": "~/.ros/embodied_agent/memory.json",
             "memory_max_turns": 10,
             "system_prompt_path": "",
@@ -202,8 +210,14 @@ class OnlineAgentNode(Node):
         command = self.wake_gate.process(transcript)
         if command is None:
             if self._param("wake_word_enabled") and not self.wake_gate.active:
-                self._publish_state("waiting_for_wake_word")
+                feedback = self.retry_tracker.failed(transcript)
+                self.recognition_feedback_pub.publish(String(data=feedback.to_json()))
+                self.get_logger().warning(
+                    f"wake word not detected ({feedback.attempt}/{feedback.max_attempts}); retrying"
+                )
+                self._publish_state("retry_listening")
             return
+        self.retry_tracker.succeeded()
         with self._state_lock:
             if self._busy:
                 self.get_logger().warning("agent is busy; dropping overlapping utterance")

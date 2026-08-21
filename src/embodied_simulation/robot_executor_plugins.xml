@@ -1,0 +1,14 @@
+<library path="embodied_simulation_executors">
+  <class
+    name="embodied_simulation/GazeboRobotExecutor"
+    type="embodied_simulation::GazeboRobotExecutor"
+    base_class_type="embodied_simulation::RobotExecutor">
+    <description>LaserScan-aware differential-drive executor for Gazebo.</description>
+  </class>
+  <class
+    name="embodied_simulation/MockRobotExecutor"
+    type="embodied_simulation::MockRobotExecutor"
+    base_class_type="embodied_simulation::RobotExecutor">
+    <description>Deterministic executor that requires no simulator or sensors.</description>
+  </class>
+</library>
